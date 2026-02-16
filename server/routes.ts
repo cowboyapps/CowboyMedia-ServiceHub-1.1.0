@@ -11,6 +11,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { promisify } from "util";
 import webpush from "web-push";
+import { sendEmail, sendEmailToMultiple } from "./email";
 
 const scryptAsync = promisify(crypto.scrypt);
 
@@ -39,14 +40,7 @@ const upload = multer({
       cb(null, `${crypto.randomUUID()}${ext}`);
     },
   }),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only image files are allowed"));
-    }
-  },
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 declare module "express-session" {
@@ -205,8 +199,11 @@ export async function registerRoutes(
 
   app.patch("/api/auth/profile", requireAuth, async (req, res) => {
     try {
-      const { subscribedServices } = req.body;
-      const updated = await storage.updateUser(req.session.userId!, { subscribedServices });
+      const { subscribedServices, fullName } = req.body;
+      const updateData: any = {};
+      if (subscribedServices !== undefined) updateData.subscribedServices = subscribedServices;
+      if (fullName !== undefined) updateData.fullName = fullName;
+      const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       const { password: _, ...safe } = updated;
       res.json(safe);
@@ -286,6 +283,32 @@ export async function registerRoutes(
         imageUrl: imageUrl || null,
       });
       broadcast({ type: "new_ticket", ticket });
+
+      const customer = await storage.getUser(req.session.userId!);
+      const service = ticket.serviceId ? await storage.getService(ticket.serviceId) : null;
+      const allUsers = await storage.getAllUsers();
+      const admins = allUsers.filter(u => u.role === "admin");
+      for (const admin of admins) {
+        sendPushToUser(admin.id, {
+          title: "New Support Ticket",
+          body: `${customer?.fullName}: ${ticket.subject}`,
+          url: `/tickets/${ticket.id}`,
+          tag: `ticket-${ticket.id}`,
+        });
+        if (admin.email && customer) {
+          sendEmail(admin.email, `New Support Ticket: ${ticket.subject}`,
+            `<h2>New Support Ticket</h2>
+<p><strong>Customer:</strong> ${customer.fullName} (@${customer.username})</p>
+<p><strong>Email:</strong> ${customer.email}</p>
+<p><strong>Service:</strong> ${service?.name || 'N/A'}</p>
+<p><strong>Subject:</strong> ${ticket.subject}</p>
+<p><strong>Priority:</strong> ${ticket.priority}</p>
+<p><strong>Description:</strong></p>
+<p>${ticket.description}</p>`
+          );
+        }
+      }
+
       res.json(ticket);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -309,6 +332,30 @@ export async function registerRoutes(
       const updated = await storage.updateTicket(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
+
+      if (status === "closed") {
+        const customer = await storage.getUser(ticket.customerId);
+        const allUsers = await storage.getAllUsers();
+        const admins = allUsers.filter(u => u.role === "admin");
+        for (const admin of admins) {
+          sendPushToUser(admin.id, {
+            title: "Ticket Closed",
+            body: `Ticket Closed: ${ticket.subject}`,
+            url: `/tickets/${ticket.id}`,
+            tag: `ticket-${ticket.id}`,
+          });
+          if (admin.email && customer) {
+            sendEmail(admin.email, `Ticket Closed: ${ticket.subject}`,
+              `<h2>Ticket Closed</h2>
+<p><strong>Customer:</strong> ${customer.fullName} (@${customer.username})</p>
+<p><strong>Email:</strong> ${customer.email}</p>
+<p><strong>Subject:</strong> ${ticket.subject}</p>
+<p>This ticket has been closed.</p>`
+            );
+          }
+        }
+      }
+
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -351,15 +398,35 @@ export async function registerRoutes(
           url: `/tickets/${ticket.id}`,
           tag: `ticket-${ticket.id}`,
         });
+        const customer = await storage.getUser(ticket.customerId);
+        if (customer?.email) {
+          sendEmail(customer.email, `New Reply to Your Support Ticket: ${ticket.subject}`,
+            `<h2>New Reply to Your Support Ticket</h2>
+<p>There is a new reply to your ticket: <strong>${ticket.subject}</strong></p>
+<p><strong>Reply:</strong></p>
+<p>${req.body.message}</p>
+<p>If your issue has been resolved, you can close the ticket in the app. If not, please reply back.</p>`
+          );
+        }
       } else {
-        const admins = await storage.getAllUsers();
-        for (const admin of admins.filter(u => u.role === "admin")) {
+        const allAdminUsers = await storage.getAllUsers();
+        const admins = allAdminUsers.filter(u => u.role === "admin");
+        for (const admin of admins) {
           sendPushToUser(admin.id, {
             title: "New Ticket Message",
             body: `${user.fullName}: ${ticket.subject}`,
             url: `/tickets/${ticket.id}`,
             tag: `ticket-${ticket.id}`,
           });
+          if (admin.email) {
+            sendEmail(admin.email, `New Ticket Message: ${ticket.subject}`,
+              `<h2>New Ticket Message</h2>
+<p><strong>From:</strong> ${user.fullName} (@${user.username})</p>
+<p><strong>Ticket:</strong> ${ticket.subject}</p>
+<p><strong>Message:</strong></p>
+<p>${req.body.message}</p>`
+            );
+          }
         }
       }
       res.json(message);
@@ -435,8 +502,21 @@ export async function registerRoutes(
 
   app.patch("/api/admin/services/:id", requireAdmin, async (req, res) => {
     try {
+      const existing = await storage.getService(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Service not found" });
       const updated = await storage.updateService(req.params.id, req.body);
       if (!updated) return res.status(404).json({ message: "Service not found" });
+      if (req.body.status && req.body.status !== existing.status) {
+        const allUsers = await storage.getAllUsers();
+        for (const u of allUsers.filter(u => u.role === "customer")) {
+          sendPushToUser(u.id, {
+            title: "Service Status Update",
+            body: `${updated.name}: ${updated.status}`,
+            url: "/services",
+            tag: `service-${updated.id}`,
+          });
+        }
+      }
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -456,12 +536,15 @@ export async function registerRoutes(
     try {
       const alert = await storage.createAlert(req.body);
       broadcast({ type: "new_alert", alert });
-      sendPushToSubscribedUsers(alert.serviceId, {
-        title: "New Service Alert",
-        body: alert.title,
-        url: `/alerts/${alert.id}`,
-        tag: `alert-${alert.id}`,
-      });
+      const allUsers = await storage.getAllUsers();
+      for (const u of allUsers.filter(u => u.role === "customer")) {
+        sendPushToUser(u.id, {
+          title: "New Service Alert",
+          body: alert.title,
+          url: `/alerts/${alert.id}`,
+          tag: `alert-${alert.id}`,
+        });
+      }
       res.json(alert);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -483,12 +566,15 @@ export async function registerRoutes(
       broadcast({ type: "alert_update", alertId: req.params.id, update });
       const alert = await storage.getAlert(req.params.id);
       if (alert) {
-        sendPushToSubscribedUsers(alert.serviceId, {
-          title: `Alert Update: ${alert.title}`,
-          body: req.body.message,
-          url: `/alerts/${req.params.id}`,
-          tag: `alert-${req.params.id}`,
-        });
+        const allUsers = await storage.getAllUsers();
+        for (const u of allUsers.filter(u => u.role === "customer")) {
+          sendPushToUser(u.id, {
+            title: `Alert Update: ${alert.title}`,
+            body: req.body.message,
+            url: `/alerts/${req.params.id}`,
+            tag: `alert-${req.params.id}`,
+          });
+        }
       }
       res.json(update);
     } catch (e: any) {
@@ -522,6 +608,15 @@ export async function registerRoutes(
         authorId: req.session.userId!,
       });
       broadcast({ type: "new_news", story });
+      const allUsers = await storage.getAllUsers();
+      for (const u of allUsers.filter(u => u.role === "customer")) {
+        sendPushToUser(u.id, {
+          title: "New News Story",
+          body: story.title,
+          url: `/news/${story.id}`,
+          tag: `news-${story.id}`,
+        });
+      }
       res.json(story);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -532,6 +627,21 @@ export async function registerRoutes(
     try {
       await storage.deleteNewsStory(req.params.id);
       res.json({ message: "News story deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Delete ticket route (admin only)
+  app.delete("/api/admin/tickets/:id", requireAdmin, async (req, res) => {
+    try {
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      if (ticket.status !== "closed") {
+        return res.status(400).json({ message: "Only closed tickets can be deleted" });
+      }
+      await storage.deleteTicket(req.params.id);
+      res.json({ message: "Ticket deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

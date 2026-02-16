@@ -24,6 +24,7 @@ export default function TicketDetail() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const { data: ticket, isLoading } = useQuery<Ticket>({
@@ -192,6 +193,33 @@ export default function TicketDetail() {
             )}
           </ScrollArea>
 
+          {ticket.status === "open" && !isAdmin && messages && messages.length > 0 && messages[messages.length - 1].senderId !== user?.id && (
+            <div className="p-3 border-t bg-accent/50">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm font-medium" data-testid="text-resolution-prompt">Has your issue been resolved?</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => closeMutation.mutate()}
+                    disabled={closeMutation.isPending}
+                    data-testid="button-yes-close-ticket"
+                  >
+                    <CheckCircle className="w-4 h-4 mr-1" /> Yes, close ticket
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => messageInputRef.current?.focus()}
+                    data-testid="button-reply-back"
+                  >
+                    Reply back
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {ticket.status === "open" && (
             <div className="p-3 border-t">
               {imageFile && (
@@ -212,7 +240,7 @@ export default function TicketDetail() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="*/*"
                   className="hidden"
                   onChange={(e) => setImageFile(e.target.files?.[0] || null)}
                 />
@@ -226,6 +254,7 @@ export default function TicketDetail() {
                   <Image className="w-4 h-4" />
                 </Button>
                 <Input
+                  ref={messageInputRef}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Type a message..."

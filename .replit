@@ -44,3 +44,6 @@ waitForPort = 5000
 [userenv.shared]
 VAPID_PUBLIC_KEY = "BNfZ_OAaS0yfD5vru7huE8kEzAJ981p3RBI05jq53cHz78KUQUoaJ9n4H_dlqQkMBbwuSIvoXlf9uHcXcwKGuKg"
 VITE_VAPID_PUBLIC_KEY = "BNfZ_OAaS0yfD5vru7huE8kEzAJ981p3RBI05jq53cHz78KUQUoaJ9n4H_dlqQkMBbwuSIvoXlf9uHcXcwKGuKg"
+
+[agent]
+integrations = ["sendgrid:1.0.0"]

@@ -15,7 +15,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { Plus, Ticket, Clock, ChevronRight, MessageSquare } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -62,6 +73,19 @@ export default function TicketsPage() {
   const form = useForm({
     resolver: zodResolver(createTicketSchema),
     defaultValues: { subject: "", description: "", serviceId: "", priority: "medium" },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ticketId: string) => {
+      await apiRequest("DELETE", `/api/admin/tickets/${ticketId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: "Ticket deleted" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to delete ticket", description: e.message, variant: "destructive" });
+    },
   });
 
   const createMutation = useMutation({
@@ -264,19 +288,54 @@ export default function TicketsPage() {
             </Card>
           ) : (
             closedTickets.map((ticket) => (
-              <Link key={ticket.id} href={`/tickets/${ticket.id}`}>
-                <Card className="hover-elevate cursor-pointer opacity-80" data-testid={`card-ticket-closed-${ticket.id}`}>
-                  <CardContent className="flex items-start justify-between gap-3 p-4">
+              <Card key={ticket.id} className="hover-elevate cursor-pointer opacity-80" data-testid={`card-ticket-closed-${ticket.id}`}>
+                <CardContent className="flex items-start justify-between gap-3 p-4">
+                  <Link href={`/tickets/${ticket.id}`} className="flex-1">
                     <div className="space-y-1">
                       <h3 className="font-semibold text-sm">{ticket.subject}</h3>
                       <p className="text-xs text-muted-foreground">
                         Closed {ticket.closedAt ? format(new Date(ticket.closedAt), "MMM d, yyyy") : ""}
                       </p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                  </CardContent>
-                </Card>
-              </Link>
+                  </Link>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {isAdmin && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => e.stopPropagation()}
+                            data-testid={`button-delete-ticket-${ticket.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete this ticket? This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteMutation.mutate(ticket.id)}
+                              data-testid="button-confirm-delete"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                    <Link href={`/tickets/${ticket.id}`}>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
             ))
           )}
         </TabsContent>

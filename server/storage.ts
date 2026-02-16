@@ -45,6 +45,8 @@ export interface IStorage {
   createTicket(ticket: InsertTicket): Promise<Ticket>;
   updateTicket(id: string, data: Partial<Ticket>): Promise<Ticket | undefined>;
 
+  deleteTicket(id: string): Promise<void>;
+
   getTicketMessages(ticketId: string): Promise<TicketMessage[]>;
   createTicketMessage(message: InsertTicketMessage): Promise<TicketMessage>;
 
@@ -174,6 +176,11 @@ export class DatabaseStorage implements IStorage {
   async updateTicket(id: string, data: Partial<Ticket>): Promise<Ticket | undefined> {
     const [updated] = await db.update(tickets).set(data).where(eq(tickets.id, id)).returning();
     return updated;
+  }
+
+  async deleteTicket(id: string): Promise<void> {
+    await db.delete(ticketMessages).where(eq(ticketMessages.ticketId, id));
+    await db.delete(tickets).where(eq(tickets.id, id));
   }
 
   async getTicketMessages(ticketId: string): Promise<TicketMessage[]> {

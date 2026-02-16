@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink } from "lucide-react";
 import type { Service } from "@shared/schema";
 
 export default function ProfilePage() {
@@ -30,9 +31,24 @@ export default function ProfilePage() {
     queryKey: ["/api/services"],
   });
 
+  const [fullName, setFullName] = useState(user?.fullName || "");
+
   const [selectedServices, setSelectedServices] = useState<string[]>(
     user?.subscribedServices || []
   );
+
+  const fullNameMutation = useMutation({
+    mutationFn: async (newFullName: string) => {
+      await apiRequest("PATCH", "/api/auth/profile", { fullName: newFullName });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Full name updated" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to update name", description: e.message, variant: "destructive" });
+    },
+  });
 
   useEffect(() => {
     isPushSupported().then(setPushSupported);
@@ -153,6 +169,54 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <User className="w-4 h-4" />
+            Update Full Name
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Label htmlFor="fullName" className="text-sm">Please enter your full name as it appears on your online account</Label>
+          <Input
+            id="fullName"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="Full Name"
+            data-testid="input-full-name"
+          />
+          <Button
+            onClick={() => fullNameMutation.mutate(fullName)}
+            disabled={fullNameMutation.isPending}
+            data-testid="button-save-fullname"
+          >
+            {fullNameMutation.isPending ? "Saving..." : "Save"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ExternalLink className="w-4 h-4" />
+            Online Account
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <a
+            href="http://cowboymedia.net/billing"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="button-online-account"
+          >
+            <Button>
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Login to my online account
+            </Button>
+          </a>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

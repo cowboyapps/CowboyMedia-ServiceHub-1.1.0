@@ -11,6 +11,7 @@ A comprehensive service status monitoring and support platform built as a Progre
 - **File uploads**: Multer (stored in /uploads directory)
 - **PWA**: Service Worker + Web App Manifest for installable mobile experience
 - **Push Notifications**: Web Push API (VAPID) for alert and ticket notifications
+- **Email**: SendGrid integration for transactional emails (noreply@cowboymedia.net)
 
 ## Key Features
 - Progressive Web App (installable on iOS/Android)
@@ -57,14 +58,15 @@ client/
       alert-detail.tsx - Alert detail with update timeline
       news-page.tsx    - News list
       news-detail.tsx  - News article detail
-      tickets-page.tsx - Ticket list with create dialog
-      ticket-detail.tsx - Ticket chat with real-time messages
-      profile-page.tsx - User profile, theme, push notifications, service subscriptions
+      tickets-page.tsx - Ticket list with create dialog + admin delete
+      ticket-detail.tsx - Ticket chat with real-time messages + resolution prompt
+      profile-page.tsx - User profile, fullName update, billing link, theme, push notifications, service subscriptions
       admin-portal.tsx - Admin tabs: users, services, alerts, news
 server/
   index.ts   - Express server entry
-  routes.ts  - All API routes + WebSocket + push notifications + auth middleware
+  routes.ts  - All API routes + WebSocket + push notifications + email notifications + auth middleware
   storage.ts - Database storage interface (Drizzle ORM)
+  email.ts   - SendGrid email utility (transactional emails)
   db.ts      - Database connection
   seed.ts    - Seed data for initial setup
 shared/
@@ -76,7 +78,7 @@ shared/
 - `POST /api/auth/login` - Login
 - `POST /api/auth/logout` - Logout
 - `GET /api/auth/me` - Current user
-- `PATCH /api/auth/profile` - Update subscriptions
+- `PATCH /api/auth/profile` - Update fullName and subscriptions
 - `GET /api/services` - All services
 - `GET /api/alerts` - All alerts
 - `GET /api/alerts/:id` - Alert detail
@@ -84,14 +86,25 @@ shared/
 - `GET /api/news` - All news
 - `GET /api/news/:id` - News detail
 - `GET /api/tickets` - User's tickets (or all for admin)
-- `POST /api/tickets` - Create ticket (multipart)
-- `PATCH /api/tickets/:id` - Update ticket status
+- `POST /api/tickets` - Create ticket (multipart, sends push+email to admins)
+- `PATCH /api/tickets/:id` - Update ticket status (notifies admins on close)
 - `GET /api/tickets/:id/messages` - Ticket messages
-- `POST /api/tickets/:id/messages` - Send message (multipart)
+- `POST /api/tickets/:id/messages` - Send message (multipart, sends push+email notifications)
+- `DELETE /api/admin/tickets/:id` - Delete closed ticket (admin only)
 - `POST /api/push/subscribe` - Subscribe to push notifications
 - `POST /api/push/unsubscribe` - Unsubscribe from push notifications
 - `GET /api/push/vapid-key` - Get VAPID public key
 - Admin routes under `/api/admin/...`
+
+## Notification Triggers
+- **New ticket created**: Push + email to all admins with customer details
+- **Admin replies to ticket**: Push + email to customer
+- **Customer replies to ticket**: Push + email to all admins
+- **Ticket closed**: Push + email to all admins
+- **New news story posted**: Push to all customers
+- **Service status changed**: Push to all customers
+- **New service alert created**: Push to all customers
+- **Alert updated**: Push to all customers
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string
@@ -99,3 +112,4 @@ shared/
 - `VAPID_PUBLIC_KEY` - Web Push VAPID public key
 - `VAPID_PRIVATE_KEY` - Web Push VAPID private key (secret)
 - `VITE_VAPID_PUBLIC_KEY` - VAPID public key for frontend
+- SendGrid configured via Replit connector integration
