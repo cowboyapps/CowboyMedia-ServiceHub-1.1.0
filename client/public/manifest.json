@@ -1,6 +1,6 @@
 {
-  "name": "ServiceHub",
-  "short_name": "ServiceHub",
+  "name": "CowboyMedia",
+  "short_name": "CowboyMedia",
   "description": "Service status monitoring and support platform",
   "start_url": "/",
   "display": "standalone",

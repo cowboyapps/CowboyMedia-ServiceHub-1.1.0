@@ -7,6 +7,7 @@ import { loginSchema, registerSchema, type LoginData, type RegisterData } from "
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -62,10 +63,7 @@ export default function AuthPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <div className="mx-auto w-12 h-12 bg-primary rounded-md flex items-center justify-center mb-3">
-              <Shield className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <CardTitle className="text-2xl">ServiceHub</CardTitle>
+            <img src={logoImg} alt="CowboyMedia" className="mx-auto h-12 mb-3" />
             <p className="text-sm text-muted-foreground mt-1">Monitor services, get alerts, submit tickets</p>
           </CardHeader>
           <CardContent>

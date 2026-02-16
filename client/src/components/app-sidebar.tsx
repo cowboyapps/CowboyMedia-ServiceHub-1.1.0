@@ -15,6 +15,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, User, Shield, LogOut } from "lucide-react";
+import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 
 export function AppSidebar() {
   const { user, logout, isAdmin } = useAuth();
@@ -37,13 +38,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center flex-shrink-0">
-            <Activity className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="font-bold text-sm">ServiceHub</h2>
-            <p className="text-xs text-muted-foreground">Service Monitor</p>
-          </div>
+          <img src={logoImg} alt="CowboyMedia" className="h-8 flex-shrink-0" />
         </div>
       </SidebarHeader>
 
