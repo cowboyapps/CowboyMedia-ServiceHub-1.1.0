@@ -38,10 +38,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2.5">
-          <div className="flex flex-col items-center w-full">
-            <img src={logoImg} alt="CowboyMedia" className="h-20 flex-shrink-0" />
-            <span className="text-xs font-semibold text-muted-foreground mt-1">ServiceHub</span>
-          </div>
+          <img src={logoImg} alt="CowboyMedia" className="h-20 flex-shrink-0" />
         </div>
       </SidebarHeader>
 
