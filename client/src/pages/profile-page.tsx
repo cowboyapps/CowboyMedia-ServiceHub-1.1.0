@@ -1,0 +1,146 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/lib/theme-provider";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Label } from "@/components/ui/label";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { User, Mail, Moon, Sun, Bell } from "lucide-react";
+import type { Service } from "@shared/schema";
+
+export default function ProfilePage() {
+  const { user } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const { toast } = useToast();
+
+  const { data: services, isLoading } = useQuery<Service[]>({
+    queryKey: ["/api/services"],
+  });
+
+  const [selectedServices, setSelectedServices] = useState<string[]>(
+    user?.subscribedServices || []
+  );
+
+  const updateMutation = useMutation({
+    mutationFn: async (subscribedServices: string[]) => {
+      await apiRequest("PATCH", "/api/auth/profile", { subscribedServices });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Preferences saved" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to save", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const toggleService = (serviceId: string) => {
+    setSelectedServices((prev) =>
+      prev.includes(serviceId)
+        ? prev.filter((id) => id !== serviceId)
+        : [...prev, serviceId]
+    );
+  };
+
+  const savePreferences = () => {
+    updateMutation.mutate(selectedServices);
+  };
+
+  if (!user) return null;
+
+  return (
+    <div className="space-y-6 max-w-2xl mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold" data-testid="text-profile-title">Profile</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage your account and preferences</p>
+      </div>
+
+      <Card>
+        <CardContent className="flex items-center gap-4 p-6">
+          <Avatar className="w-16 h-16">
+            <AvatarFallback className="text-lg">{user.fullName[0]}</AvatarFallback>
+          </Avatar>
+          <div className="space-y-0.5">
+            <h2 className="font-semibold text-lg" data-testid="text-profile-name">{user.fullName}</h2>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              <Mail className="w-3.5 h-3.5" /> {user.email}
+            </p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1">
+              <User className="w-3.5 h-3.5" /> @{user.username}
+            </p>
+            <Badge variant="secondary" className="text-xs capitalize mt-1">{user.role}</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            {theme === "dark" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            Appearance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Dark Mode</p>
+              <p className="text-xs text-muted-foreground">Switch between light and dark themes</p>
+            </div>
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+              data-testid="switch-dark-mode"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="w-4 h-4" />
+            Service Subscriptions
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">Select which services you want to receive alerts for</p>
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
+            </div>
+          ) : !services || services.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No services available</p>
+          ) : (
+            <div className="space-y-3">
+              {services.map((service) => (
+                <div key={service.id} className="flex items-center gap-3" data-testid={`checkbox-service-${service.id}`}>
+                  <Checkbox
+                    id={service.id}
+                    checked={selectedServices.includes(service.id)}
+                    onCheckedChange={() => toggleService(service.id)}
+                  />
+                  <Label htmlFor={service.id} className="text-sm cursor-pointer flex-1">
+                    {service.name}
+                    {service.description && (
+                      <span className="text-muted-foreground ml-1">- {service.description}</span>
+                    )}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button onClick={savePreferences} disabled={updateMutation.isPending} data-testid="button-save-preferences">
+            {updateMutation.isPending ? "Saving..." : "Save Preferences"}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
