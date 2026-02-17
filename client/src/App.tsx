@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -9,6 +10,10 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Smartphone, BellRing, Settings } from "lucide-react";
+import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
 import Dashboard from "@/pages/dashboard";
@@ -64,6 +69,60 @@ function AuthenticatedLayout() {
   );
 }
 
+function WelcomeDialog() {
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    const shouldShow = sessionStorage.getItem("showWelcome");
+    if (shouldShow === "true") {
+      setShowWelcome(true);
+      sessionStorage.removeItem("showWelcome");
+    }
+  }, []);
+
+  return (
+    <Dialog open={showWelcome} onOpenChange={setShowWelcome}>
+      <DialogContent className="max-w-md" data-testid="dialog-welcome">
+        <DialogHeader>
+          <div className="flex justify-center mb-2">
+            <img src={logoImg} alt="CowboyMedia" className="h-16" />
+          </div>
+          <DialogTitle className="text-center text-xl" data-testid="text-welcome-title">Welcome to CowboyMedia Service Hub!</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 text-sm text-muted-foreground">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Smartphone className="w-4 h-4 text-primary" />
+            </div>
+            <p>
+              If you are on <strong className="text-foreground">Android and Google Chrome</strong>, be sure to go to settings and click <strong className="text-foreground">"Add To Home Screen"</strong>. If on <strong className="text-foreground">iPhone and Safari</strong>, click the share button and then <strong className="text-foreground">"Add To Home Screen"</strong>. This installs the web app on your phone.
+            </p>
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <BellRing className="w-4 h-4 text-primary" />
+            </div>
+            <p>
+              Also, be sure to enable <strong className="text-foreground">push notifications</strong> under <strong className="text-foreground">"Profile"</strong> and also select the services you want to receive notifications for.
+            </p>
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Settings className="w-4 h-4 text-primary" />
+            </div>
+            <p className="font-medium text-foreground">Enjoy ServiceHub!</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button className="w-full" data-testid="button-welcome-dismiss" onClick={() => setShowWelcome(false)}>
+            Get Started
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AppContent() {
   const { user, isLoading } = useAuth();
 
@@ -83,7 +142,12 @@ function AppContent() {
     return <AuthPage />;
   }
 
-  return <AuthenticatedLayout />;
+  return (
+    <>
+      <WelcomeDialog />
+      <AuthenticatedLayout />
+    </>
+  );
 }
 
 export default function App() {

@@ -50,6 +50,7 @@ export default function AuthPage() {
     setIsSubmitting(true);
     try {
       await register(data);
+      sessionStorage.setItem("showWelcome", "true");
       toast({ title: "Account created successfully!" });
     } catch (e: any) {
       toast({ title: "Registration failed", description: e.message, variant: "destructive" });
@@ -209,6 +210,7 @@ export default function AuthPage() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }
