@@ -69,6 +69,80 @@ function AuthenticatedLayout() {
   );
 }
 
+function SetupReminderDialog() {
+  const { user } = useAuth();
+  const [showReminder, setShowReminder] = useState(false);
+  const [missingPush, setMissingPush] = useState(false);
+  const [missingServices, setMissingServices] = useState(false);
+
+  useEffect(() => {
+    const shouldCheck = sessionStorage.getItem("checkSetup");
+    if (shouldCheck !== "true" || !user || user.role === "admin") return;
+    sessionStorage.removeItem("checkSetup");
+
+    const checkSetup = async () => {
+      const { isSubscribedToPush } = await import("@/lib/push-notifications");
+      const hasPush = await isSubscribedToPush();
+      const hasServices = (user.subscribedServices?.length ?? 0) > 0;
+
+      if (!hasPush || !hasServices) {
+        setMissingPush(!hasPush);
+        setMissingServices(!hasServices);
+        setShowReminder(true);
+      }
+    };
+    checkSetup();
+  }, [user]);
+
+  if (!showReminder) return null;
+
+  return (
+    <Dialog open={showReminder} onOpenChange={setShowReminder}>
+      <DialogContent className="max-w-md" data-testid="dialog-setup-reminder">
+        <DialogHeader>
+          <div className="flex justify-center mb-2">
+            <img src={logoImg} alt="CowboyMedia" className="h-16" />
+          </div>
+          <DialogTitle className="text-center text-xl" data-testid="text-setup-reminder-title">Quick Reminder</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 text-sm text-muted-foreground">
+          <p className="text-center">
+            It looks like you haven't finished setting up your account. To get the most out of ServiceHub, please visit your <strong className="text-foreground">Profile</strong> page to:
+          </p>
+          {missingPush && (
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <BellRing className="w-4 h-4 text-primary" />
+              </div>
+              <p>
+                <strong className="text-foreground">Enable push notifications</strong> so you receive instant alerts about service issues and ticket updates.
+              </p>
+            </div>
+          )}
+          {missingServices && (
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Settings className="w-4 h-4 text-primary" />
+              </div>
+              <p>
+                <strong className="text-foreground">Select the services</strong> you want to receive notifications for, so you stay informed about the things that matter to you.
+              </p>
+            </div>
+          )}
+        </div>
+        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+          <Button className="w-full" data-testid="button-reminder-go-profile" onClick={() => { setShowReminder(false); window.location.href = "/profile"; }}>
+            Go to Profile
+          </Button>
+          <Button variant="outline" className="w-full" data-testid="button-reminder-dismiss" onClick={() => setShowReminder(false)}>
+            Remind Me Later
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function WelcomeDialog() {
   const [showWelcome, setShowWelcome] = useState(false);
 
@@ -145,6 +219,7 @@ function AppContent() {
   return (
     <>
       <WelcomeDialog />
+      <SetupReminderDialog />
       <AuthenticatedLayout />
     </>
   );

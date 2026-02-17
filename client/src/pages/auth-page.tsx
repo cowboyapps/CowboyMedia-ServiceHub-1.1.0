@@ -38,6 +38,7 @@ export default function AuthPage() {
     setIsSubmitting(true);
     try {
       await login(data);
+      sessionStorage.setItem("checkSetup", "true");
       toast({ title: "Welcome back!" });
     } catch (e: any) {
       toast({ title: "Login failed", description: e.message, variant: "destructive" });
