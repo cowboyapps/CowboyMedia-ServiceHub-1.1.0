@@ -304,6 +304,10 @@ export default function ProfilePage() {
           </Button>
         </CardContent>
       </Card>
+
+      <p className="text-center text-xs text-muted-foreground mt-6 mb-2" data-testid="text-app-version">
+        Version 1.0.1
+      </p>
     </div>
   );
 }
