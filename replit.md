@@ -95,8 +95,11 @@ shared/
 - `DELETE /api/admin/tickets/:id` - Delete closed ticket (admin only)
 - `DELETE /api/admin/alerts/:id` - Delete alert and updates (admin only)
 - `POST /api/admin/private-messages` - Send private message to customer (admin only, triggers push+email+WS)
-- `GET /api/private-messages` - Get current user's private messages
+- `GET /api/admin/private-messages/sent` - Get admin's sent messages
+- `DELETE /api/admin/private-messages/:id` - Delete sent message (admin only, verifies sender)
+- `GET /api/private-messages` - Get current user's private messages (enriched with senderName)
 - `GET /api/private-messages/unread-count` - Get unread message count
+- `DELETE /api/private-messages/:id` - Delete own private message (customer, verifies recipient)
 - `PATCH /api/private-messages/:id/read` - Mark message as read
 - `POST /api/push/subscribe` - Subscribe to push notifications
 - `POST /api/push/unsubscribe` - Unsubscribe from push notifications
