@@ -371,7 +371,17 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Forbidden" });
     }
     const messages = await storage.getTicketMessages(req.params.id);
-    res.json(messages);
+    const senderIds = [...new Set(messages.map(m => m.senderId))];
+    const senderMap = new Map<string, string>();
+    await Promise.all(senderIds.map(async (id) => {
+      const sender = await storage.getUser(id);
+      if (sender) senderMap.set(id, sender.fullName);
+    }));
+    const enriched = messages.map(m => ({
+      ...m,
+      senderName: senderMap.get(m.senderId) || "Unknown",
+    }));
+    res.json(enriched);
   });
 
   app.get("/api/tickets/:id/customer", requireAuth, async (req, res) => {
@@ -755,10 +765,41 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/private-messages/sent", requireAdmin, async (req, res) => {
+    try {
+      const messages = await storage.getPrivateMessagesBySender(req.session.userId!);
+      res.json(messages);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/private-messages/:id", requireAdmin, async (req, res) => {
+    try {
+      const sentMessages = await storage.getPrivateMessagesBySender(req.session.userId!);
+      const msg = sentMessages.find(m => m.id === req.params.id);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+      await storage.deletePrivateMessage(req.params.id);
+      res.json({ message: "Message deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/private-messages", requireAuth, async (req, res) => {
     try {
       const messages = await storage.getPrivateMessagesByUser(req.session.userId!);
-      res.json(messages);
+      const senderIds = [...new Set(messages.map(m => m.senderId))];
+      const senderMap = new Map<string, string>();
+      await Promise.all(senderIds.map(async (id) => {
+        const user = await storage.getUser(id);
+        if (user) senderMap.set(id, user.fullName);
+      }));
+      const enriched = messages.map(m => ({
+        ...m,
+        senderName: senderMap.get(m.senderId) || "Unknown",
+      }));
+      res.json(enriched);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -768,6 +809,18 @@ export async function registerRoutes(
     try {
       const count = await storage.getUnreadPrivateMessageCount(req.session.userId!);
       res.json({ count });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/private-messages/:id", requireAuth, async (req, res) => {
+    try {
+      const messages = await storage.getPrivateMessagesByUser(req.session.userId!);
+      const msg = messages.find(m => m.id === req.params.id);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+      await storage.deletePrivateMessage(req.params.id);
+      res.json({ message: "Message deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

@@ -54,8 +54,10 @@ export interface IStorage {
 
   createPrivateMessage(message: InsertPrivateMessage): Promise<PrivateMessage>;
   getPrivateMessagesByUser(userId: string): Promise<PrivateMessage[]>;
+  getPrivateMessagesBySender(senderId: string): Promise<PrivateMessage[]>;
   getUnreadPrivateMessageCount(userId: string): Promise<number>;
   markPrivateMessageRead(id: string): Promise<PrivateMessage | undefined>;
+  deletePrivateMessage(id: string): Promise<void>;
 
   getPushSubscriptionsByUser(userId: string): Promise<PushSubscription[]>;
   getAllPushSubscriptions(): Promise<PushSubscription[]>;
@@ -218,9 +220,17 @@ export class DatabaseStorage implements IStorage {
     return result[0]?.count ?? 0;
   }
 
+  async getPrivateMessagesBySender(senderId: string): Promise<PrivateMessage[]> {
+    return db.select().from(privateMessages).where(eq(privateMessages.senderId, senderId)).orderBy(desc(privateMessages.createdAt));
+  }
+
   async markPrivateMessageRead(id: string): Promise<PrivateMessage | undefined> {
     const [updated] = await db.update(privateMessages).set({ readAt: new Date() }).where(eq(privateMessages.id, id)).returning();
     return updated;
+  }
+
+  async deletePrivateMessage(id: string): Promise<void> {
+    await db.delete(privateMessages).where(eq(privateMessages.id, id));
   }
 
   async getPushSubscriptionsByUser(userId: string): Promise<PushSubscription[]> {

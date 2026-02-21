@@ -5,17 +5,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Mail, MailOpen, Clock } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Mail, MailOpen, Clock, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 import type { PrivateMessage } from "@shared/schema";
 
+type EnrichedMessage = PrivateMessage & { senderName?: string };
+
 export default function MessagesPage() {
   const { user } = useAuth();
-  const [selectedMessage, setSelectedMessage] = useState<PrivateMessage | null>(null);
+  const { toast } = useToast();
+  const [selectedMessage, setSelectedMessage] = useState<EnrichedMessage | null>(null);
 
-  const { data: messages, isLoading } = useQuery<PrivateMessage[]>({
+  const { data: messages, isLoading } = useQuery<EnrichedMessage[]>({
     queryKey: ["/api/private-messages"],
   });
 
@@ -29,7 +34,19 @@ export default function MessagesPage() {
     },
   });
 
-  const openMessage = (msg: PrivateMessage) => {
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/private-messages/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/private-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/private-messages/unread-count"] });
+      toast({ title: "Message deleted" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const openMessage = (msg: EnrichedMessage) => {
     setSelectedMessage(msg);
     if (!msg.readAt) {
       markReadMutation.mutate(msg.id);
@@ -49,6 +66,11 @@ export default function MessagesPage() {
             <DialogTitle data-testid="text-message-dialog-subject">{selectedMessage?.subject}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {selectedMessage?.senderName && (
+              <p className="text-xs text-muted-foreground" data-testid={`text-message-from-${selectedMessage.id}`}>
+                From: {selectedMessage.senderName}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Clock className="w-3 h-3" />
               {selectedMessage?.createdAt && format(new Date(selectedMessage.createdAt), "MMM d, yyyy 'at' h:mm a")}
@@ -90,8 +112,42 @@ export default function MessagesPage() {
                     <p className={`text-sm font-medium truncate ${!msg.readAt ? "text-foreground" : "text-muted-foreground"}`} data-testid={`text-message-subject-${msg.id}`}>
                       {msg.subject}
                     </p>
-                    {!msg.readAt && <Badge variant="default" className="text-xs flex-shrink-0">New</Badge>}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {!msg.readAt && <Badge variant="default" className="text-xs">New</Badge>}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={(e) => e.stopPropagation()}
+                            data-testid={`button-delete-message-${msg.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Message</AlertDialogTitle>
+                            <AlertDialogDescription>Are you sure you want to delete this message? This action cannot be undone.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(msg.id); }}
+                              data-testid="button-confirm-delete-message"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                   </div>
+                  {msg.senderName && (
+                    <p className="text-xs text-muted-foreground" data-testid={`text-message-from-${msg.id}`}>
+                      From: {msg.senderName}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground line-clamp-1">{msg.body}</p>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Clock className="w-3 h-3" />

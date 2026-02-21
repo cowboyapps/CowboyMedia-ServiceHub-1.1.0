@@ -18,7 +18,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, Send } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, Send, Clock } from "lucide-react";
+import { format } from "date-fns";
 import type { User, Service, ServiceAlert, NewsStory } from "@shared/schema";
 
 const createServiceSchema = z.object({
@@ -696,7 +697,12 @@ function MessagesTab() {
     queryKey: ["/api/admin/users"],
   });
 
+  const { data: sentMessages, isLoading: sentLoading } = useQuery<import("@shared/schema").PrivateMessage[]>({
+    queryKey: ["/api/admin/private-messages/sent"],
+  });
+
   const customers = users?.filter((u) => u.role === "customer") || [];
+  const userMap = new Map(users?.map((u) => [u.id, u.fullName]) || []);
 
   const form = useForm({
     resolver: zodResolver(sendMessageSchema),
@@ -710,7 +716,19 @@ function MessagesTab() {
     onSuccess: () => {
       setDialogOpen(false);
       form.reset();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/private-messages/sent"] });
       toast({ title: "Message sent successfully" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteSentMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/private-messages/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/private-messages/sent"] });
+      toast({ title: "Message deleted" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -754,14 +772,57 @@ function MessagesTab() {
         </Dialog>
       </div>
 
-      <Card>
-        <CardContent className="p-6">
-          <div className="text-center py-6">
-            <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Use the "Send Message" button to send a private message to any customer. They will receive a push notification, email, and in-app alert.</p>
-          </div>
-        </CardContent>
-      </Card>
+      <h4 className="font-medium text-sm text-muted-foreground">Sent Messages ({sentMessages?.length || 0})</h4>
+
+      {sentLoading ? (
+        <Skeleton className="h-40" />
+      ) : !sentMessages || sentMessages.length === 0 ? (
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center py-6">
+              <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No sent messages yet. Use the "Send Message" button to send a private message to any customer.</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {sentMessages.map((msg) => (
+            <Card key={msg.id} data-testid={`card-sent-message-${msg.id}`}>
+              <CardContent className="flex items-start justify-between gap-3 p-4">
+                <div className="flex-1 min-w-0 space-y-1">
+                  <p className="text-sm font-medium truncate">{msg.subject}</p>
+                  <p className="text-xs text-muted-foreground">
+                    To: {userMap.get(msg.recipientId) || "Unknown User"}
+                  </p>
+                  <p className="text-xs text-muted-foreground line-clamp-1">{msg.body}</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {format(new Date(msg.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                  </p>
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="icon" variant="ghost" data-testid={`button-delete-sent-message-${msg.id}`}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Sent Message</AlertDialogTitle>
+                      <AlertDialogDescription>Are you sure you want to delete this sent message? This action cannot be undone.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => deleteSentMutation.mutate(msg.id)} data-testid="button-confirm-delete-sent-message">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
