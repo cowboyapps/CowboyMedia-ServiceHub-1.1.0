@@ -47,16 +47,31 @@ async function getVapidKey(): Promise<string | null> {
 export async function subscribeToPush(): Promise<boolean> {
   try {
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") return false;
+    if (permission !== "granted") {
+      console.warn("Notification permission not granted");
+      return false;
+    }
 
     const registration = await navigator.serviceWorker.ready;
-    const vapidKey = await getVapidKey();
-    if (!vapidKey) return false;
+    
+    // Check for existing subscription first
+    let subscription = await registration.pushManager.getSubscription();
+    
+    if (!subscription) {
+      const vapidKey = await getVapidKey();
+      if (!vapidKey) {
+        console.error("No VAPID key available");
+        return false;
+      }
 
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey),
-    });
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      });
+      console.log("New push subscription created");
+    } else {
+      console.log("Existing push subscription found, re-registering with server");
+    }
 
     const subJson = subscription.toJSON();
     await apiRequest("POST", "/api/push/subscribe", {

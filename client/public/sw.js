@@ -1,4 +1,4 @@
-const CACHE_NAME = 'servicehub-v1';
+const CACHE_NAME = 'servicehub-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -22,6 +22,14 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  
+  // Don't cache API calls or WebSocket connections
+  const url = event.request.url;
+  if (url.includes('/api/') || url.includes('/ws')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+  
   event.respondWith(
     fetch(event.request)
       .then((response) => {
