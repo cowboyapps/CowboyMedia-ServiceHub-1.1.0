@@ -58,8 +58,8 @@ function AuthenticatedLayout() {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-2 px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] border-b sticky top-0 z-50 bg-background">
-            <SidebarTrigger className="h-10 w-10 [&_svg]:!h-5 [&_svg]:!w-5" data-testid="button-sidebar-toggle" />
+          <header className="flex items-center justify-between gap-2 px-4 py-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] border-b sticky top-0 z-50 bg-background">
+            <SidebarTrigger className="h-12 w-12 min-h-[48px] min-w-[48px] [&_svg]:!h-7 [&_svg]:!w-7" data-testid="button-sidebar-toggle" />
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-auto p-3 sm:p-6">
