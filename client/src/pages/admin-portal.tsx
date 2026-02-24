@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -840,6 +839,27 @@ export default function AdminPortal() {
     );
   }
 
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+
+  const sections = [
+    { key: "users", label: "Users", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
+    { key: "services", label: "Services", icon: Server, color: "text-green-500", bg: "bg-green-500/10" },
+    { key: "alerts", label: "Alerts", icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-500/10" },
+    { key: "news", label: "News", icon: Newspaper, color: "text-purple-500", bg: "bg-purple-500/10" },
+    { key: "messages", label: "Messages", icon: Mail, color: "text-rose-500", bg: "bg-rose-500/10" },
+  ];
+
+  const renderContent = () => {
+    switch (activeSection) {
+      case "users": return <UsersTab />;
+      case "services": return <ServicesTab />;
+      case "alerts": return <AlertsTab />;
+      case "news": return <NewsTab />;
+      case "messages": return <MessagesTab />;
+      default: return null;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -847,20 +867,40 @@ export default function AdminPortal() {
         <p className="text-sm text-muted-foreground mt-1">Manage users, services, alerts, news, and messages</p>
       </div>
 
-      <Tabs defaultValue="users">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="users" data-testid="tab-admin-users"><Users className="w-4 h-4 mr-1" /> Users</TabsTrigger>
-          <TabsTrigger value="services" data-testid="tab-admin-services"><Server className="w-4 h-4 mr-1" /> Services</TabsTrigger>
-          <TabsTrigger value="alerts" data-testid="tab-admin-alerts"><AlertTriangle className="w-4 h-4 mr-1" /> Alerts</TabsTrigger>
-          <TabsTrigger value="news" data-testid="tab-admin-news"><Newspaper className="w-4 h-4 mr-1" /> News</TabsTrigger>
-          <TabsTrigger value="messages" data-testid="tab-admin-messages"><Mail className="w-4 h-4 mr-1" /> Messages</TabsTrigger>
-        </TabsList>
-        <TabsContent value="users" className="mt-4"><UsersTab /></TabsContent>
-        <TabsContent value="services" className="mt-4"><ServicesTab /></TabsContent>
-        <TabsContent value="alerts" className="mt-4"><AlertsTab /></TabsContent>
-        <TabsContent value="news" className="mt-4"><NewsTab /></TabsContent>
-        <TabsContent value="messages" className="mt-4"><MessagesTab /></TabsContent>
-      </Tabs>
+      {!activeSection ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+          {sections.map((s) => {
+            const Icon = s.icon;
+            return (
+              <button
+                key={s.key}
+                onClick={() => setActiveSection(s.key)}
+                className="flex flex-col items-center justify-center gap-3 p-6 sm:p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
+                data-testid={`tile-admin-${s.key}`}
+              >
+                <div className={`rounded-full p-4 ${s.bg}`}>
+                  <Icon className={`w-7 h-7 sm:w-8 sm:h-8 ${s.color}`} />
+                </div>
+                <span className="font-semibold text-sm sm:text-base">{s.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveSection(null)}
+            className="gap-1 -ml-2 text-muted-foreground hover:text-foreground"
+            data-testid="button-admin-back"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Back to Admin Menu
+          </Button>
+          {renderContent()}
+        </div>
+      )}
     </div>
   );
 }
