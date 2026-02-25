@@ -315,6 +315,38 @@ export async function registerRoutes(
         }
       }
 
+      const autoReplyText = "Thank you for contacting CowboyMedia support through our ServiceHub app. We will review your support ticket and respond as quickly as possible. Thank you!";
+      const firstAdmin = admins[0];
+      if (firstAdmin) {
+        const autoMessage = await storage.createTicketMessage({
+          ticketId: ticket.id,
+          senderId: firstAdmin.id,
+          message: autoReplyText,
+          imageUrl: null,
+        });
+        broadcast({ type: "ticket_message", ticketId: ticket.id, message: autoMessage });
+
+        sendPushToUser(req.session.userId!, {
+          title: "New Ticket Reply",
+          body: `Reply on: ${ticket.subject}`,
+          url: `/tickets/${ticket.id}`,
+          tag: `ticket-${ticket.id}`,
+        });
+        storage.createTicketNotification({
+          userId: req.session.userId!,
+          ticketId: ticket.id,
+          type: "ticket_reply",
+          message: `New reply on: ${ticket.subject}`,
+        });
+        if (customer?.email) {
+          sendEmail(customer.email, `Support Ticket Received: ${ticket.subject}`,
+            `<h2>Support Ticket Received</h2>
+<p>${autoReplyText}</p>
+<p><strong>Ticket:</strong> ${ticket.subject}</p>`
+          );
+        }
+      }
+
       res.json(ticket);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
