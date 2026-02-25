@@ -400,7 +400,7 @@ export async function registerRoutes(
           const closeMessage = await storage.createTicketMessage({
             ticketId: ticket.id,
             senderId: supportUser.id,
-            message: "Thank you for contacting CowboyMedia support! Have a great day!",
+            message: "Your ticket has now been closed. Thank you for contacting CowboyMedia Support, have a great day!",
             imageUrl: null,
           });
           broadcast({ type: "ticket_message", ticketId: ticket.id, message: closeMessage });
