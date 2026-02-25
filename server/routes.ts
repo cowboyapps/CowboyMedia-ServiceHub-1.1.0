@@ -316,8 +316,19 @@ export async function registerRoutes(
       }
 
       const autoReplyText = "Thank you for contacting CowboyMedia support through our ServiceHub app. We will review your support ticket and respond as quickly as possible. Thank you!";
-      const supportUser = await storage.getUserByUsername("cowboymedia-support");
-      if (supportUser) {
+      try {
+        let supportUser = await storage.getUserByUsername("cowboymedia-support");
+        if (!supportUser) {
+          supportUser = await storage.createUser({
+            username: "cowboymedia-support",
+            password: "nologin-system-account",
+            email: "noreply@cowboymedia.net",
+            fullName: "CowboyMedia Support",
+            role: "admin",
+            theme: "light",
+          });
+          console.log("Created cowboymedia-support system user:", supportUser.id);
+        }
         const autoMessage = await storage.createTicketMessage({
           ticketId: ticket.id,
           senderId: supportUser.id,
@@ -345,6 +356,8 @@ export async function registerRoutes(
 <p><strong>Ticket:</strong> ${ticket.subject}</p>`
           );
         }
+      } catch (autoReplyErr) {
+        console.error("Auto-reply error:", autoReplyErr);
       }
 
       res.json(ticket);
@@ -421,9 +434,19 @@ export async function registerRoutes(
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
 
-      const supportUser = await storage.getUserByUsername("cowboymedia-support");
-      const claimMessage = `${admin.fullName} has claimed this ticket and will be assisting you.`;
-      if (supportUser) {
+      try {
+        let supportUser = await storage.getUserByUsername("cowboymedia-support");
+        if (!supportUser) {
+          supportUser = await storage.createUser({
+            username: "cowboymedia-support",
+            password: "nologin-system-account",
+            email: "noreply@cowboymedia.net",
+            fullName: "CowboyMedia Support",
+            role: "admin",
+            theme: "light",
+          });
+        }
+        const claimMessage = `${admin.fullName} has claimed this ticket and will be assisting you.`;
         const autoMessage = await storage.createTicketMessage({
           ticketId: ticket.id,
           senderId: supportUser.id,
@@ -431,6 +454,8 @@ export async function registerRoutes(
           imageUrl: null,
         });
         broadcast({ type: "ticket_message", ticketId: ticket.id, message: autoMessage });
+      } catch (claimMsgErr) {
+        console.error("Claim message error:", claimMsgErr);
       }
 
       sendPushToUser(ticket.customerId, {
