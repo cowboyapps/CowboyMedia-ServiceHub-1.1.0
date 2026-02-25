@@ -17,9 +17,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, Send, Clock, Zap } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, Send, Clock, Zap, FileText } from "lucide-react";
 import { format } from "date-fns";
-import type { User, Service, ServiceAlert, NewsStory, QuickResponse } from "@shared/schema";
+import type { User, Service, ServiceAlert, NewsStory, QuickResponse, ReportRequest } from "@shared/schema";
 
 const createServiceSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -999,6 +999,129 @@ function QuickResponsesTab() {
   );
 }
 
+type EnrichedReportRequest = ReportRequest & { customerName?: string; customerEmail?: string; serviceName?: string };
+
+function ReportsRequestsTab() {
+  const { toast } = useToast();
+
+  const { data: reports, isLoading } = useQuery<EnrichedReportRequest[]>({
+    queryKey: ["/api/report-requests"],
+  });
+
+  const { data: services } = useQuery<Service[]>({
+    queryKey: ["/api/services"],
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/report-requests/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/report-requests"] });
+      toast({ title: "Status updated" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/report-requests/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/report-requests"] });
+      toast({ title: "Report/request deleted" });
+    },
+  });
+
+  const statusBadge = (status: string) => {
+    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+      pending: "secondary",
+      reviewed: "default",
+      completed: "default",
+      dismissed: "outline",
+    };
+    return <Badge variant={variants[status] || "secondary"} className="text-xs capitalize">{status}</Badge>;
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold" data-testid="text-reports-requests-title">Reports & Requests</h2>
+      {isLoading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+        </div>
+      ) : !reports || reports.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No reports or requests yet.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {reports.map((rr) => (
+            <Card key={rr.id} data-testid={`card-report-${rr.id}`}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant={rr.type === "content_issue" ? "destructive" : "default"} className="text-xs">
+                        {rr.type === "content_issue" ? "Content Issue" : "Movie/Series Request"}
+                      </Badge>
+                      {statusBadge(rr.status)}
+                    </div>
+                    <p className="font-medium text-sm mt-2" data-testid={`text-report-title-${rr.id}`}>{rr.title}</p>
+                    {rr.description && <p className="text-xs text-muted-foreground mt-1">{rr.description}</p>}
+                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
+                      <span>{rr.customerName}</span>
+                      {rr.customerEmail && <span>({rr.customerEmail})</span>}
+                      <span>·</span>
+                      <span>{rr.serviceName}</span>
+                      <span>·</span>
+                      <Clock className="w-3 h-3" />
+                      <span>{format(new Date(rr.createdAt), "MMM d, yyyy 'at' h:mm a")}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Select onValueChange={(status) => updateMutation.mutate({ id: rr.id, status })}>
+                      <SelectTrigger className="w-28 h-8 text-xs" data-testid={`select-status-${rr.id}`}>
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="reviewed">Reviewed</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="dismissed">Dismissed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" data-testid={`button-delete-report-${rr.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Report/Request</AlertDialogTitle>
+                          <AlertDialogDescription>Are you sure you want to delete this submission?</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(rr.id)}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPortal() {
   const { isAdmin } = useAuth();
 
@@ -1021,6 +1144,7 @@ export default function AdminPortal() {
     { key: "news", label: "News", icon: Newspaper, color: "text-purple-500", bg: "bg-purple-500/10" },
     { key: "messages", label: "Messages", icon: Mail, color: "text-rose-500", bg: "bg-rose-500/10" },
     { key: "quick-responses", label: "Quick Responses", icon: Zap, color: "text-orange-500", bg: "bg-orange-500/10" },
+    { key: "reports-requests", label: "Reports/Requests", icon: FileText, color: "text-cyan-500", bg: "bg-cyan-500/10" },
   ];
 
   const renderContent = () => {
@@ -1031,6 +1155,7 @@ export default function AdminPortal() {
       case "news": return <NewsTab />;
       case "messages": return <MessagesTab />;
       case "quick-responses": return <QuickResponsesTab />;
+      case "reports-requests": return <ReportsRequestsTab />;
       default: return null;
     }
   };

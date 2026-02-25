@@ -64,7 +64,8 @@ client/
       tickets-page.tsx - Ticket list with create dialog + admin delete + marks notifications read
       ticket-detail.tsx - Ticket chat with real-time messages + resolution prompt + admin quick response dropdown
       profile-page.tsx - User profile, fullName update, billing link, theme, push notifications, service subscriptions
-      admin-portal.tsx - Admin tile cards: users, services, alerts, news, messages, quick responses
+      report-request-page.tsx - Report content issues or request movies/series
+      admin-portal.tsx - Admin tile cards: users, services, alerts, news, messages, quick responses, reports/requests
 server/
   index.ts   - Express server entry
   routes.ts  - All API routes + WebSocket + push notifications + email notifications + auth middleware

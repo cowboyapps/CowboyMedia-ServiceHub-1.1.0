@@ -109,6 +109,17 @@ export const quickResponses = pgTable("quick_responses", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const reportRequests = pgTable("report_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull(),
+  type: text("type").notNull(),
+  serviceId: varchar("service_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
@@ -121,6 +132,7 @@ export const insertPrivateMessageSchema = createInsertSchema(privateMessages).om
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({ id: true, createdAt: true, readAt: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
 export const insertQuickResponseSchema = createInsertSchema(quickResponses).omit({ id: true, createdAt: true });
+export const insertReportRequestSchema = createInsertSchema(reportRequests).omit({ id: true, createdAt: true });
 
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -145,6 +157,8 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertQuickResponse = z.infer<typeof insertQuickResponseSchema>;
 export type QuickResponse = typeof quickResponses.$inferSelect;
+export type InsertReportRequest = z.infer<typeof insertReportRequestSchema>;
+export type ReportRequest = typeof reportRequests.$inferSelect;
 
 // Login schema
 export const loginSchema = z.object({

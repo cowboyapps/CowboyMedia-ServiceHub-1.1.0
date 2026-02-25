@@ -1001,6 +1001,109 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/report-requests", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      if (user.role === "admin") {
+        const all = await storage.getAllReportRequests();
+        const enriched = await Promise.all(all.map(async (rr) => {
+          const customer = await storage.getUser(rr.customerId);
+          const service = rr.serviceId ? await storage.getService(rr.serviceId) : null;
+          return { ...rr, customerName: customer?.fullName || "Unknown", customerEmail: customer?.email || "", serviceName: service?.name || "N/A" };
+        }));
+        res.json(enriched);
+      } else {
+        const mine = await storage.getReportRequestsByCustomer(user.id);
+        const enriched = await Promise.all(mine.map(async (rr) => {
+          const service = rr.serviceId ? await storage.getService(rr.serviceId) : null;
+          return { ...rr, serviceName: service?.name || "N/A" };
+        }));
+        res.json(enriched);
+      }
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/report-requests", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { type, serviceId, title, description } = req.body;
+      if (!type || !title) return res.status(400).json({ message: "Type and title are required" });
+
+      const rr = await storage.createReportRequest({
+        customerId: user.id,
+        type,
+        serviceId: serviceId || null,
+        title,
+        description: description || null,
+        status: "pending",
+      });
+
+      const service = serviceId ? await storage.getService(serviceId) : null;
+      const typeLabel = type === "content_issue" ? "Content Issue Report" : "Movie/Series Request";
+
+      if (user.email) {
+        sendEmail(user.email, `${typeLabel} Received`,
+          `<h2>Your ${typeLabel} Has Been Received</h2>
+<p>Thank you for your submission. We have received the following:</p>
+<p><strong>Type:</strong> ${typeLabel}</p>
+<p><strong>Service:</strong> ${service?.name || "N/A"}</p>
+<p><strong>Title:</strong> ${title}</p>
+${description ? `<p><strong>Details:</strong> ${description}</p>` : ""}
+<p>We will review your submission and take action as needed. Thank you!</p>`
+        );
+      }
+
+      const allUsers = await storage.getAllUsers();
+      const admins = allUsers.filter(u => u.role === "admin" && u.username !== "cowboymedia-support");
+      for (const admin of admins) {
+        sendPushToUser(admin.id, {
+          title: `New ${typeLabel}`,
+          body: `${user.fullName}: ${title}`,
+          url: "/admin",
+          tag: `report-request-${rr.id}`,
+        });
+        if (admin.email) {
+          sendEmail(admin.email, `New ${typeLabel} from ${user.fullName}`,
+            `<h2>New ${typeLabel}</h2>
+<p><strong>Customer:</strong> ${user.fullName} (@${user.username})</p>
+<p><strong>Email:</strong> ${user.email}</p>
+<p><strong>Service:</strong> ${service?.name || "N/A"}</p>
+<p><strong>Title:</strong> ${title}</p>
+${description ? `<p><strong>Details:</strong> ${description}</p>` : ""}`
+          );
+        }
+      }
+
+      res.json(rr);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/report-requests/:id", requireAdmin, async (req, res) => {
+    try {
+      const { status } = req.body;
+      const updated = await storage.updateReportRequest(req.params.id, { status });
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/report-requests/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteReportRequest(req.params.id);
+      res.json({ message: "Deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/private-messages", requireAuth, async (req, res) => {
     try {
       const messages = await storage.getPrivateMessagesByUser(req.session.userId!);

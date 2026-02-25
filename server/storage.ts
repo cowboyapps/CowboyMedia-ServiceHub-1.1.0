@@ -10,7 +10,8 @@ import {
   type TicketNotification, type InsertTicketNotification,
   type PushSubscription, type InsertPushSubscription,
   type QuickResponse, type InsertQuickResponse,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses,
+  type ReportRequest, type InsertReportRequest,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -78,6 +79,12 @@ export interface IStorage {
   createQuickResponse(qr: InsertQuickResponse): Promise<QuickResponse>;
   updateQuickResponse(id: string, data: Partial<QuickResponse>): Promise<QuickResponse | undefined>;
   deleteQuickResponse(id: string): Promise<void>;
+
+  getAllReportRequests(): Promise<ReportRequest[]>;
+  getReportRequestsByCustomer(customerId: string): Promise<ReportRequest[]>;
+  createReportRequest(rr: InsertReportRequest): Promise<ReportRequest>;
+  updateReportRequest(id: string, data: Partial<ReportRequest>): Promise<ReportRequest | undefined>;
+  deleteReportRequest(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -318,6 +325,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteQuickResponse(id: string): Promise<void> {
     await db.delete(quickResponses).where(eq(quickResponses.id, id));
+  }
+
+  async getAllReportRequests(): Promise<ReportRequest[]> {
+    return db.select().from(reportRequests).orderBy(desc(reportRequests.createdAt));
+  }
+
+  async getReportRequestsByCustomer(customerId: string): Promise<ReportRequest[]> {
+    return db.select().from(reportRequests).where(eq(reportRequests.customerId, customerId)).orderBy(desc(reportRequests.createdAt));
+  }
+
+  async createReportRequest(rr: InsertReportRequest): Promise<ReportRequest> {
+    const [created] = await db.insert(reportRequests).values(rr).returning();
+    return created;
+  }
+
+  async updateReportRequest(id: string, data: Partial<ReportRequest>): Promise<ReportRequest | undefined> {
+    const [updated] = await db.update(reportRequests).set(data).where(eq(reportRequests.id, id)).returning();
+    return updated;
+  }
+
+  async deleteReportRequest(id: string): Promise<void> {
+    await db.delete(reportRequests).where(eq(reportRequests.id, id));
   }
 }
 

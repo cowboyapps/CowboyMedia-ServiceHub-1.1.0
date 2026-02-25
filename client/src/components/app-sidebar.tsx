@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, User, Shield, LogOut, Mail } from "lucide-react";
+import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, User, Shield, LogOut, Mail, FileText } from "lucide-react";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 
 export function AppSidebar() {
@@ -54,6 +54,7 @@ export function AppSidebar() {
     { title: "News", url: "/news", icon: Newspaper },
     { title: "Tickets", url: "/tickets", icon: MessageSquare },
     { title: "Messages", url: "/messages", icon: Mail },
+    { title: "Report/Request", url: "/report-request", icon: FileText },
     { title: "Profile", url: "/profile", icon: User },
   ];
 
