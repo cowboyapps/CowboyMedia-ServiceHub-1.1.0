@@ -577,6 +577,12 @@ export async function registerRoutes(
       if (user.role !== "admin" && ticket.customerId !== user.id) {
         return res.status(403).json({ message: "Forbidden" });
       }
+      if (user.role === "admin" && !ticket.claimedBy) {
+        return res.status(400).json({ message: "You must claim this ticket before responding" });
+      }
+      if (user.role === "admin" && ticket.claimedBy !== user.id) {
+        return res.status(403).json({ message: "Only the admin who claimed this ticket can respond" });
+      }
       const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
       const message = await storage.createTicketMessage({
         ticketId: req.params.id,

@@ -354,7 +354,23 @@ export default function TicketDetail() {
             </div>
           )}
 
-          {ticket.status === "open" && (
+          {ticket.status === "open" && isAdmin && !ticket.claimedBy && (
+            <div className="p-3 border-t bg-accent/50">
+              <p className="text-sm text-muted-foreground text-center" data-testid="text-claim-required">
+                You must claim this ticket before you can respond.
+              </p>
+            </div>
+          )}
+
+          {ticket.status === "open" && isAdmin && ticket.claimedBy && ticket.claimedBy !== user?.id && (
+            <div className="p-3 border-t bg-accent/50">
+              <p className="text-sm text-muted-foreground text-center" data-testid="text-claimed-by-other">
+                This ticket has been claimed by another admin.
+              </p>
+            </div>
+          )}
+
+          {ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id) && (
             <div className="p-3 border-t">
               {imageFile && (
                 <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md">
