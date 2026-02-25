@@ -385,6 +385,29 @@ export async function registerRoutes(
       broadcast({ type: "ticket_updated", ticket: updated });
 
       if (status === "closed") {
+        try {
+          let supportUser = await storage.getUserByUsername("cowboymedia-support");
+          if (!supportUser) {
+            supportUser = await storage.createUser({
+              username: "cowboymedia-support",
+              password: "nologin-system-account",
+              email: "noreply@cowboymedia.net",
+              fullName: "CowboyMedia Support",
+              role: "admin",
+              theme: "light",
+            });
+          }
+          const closeMessage = await storage.createTicketMessage({
+            ticketId: ticket.id,
+            senderId: supportUser.id,
+            message: "Thank you for contacting CowboyMedia support! Have a great day!",
+            imageUrl: null,
+          });
+          broadcast({ type: "ticket_message", ticketId: ticket.id, message: closeMessage });
+        } catch (closeMsgErr) {
+          console.error("Close message error:", closeMsgErr);
+        }
+
         const customer = await storage.getUser(ticket.customerId);
         const allUsers = await storage.getAllUsers();
         const admins = allUsers.filter(u => u.role === "admin" && u.username !== "cowboymedia-support");
