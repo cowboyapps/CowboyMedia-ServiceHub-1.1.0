@@ -305,8 +305,11 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      <p className="text-center text-xs text-muted-foreground mt-6 mb-2" data-testid="text-app-version">
-        Version 1.0.5
+      <p className="text-center text-xs text-muted-foreground mt-6 mb-1" data-testid="text-app-version">
+        Version 1.0.7
+      </p>
+      <p className="text-center text-xs text-muted-foreground mb-2" data-testid="text-developed-by">
+        Developed by CowboyApps
       </p>
     </div>
   );
