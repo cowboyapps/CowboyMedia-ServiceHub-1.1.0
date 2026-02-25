@@ -17,7 +17,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User } from "@shared/schema";
 
-type EnrichedTicketMessage = TicketMessage & { senderName?: string };
+type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string };
 
 export default function TicketDetail() {
   const params = useParams<{ id: string }>();
@@ -287,6 +287,7 @@ export default function TicketDetail() {
               <div className="space-y-4">
                 {messages.map((msg) => {
                   const isMe = msg.senderId === user?.id;
+                  const isAdminSender = msg.senderRole === "admin";
                   const displayName = isMe ? "You" : (msg.senderName || "Support");
                   return (
                     <div key={msg.id} className={`flex gap-2.5 ${isMe ? "flex-row-reverse" : ""}`} data-testid={`message-${msg.id}`}>
@@ -296,9 +297,12 @@ export default function TicketDetail() {
                         </AvatarFallback>
                       </Avatar>
                       <div className={`max-w-[70%] space-y-1 ${isMe ? "items-end" : ""}`}>
-                        <p className={`text-xs font-medium ${isMe ? "text-right" : ""}`} data-testid={`text-chat-sender-${msg.id}`}>
-                          {displayName}
-                        </p>
+                        <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
+                          <p className="text-xs font-medium">{displayName}</p>
+                          {isAdminSender && !isMe && (
+                            <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
+                          )}
+                        </div>
                         <div className={`rounded-md p-3 text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-accent"}`}>
                           {msg.message}
                           {msg.imageUrl && (

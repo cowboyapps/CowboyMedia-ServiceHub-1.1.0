@@ -519,14 +519,15 @@ export async function registerRoutes(
     }
     const messages = await storage.getTicketMessages(req.params.id);
     const senderIds = [...new Set(messages.map(m => m.senderId))];
-    const senderMap = new Map<string, string>();
+    const senderMap = new Map<string, { name: string; role: string }>();
     await Promise.all(senderIds.map(async (id) => {
       const sender = await storage.getUser(id);
-      if (sender) senderMap.set(id, sender.fullName);
+      if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role });
     }));
     const enriched = messages.map(m => ({
       ...m,
-      senderName: senderMap.get(m.senderId) || "Unknown",
+      senderName: senderMap.get(m.senderId)?.name || "Unknown",
+      senderRole: senderMap.get(m.senderId)?.role || "customer",
     }));
     res.json(enriched);
   });
