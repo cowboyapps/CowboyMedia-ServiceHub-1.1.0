@@ -8,7 +8,7 @@ A comprehensive service status monitoring and support platform built as a Progre
 - **Backend**: Express.js with session-based auth (scrypt password hashing)
 - **Database**: PostgreSQL via Drizzle ORM
 - **Real-time**: WebSocket for ticket messaging
-- **File uploads**: Multer (stored in /uploads directory)
+- **File uploads**: Multer (memory storage) → saved to PostgreSQL `uploaded_files` table as base64
 - **PWA**: Service Worker + Web App Manifest for installable mobile experience
 - **Push Notifications**: Web Push API (VAPID) only — no OneSignal or Firebase
 - **Email**: SendGrid integration for transactional emails (noreply@cowboymedia.net)

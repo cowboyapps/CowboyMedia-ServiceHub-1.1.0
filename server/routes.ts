@@ -5,9 +5,11 @@ import { WebSocketServer, WebSocket } from "ws";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
+import { db } from "./db";
+import { uploadedFiles } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
 import crypto from "crypto";
 import { promisify } from "util";
 import webpush from "web-push";
@@ -27,21 +29,22 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   return key === derivedKey.toString("hex");
 }
 
-const uploadsDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: uploadsDir,
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${crypto.randomUUID()}${ext}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+
+async function saveUploadedFile(file: Express.Multer.File): Promise<string> {
+  const ext = path.extname(file.originalname);
+  const filename = `${crypto.randomUUID()}${ext}`;
+  const base64Data = file.buffer.toString("base64");
+  await db.insert(uploadedFiles).values({
+    filename,
+    mimetype: file.mimetype,
+    data: base64Data,
+  });
+  return `/uploads/${filename}`;
+}
 
 declare module "express-session" {
   interface SessionData {
@@ -139,11 +142,20 @@ export async function registerRoutes(
     })
   );
 
-  app.use("/uploads", (req, res, next) => {
-    const filePath = path.join(uploadsDir, path.basename(req.path));
-    res.sendFile(filePath, (err) => {
-      if (err) res.status(404).json({ message: "File not found" });
-    });
+  app.get("/uploads/:filename", async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      const [file] = await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1);
+      if (!file) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      const buffer = Buffer.from(file.data, "base64");
+      res.set("Content-Type", file.mimetype);
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(buffer);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // Auth routes
@@ -272,7 +284,7 @@ export async function registerRoutes(
   app.post("/api/tickets", requireAuth, upload.single("image"), async (req, res) => {
     try {
       const { subject, description, serviceId, priority } = req.body;
-      const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const ticket = await storage.createTicket({
         subject,
         description,
@@ -583,7 +595,7 @@ export async function registerRoutes(
       if (user.role === "admin" && ticket.claimedBy !== user.id) {
         return res.status(403).json({ message: "Only the admin who claimed this ticket can respond" });
       }
-      const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const message = await storage.createTicketMessage({
         ticketId: req.params.id,
         senderId: req.session.userId!,
@@ -834,7 +846,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/news", requireAdmin, upload.single("image"), async (req, res) => {
     try {
-      const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const story = await storage.createNewsStory({
         title: req.body.title,
         content: req.body.content,

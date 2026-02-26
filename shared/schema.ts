@@ -130,6 +130,14 @@ export const reportNotifications = pgTable("report_notifications", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const uploadedFiles = pgTable("uploaded_files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  filename: text("filename").notNull().unique(),
+  mimetype: text("mimetype").notNull(),
+  data: text("data").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
