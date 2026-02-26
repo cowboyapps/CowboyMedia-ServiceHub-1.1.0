@@ -875,6 +875,27 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/news/:id", requireAdmin, upload.single("image"), async (req, res) => {
+    try {
+      const existing = await storage.getNewsStory(req.params.id);
+      if (!existing) return res.status(404).json({ message: "News story not found" });
+
+      const updateData: any = {};
+      if (req.body.title) updateData.title = req.body.title;
+      if (req.body.content) updateData.content = req.body.content;
+      if (req.file) {
+        updateData.imageUrl = await saveUploadedFile(req.file);
+      } else if (req.body.removeImage === "true") {
+        updateData.imageUrl = null;
+      }
+
+      const updated = await storage.updateNewsStory(req.params.id, updateData);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.delete("/api/admin/news/:id", requireAdmin, async (req, res) => {
     try {
       await storage.deleteNewsStory(req.params.id);

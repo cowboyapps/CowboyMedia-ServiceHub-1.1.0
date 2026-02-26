@@ -580,12 +580,21 @@ function NewsTab() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingStory, setEditingStory] = useState<NewsStory | null>(null);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
 
   const { data: news, isLoading } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
   });
 
   const form = useForm({
+    resolver: zodResolver(createNewsSchema),
+    defaultValues: { title: "", content: "" },
+  });
+
+  const editForm = useForm({
     resolver: zodResolver(createNewsSchema),
     defaultValues: { title: "", content: "" },
   });
@@ -615,6 +624,34 @@ function NewsTab() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const editMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof createNewsSchema>) => {
+      if (!editingStory) return;
+      const formData = new FormData();
+      formData.append("title", data.title);
+      formData.append("content", data.content);
+      if (editImageFile) formData.append("image", editImageFile);
+      if (removeImage && !editImageFile) formData.append("removeImage", "true");
+
+      const res = await fetch(`/api/admin/news/${editingStory.id}`, {
+        method: "PATCH",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/news"] });
+      setEditDialogOpen(false);
+      setEditingStory(null);
+      setEditImageFile(null);
+      setRemoveImage(false);
+      toast({ title: "News story updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/admin/news/${id}`);
@@ -624,6 +661,14 @@ function NewsTab() {
       toast({ title: "News story deleted" });
     },
   });
+
+  const openEditDialog = (story: NewsStory) => {
+    setEditingStory(story);
+    editForm.reset({ title: story.title, content: story.content });
+    setEditImageFile(null);
+    setRemoveImage(false);
+    setEditDialogOpen(true);
+  };
 
   return (
     <div className="space-y-4">
@@ -670,14 +715,53 @@ function NewsTab() {
                     <p className="text-xs text-muted-foreground line-clamp-1">{story.content}</p>
                   </div>
                 </div>
-                <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(story.id)} data-testid={`button-delete-news-${story.id}`}>
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                <div className="flex gap-1 flex-shrink-0">
+                  <Button size="icon" variant="ghost" onClick={() => openEditDialog(story)} data-testid={`button-edit-news-${story.id}`}>
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(story.id)} data-testid={`button-delete-news-${story.id}`}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) { setEditDialogOpen(false); setEditingStory(null); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit News Story</DialogTitle></DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit((d) => editMutation.mutate(d))} className="space-y-3">
+              <FormField control={editForm.control} name="title" render={({ field }) => (
+                <FormItem><FormLabel>Title</FormLabel><FormControl><Input data-testid="input-edit-news-title" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={editForm.control} name="content" render={({ field }) => (
+                <FormItem><FormLabel>Content</FormLabel><FormControl><Textarea className="min-h-[120px]" data-testid="input-edit-news-content" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Image</label>
+                {editingStory?.imageUrl && !removeImage && (
+                  <div className="flex items-center gap-3">
+                    <img src={editingStory.imageUrl} alt="" className="w-20 h-14 rounded-md object-cover" />
+                    <Button type="button" variant="outline" size="sm" onClick={() => setRemoveImage(true)} data-testid="button-remove-news-image">
+                      Remove Image
+                    </Button>
+                  </div>
+                )}
+                {removeImage && !editImageFile && (
+                  <p className="text-xs text-muted-foreground">Image will be removed on save.</p>
+                )}
+                <Input type="file" accept="image/*" onChange={(e) => { setEditImageFile(e.target.files?.[0] || null); if (e.target.files?.[0]) setRemoveImage(false); }} data-testid="input-edit-news-image" />
+              </div>
+              <Button type="submit" className="w-full" disabled={editMutation.isPending} data-testid="button-save-edit-news">
+                {editMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
