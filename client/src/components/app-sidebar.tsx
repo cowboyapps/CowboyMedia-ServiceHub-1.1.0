@@ -20,6 +20,13 @@ import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, User, Shield, LogOut, Mail, FileText } from "lucide-react";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 
+const categoryMap: Record<string, string> = {
+  "Services": "services",
+  "Alerts": "alerts",
+  "News": "news",
+  "Admin Portal": "admin-reports",
+};
+
 export function AppSidebar() {
   const { user, logout, isAdmin } = useAuth();
   const [location] = useLocation();
@@ -46,12 +53,28 @@ export function AppSidebar() {
   });
   const unreadReportCount = reportNotifData?.count ?? 0;
 
+  const { data: contentNotifData } = useQuery<Record<string, number>>({
+    queryKey: ["/api/content-notifications/counts"],
+    refetchInterval: 15000,
+    enabled: !!user,
+  });
+  const contentCounts = contentNotifData ?? {};
+
   const handleNavClick = () => {
     if (isMobile) {
       requestAnimationFrame(() => {
         setOpenMobile(false);
       });
     }
+  };
+
+  const getBadgeCount = (title: string): number => {
+    if (title === "Tickets") return unreadTicketCount;
+    if (title === "Messages") return unreadCount;
+    if (title === "Report/Request") return unreadReportCount;
+    const cat = categoryMap[title];
+    if (cat) return contentCounts[cat] ?? 0;
+    return 0;
   };
 
   const customerItems = [
@@ -82,31 +105,24 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {customerItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={location === item.url || (item.url !== "/" && location.startsWith(item.url))}>
-                    <Link href={item.url} onClick={handleNavClick} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span className="flex-1">{item.title}</span>
-                      {item.title === "Tickets" && unreadTicketCount > 0 && (
-                        <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-tickets">
-                          {unreadTicketCount}
-                        </Badge>
-                      )}
-                      {item.title === "Messages" && unreadCount > 0 && (
-                        <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-messages">
-                          {unreadCount}
-                        </Badge>
-                      )}
-                      {item.title === "Report/Request" && unreadReportCount > 0 && (
-                        <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-reports">
-                          {unreadReportCount}
-                        </Badge>
-                      )}
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {customerItems.map((item) => {
+                const badge = getBadgeCount(item.title);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={location === item.url || (item.url !== "/" && location.startsWith(item.url))}>
+                      <Link href={item.url} onClick={handleNavClick} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
+                        <item.icon className="w-4 h-4" />
+                        <span className="flex-1">{item.title}</span>
+                        {badge > 0 && (
+                          <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-unread-${item.title.toLowerCase().replace(/\//g, "-")}`}>
+                            {badge}
+                          </Badge>
+                        )}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -116,16 +132,24 @@ export function AppSidebar() {
             <SidebarGroupLabel>Administration</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {adminItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={location === item.url || location.startsWith(item.url)}>
-                      <Link href={item.url} onClick={handleNavClick} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                {adminItems.map((item) => {
+                  const badge = getBadgeCount(item.title);
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={location === item.url || location.startsWith(item.url)}>
+                        <Link href={item.url} onClick={handleNavClick} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
+                          <item.icon className="w-4 h-4" />
+                          <span className="flex-1">{item.title}</span>
+                          {badge > 0 && (
+                            <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-admin-reports">
+                              {badge}
+                            </Badge>
+                          )}
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

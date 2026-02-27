@@ -130,6 +130,16 @@ export const reportNotifications = pgTable("report_notifications", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const contentNotifications = pgTable("content_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  category: text("category").notNull(),
+  referenceId: varchar("reference_id"),
+  message: text("message").notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const uploadedFiles = pgTable("uploaded_files", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   filename: text("filename").notNull().unique(),

@@ -12,7 +12,7 @@ import {
   type QuickResponse, type InsertQuickResponse,
   type ReportRequest, type InsertReportRequest,
   type ReportNotification, type InsertReportNotification,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -91,6 +91,11 @@ export interface IStorage {
   createReportNotification(notification: InsertReportNotification): Promise<ReportNotification>;
   getUnreadReportNotificationCount(userId: string): Promise<number>;
   markReportNotificationsRead(userId: string): Promise<void>;
+
+  createContentNotification(userId: string, category: string, message: string, referenceId?: string): Promise<void>;
+  createContentNotificationBulk(userIds: string[], category: string, message: string, referenceId?: string): Promise<void>;
+  getUnreadContentNotificationCounts(userId: string): Promise<Record<string, number>>;
+  markContentNotificationsRead(userId: string, category: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -372,6 +377,32 @@ export class DatabaseStorage implements IStorage {
 
   async markReportNotificationsRead(userId: string): Promise<void> {
     await db.update(reportNotifications).set({ readAt: new Date() }).where(and(eq(reportNotifications.userId, userId), isNull(reportNotifications.readAt)));
+  }
+
+  async createContentNotification(userId: string, category: string, message: string, referenceId?: string): Promise<void> {
+    await db.insert(contentNotifications).values({ userId, category, message, referenceId: referenceId || null });
+  }
+
+  async createContentNotificationBulk(userIds: string[], category: string, message: string, referenceId?: string): Promise<void> {
+    if (userIds.length === 0) return;
+    const values = userIds.map(userId => ({ userId, category, message, referenceId: referenceId || null }));
+    await db.insert(contentNotifications).values(values);
+  }
+
+  async getUnreadContentNotificationCounts(userId: string): Promise<Record<string, number>> {
+    const results = await db.select({
+      category: contentNotifications.category,
+      count: sql<number>`count(*)`,
+    }).from(contentNotifications).where(and(eq(contentNotifications.userId, userId), isNull(contentNotifications.readAt))).groupBy(contentNotifications.category);
+    const counts: Record<string, number> = {};
+    for (const r of results) {
+      counts[r.category] = Number(r.count);
+    }
+    return counts;
+  }
+
+  async markContentNotificationsRead(userId: string, category: string): Promise<void> {
+    await db.update(contentNotifications).set({ readAt: new Date() }).where(and(eq(contentNotifications.userId, userId), eq(contentNotifications.category, category), isNull(contentNotifications.readAt)));
   }
 }
 

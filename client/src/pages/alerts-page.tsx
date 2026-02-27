@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { AlertTriangle, CheckCircle, Clock, ChevronRight } from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { ServiceAlert, Service } from "@shared/schema";
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -38,6 +40,12 @@ export default function AlertsPage() {
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
+
+  useEffect(() => {
+    apiRequest("POST", "/api/content-notifications/mark-read", { category: "alerts" })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .catch(() => {});
+  }, []);
 
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
   const activeAlerts = alerts?.filter((a) => a.status !== "resolved") || [];

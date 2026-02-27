@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Service } from "@shared/schema";
 import { Activity, CheckCircle, AlertTriangle, XCircle, Wrench } from "lucide-react";
 
@@ -34,6 +36,12 @@ export default function ServicesPage() {
   const { data: services, isLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
+
+  useEffect(() => {
+    apiRequest("POST", "/api/content-notifications/mark-read", { category: "services" })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .catch(() => {});
+  }, []);
 
   const operationalCount = services?.filter((s) => s.status === "operational").length || 0;
   const totalCount = services?.length || 0;

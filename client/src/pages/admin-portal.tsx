@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1091,6 +1091,12 @@ function ReportsRequestsTab() {
   const [updatingReport, setUpdatingReport] = useState<EnrichedReportRequest | null>(null);
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateNotes, setUpdateNotes] = useState("");
+
+  useEffect(() => {
+    apiRequest("POST", "/api/content-notifications/mark-read", { category: "admin-reports" })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .catch(() => {});
+  }, []);
 
   const { data: reports, isLoading } = useQuery<EnrichedReportRequest[]>({
     queryKey: ["/api/report-requests"],

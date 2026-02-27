@@ -1,15 +1,23 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { Newspaper, ChevronRight } from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { NewsStory } from "@shared/schema";
 
 export default function NewsPage() {
   const { data: news, isLoading } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
   });
+
+  useEffect(() => {
+    apiRequest("POST", "/api/content-notifications/mark-read", { category: "news" })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-6">

@@ -752,6 +752,7 @@ export async function registerRoutes(
       if (req.body.status && req.body.status !== existing.status) {
         const allUsers = await storage.getAllUsers();
         const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(existing.id));
+        const subIds = subscribedCustomers.map(u => u.id);
         for (const u of subscribedCustomers) {
           sendPushToUser(u.id, {
             title: "Service Status Update",
@@ -765,6 +766,7 @@ export async function registerRoutes(
             );
           }
         }
+        storage.createContentNotificationBulk(subIds, "services", `${updated.name}: ${updated.status}`, updated.id).catch(() => {});
       }
       res.json(updated);
     } catch (e: any) {
@@ -800,6 +802,8 @@ export async function registerRoutes(
           );
         }
       }
+      const subIds = subscribedCustomers.map(u => u.id);
+      storage.createContentNotificationBulk(subIds, "alerts", alert.title, alert.id).catch(() => {});
       res.json(alert);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -831,6 +835,8 @@ export async function registerRoutes(
             tag: `alert-${req.params.id}`,
           });
         }
+        const subIds = subscribedCustomers.map(u => u.id);
+        storage.createContentNotificationBulk(subIds, "alerts", `Update: ${alert.title}`, alert.id).catch(() => {});
       }
       res.json(update);
     } catch (e: any) {
@@ -888,6 +894,8 @@ export async function registerRoutes(
           `<h2>${story.title}</h2><p>${story.content}</p>`
         );
       }
+      const customerIds = allUsers.filter(u => u.role === "customer").map(u => u.id);
+      storage.createContentNotificationBulk(customerIds, "news", story.title, story.id).catch(() => {});
       res.json(story);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1129,6 +1137,8 @@ ${description ? `<p><strong>Details:</strong> ${description}</p>` : ""}`
           );
         }
       }
+      const adminIds = admins.map(a => a.id);
+      storage.createContentNotificationBulk(adminIds, "admin-reports", `${typeLabel}: ${title}`, rr.id).catch(() => {});
 
       res.json(rr);
     } catch (e: any) {
@@ -1278,6 +1288,26 @@ ${adminNotes ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>` : (updated.a
     try {
       await storage.markTicketNotificationsRead(req.session.userId!);
       res.json({ message: "Notifications marked as read" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/content-notifications/counts", requireAuth, async (req, res) => {
+    try {
+      const counts = await storage.getUnreadContentNotificationCounts(req.session.userId!);
+      res.json(counts);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/content-notifications/mark-read", requireAuth, async (req, res) => {
+    try {
+      const { category } = req.body;
+      if (!category) return res.status(400).json({ message: "Category is required" });
+      await storage.markContentNotificationsRead(req.session.userId!, category);
+      res.json({ message: "Marked as read" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

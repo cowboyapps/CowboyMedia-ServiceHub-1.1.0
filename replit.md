@@ -110,6 +110,8 @@ shared/
 - `PATCH /api/private-messages/:id/read` - Mark message as read
 - `GET /api/ticket-notifications/unread-count` - Get unread ticket notification count
 - `POST /api/ticket-notifications/mark-read` - Mark all ticket notifications as read
+- `GET /api/content-notifications/counts` - Get unread content notification counts by category
+- `POST /api/content-notifications/mark-read` - Mark content notifications as read for a category
 - `POST /api/push/subscribe` - Subscribe to VAPID push notifications
 - `POST /api/push/unsubscribe` - Unsubscribe from push notifications
 - `GET /api/push/vapid-key` - Get VAPID public key
