@@ -123,13 +123,15 @@ shared/
 
 ## Notification Triggers
 - **New ticket created**: VAPID Push + email + in-app badge to all admins
-- **Admin replies to ticket**: VAPID Push + email + in-app badge to customer
+- **Admin replies to ticket**: VAPID Push + email* + in-app badge to customer
 - **Customer replies to ticket**: VAPID Push + email + in-app badge to all admins
 - **Ticket closed**: VAPID Push + email + in-app badge to all admins
-- **New news story posted**: VAPID Push + email to all customers
-- **Service status changed**: VAPID Push + email to subscribed customers
-- **New service alert created**: VAPID Push + email to subscribed customers
+- **New news story posted**: VAPID Push + email* to all customers
+- **Service status changed**: VAPID Push + email* to subscribed customers
+- **New service alert created**: VAPID Push + email* to subscribed customers
 - **Alert updated**: VAPID Push to subscribed customers
+- *Customer emails marked with * are only sent if user has emailNotifications enabled (default: true)
+- Admin emails are always sent regardless of this setting
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string

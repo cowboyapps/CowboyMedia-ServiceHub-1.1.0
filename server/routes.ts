@@ -234,10 +234,11 @@ export async function registerRoutes(
 
   app.patch("/api/auth/profile", requireAuth, async (req, res) => {
     try {
-      const { subscribedServices, fullName } = req.body;
+      const { subscribedServices, fullName, emailNotifications } = req.body;
       const updateData: any = {};
       if (subscribedServices !== undefined) updateData.subscribedServices = subscribedServices;
       if (fullName !== undefined) updateData.fullName = fullName;
+      if (emailNotifications !== undefined) updateData.emailNotifications = emailNotifications;
       const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       const { password: _, ...safe } = updated;
@@ -385,7 +386,7 @@ export async function registerRoutes(
           type: "ticket_reply",
           message: `New reply on: ${ticket.subject}`,
         });
-        if (customer?.email) {
+        if (customer?.email && customer.emailNotifications !== false) {
           sendEmail(customer.email, `Support Ticket Received: ${ticket.subject}`,
             `<h2>We've Received Your Ticket</h2>
 <p>${autoReplyText}</p>
@@ -532,7 +533,7 @@ export async function registerRoutes(
       });
 
       const customer = await storage.getUser(ticket.customerId);
-      if (customer?.email) {
+      if (customer?.email && customer.emailNotifications !== false) {
         sendEmail(customer.email, `Your Ticket Has Been Claimed: ${ticket.subject}`,
           `<h2>Your Ticket Has Been Assigned</h2>
 <p>Great news! A team member has picked up your support ticket and will be assisting you shortly.</p>
@@ -644,7 +645,7 @@ export async function registerRoutes(
           message: `New reply on: ${ticket.subject}`,
         });
         const customer = await storage.getUser(ticket.customerId);
-        if (customer?.email) {
+        if (customer?.email && customer.emailNotifications !== false) {
           sendEmail(customer.email, `New Reply to Your Support Ticket: ${ticket.subject}`,
             `<h2>New Reply on Your Ticket</h2>
 <p>Our team has replied to your support ticket: <strong>${ticket.subject}</strong></p>
@@ -767,7 +768,7 @@ export async function registerRoutes(
             url: "/services",
             tag: `service-${updated.id}`,
           });
-          if (u.email) {
+          if (u.email && u.emailNotifications !== false) {
             sendEmail(u.email, `Service Status Update: ${updated.name}`,
               `<h2>Service Status Update</h2>
 <p>The status of a service you are subscribed to has been updated.</p>
@@ -807,7 +808,7 @@ export async function registerRoutes(
           url: `/alerts/${alert.id}`,
           tag: `alert-${alert.id}`,
         });
-        if (u.email) {
+        if (u.email && u.emailNotifications !== false) {
           sendEmail(u.email, `New Service Alert: ${alert.title}`,
             `<h2>New Service Alert</h2>
 <p>An alert has been issued for a service you are subscribed to.</p>
@@ -915,7 +916,7 @@ export async function registerRoutes(
           url: "/service-updates",
           tag: `service-update-${update.id}`,
         });
-        if (u.email) {
+        if (u.email && u.emailNotifications !== false) {
           sendEmail(u.email, `Service Update: ${serviceName} - ${title}`,
             `<h2>Service Update: ${serviceName}</h2>
 <p>There is a new update for a service you are subscribed to.</p>
@@ -1046,7 +1047,7 @@ export async function registerRoutes(
         tag: `pm-${message.id}`,
       });
 
-      if (recipient.email && sender) {
+      if (recipient.email && recipient.emailNotifications !== false && sender) {
         sendEmail(recipient.email, `Private Message from ${sender.fullName}`,
           `<h2>New Private Message</h2>
 <p>You have received a message from <strong>${sender.fullName}</strong>.</p>
@@ -1176,7 +1177,7 @@ export async function registerRoutes(
       const service = serviceId ? await storage.getService(serviceId) : null;
       const typeLabel = type === "content_issue" ? "Content Issue Report" : "Movie/Series Request";
 
-      if (user.email) {
+      if (user.email && user.emailNotifications !== false) {
         sendEmail(user.email, `${typeLabel} Received`,
           `<h2>Your ${typeLabel} Has Been Received</h2>
 <p>Thank you for your submission. We have received and logged the following:</p>
@@ -1249,7 +1250,7 @@ ${description ? `<blockquote>${description}</blockquote>` : ""}`
         });
 
         const customer = await storage.getUser(existing.customerId);
-        if (customer?.email) {
+        if (customer?.email && customer.emailNotifications !== false) {
           sendEmail(customer.email, `${typeLabel} Update: ${existing.title}`,
             `<h2>${typeLabel} Status Update</h2>
 <p>There has been an update to your submission.</p>

@@ -37,6 +37,19 @@ export default function ProfilePage() {
     user?.subscribedServices || []
   );
 
+  const emailNotifMutation = useMutation({
+    mutationFn: async (emailNotifications: boolean) => {
+      await apiRequest("PATCH", "/api/auth/profile", { emailNotifications });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Email notification preference saved" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    },
+  });
+
   const fullNameMutation = useMutation({
     mutationFn: async (newFullName: string) => {
       await apiRequest("PATCH", "/api/auth/profile", { fullName: newFullName });
@@ -240,15 +253,15 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {pushSupported && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              {pushEnabled ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
-              Push Notifications
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="w-4 h-4" />
+            Notifications
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {pushSupported && (
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium">Enable Push Notifications</p>
@@ -261,9 +274,21 @@ export default function ProfilePage() {
                 data-testid="switch-push-notifications"
               />
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Receive Important Email Alerts</p>
+              <p className="text-xs text-muted-foreground">Get email notifications for ticket updates, service alerts, and messages</p>
+            </div>
+            <Switch
+              checked={user?.emailNotifications !== false}
+              onCheckedChange={(checked) => emailNotifMutation.mutate(checked)}
+              disabled={emailNotifMutation.isPending}
+              data-testid="switch-email-notifications"
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">
