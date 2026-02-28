@@ -1158,12 +1158,14 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/report-requests", requireAuth, async (req, res) => {
+  app.post("/api/report-requests", requireAuth, upload.single("image"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const { type, serviceId, title, description } = req.body;
       if (!type || !title) return res.status(400).json({ message: "Type and title are required" });
+
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
 
       const rr = await storage.createReportRequest({
         customerId: user.id,
@@ -1171,11 +1173,17 @@ export async function registerRoutes(
         serviceId: serviceId || null,
         title,
         description: description || null,
+        imageUrl: imageUrl || null,
         status: "pending",
       });
 
       const service = serviceId ? await storage.getService(serviceId) : null;
-      const typeLabel = type === "content_issue" ? "Content Issue Report" : "Movie/Series Request";
+      const typeLabels: Record<string, string> = {
+        content_issue: "Content Issue Report",
+        movie_request: "Movie/Series Request",
+        app_issue: "App Issue / Feature Request",
+      };
+      const typeLabel = typeLabels[type] || type;
 
       if (user.email && user.emailNotifications !== false) {
         sendEmail(user.email, `${typeLabel} Received`,
@@ -1233,7 +1241,12 @@ ${description ? `<blockquote>${description}</blockquote>` : ""}`
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       if (status && status !== existing.status) {
-        const typeLabel = existing.type === "content_issue" ? "Content Issue Report" : "Movie/Series Request";
+        const typeLabelsMap: Record<string, string> = {
+          content_issue: "Content Issue Report",
+          movie_request: "Movie/Series Request",
+          app_issue: "App Issue / Feature Request",
+        };
+        const typeLabel = typeLabelsMap[existing.type] || existing.type;
         const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
         sendPushToUser(existing.customerId, {

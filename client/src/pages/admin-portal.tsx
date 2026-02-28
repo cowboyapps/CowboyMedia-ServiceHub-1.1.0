@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, Send, Clock, Zap, FileText, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
+import { ImageLightbox } from "@/components/image-lightbox";
 import type { User, Service, ServiceAlert, NewsStory, QuickResponse, ReportRequest, ServiceUpdate } from "@shared/schema";
 
 const createServiceSchema = z.object({
@@ -1168,13 +1169,22 @@ function ReportsRequestsTab() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant={rr.type === "content_issue" ? "destructive" : "default"} className="text-xs">
-                        {rr.type === "content_issue" ? "Content Issue" : "Movie/Series Request"}
+                      <Badge variant={rr.type === "content_issue" ? "destructive" : rr.type === "app_issue" ? "outline" : "default"} className="text-xs">
+                        {rr.type === "content_issue" ? "Content Issue" : rr.type === "app_issue" ? "App Issue / Feature Request" : "Movie/Series Request"}
                       </Badge>
                       {statusBadge(rr.status)}
                     </div>
                     <p className="font-medium text-sm mt-2" data-testid={`text-report-title-${rr.id}`}>{rr.title}</p>
                     {rr.description && <p className="text-xs text-muted-foreground mt-1">{rr.description}</p>}
+                    {rr.imageUrl && (
+                      <div className="mt-2">
+                        {rr.imageUrl.match(/\.(mp4|webm|mov|avi)$/i) ? (
+                          <video src={rr.imageUrl} controls className="max-h-32 rounded-md" data-testid={`video-attachment-${rr.id}`} />
+                        ) : (
+                          <ImageLightbox src={rr.imageUrl} alt="Attachment" className="max-h-32 rounded-md" />
+                        )}
+                      </div>
+                    )}
                     {rr.adminNotes && (
                       <div className="mt-2 p-2 rounded-md bg-accent/50 border">
                         <p className="text-xs font-medium text-muted-foreground">Admin Notes:</p>

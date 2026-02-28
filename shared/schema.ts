@@ -117,6 +117,7 @@ export const reportRequests = pgTable("report_requests", {
   serviceId: varchar("service_id"),
   title: text("title").notNull(),
   description: text("description"),
+  imageUrl: text("image_url"),
   status: text("status").notNull().default("pending"),
   adminNotes: text("admin_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
