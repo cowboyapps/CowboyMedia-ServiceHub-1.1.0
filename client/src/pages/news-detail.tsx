@@ -47,7 +47,7 @@ export default function NewsDetail() {
         <ClickableImage
           src={story.imageUrl}
           alt={story.title}
-          className="w-full h-64 object-cover rounded-md"
+          className="w-full h-64 object-contain rounded-md"
         />
       )}
 
