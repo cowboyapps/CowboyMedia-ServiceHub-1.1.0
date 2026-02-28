@@ -267,6 +267,30 @@ function WelcomeDialog() {
 function AppContent() {
   const { user, isLoading } = useAuth();
 
+  useEffect(() => {
+    if (!user) return;
+    const reRegisterPush = async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          const subJson = subscription.toJSON();
+          await fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              endpoint: subJson.endpoint,
+              keys: { p256dh: subJson.keys?.p256dh, auth: subJson.keys?.auth },
+            }),
+          });
+        }
+      } catch {}
+    };
+    reRegisterPush();
+  }, [user]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
