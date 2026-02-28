@@ -64,50 +64,58 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold" data-testid="text-services-count">{servicesLoading ? "-" : displayServices.length}</p>
-              <p className="text-xs text-muted-foreground">Services</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="w-10 h-10 rounded-md bg-destructive/10 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold" data-testid="text-alerts-count">{alertsLoading ? "-" : activeAlerts.length}</p>
-              <p className="text-xs text-muted-foreground">Active Alerts</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="w-10 h-10 rounded-md bg-chart-5/10 flex items-center justify-center">
-              <Ticket className="w-5 h-5 text-chart-5" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold" data-testid="text-tickets-count">{ticketsLoading ? "-" : myTickets.length}</p>
-              <p className="text-xs text-muted-foreground">Open Tickets</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="w-10 h-10 rounded-md bg-chart-2/10 flex items-center justify-center">
-              <Newspaper className="w-5 h-5 text-chart-2" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold" data-testid="text-news-count">{newsLoading ? "-" : (news?.length || 0)}</p>
-              <p className="text-xs text-muted-foreground">News Stories</p>
-            </div>
-          </CardContent>
-        </Card>
+        <Link href="/services" data-testid="link-stat-services">
+          <Card className="cursor-pointer hover-elevate transition-shadow">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
+                <Activity className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-services-count">{servicesLoading ? "-" : displayServices.length}</p>
+                <p className="text-xs text-muted-foreground">Services</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/alerts" data-testid="link-stat-alerts">
+          <Card className="cursor-pointer hover-elevate transition-shadow">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="w-10 h-10 rounded-md bg-destructive/10 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-alerts-count">{alertsLoading ? "-" : activeAlerts.length}</p>
+                <p className="text-xs text-muted-foreground">Active Alerts</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/tickets" data-testid="link-stat-tickets">
+          <Card className="cursor-pointer hover-elevate transition-shadow">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="w-10 h-10 rounded-md bg-chart-5/10 flex items-center justify-center">
+                <Ticket className="w-5 h-5 text-chart-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-tickets-count">{ticketsLoading ? "-" : myTickets.length}</p>
+                <p className="text-xs text-muted-foreground">Open Tickets</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/news" data-testid="link-stat-news">
+          <Card className="cursor-pointer hover-elevate transition-shadow">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="w-10 h-10 rounded-md bg-chart-2/10 flex items-center justify-center">
+                <Newspaper className="w-5 h-5 text-chart-2" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-news-count">{newsLoading ? "-" : (news?.length || 0)}</p>
+                <p className="text-xs text-muted-foreground">News Stories</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
