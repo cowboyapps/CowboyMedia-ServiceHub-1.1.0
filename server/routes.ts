@@ -961,7 +961,7 @@ export async function registerRoutes(
           tag: `news-${story.id}`,
         });
       }
-      const customerEmails = allUsers.filter(u => u.role === "customer" && u.email).map(u => u.email);
+      const customerEmails = allUsers.filter(u => u.role === "customer" && u.email && u.emailNotifications !== false).map(u => u.email);
       if (customerEmails.length > 0) {
         sendEmailToMultiple(customerEmails, `News: ${story.title}`,
           `<h2>${story.title}</h2><p>${story.content}</p>`
