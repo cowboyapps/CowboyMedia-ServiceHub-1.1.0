@@ -14,7 +14,7 @@ import {
   type ReportNotification, type InsertReportNotification,
   type ServiceUpdate, type InsertServiceUpdate,
   type EmailTemplate,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, emailTemplates,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -102,6 +102,8 @@ export interface IStorage {
   getAllServiceUpdates(): Promise<ServiceUpdate[]>;
   createServiceUpdate(update: InsertServiceUpdate): Promise<ServiceUpdate>;
   deleteServiceUpdate(id: string): Promise<void>;
+  hideServiceUpdate(userId: string, serviceUpdateId: string): Promise<void>;
+  getHiddenServiceUpdateIds(userId: string): Promise<string[]>;
 
   getAllEmailTemplates(): Promise<EmailTemplate[]>;
   getEmailTemplateByKey(key: string): Promise<EmailTemplate | undefined>;
@@ -426,7 +428,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteServiceUpdate(id: string): Promise<void> {
+    await db.delete(hiddenServiceUpdates).where(eq(hiddenServiceUpdates.serviceUpdateId, id));
     await db.delete(serviceUpdates).where(eq(serviceUpdates.id, id));
+  }
+
+  async hideServiceUpdate(userId: string, serviceUpdateId: string): Promise<void> {
+    await db.insert(hiddenServiceUpdates).values({ userId, serviceUpdateId }).onConflictDoNothing();
+  }
+
+  async getHiddenServiceUpdateIds(userId: string): Promise<string[]> {
+    const rows = await db.select({ serviceUpdateId: hiddenServiceUpdates.serviceUpdateId })
+      .from(hiddenServiceUpdates)
+      .where(eq(hiddenServiceUpdates.userId, userId));
+    return rows.map(r => r.serviceUpdateId);
   }
 
   async getAllEmailTemplates(): Promise<EmailTemplate[]> {

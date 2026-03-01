@@ -910,6 +910,12 @@ export async function registerRoutes(
   app.get("/api/service-updates", requireAuth, async (req, res) => {
     try {
       const updates = await storage.getAllServiceUpdates();
+      const user = await storage.getUser(req.session.userId!);
+      if (user && user.role !== "admin") {
+        const hiddenIds = await storage.getHiddenServiceUpdateIds(user.id);
+        const filtered = updates.filter(u => !hiddenIds.includes(u.id));
+        return res.json(filtered);
+      }
       res.json(updates);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -957,8 +963,13 @@ export async function registerRoutes(
 
   app.delete("/api/service-updates/:id", requireAuth, async (req, res) => {
     try {
-      await storage.deleteServiceUpdate(req.params.id);
-      res.json({ message: "Service update deleted" });
+      const user = await storage.getUser(req.session.userId!);
+      if (user && user.role === "admin") {
+        await storage.deleteServiceUpdate(req.params.id);
+        return res.json({ message: "Service update deleted" });
+      }
+      await storage.hideServiceUpdate(req.session.userId!, req.params.id);
+      res.json({ message: "Service update hidden" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Trash2, Bell, Clock, ShieldAlert } from "lucide-react";
+import { Trash2, Bell, Clock, ShieldAlert, X } from "lucide-react";
 import type { ServiceUpdate, Service } from "@shared/schema";
 
 export default function ServiceUpdatesPage() {
@@ -39,7 +39,7 @@ export default function ServiceUpdatesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/service-updates"] });
-      toast({ title: "Service update deleted" });
+      toast({ title: isAdmin ? "Service update deleted" : "Service update dismissed" });
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -142,9 +142,10 @@ export default function ServiceUpdatesPage() {
                   className="shrink-0 text-muted-foreground hover:text-destructive"
                   onClick={() => deleteMutation.mutate(update.id)}
                   disabled={deleteMutation.isPending}
+                  title={isAdmin ? "Delete update" : "Dismiss update"}
                   data-testid={`button-delete-update-${update.id}`}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {isAdmin ? <Trash2 className="w-4 h-4" /> : <X className="w-4 h-4" />}
                 </Button>
               </div>
             </CardHeader>

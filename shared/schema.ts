@@ -154,6 +154,12 @@ export const serviceUpdates = pgTable("service_updates", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const hiddenServiceUpdates = pgTable("hidden_service_updates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  serviceUpdateId: varchar("service_update_id").notNull(),
+});
+
 export const emailTemplates = pgTable("email_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   templateKey: varchar("template_key").notNull().unique(),
