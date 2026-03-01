@@ -3,7 +3,8 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
-import { seedEmailTemplates } from "./email";
+import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
+import { storage } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -82,6 +83,53 @@ app.use((req, res, next) => {
   } catch (e) {
     console.error("Email template seed error:", e);
   }
+
+  async function checkSetupReminders() {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+      for (const user of allUsers) {
+        if (user.role !== "customer") continue;
+        if (user.setupReminderEmailSent) continue;
+        if (!user.createdAt || new Date(user.createdAt) > twoDaysAgo) continue;
+
+        const pushSubs = await storage.getPushSubscriptionsByUser(user.id);
+        const hasPush = pushSubs.length > 0;
+        const hasServices = (user.subscribedServices?.length ?? 0) > 0;
+
+        if (hasPush && hasServices) {
+          await storage.updateUser(user.id, { setupReminderEmailSent: true });
+          continue;
+        }
+
+        const missingItems: string[] = [];
+        if (!hasPush) {
+          missingItems.push("<p><strong>Enable push notifications</strong> — Without push notifications, you won't receive instant alerts when service issues arise or when your support tickets are updated.</p>");
+        }
+        if (!hasServices) {
+          missingItems.push("<p><strong>Select your services</strong> — Without selecting the services relevant to you, you won't be notified when new service issues arise or be able to fully take advantage of the many features the app provides regarding your service.</p>");
+        }
+
+        const rendered = await renderTemplate("customer_setup_reminder", {
+          customer_name: user.fullName,
+          missing_items: missingItems.join("\n"),
+        });
+
+        if (rendered && user.email) {
+          await sendEmail(user.email, rendered.subject, rendered.body);
+          log(`Setup reminder email sent to ${user.email}`);
+        }
+
+        await storage.updateUser(user.id, { setupReminderEmailSent: true });
+      }
+    } catch (err) {
+      console.error("Setup reminder check error:", err);
+    }
+  }
+
+  setTimeout(() => checkSetupReminders(), 10000);
+  setInterval(() => checkSetupReminders(), 60 * 60 * 1000);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

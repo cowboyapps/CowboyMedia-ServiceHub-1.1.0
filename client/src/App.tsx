@@ -84,11 +84,12 @@ function SetupReminderDialog() {
   const [showReminder, setShowReminder] = useState(false);
   const [missingPush, setMissingPush] = useState(false);
   const [missingServices, setMissingServices] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
 
   useEffect(() => {
-    const shouldCheck = sessionStorage.getItem("checkSetup");
-    if (shouldCheck !== "true" || !user || user.role === "admin") return;
-    sessionStorage.removeItem("checkSetup");
+    if (!user || user.role === "admin") return;
+    if (user.setupReminderDismissed) return;
+    if (sessionStorage.getItem("setupReminderShown") === "true") return;
 
     const checkSetup = async () => {
       const { isSubscribedToPush } = await import("@/lib/push-notifications");
@@ -99,10 +100,23 @@ function SetupReminderDialog() {
         setMissingPush(!hasPush);
         setMissingServices(!hasServices);
         setShowReminder(true);
+        sessionStorage.setItem("setupReminderShown", "true");
       }
     };
     checkSetup();
   }, [user]);
+
+  const handleDismissPermanently = async () => {
+    setDismissing(true);
+    try {
+      const { apiRequest } = await import("@/lib/queryClient");
+      await apiRequest("PATCH", "/api/auth/profile", { setupReminderDismissed: true });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    } catch {} finally {
+      setDismissing(false);
+      setShowReminder(false);
+    }
+  };
 
   if (!showReminder) return null;
 
@@ -146,6 +160,15 @@ function SetupReminderDialog() {
           </Button>
           <Button variant="outline" className="w-full" data-testid="button-reminder-dismiss" onClick={() => setShowReminder(false)}>
             Remind Me Later
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full text-muted-foreground"
+            disabled={dismissing}
+            onClick={handleDismissPermanently}
+            data-testid="button-reminder-dont-remind"
+          >
+            {dismissing ? "Saving..." : "Don't Remind Me Again"}
           </Button>
         </DialogFooter>
       </DialogContent>

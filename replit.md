@@ -28,6 +28,7 @@ A comprehensive service status monitoring and support platform built as a Progre
 - Admin portal: user/service/alert/news/private-message management
 - Private messaging: admin can send private messages to customers (push + email + in-app popup)
 - Customer message center with unread badge in sidebar
+- Setup reminder system: in-app dialog on every app open + one-time email 2 days after registration if push/services not configured
 - Mobile-responsive design with safe area support
 
 ## Default Credentials

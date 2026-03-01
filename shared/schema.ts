@@ -13,6 +13,9 @@ export const users = pgTable("users", {
   subscribedServices: text("subscribed_services").array().default(sql`'{}'::text[]`),
   theme: text("theme").notNull().default("light"),
   emailNotifications: boolean("email_notifications").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  setupReminderDismissed: boolean("setup_reminder_dismissed").default(false).notNull(),
+  setupReminderEmailSent: boolean("setup_reminder_email_sent").default(false).notNull(),
 });
 
 export const services = pgTable("services", {

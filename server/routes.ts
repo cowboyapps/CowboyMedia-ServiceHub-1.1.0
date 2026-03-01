@@ -254,11 +254,12 @@ export async function registerRoutes(
 
   app.patch("/api/auth/profile", requireAuth, async (req, res) => {
     try {
-      const { subscribedServices, fullName, emailNotifications } = req.body;
+      const { subscribedServices, fullName, emailNotifications, setupReminderDismissed } = req.body;
       const updateData: any = {};
       if (subscribedServices !== undefined) updateData.subscribedServices = subscribedServices;
       if (fullName !== undefined) updateData.fullName = fullName;
       if (emailNotifications !== undefined) updateData.emailNotifications = emailNotifications;
+      if (setupReminderDismissed !== undefined) updateData.setupReminderDismissed = setupReminderDismissed;
       const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       const { password: _, ...safe } = updated;

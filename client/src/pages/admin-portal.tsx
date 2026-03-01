@@ -304,6 +304,16 @@ function UsersTab() {
                 </div>
               </div>
 
+              {detailUser.createdAt && (
+                <div className="flex items-center gap-2 text-sm border rounded-md px-3 py-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Registered:</span>
+                  <span className="font-medium" data-testid="text-user-registered-date">
+                    {format(new Date(detailUser.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between border rounded-md px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Email Notifications</p>
