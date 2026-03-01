@@ -978,6 +978,10 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.session.userId!);
       if (user && user.role === "admin") {
+        if (req.body?.hideOnly) {
+          await storage.hideServiceUpdate(req.session.userId!, req.params.id);
+          return res.json({ message: "Service update hidden for you" });
+        }
         await storage.deleteServiceUpdate(req.params.id);
         return res.json({ message: "Service update deleted" });
       }
