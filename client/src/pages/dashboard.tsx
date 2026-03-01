@@ -5,8 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import { Activity, AlertTriangle, CheckCircle, Clock, Newspaper, Ticket } from "lucide-react";
-import type { Service, ServiceAlert, NewsStory, Ticket as TicketType } from "@shared/schema";
+import { Activity, AlertTriangle, Bell, CheckCircle, Clock, Newspaper, Ticket } from "lucide-react";
+import type { Service, ServiceAlert, NewsStory, Ticket as TicketType, ServiceUpdate } from "@shared/schema";
 import { format } from "date-fns";
 
 function StatusIndicator({ status }: { status: string }) {
@@ -47,6 +47,10 @@ export default function Dashboard() {
     queryKey: ["/api/tickets"],
   });
 
+  const { data: serviceUpdates, isLoading: serviceUpdatesLoading } = useQuery<ServiceUpdate[]>({
+    queryKey: ["/api/service-updates"],
+  });
+
   const activeAlerts = alerts?.filter((a) => a.status !== "resolved") || [];
   const subscribedServices = services?.filter((s) =>
     user?.subscribedServices?.includes(s.id)
@@ -63,7 +67,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground text-sm mt-1">Here's an overview of your services and recent activity</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Link href="/services" data-testid="link-stat-services">
           <Card className="cursor-pointer hover-elevate transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
@@ -112,6 +116,19 @@ export default function Dashboard() {
               <div>
                 <p className="text-2xl font-bold" data-testid="text-news-count">{newsLoading ? "-" : (news?.length || 0)}</p>
                 <p className="text-xs text-muted-foreground">News Stories</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/service-updates" data-testid="link-stat-service-updates">
+          <Card className="cursor-pointer hover-elevate transition-shadow">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="w-10 h-10 rounded-md bg-chart-3/10 flex items-center justify-center">
+                <Bell className="w-5 h-5 text-chart-3" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-service-updates-count">{serviceUpdatesLoading ? "-" : (serviceUpdates?.length || 0)}</p>
+                <p className="text-xs text-muted-foreground">Service Updates</p>
               </div>
             </CardContent>
           </Card>
