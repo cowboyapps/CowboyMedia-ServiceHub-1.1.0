@@ -138,13 +138,14 @@ function replaceVariables(template: string, variables: Record<string, string>): 
   });
 }
 
-export async function renderTemplate(templateKey: string, variables: Record<string, string>): Promise<{ subject: string; body: string } | null> {
+export async function renderTemplate(templateKey: string, variables: Record<string, string>): Promise<{ subject: string; body: string; enabled: boolean } | null> {
   try {
     const template = await storage.getEmailTemplateByKey(templateKey);
     if (!template) return null;
     return {
       subject: replaceVariables(template.subject, variables),
       body: replaceVariables(template.body, variables),
+      enabled: template.enabled !== false,
     };
   } catch {
     return null;

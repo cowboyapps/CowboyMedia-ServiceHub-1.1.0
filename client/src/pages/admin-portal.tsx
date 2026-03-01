@@ -73,10 +73,16 @@ function UsersTab() {
   const [editRole, setEditRole] = useState("");
   const [editEmailNotifications, setEditEmailNotifications] = useState(true);
   const [editSubscribedServices, setEditSubscribedServices] = useState<string[]>([]);
+  const [newUserIds, setNewUserIds] = useState<string[]>([]);
 
   useEffect(() => {
-    apiRequest("POST", "/api/content-notifications/mark-read", { category: "admin-users" })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+    apiRequest("GET", "/api/content-notifications/unread-references/admin-users")
+      .then(async (res) => {
+        const ids = await res.json();
+        setNewUserIds(ids);
+        await apiRequest("POST", "/api/content-notifications/mark-read", { category: "admin-users" });
+        queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
+      })
       .catch(() => {});
   }, []);
 
@@ -455,7 +461,12 @@ function UsersTab() {
                   onClick={() => openDetailDialog(u)}
                   data-testid={`row-user-${u.id}`}
                 >
-                  <TableCell className="font-medium text-sm">{u.fullName}</TableCell>
+                  <TableCell className="font-medium text-sm">
+                    <span className="flex items-center gap-1.5">
+                      {newUserIds.includes(u.id) && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" data-testid={`dot-new-user-${u.id}`} />}
+                      {u.fullName}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-sm">{u.username}</TableCell>
                   <TableCell className="text-sm">{u.email}</TableCell>
                   <TableCell>
@@ -1803,6 +1814,19 @@ function EmailTemplatesTab() {
     },
   });
 
+  const toggleEnabledMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      await apiRequest("PATCH", `/api/admin/email-templates/${id}`, { enabled });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/email-templates"] });
+      toast({ title: "Template updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update template", variant: "destructive" });
+    },
+  });
+
   const resetMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("POST", `/api/admin/email-templates/${id}/reset`);
@@ -1858,7 +1882,15 @@ function EmailTemplatesTab() {
                   <p className="text-xs text-muted-foreground mt-0.5">{template.description}</p>
                   <p className="text-xs text-muted-foreground mt-1 font-mono truncate">Subject: {template.subject}</p>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{template.enabled !== false ? "On" : "Off"}</span>
+                    <Switch
+                      checked={template.enabled !== false}
+                      onCheckedChange={(checked) => toggleEnabledMutation.mutate({ id: template.id, enabled: checked })}
+                      data-testid={`switch-template-enabled-${template.templateKey}`}
+                    />
+                  </div>
                   <Button
                     size="sm"
                     variant="outline"

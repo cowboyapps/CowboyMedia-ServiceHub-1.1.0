@@ -23,6 +23,7 @@ async function sendTemplatedEmail(
   variables: Record<string, string>,
 ): Promise<void> {
   const rendered = await renderTemplate(templateKey, variables);
+  if (rendered && !rendered.enabled) return;
   const fallback = !rendered ? getDefaultTemplate(templateKey) : null;
   const tpl = rendered || fallback;
   if (!tpl) return;
@@ -1368,10 +1369,11 @@ export async function registerRoutes(
 
   app.patch("/api/admin/email-templates/:id", requireAdmin, async (req, res) => {
     try {
-      const { subject, body } = req.body;
+      const { subject, body, enabled } = req.body;
       const updateData: any = {};
       if (subject !== undefined) updateData.subject = subject;
       if (body !== undefined) updateData.body = body;
+      if (enabled !== undefined) updateData.enabled = enabled;
       const updated = await storage.updateEmailTemplate(req.params.id, updateData);
       if (!updated) return res.status(404).json({ message: "Template not found" });
       res.json(updated);
@@ -1472,6 +1474,15 @@ export async function registerRoutes(
     try {
       const counts = await storage.getUnreadContentNotificationCounts(req.session.userId!);
       res.json(counts);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/content-notifications/unread-references/:category", requireAuth, async (req, res) => {
+    try {
+      const referenceIds = await storage.getUnreadContentNotificationReferenceIds(req.session.userId!, req.params.category);
+      res.json(referenceIds);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

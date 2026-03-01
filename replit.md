@@ -121,7 +121,8 @@ shared/
 - `POST /api/push/unsubscribe` - Unsubscribe from push notifications
 - `GET /api/push/vapid-key` - Get VAPID public key
 - `GET /api/admin/email-templates` - List all email templates (admin only)
-- `PATCH /api/admin/email-templates/:id` - Update template subject/body (admin only)
+- `PATCH /api/admin/email-templates/:id` - Update template subject/body/enabled (admin only)
+- `GET /api/content-notifications/unread-references/:category` - Get unread notification reference IDs for a category
 - `POST /api/admin/email-templates/:id/reset` - Reset template to system default (admin only)
 - Admin routes under `/api/admin/...`
 

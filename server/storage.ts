@@ -97,6 +97,7 @@ export interface IStorage {
   createContentNotification(userId: string, category: string, message: string, referenceId?: string): Promise<void>;
   createContentNotificationBulk(userIds: string[], category: string, message: string, referenceId?: string): Promise<void>;
   getUnreadContentNotificationCounts(userId: string): Promise<Record<string, number>>;
+  getUnreadContentNotificationReferenceIds(userId: string, category: string): Promise<string[]>;
   markContentNotificationsRead(userId: string, category: string): Promise<void>;
 
   getAllServiceUpdates(): Promise<ServiceUpdate[]>;
@@ -412,6 +413,17 @@ export class DatabaseStorage implements IStorage {
       counts[r.category] = Number(r.count);
     }
     return counts;
+  }
+
+  async getUnreadContentNotificationReferenceIds(userId: string, category: string): Promise<string[]> {
+    const results = await db.select({ referenceId: contentNotifications.referenceId })
+      .from(contentNotifications)
+      .where(and(
+        eq(contentNotifications.userId, userId),
+        eq(contentNotifications.category, category),
+        isNull(contentNotifications.readAt),
+      ));
+    return results.map(r => r.referenceId).filter(Boolean) as string[];
   }
 
   async markContentNotificationsRead(userId: string, category: string): Promise<void> {
