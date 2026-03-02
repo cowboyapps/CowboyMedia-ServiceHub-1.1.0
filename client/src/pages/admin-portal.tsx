@@ -2493,7 +2493,7 @@ interface ChatThread {
 }
 
 function AdminChatTab() {
-  const { user } = useAuth();
+  const { user, isMasterAdmin } = useAuth();
   const { toast } = useToast();
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -2547,6 +2547,17 @@ function AdminChatTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
       setMessageText("");
       setChatFile(null);
+    },
+  });
+
+  const deleteThreadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      await apiRequest("DELETE", `/api/admin/chat/threads/${threadId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
+      setActiveThreadId(null);
+      toast({ title: "Thread deleted" });
     },
   });
 
@@ -2606,9 +2617,27 @@ function AdminChatTab() {
       <div className="flex-1 flex flex-col">
         {activeThread ? (
           <>
-            <div className="p-3 border-b">
-              <p className="font-semibold text-sm">{getThreadDisplayName(activeThread)}</p>
-              <p className="text-xs text-muted-foreground">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
+            <div className="p-3 border-b flex justify-between items-start">
+              <div>
+                <p className="font-semibold text-sm">{getThreadDisplayName(activeThread)}</p>
+                <p className="text-xs text-muted-foreground">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
+              </div>
+              {isMasterAdmin && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive h-8 w-8"
+                  onClick={() => {
+                    if (confirm("Delete this thread and all its messages?")) {
+                      deleteThreadMutation.mutate(activeThread.id);
+                    }
+                  }}
+                  disabled={deleteThreadMutation.isPending}
+                  data-testid="button-delete-thread"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
             </div>
             <ScrollArea className="flex-1 p-3">
               <div className="space-y-3">

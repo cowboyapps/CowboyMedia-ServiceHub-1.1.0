@@ -1818,6 +1818,15 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/admin/chat/threads/:id", requireMasterAdmin, async (req, res) => {
+    try {
+      await storage.deleteAdminChatThread(req.params.id);
+      res.json({ message: "Thread deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/private-messages", requireAuth, async (req, res) => {
     try {
       const messages = await storage.getPrivateMessagesByUser(req.session.userId!);

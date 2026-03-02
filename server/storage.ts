@@ -131,6 +131,7 @@ export interface IStorage {
   createAdminChatThread(thread: InsertAdminChatThread): Promise<AdminChatThread>;
   getAdminChatThreadsForUser(userId: string): Promise<AdminChatThread[]>;
   getAdminChatThread(id: string): Promise<AdminChatThread | undefined>;
+  deleteAdminChatThread(id: string): Promise<void>;
   getAdminChatMessages(threadId: string): Promise<AdminChatMessage[]>;
   createAdminChatMessage(msg: InsertAdminChatMessage): Promise<AdminChatMessage>;
   addAdminChatParticipant(participant: InsertAdminChatParticipant): Promise<AdminChatParticipant>;
@@ -568,6 +569,12 @@ export class DatabaseStorage implements IStorage {
   async getAdminChatThread(id: string): Promise<AdminChatThread | undefined> {
     const [thread] = await db.select().from(adminChatThreads).where(eq(adminChatThreads.id, id));
     return thread;
+  }
+
+  async deleteAdminChatThread(id: string): Promise<void> {
+    await db.delete(adminChatMessages).where(eq(adminChatMessages.threadId, id));
+    await db.delete(adminChatParticipants).where(eq(adminChatParticipants.threadId, id));
+    await db.delete(adminChatThreads).where(eq(adminChatThreads.id, id));
   }
 
   async getAdminChatMessages(threadId: string): Promise<AdminChatMessage[]> {
