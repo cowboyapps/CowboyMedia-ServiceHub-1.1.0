@@ -2509,6 +2509,11 @@ function AdminChatTab() {
 
   const { data: adminUsers = [] } = useQuery<User[]>({ queryKey: ["/api/admin/chat/users"] });
 
+  const { data: unreadThreadIds = [] } = useQuery<string[]>({
+    queryKey: ["/api/admin/chat/unread-threads"],
+    refetchInterval: 10000,
+  });
+
   const { data: messages = [] } = useQuery<ChatMessage[]>({
     queryKey: ["/api/admin/chat/threads", activeThreadId, "messages"],
     enabled: !!activeThreadId,
@@ -2550,6 +2555,21 @@ function AdminChatTab() {
     },
   });
 
+  const markReadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      await apiRequest("POST", `/api/admin/chat/threads/${threadId}/read`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/unread-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/unread-count"] });
+    },
+  });
+
+  const selectThread = (threadId: string) => {
+    setActiveThreadId(threadId);
+    markReadMutation.mutate(threadId);
+  };
+
   const deleteThreadMutation = useMutation({
     mutationFn: async (threadId: string) => {
       await apiRequest("DELETE", `/api/admin/chat/threads/${threadId}`);
@@ -2568,9 +2588,12 @@ function AdminChatTab() {
         const data = JSON.parse(event.data);
         if (data.type === "admin_chat_message" && data.threadId === activeThreadId) {
           queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads", activeThreadId, "messages"] });
+          markReadMutation.mutate(activeThreadId);
         }
         if (data.type === "admin_chat_message") {
           queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/unread-threads"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/unread-count"] });
         }
       } catch {}
     };
@@ -2597,19 +2620,25 @@ function AdminChatTab() {
           </Button>
         </div>
         <ScrollArea className="flex-1">
-          {threads.map(thread => (
+          {threads.map(thread => {
+            const hasUnread = unreadThreadIds.includes(thread.id);
+            return (
             <button
               key={thread.id}
               className={`w-full text-left p-3 border-b hover:bg-accent/50 transition-colors ${activeThreadId === thread.id ? "bg-accent" : ""}`}
-              onClick={() => setActiveThreadId(thread.id)}
+              onClick={() => selectThread(thread.id)}
               data-testid={`thread-${thread.id}`}
             >
-              <p className="font-medium text-sm truncate">{getThreadDisplayName(thread)}</p>
+              <div className="flex items-center gap-2">
+                {hasUnread && <span className="w-2.5 h-2.5 rounded-full bg-destructive flex-shrink-0" data-testid={`unread-dot-${thread.id}`} />}
+                <p className={`font-medium text-sm truncate ${hasUnread ? "font-bold" : ""}`}>{getThreadDisplayName(thread)}</p>
+              </div>
               {thread.lastMessage && (
-                <p className="text-xs text-muted-foreground truncate mt-0.5">{thread.lastMessage.message || "📎 File"}</p>
+                <p className={`text-xs text-muted-foreground truncate mt-0.5 ${hasUnread ? "ml-[18px]" : ""}`}>{thread.lastMessage.message || "📎 File"}</p>
               )}
             </button>
-          ))}
+          );
+          })}
           {threads.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No chats yet</p>}
         </ScrollArea>
       </div>
@@ -2784,6 +2813,12 @@ export default function AdminPortal() {
     enabled: isAdmin,
   });
 
+  const { data: chatUnreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/admin/chat/unread-count"],
+    refetchInterval: 10000,
+    enabled: isAdmin && hasPermission("admin_chat"),
+  });
+
   const tileBadgeMap: Record<string, string> = {
     "users": "admin-users",
     "reports-requests": "admin-reports",
@@ -2857,7 +2892,8 @@ export default function AdminPortal() {
           {sections.map((s) => {
             const Icon = s.icon;
             const badgeCategory = tileBadgeMap[s.key];
-            const badgeCount = badgeCategory && contentCounts ? (contentCounts[badgeCategory] ?? 0) : 0;
+            let badgeCount = badgeCategory && contentCounts ? (contentCounts[badgeCategory] ?? 0) : 0;
+            if (s.key === "admin-chat" && chatUnreadData) badgeCount = chatUnreadData.count;
             return (
               <button
                 key={s.key}

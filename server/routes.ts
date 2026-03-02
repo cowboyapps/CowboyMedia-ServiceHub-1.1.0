@@ -1684,6 +1684,33 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/chat/unread-count", requirePermission("admin_chat"), async (req, res) => {
+    try {
+      const count = await storage.getAdminChatUnreadCounts(req.session.userId!);
+      res.json({ count });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/chat/unread-threads", requirePermission("admin_chat"), async (req, res) => {
+    try {
+      const threadIds = await storage.getAdminChatUnreadThreadIds(req.session.userId!);
+      res.json(threadIds);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/chat/threads/:id/read", requirePermission("admin_chat"), async (req, res) => {
+    try {
+      await storage.markAdminChatThreadRead(req.params.id, req.session.userId!);
+      res.json({ message: "Marked as read" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/admin/chat/threads", requirePermission("admin_chat"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);

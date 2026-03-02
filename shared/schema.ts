@@ -208,6 +208,7 @@ export const adminChatParticipants = pgTable("admin_chat_participants", {
   threadId: varchar("thread_id").notNull(),
   userId: varchar("user_id").notNull(),
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  lastReadAt: timestamp("last_read_at"),
 });
 
 export const adminChatMessages = pgTable("admin_chat_messages", {

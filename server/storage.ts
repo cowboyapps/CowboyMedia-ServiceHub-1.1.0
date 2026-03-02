@@ -136,6 +136,9 @@ export interface IStorage {
   createAdminChatMessage(msg: InsertAdminChatMessage): Promise<AdminChatMessage>;
   addAdminChatParticipant(participant: InsertAdminChatParticipant): Promise<AdminChatParticipant>;
   getAdminChatParticipants(threadId: string): Promise<AdminChatParticipant[]>;
+  markAdminChatThreadRead(threadId: string, userId: string): Promise<void>;
+  getAdminChatUnreadCounts(userId: string): Promise<number>;
+  getAdminChatUnreadThreadIds(userId: string): Promise<string[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -596,6 +599,70 @@ export class DatabaseStorage implements IStorage {
   async getAdminChatParticipants(threadId: string): Promise<AdminChatParticipant[]> {
     return db.select().from(adminChatParticipants)
       .where(eq(adminChatParticipants.threadId, threadId));
+  }
+
+  async markAdminChatThreadRead(threadId: string, userId: string): Promise<void> {
+    await db.update(adminChatParticipants)
+      .set({ lastReadAt: new Date() })
+      .where(and(
+        eq(adminChatParticipants.threadId, threadId),
+        eq(adminChatParticipants.userId, userId)
+      ));
+  }
+
+  async getAdminChatUnreadCounts(userId: string): Promise<number> {
+    const participantRows = await db.select({
+      threadId: adminChatParticipants.threadId,
+      lastReadAt: adminChatParticipants.lastReadAt,
+    }).from(adminChatParticipants)
+      .where(eq(adminChatParticipants.userId, userId));
+    if (participantRows.length === 0) return 0;
+    let count = 0;
+    for (const row of participantRows) {
+      let query = db.select({ id: adminChatMessages.id }).from(adminChatMessages)
+        .where(
+          row.lastReadAt
+            ? and(
+                eq(adminChatMessages.threadId, row.threadId),
+                sql`${adminChatMessages.createdAt} > ${row.lastReadAt}`,
+                sql`${adminChatMessages.senderId} != ${userId}`
+              )
+            : and(
+                eq(adminChatMessages.threadId, row.threadId),
+                sql`${adminChatMessages.senderId} != ${userId}`
+              )
+        );
+      const msgs = await query;
+      if (msgs.length > 0) count++;
+    }
+    return count;
+  }
+
+  async getAdminChatUnreadThreadIds(userId: string): Promise<string[]> {
+    const participantRows = await db.select({
+      threadId: adminChatParticipants.threadId,
+      lastReadAt: adminChatParticipants.lastReadAt,
+    }).from(adminChatParticipants)
+      .where(eq(adminChatParticipants.userId, userId));
+    if (participantRows.length === 0) return [];
+    const unreadIds: string[] = [];
+    for (const row of participantRows) {
+      const msgs = await db.select({ id: adminChatMessages.id }).from(adminChatMessages)
+        .where(
+          row.lastReadAt
+            ? and(
+                eq(adminChatMessages.threadId, row.threadId),
+                sql`${adminChatMessages.createdAt} > ${row.lastReadAt}`,
+                sql`${adminChatMessages.senderId} != ${userId}`
+              )
+            : and(
+                eq(adminChatMessages.threadId, row.threadId),
+                sql`${adminChatMessages.senderId} != ${userId}`
+              )
+        );
+      if (msgs.length > 0) unreadIds.push(row.threadId);
+    }
+    return unreadIds;
   }
 }
 
