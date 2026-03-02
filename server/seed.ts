@@ -15,10 +15,13 @@ async function hashPassword(password: string): Promise<string> {
 export async function seed() {
   const existingUsers = await storage.getAllUsers();
   if (existingUsers.length > 0) {
-    const adminUser = existingUsers.find(u => u.username === "admin");
-    if (adminUser && adminUser.role !== "master_admin") {
-      await storage.updateUser(adminUser.id, { role: "master_admin" });
-      console.log("Upgraded admin to master_admin role");
+    const protectedMasterAdmins = ["admin", "cowboy"];
+    for (const username of protectedMasterAdmins) {
+      const user = existingUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
+      if (user && user.role !== "master_admin") {
+        await storage.updateUser(user.id, { role: "master_admin" });
+        console.log(`Upgraded ${user.username} to master_admin role`);
+      }
     }
     return;
   }

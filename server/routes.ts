@@ -1651,6 +1651,15 @@ export async function registerRoutes(
 
   app.patch("/api/admin/users/:id/role", requireMasterAdmin, async (req, res) => {
     try {
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+      const protectedUsernames = ["cowboy"];
+      if (protectedUsernames.includes(targetUser.username.toLowerCase())) {
+        const { role } = req.body;
+        if (role !== undefined && role !== "master_admin") {
+          return res.status(403).json({ message: "This account's role cannot be changed" });
+        }
+      }
       const { role, adminRoleId } = req.body;
       const updateData: any = {};
       if (role !== undefined) updateData.role = role;
