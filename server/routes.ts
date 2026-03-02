@@ -1638,7 +1638,7 @@ export async function registerRoutes(
           try {
             await webpush.sendNotification(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-              JSON.stringify({ title, body: message, url: "/" })
+              JSON.stringify({ title: "Urgent Admin Alert", body: message, url: "/" })
             );
             sent++;
           } catch (err: any) {

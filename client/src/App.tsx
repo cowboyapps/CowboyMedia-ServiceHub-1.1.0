@@ -326,11 +326,14 @@ function BroadcastAlertPopup() {
             </div>
           </div>
           <DialogTitle className="text-center text-xl" data-testid="text-broadcast-title">
-            {current.title}
+            Urgent Admin Alert
           </DialogTitle>
         </DialogHeader>
-        <div className="text-sm text-muted-foreground whitespace-pre-wrap text-center py-2" data-testid="text-broadcast-message">
-          {current.message}
+        <div className="space-y-2 py-2">
+          <p className="font-semibold text-center" data-testid="text-broadcast-subtitle">{current.title}</p>
+          <div className="text-sm text-muted-foreground whitespace-pre-wrap text-center" data-testid="text-broadcast-message">
+            {current.message}
+          </div>
         </div>
         {queue.length > 1 && (
           <p className="text-xs text-muted-foreground text-center">
