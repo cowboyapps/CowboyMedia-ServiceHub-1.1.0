@@ -2507,8 +2507,7 @@ function AdminChatTab() {
     refetchInterval: 10000,
   });
 
-  const { data: allUsers = [] } = useQuery<User[]>({ queryKey: ["/api/admin/users"] });
-  const adminUsers = allUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support" && u.id !== user?.id);
+  const { data: adminUsers = [] } = useQuery<User[]>({ queryKey: ["/api/admin/chat/users"] });
 
   const { data: messages = [] } = useQuery<ChatMessage[]>({
     queryKey: ["/api/admin/chat/threads", activeThreadId, "messages"],

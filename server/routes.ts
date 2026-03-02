@@ -1672,6 +1672,18 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/chat/users", requirePermission("admin_chat"), async (req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const adminUsers = allUsers
+        .filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support" && u.id !== req.session.userId)
+        .map(u => ({ id: u.id, username: u.username, fullName: u.fullName, role: u.role }));
+      res.json(adminUsers);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/admin/chat/threads", requirePermission("admin_chat"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
