@@ -32,6 +32,7 @@ A comprehensive service status monitoring and support platform built as a Progre
 - Private messaging: admin can send private messages to customers (push + email + in-app popup)
 - Customer message center with unread badge in sidebar
 - Setup reminder system: in-app dialog on every app open + one-time email 2 days after registration if push/services not configured
+- **Broadcast priority alerts**: Master admin can send broadcast push messages to selected admins; messages persist in DB and show as mandatory full-screen dialog that must be acknowledged before dismissal
 - Mobile-responsive design with safe area support
 
 ## Admin Role System
@@ -129,6 +130,8 @@ shared/
 - `admin_chat_threads` — id, name, createdBy, createdAt
 - `admin_chat_participants` — id, threadId, userId, joinedAt
 - `admin_chat_messages` — id, threadId, senderId, message, fileUrl, fileType, createdAt
+- `broadcast_messages` — id, title, message, senderId, createdAt
+- `broadcast_recipients` — id, broadcastId, recipientId, readAt, createdAt
 
 ## API Routes
 - `POST /api/auth/register` - Customer registration
@@ -162,7 +165,9 @@ shared/
 - `POST /api/admin/ticket-categories` - Create ticket category (master_admin only)
 - `PATCH /api/admin/ticket-categories/:id` - Update ticket category (master_admin only)
 - `DELETE /api/admin/ticket-categories/:id` - Delete ticket category (master_admin only)
-- `POST /api/admin/broadcast-push` - Send push to selected admin user IDs (master_admin only)
+- `POST /api/admin/broadcast-push` - Send broadcast push to selected admin user IDs, persists message (master_admin only)
+- `GET /api/broadcasts/unread` - Get unread broadcast messages for current user
+- `POST /api/broadcasts/:id/acknowledge` - Acknowledge (mark read) a broadcast message
 - `PATCH /api/admin/users/:id/role` - Update user role and adminRoleId (master_admin only)
 - `GET /api/admin/chat/threads` - List admin chat threads
 - `POST /api/admin/chat/threads` - Create admin chat thread

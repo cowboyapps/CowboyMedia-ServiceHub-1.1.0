@@ -1626,6 +1626,11 @@ export async function registerRoutes(
       if (!title || !message || !userIds?.length) {
         return res.status(400).json({ message: "title, message, and userIds are required" });
       }
+      const broadcastMsg = await storage.createBroadcastMessage(
+        { title, message, senderId: req.session.userId! },
+        userIds
+      );
+      broadcast({ type: "broadcast_alert", broadcastId: broadcastMsg.id, title, message, recipientIds: userIds });
       let sent = 0;
       for (const userId of userIds) {
         const subs = await storage.getPushSubscriptionsByUser(userId);
@@ -1633,7 +1638,7 @@ export async function registerRoutes(
           try {
             await webpush.sendNotification(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-              JSON.stringify({ title, body: message })
+              JSON.stringify({ title, body: message, url: "/" })
             );
             sent++;
           } catch (err: any) {
@@ -1644,6 +1649,24 @@ export async function registerRoutes(
         }
       }
       res.json({ success: true, sent });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/broadcasts/unread", requireAuth, async (req, res) => {
+    try {
+      const broadcasts = await storage.getUnreadBroadcasts(req.session.userId!);
+      res.json(broadcasts);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/broadcasts/:id/acknowledge", requireAuth, async (req, res) => {
+    try {
+      await storage.markBroadcastRead(req.params.id, req.session.userId!);
+      res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

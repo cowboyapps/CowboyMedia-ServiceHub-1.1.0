@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "./lib/queryClient";
+import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity } from "lucide-react";
+import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone } from "lucide-react";
 import { subscribeToPush, isPushSupported, isSubscribedToPush } from "@/lib/push-notifications";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 import { PullToRefresh } from "@/components/pull-to-refresh";
@@ -235,6 +235,123 @@ function PrivateMessagePopup() {
   );
 }
 
+interface BroadcastMsg {
+  id: string;
+  title: string;
+  message: string;
+  senderId: string;
+  createdAt: string;
+}
+
+function BroadcastAlertPopup() {
+  const { user } = useAuth();
+  const [queue, setQueue] = useState<BroadcastMsg[]>([]);
+  const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
+
+  const { data: unreadBroadcasts } = useQuery<BroadcastMsg[]>({
+    queryKey: ["/api/broadcasts/unread"],
+    enabled: !!user,
+    refetchOnWindowFocus: true,
+  });
+
+  useEffect(() => {
+    if (!unreadBroadcasts) return;
+    setQueue(prev => {
+      const existingIds = new Set(prev.map(b => b.id));
+      const newFromApi = unreadBroadcasts.filter(b => !existingIds.has(b.id) && !acknowledgedIds.has(b.id));
+      const stillUnread = prev.filter(b => unreadBroadcasts.some(u => u.id === b.id) || !acknowledgedIds.has(b.id));
+      const merged = [...stillUnread];
+      for (const b of newFromApi) {
+        if (!merged.some(m => m.id === b.id)) merged.push(b);
+      }
+      return merged.filter(b => !acknowledgedIds.has(b.id));
+    });
+  }, [unreadBroadcasts, acknowledgedIds]);
+
+  useEffect(() => {
+    if (!user) return;
+    let currentWs: WebSocket | null = null;
+    const handleWs = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "broadcast_alert" && data.recipientIds?.includes(user.id)) {
+          const newBroadcast = { id: data.broadcastId, title: data.title, message: data.message, senderId: "", createdAt: new Date().toISOString() };
+          setQueue(prev => prev.some(b => b.id === newBroadcast.id) ? prev : [...prev, newBroadcast]);
+        }
+      } catch {}
+    };
+    const attachWs = () => {
+      const ws = (window as any).__ws;
+      if (ws && ws !== currentWs) {
+        if (currentWs) currentWs.removeEventListener("message", handleWs);
+        ws.addEventListener("message", handleWs);
+        currentWs = ws;
+      }
+    };
+    attachWs();
+    const interval = setInterval(attachWs, 2000);
+    return () => {
+      clearInterval(interval);
+      if (currentWs) currentWs.removeEventListener("message", handleWs);
+    };
+  }, [user]);
+
+  const acknowledgeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("POST", `/api/broadcasts/${id}/acknowledge`);
+      return id;
+    },
+    onSuccess: (id: string) => {
+      setAcknowledgedIds(prev => new Set([...prev, id]));
+      setQueue(prev => prev.filter(b => b.id !== id));
+      queryClient.invalidateQueries({ queryKey: ["/api/broadcasts/unread"] });
+    },
+  });
+
+  const current = queue[0];
+  if (!current) return null;
+
+  return (
+    <Dialog open={true} onOpenChange={() => {}}>
+      <DialogContent
+        className="max-w-md [&>button]:hidden"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        data-testid="dialog-broadcast-alert"
+      >
+        <DialogHeader>
+          <div className="flex justify-center mb-2">
+            <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
+              <Megaphone className="w-7 h-7 text-destructive" />
+            </div>
+          </div>
+          <DialogTitle className="text-center text-xl" data-testid="text-broadcast-title">
+            {current.title}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="text-sm text-muted-foreground whitespace-pre-wrap text-center py-2" data-testid="text-broadcast-message">
+          {current.message}
+        </div>
+        {queue.length > 1 && (
+          <p className="text-xs text-muted-foreground text-center">
+            {queue.length - 1} more alert{queue.length - 1 > 1 ? "s" : ""} remaining
+          </p>
+        )}
+        <DialogFooter className="flex flex-col sm:flex-col">
+          <Button
+            className="w-full"
+            onClick={() => acknowledgeMutation.mutate(current.id)}
+            disabled={acknowledgeMutation.isPending}
+            data-testid="button-broadcast-acknowledge"
+          >
+            {acknowledgeMutation.isPending ? "Acknowledging..." : "Acknowledge"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function WelcomeDialog() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
@@ -365,6 +482,27 @@ function AppContent() {
     reRegisterPush();
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    (window as any).__ws = ws;
+    ws.onclose = () => {
+      setTimeout(() => {
+        if ((window as any).__ws === ws) {
+          const newWs = new WebSocket(`${protocol}//${window.location.host}/ws`);
+          (window as any).__ws = newWs;
+        }
+      }, 3000);
+    };
+    return () => {
+      ws.close();
+      if ((window as any).__ws === ws) {
+        (window as any).__ws = null;
+      }
+    };
+  }, [user]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -383,6 +521,7 @@ function AppContent() {
 
   return (
     <>
+      <BroadcastAlertPopup />
       <WelcomeDialog />
       <SetupReminderDialog />
       <PrivateMessagePopup />

@@ -221,6 +221,22 @@ export const adminChatMessages = pgTable("admin_chat_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const broadcastMessages = pgTable("broadcast_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  senderId: varchar("sender_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const broadcastRecipients = pgTable("broadcast_recipients", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  broadcastId: varchar("broadcast_id").notNull(),
+  recipientId: varchar("recipient_id").notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
@@ -242,6 +258,8 @@ export const insertTicketCategorySchema = createInsertSchema(ticketCategories).o
 export const insertAdminChatThreadSchema = createInsertSchema(adminChatThreads).omit({ id: true, createdAt: true });
 export const insertAdminChatParticipantSchema = createInsertSchema(adminChatParticipants).omit({ id: true, joinedAt: true });
 export const insertAdminChatMessageSchema = createInsertSchema(adminChatMessages).omit({ id: true, createdAt: true });
+export const insertBroadcastMessageSchema = createInsertSchema(broadcastMessages).omit({ id: true, createdAt: true });
+export const insertBroadcastRecipientSchema = createInsertSchema(broadcastRecipients).omit({ id: true, createdAt: true, readAt: true });
 
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -284,6 +302,10 @@ export type InsertAdminChatParticipant = z.infer<typeof insertAdminChatParticipa
 export type AdminChatParticipant = typeof adminChatParticipants.$inferSelect;
 export type InsertAdminChatMessage = z.infer<typeof insertAdminChatMessageSchema>;
 export type AdminChatMessage = typeof adminChatMessages.$inferSelect;
+export type InsertBroadcastMessage = z.infer<typeof insertBroadcastMessageSchema>;
+export type BroadcastMessage = typeof broadcastMessages.$inferSelect;
+export type InsertBroadcastRecipient = z.infer<typeof insertBroadcastRecipientSchema>;
+export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
 
 // Login schema
 export const loginSchema = z.object({

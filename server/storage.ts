@@ -19,7 +19,9 @@ import {
   type AdminChatThread, type InsertAdminChatThread,
   type AdminChatParticipant, type InsertAdminChatParticipant,
   type AdminChatMessage, type InsertAdminChatMessage,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages,
+  type BroadcastMessage, type InsertBroadcastMessage,
+  type BroadcastRecipient, type InsertBroadcastRecipient,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
@@ -139,6 +141,10 @@ export interface IStorage {
   markAdminChatThreadRead(threadId: string, userId: string): Promise<void>;
   getAdminChatUnreadCounts(userId: string): Promise<number>;
   getAdminChatUnreadThreadIds(userId: string): Promise<string[]>;
+
+  createBroadcastMessage(data: InsertBroadcastMessage, recipientIds: string[]): Promise<BroadcastMessage>;
+  getUnreadBroadcasts(userId: string): Promise<BroadcastMessage[]>;
+  markBroadcastRead(broadcastId: string, userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -663,6 +669,39 @@ export class DatabaseStorage implements IStorage {
       if (msgs.length > 0) unreadIds.push(row.threadId);
     }
     return unreadIds;
+  }
+
+  async createBroadcastMessage(data: InsertBroadcastMessage, recipientIds: string[]): Promise<BroadcastMessage> {
+    const [msg] = await db.insert(broadcastMessages).values(data).returning();
+    for (const recipientId of recipientIds) {
+      await db.insert(broadcastRecipients).values({ broadcastId: msg.id, recipientId });
+    }
+    return msg;
+  }
+
+  async getUnreadBroadcasts(userId: string): Promise<BroadcastMessage[]> {
+    const rows = await db.select({
+      broadcastId: broadcastRecipients.broadcastId,
+    }).from(broadcastRecipients)
+      .where(and(
+        eq(broadcastRecipients.recipientId, userId),
+        isNull(broadcastRecipients.readAt)
+      ));
+    if (rows.length === 0) return [];
+    const ids = rows.map(r => r.broadcastId);
+    const msgs = await db.select().from(broadcastMessages)
+      .where(inArray(broadcastMessages.id, ids))
+      .orderBy(broadcastMessages.createdAt);
+    return msgs;
+  }
+
+  async markBroadcastRead(broadcastId: string, userId: string): Promise<void> {
+    await db.update(broadcastRecipients)
+      .set({ readAt: new Date() })
+      .where(and(
+        eq(broadcastRecipients.broadcastId, broadcastId),
+        eq(broadcastRecipients.recipientId, userId)
+      ));
   }
 }
 
