@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Service } from "@shared/schema";
-import { Activity, CheckCircle, AlertTriangle, XCircle, Wrench } from "lucide-react";
+import { Activity, CheckCircle, AlertTriangle, XCircle, Wrench, ChevronRight } from "lucide-react";
+import { Link } from "wouter";
 
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
@@ -76,25 +77,28 @@ export default function ServicesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {services.map((service) => (
-            <Card key={service.id} data-testid={`card-service-${service.id}`}>
-              <CardContent className="flex items-start gap-3 p-4">
-                <div className="mt-0.5">
-                  <StatusIcon status={service.status} />
-                </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <h3 className="font-semibold text-sm">{service.name}</h3>
-                    <StatusBadge status={service.status} />
+            <Link key={service.id} href={`/services/${service.id}`}>
+              <Card className="hover-elevate cursor-pointer" data-testid={`card-service-${service.id}`}>
+                <CardContent className="flex items-start gap-3 p-4">
+                  <div className="mt-0.5">
+                    <StatusIcon status={service.status} />
                   </div>
-                  {service.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">{service.description}</p>
-                  )}
-                  {service.category && (
-                    <Badge variant="secondary" className="text-xs mt-1">{service.category}</Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <h3 className="font-semibold text-sm">{service.name}</h3>
+                      <StatusBadge status={service.status} />
+                    </div>
+                    {service.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2">{service.description}</p>
+                    )}
+                    {service.category && (
+                      <Badge variant="secondary" className="text-xs mt-1">{service.category}</Badge>
+                    )}
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

@@ -31,12 +31,14 @@ import AdminPortal from "@/pages/admin-portal";
 import MessagesPage from "@/pages/messages-page";
 import ReportRequestPage from "@/pages/report-request-page";
 import ServiceUpdatesPage from "@/pages/service-updates-page";
+import ServiceDetail from "@/pages/service-detail";
 
 function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/services" component={ServicesPage} />
+      <Route path="/services/:id" component={ServiceDetail} />
       <Route path="/alerts" component={AlertsPage} />
       <Route path="/alerts/:id" component={AlertDetail} />
       <Route path="/news" component={NewsPage} />

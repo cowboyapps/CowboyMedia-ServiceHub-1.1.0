@@ -86,7 +86,8 @@ client/
     pages/
       auth-page.tsx    - Login/Register
       dashboard.tsx    - Overview dashboard
-      services-page.tsx - Service status grid
+      services-page.tsx - Service status grid (clickable cards link to service detail)
+      service-detail.tsx - Service detail with active/resolved alerts for that service
       alerts-page.tsx  - Alert list (active/resolved tabs)
       alert-detail.tsx - Alert detail with update timeline
       news-page.tsx    - News list
