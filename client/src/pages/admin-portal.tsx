@@ -40,6 +40,7 @@ const createAlertSchema = z.object({
   description: z.string().min(1, "Description is required"),
   severity: z.string().default("warning"),
   status: z.string().default("investigating"),
+  serviceImpact: z.string().default("degraded"),
   serviceId: z.string().min(1, "Service is required"),
   sendPush: z.boolean().default(true),
   sendEmail: z.boolean().default(true),
@@ -684,7 +685,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const form = useForm({
     resolver: zodResolver(createAlertSchema),
-    defaultValues: { title: "", description: "", severity: "warning", status: "investigating", serviceId: "", sendPush: true, sendEmail: true },
+    defaultValues: { title: "", description: "", severity: "warning", status: "investigating", serviceImpact: "degraded", serviceId: "", sendPush: true, sendEmail: true },
   });
 
   const updateForm = useForm({
@@ -698,6 +699,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       setDialogOpen(false);
       form.reset();
       toast({ title: "Alert created" });
@@ -711,6 +713,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       setUpdateDialogOpen(false);
       updateForm.reset();
       toast({ title: "Update posted" });
@@ -724,6 +727,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       toast({ title: "Alert resolved" });
     },
   });
@@ -794,6 +798,18 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                     </Select>
                   <FormMessage /></FormItem>
                 )} />
+                <FormField control={form.control} name="serviceImpact" render={({ field }) => (
+                  <FormItem><FormLabel>Service Impact</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger data-testid="select-alert-service-impact"><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="degraded">Degraded Performance</SelectItem>
+                        <SelectItem value="outage">Full Outage</SelectItem>
+                        <SelectItem value="maintenance">Maintenance</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  <FormMessage /></FormItem>
+                )} />
                 <FormField control={form.control} name="sendPush" render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-3">
                     <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
@@ -802,7 +818,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                 )} />
                 <FormField control={form.control} name="sendEmail" render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                    <FormLabel className="text-sm font-medium">Send Email to Customers</FormLabel>
+                    <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
                     <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-alert-email" /></FormControl>
                   </FormItem>
                 )} />
@@ -844,7 +860,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               )} />
               <FormField control={updateForm.control} name="sendEmail" render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                  <FormLabel className="text-sm font-medium">Send Email to Customers</FormLabel>
+                  <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
                   <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-email" /></FormControl>
                 </FormItem>
               )} />

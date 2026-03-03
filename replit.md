@@ -22,6 +22,8 @@ A comprehensive service status monitoring and support platform built as a Progre
 - **Ticket categories**: Category-based access control scoping which admins can see/claim/interact with tickets
 - **Admin chat**: Real-time messaging between admins with threads and file/image/video attachments
 - Service status monitoring with subscriptions
+- **Auto service status sync**: Creating alerts automatically sets service status (degraded/outage/maintenance); resolving alerts restores service to operational
+- **Consolidated alert notifications**: Single push + email per event (creation, update, resolution) to all subscribed users (customers and admins), including service status context
 - Service alerts with timeline updates
 - News stories with photo support
 - Support tickets with real-time messaging (WebSocket)

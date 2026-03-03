@@ -948,15 +948,21 @@ export async function registerRoutes(
 
   app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
     try {
-      const { sendPush, sendEmail, ...alertData } = req.body;
+      const { sendPush, sendEmail, serviceImpact, ...alertData } = req.body;
       const alert = await storage.createAlert(alertData);
+      const impact = serviceImpact || "degraded";
+      await storage.updateService(alert.serviceId, { status: impact });
+      const service = await storage.getService(alert.serviceId);
+      const serviceName = service?.name || "Service";
+      const impactLabel = impact === "outage" ? "Outage" : impact === "maintenance" ? "Maintenance" : "Degraded Performance";
       broadcast({ type: "new_alert", alert });
+      broadcast({ type: "service_updated", serviceId: alert.serviceId });
       const allUsers = await storage.getAllUsers();
-      const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(alert.serviceId));
-      for (const u of subscribedCustomers) {
+      const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
+      for (const u of subscribers) {
         if (sendPush !== false) {
           sendPushToUser(u.id, {
-            title: "New Service Alert",
+            title: `${serviceName}: ${impactLabel}`,
             body: alert.title,
             url: `/alerts/${alert.id}`,
             tag: `alert-${alert.id}`,
@@ -964,14 +970,14 @@ export async function registerRoutes(
         }
         if (sendEmail !== false && u.email && u.emailNotifications !== false) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
-            alert_title: alert.title,
-            alert_description: alert.description,
+            alert_title: `${serviceName}: ${impactLabel}`,
+            alert_description: `${alert.title}\n\n${alert.description}`,
             customer_name: u.fullName,
           });
         }
       }
-      const subIds = subscribedCustomers.map(u => u.id);
-      storage.createContentNotificationBulk(subIds, "alerts", alert.title, alert.id).catch(() => {});
+      const subIds = subscribers.map(u => u.id);
+      storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: ${impactLabel} — ${alert.title}`, alert.id).catch(() => {});
       res.json(alert);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -994,12 +1000,25 @@ export async function registerRoutes(
       broadcast({ type: "alert_update", alertId: req.params.id, update });
       const alert = await storage.getAlert(req.params.id);
       if (alert) {
+        const service = await storage.getService(alert.serviceId);
+        const serviceName = service?.name || "Service";
+        if (updateData.status === "resolved") {
+          await storage.updateService(alert.serviceId, { status: "operational" });
+          broadcast({ type: "service_updated", serviceId: alert.serviceId });
+        }
+        const isResolved = updateData.status === "resolved";
+        const pushTitle = isResolved
+          ? `${serviceName}: Resolved — Now Operational`
+          : `${serviceName} Alert Update: ${alert.title}`;
+        const emailTitle = isResolved
+          ? `${serviceName}: Issue Resolved — Service Restored`
+          : `${serviceName} Update: ${alert.title}`;
         const allUsers = await storage.getAllUsers();
-        const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(alert.serviceId));
-        for (const u of subscribedCustomers) {
+        const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
+        for (const u of subscribers) {
           if (sendPush !== false) {
             sendPushToUser(u.id, {
-              title: `Alert Update: ${alert.title}`,
+              title: pushTitle,
               body: updateData.message,
               url: `/alerts/${req.params.id}`,
               tag: `alert-${req.params.id}`,
@@ -1007,14 +1026,17 @@ export async function registerRoutes(
           }
           if (sendEmail !== false && u.email && u.emailNotifications !== false) {
             sendTemplatedEmail(u.email, "customer_service_alert", {
-              alert_title: `Update: ${alert.title}`,
+              alert_title: emailTitle,
               alert_description: updateData.message,
               customer_name: u.fullName,
             });
           }
         }
-        const subIds = subscribedCustomers.map(u => u.id);
-        storage.createContentNotificationBulk(subIds, "alerts", `Update: ${alert.title}`, alert.id).catch(() => {});
+        const subIds = subscribers.map(u => u.id);
+        const notifMsg = isResolved
+          ? `${serviceName}: Resolved — ${alert.title}`
+          : `${serviceName} Update: ${alert.title}`;
+        storage.createContentNotificationBulk(subIds, "alerts", notifMsg, alert.id).catch(() => {});
       }
       res.json(update);
     } catch (e: any) {
@@ -1031,7 +1053,30 @@ export async function registerRoutes(
         message: "Issue has been resolved.",
         status: "resolved",
       });
+      await storage.updateService(updated.serviceId, { status: "operational" });
       broadcast({ type: "alert_resolved", alertId: req.params.id });
+      broadcast({ type: "service_updated", serviceId: updated.serviceId });
+      const service = await storage.getService(updated.serviceId);
+      const serviceName = service?.name || "Service";
+      const allUsers = await storage.getAllUsers();
+      const subscribers = allUsers.filter(u => u.subscribedServices?.includes(updated.serviceId) && u.id !== req.session.userId);
+      for (const u of subscribers) {
+        sendPushToUser(u.id, {
+          title: `${serviceName}: Resolved — Now Operational`,
+          body: `${updated.title} has been resolved. Service is back to operational.`,
+          url: `/alerts/${req.params.id}`,
+          tag: `alert-${req.params.id}`,
+        });
+        if (u.email && u.emailNotifications !== false) {
+          sendTemplatedEmail(u.email, "customer_service_alert", {
+            alert_title: `${serviceName}: Issue Resolved — Service Restored`,
+            alert_description: `${updated.title} has been resolved. Service is back to operational.`,
+            customer_name: u.fullName,
+          });
+        }
+      }
+      const subIds = subscribers.map(u => u.id);
+      storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: Resolved — ${updated.title}`, updated.id).catch(() => {});
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
