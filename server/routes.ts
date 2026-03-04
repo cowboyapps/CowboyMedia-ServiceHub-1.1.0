@@ -14,6 +14,11 @@ import crypto from "crypto";
 import { promisify } from "util";
 import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
+import { format } from "date-fns";
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 
 const scryptAsync = promisify(crypto.scrypt);
 
@@ -139,6 +144,8 @@ async function getAdminCategoryAccess(userId: string): Promise<string[]> {
 }
 
 const wsClients = new Set<WebSocket>();
+const ticketViewerCounts = new Map<string, Map<string, number>>();
+const wsUserMap = new Map<WebSocket, { userId: string; ticketId: string }>();
 
 function broadcast(data: any) {
   const message = JSON.stringify(data);
@@ -147,6 +154,34 @@ function broadcast(data: any) {
       client.send(message);
     }
   });
+}
+
+function broadcastExcept(data: any, excludeWs: WebSocket) {
+  const message = JSON.stringify(data);
+  wsClients.forEach((client) => {
+    if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+function addTicketViewer(ticketId: string, userId: string): void {
+  if (!ticketViewerCounts.has(ticketId)) ticketViewerCounts.set(ticketId, new Map());
+  const users = ticketViewerCounts.get(ticketId)!;
+  users.set(userId, (users.get(userId) || 0) + 1);
+}
+
+function removeTicketViewer(ticketId: string, userId: string): void {
+  const users = ticketViewerCounts.get(ticketId);
+  if (!users) return;
+  const count = (users.get(userId) || 0) - 1;
+  if (count <= 0) { users.delete(userId); } else { users.set(userId, count); }
+  if (users.size === 0) ticketViewerCounts.delete(ticketId);
+}
+
+function isUserViewingTicket(userId: string, ticketId: string): boolean {
+  const users = ticketViewerCounts.get(ticketId);
+  return users ? (users.get(userId) || 0) > 0 : false;
 }
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -586,6 +621,38 @@ export async function registerRoutes(
             });
           }
         }
+
+        if (customer?.email && customer.emailNotifications !== false) {
+          try {
+            const allMessages = await storage.getTicketMessages(ticket.id);
+            const senderIds = [...new Set(allMessages.map(m => m.senderId))];
+            const senderMap = new Map<string, string>();
+            await Promise.all(senderIds.map(async (id) => {
+              const sender = await storage.getUser(id);
+              if (sender) senderMap.set(id, sender.fullName);
+            }));
+            const conversationHtml = allMessages.map(m => {
+              const name = escapeHtml(senderMap.get(m.senderId) || "Unknown");
+              const time = format(new Date(m.createdAt), "MMM d, yyyy 'at' h:mm a");
+              const msgText = escapeHtml(m.message || "").replace(/\n/g, "<br/>");
+              return `<div style="margin-bottom:12px;padding:8px;border-left:3px solid #e5e7eb;">
+<p style="margin:0;font-size:13px;"><strong>${name}</strong> <span style="color:#6b7280;font-size:12px;">${time}</span></p>
+<p style="margin:4px 0 0 0;font-size:14px;">${msgText}</p>
+${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}" style="color:#3b82f6;font-size:12px;">View Attachment</a></p>` : ""}
+</div>`;
+            }).join("");
+            sendTemplatedEmail(customer.email, "ticket_transcript", {
+              ticket_subject: escapeHtml(ticket.subject),
+              ticket_description: escapeHtml(ticket.description),
+              customer_name: customer.fullName,
+              opened_date: format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a"),
+              closed_date: format(new Date(), "MMM d, yyyy 'at' h:mm a"),
+              conversation: conversationHtml,
+            });
+          } catch (transcriptErr) {
+            console.error("Transcript email error:", transcriptErr);
+          }
+        }
       }
 
       res.json(updated);
@@ -981,7 +1048,7 @@ export async function registerRoutes(
           message: `New reply on: ${ticket.subject}`,
         });
         const customer = await storage.getUser(ticket.customerId);
-        if (customer?.email && customer.emailNotifications !== false) {
+        if (customer?.email && customer.emailNotifications !== false && !isUserViewingTicket(ticket.customerId, ticket.id)) {
           sendTemplatedEmail(customer.email, "customer_ticket_reply", {
             ticket_subject: ticket.subject,
             message: req.body.message,
@@ -1010,7 +1077,7 @@ export async function registerRoutes(
             type: "ticket_reply",
             message: `${user.fullName} replied: ${ticket.subject}`,
           });
-          if (admin.email) {
+          if (admin.email && !isUserViewingTicket(admin.id, ticket.id)) {
             sendTemplatedEmail(admin.email, "admin_ticket_reply", {
               customer_name: user.fullName,
               customer_username: user.username,
@@ -2272,8 +2339,35 @@ export async function registerRoutes(
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
   wss.on("connection", (ws) => {
     wsClients.add(ws);
+
+    ws.on("message", (raw) => {
+      try {
+        const data = JSON.parse(raw.toString());
+        if (data.type === "typing" && data.ticketId && data.userId && data.userName) {
+          broadcastExcept({ type: "typing", ticketId: data.ticketId, userId: data.userId, userName: data.userName }, ws);
+        }
+        if (data.type === "viewing_ticket" && data.ticketId && data.userId) {
+          const prev = wsUserMap.get(ws);
+          if (prev) {
+            removeTicketViewer(prev.ticketId, prev.userId);
+          }
+          wsUserMap.set(ws, { userId: data.userId, ticketId: data.ticketId });
+          addTicketViewer(data.ticketId, data.userId);
+        }
+        if (data.type === "left_ticket" && data.ticketId && data.userId) {
+          removeTicketViewer(data.ticketId, data.userId);
+          wsUserMap.delete(ws);
+        }
+      } catch {}
+    });
+
     ws.on("close", () => {
       wsClients.delete(ws);
+      const info = wsUserMap.get(ws);
+      if (info) {
+        removeTicketViewer(info.ticketId, info.userId);
+        wsUserMap.delete(ws);
+      }
     });
   });
 

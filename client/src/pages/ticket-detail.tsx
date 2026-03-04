@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { format } from "date-fns";
@@ -65,10 +64,13 @@ export default function TicketDetail() {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [transferToAdminId, setTransferToAdminId] = useState("");
   const [transferReason, setTransferReason] = useState("");
+  const [typingUser, setTypingUser] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
 
   const { data: ticket, isLoading } = useQuery<Ticket>({
     queryKey: ["/api/tickets", params.id],
@@ -101,21 +103,49 @@ export default function TicketDetail() {
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
     wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "ticket_message" && data.ticketId === params.id) {
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+    ws.onopen = () => {
+      if (user) {
+        ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: user.id }));
       }
     };
 
-    return () => {
-      ws.close();
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "ticket_message" && data.ticketId === params.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+          setTypingUser(null);
+        }
+        if (data.type === "typing" && data.ticketId === params.id && data.userId !== user?.id) {
+          setTypingUser(data.userName);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+        }
+      } catch {}
     };
-  }, [params.id]);
+
+    return () => {
+      if (user && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "left_ticket", ticketId: params.id, userId: user.id }));
+      }
+      ws.close();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, [params.id, user?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const sendTypingEvent = () => {
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN && user) {
+      ws.send(JSON.stringify({ type: "typing", ticketId: params.id, userId: user.id, userName: user.fullName }));
+    }
+  };
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -219,7 +249,7 @@ export default function TicketDetail() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] max-h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-4rem)] max-h-[calc(100vh-4rem)] overflow-x-hidden">
       <div className="flex items-center justify-between gap-3 pb-4 flex-wrap">
         <div className="flex items-center gap-3">
           <Link href="/tickets">
@@ -382,7 +412,7 @@ export default function TicketDetail() {
       <Card className="flex-1 flex flex-col min-h-0">
         <CardContent className="flex-1 flex flex-col min-h-0 p-0">
           <div className="p-4 border-b bg-card">
-            <p className="text-sm" data-testid="text-ticket-description">{ticket.description}</p>
+            <p className="text-sm" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
             {ticket.imageUrl && (
               <FileAttachment url={ticket.imageUrl} className="mt-2 max-w-xs h-32 object-cover rounded-md" />
             )}
@@ -391,7 +421,7 @@ export default function TicketDetail() {
             </p>
           </div>
 
-          <ScrollArea className="flex-1 p-4 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="flex-1 p-4 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
             {messagesLoading ? (
               <div className="space-y-4">
                 {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
@@ -411,14 +441,14 @@ export default function TicketDetail() {
                           {isMe ? (user?.fullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
                         </AvatarFallback>
                       </Avatar>
-                      <div className={`max-w-[70%] space-y-1 ${isMe ? "items-end" : ""}`}>
+                      <div className={`max-w-[70%] min-w-0 space-y-1 ${isMe ? "items-end" : ""}`}>
                         <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
                           <p className="text-xs font-medium">{displayName}</p>
                           {isAdminSender && !isMe && (
                             <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
                           )}
                         </div>
-                        <div className={`rounded-md p-3 text-sm whitespace-pre-wrap break-words overflow-hidden ${isMe ? "bg-primary text-primary-foreground" : "bg-accent"}`}>
+                        <div className={`rounded-md p-3 text-sm whitespace-pre-wrap overflow-hidden ${isMe ? "bg-primary text-primary-foreground" : "bg-accent"}`} style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
                           {msg.message}
                           {msg.imageUrl && (
                             <FileAttachment url={msg.imageUrl} />
@@ -434,7 +464,7 @@ export default function TicketDetail() {
                 <div ref={messagesEndRef} />
               </div>
             )}
-          </ScrollArea>
+          </div>
 
           {ticket.status === "open" && !isAdmin && messages && messages.length > 0 && messages[messages.length - 1].senderId !== user?.id && (
             <div className="p-3 border-t bg-accent/50">
@@ -476,6 +506,12 @@ export default function TicketDetail() {
               <p className="text-sm text-muted-foreground text-center" data-testid="text-claimed-by-other">
                 This ticket has been claimed by another admin.
               </p>
+            </div>
+          )}
+
+          {typingUser && (
+            <div className="px-4 py-1" data-testid="typing-indicator">
+              <p className="text-xs text-muted-foreground italic">{typingUser} is typing<span className="animate-pulse">...</span></p>
             </div>
           )}
 
@@ -534,7 +570,10 @@ export default function TicketDetail() {
                 <Input
                   ref={messageInputRef}
                   value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  onChange={(e) => {
+                    setMessage(e.target.value);
+                    if (e.target.value.trim()) sendTypingEvent();
+                  }}
                   placeholder="Type a message..."
                   className="flex-1"
                   data-testid="input-message"

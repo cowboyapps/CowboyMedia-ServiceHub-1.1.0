@@ -362,6 +362,26 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the customer when their report/request status changes",
   },
   {
+    templateKey: "ticket_transcript",
+    name: "Ticket Closed - Conversation Transcript",
+    subject: "Ticket Closed: {ticket_subject}",
+    body: `<h2>Your Support Ticket Has Been Closed</h2>
+<p>Hi {customer_name},</p>
+<p>Your support ticket <strong>"{ticket_subject}"</strong> has been closed. Below is the full conversation transcript for your records.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
+<p><strong>Ticket:</strong> {ticket_subject}</p>
+<p><strong>Description:</strong> {ticket_description}</p>
+<p><strong>Opened:</strong> {opened_date}</p>
+<p><strong>Closed:</strong> {closed_date}</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
+<h3>Conversation</h3>
+{conversation}
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
+<p>Thank you for contacting CowboyMedia Support. If you need further assistance, please submit a new ticket through the app.</p>`,
+    availableVariables: ["ticket_subject", "ticket_description", "customer_name", "opened_date", "closed_date", "conversation"],
+    description: "Sent to the customer when their ticket is closed, includes the full conversation transcript",
+  },
+  {
     templateKey: "customer_setup_reminder",
     name: "Account Setup Reminder",
     subject: "Complete Your CowboyMedia ServiceHub Setup",
