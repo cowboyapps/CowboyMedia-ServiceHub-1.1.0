@@ -61,6 +61,7 @@ function AppRouter() {
 function AuthenticatedLayout() {
   const [location] = useLocation();
   const isTicketDetail = /^\/tickets\/[^/?]+/.test(location);
+  const isAdminPortal = /^\/admin/.test(location);
 
   const style = {
     "--sidebar-width": "16rem",
@@ -76,7 +77,7 @@ function AuthenticatedLayout() {
             <SidebarTrigger className="h-12 w-12 min-h-[48px] min-w-[48px] [&_svg]:!h-7 [&_svg]:!w-7" data-testid="button-sidebar-toggle" />
             <ThemeToggle />
           </header>
-          <PullToRefresh className="flex-1 overflow-auto" disabled={isTicketDetail}>
+          <PullToRefresh className="flex-1 overflow-auto" disabled={isTicketDetail || isAdminPortal}>
             <main className={isTicketDetail ? "h-full" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +22,6 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy } from "lucide-react";
 import { format } from "date-fns";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -2531,6 +2530,10 @@ function AdminChatTab() {
   const [chatThreadName, setChatThreadName] = useState("");
   const [messageText, setMessageText] = useState("");
   const [chatFile, setChatFile] = useState<File | null>(null);
+  const [typingUser, setTypingUser] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
 
   const { data: threads = [] } = useQuery<ChatThread[]>({
     queryKey: ["/api/admin/chat/threads"],
@@ -2613,24 +2616,56 @@ function AdminChatTab() {
 
   useEffect(() => {
     if (!activeThreadId) return;
+    const ws = (window as any).__ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "viewing_admin_chat", threadId: activeThreadId, userId: user?.id }));
+    }
     const handleWs = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "admin_chat_message" && data.threadId === activeThreadId) {
           queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads", activeThreadId, "messages"] });
           markReadMutation.mutate(activeThreadId);
+          setTypingUser(null);
         }
         if (data.type === "admin_chat_message") {
           queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
           queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/unread-threads"] });
           queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/unread-count"] });
         }
+        if (data.type === "admin_chat_typing" && data.threadId === activeThreadId && data.userId !== user?.id) {
+          setTypingUser(data.userName);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+        }
       } catch {}
     };
-    const ws = (window as any).__ws;
     if (ws) ws.addEventListener("message", handleWs);
-    return () => { if (ws) ws.removeEventListener("message", handleWs); };
-  }, [activeThreadId]);
+    return () => {
+      if (ws) {
+        ws.removeEventListener("message", handleWs);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "left_admin_chat", threadId: activeThreadId, userId: user?.id }));
+        }
+      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      setTypingUser(null);
+    };
+  }, [activeThreadId, user?.id]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendTypingEvent = () => {
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    const ws = (window as any).__ws;
+    if (ws && ws.readyState === WebSocket.OPEN && user && activeThreadId) {
+      ws.send(JSON.stringify({ type: "admin_chat_typing", threadId: activeThreadId, userId: user.id, userName: user.fullName }));
+    }
+  };
 
   const activeThread = threads.find(t => t.id === activeThreadId);
 
@@ -2649,7 +2684,7 @@ function AdminChatTab() {
             <Plus className="w-4 h-4" />
           </Button>
         </div>
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto overscroll-contain">
           {threads.map(thread => {
             const hasUnread = unreadThreadIds.includes(thread.id);
             return (
@@ -2670,7 +2705,7 @@ function AdminChatTab() {
           );
           })}
           {threads.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No chats yet</p>}
-        </ScrollArea>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col">
@@ -2681,32 +2716,46 @@ function AdminChatTab() {
                 <p className="font-semibold text-sm">{getThreadDisplayName(activeThread)}</p>
                 <p className="text-xs text-muted-foreground">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
               </div>
-              {isMasterAdmin && (
+              <div className="flex items-center gap-1">
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="text-destructive hover:text-destructive h-8 w-8"
+                  className="h-8 w-8"
                   onClick={() => {
-                    if (confirm("Delete this thread and all its messages?")) {
-                      deleteThreadMutation.mutate(activeThread.id);
-                    }
+                    queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads", activeThreadId, "messages"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
                   }}
-                  disabled={deleteThreadMutation.isPending}
-                  data-testid="button-delete-thread"
+                  data-testid="button-refresh-chat"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4" />
                 </Button>
-              )}
+                {isMasterAdmin && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive h-8 w-8"
+                    onClick={() => {
+                      if (confirm("Delete this thread and all its messages?")) {
+                        deleteThreadMutation.mutate(activeThread.id);
+                      }
+                    }}
+                    disabled={deleteThreadMutation.isPending}
+                    data-testid="button-delete-thread"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-            <ScrollArea className="flex-1 p-3">
+            <div className="flex-1 p-3 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
               <div className="space-y-3">
                 {messages.map(msg => {
                   const isMe = msg.senderId === user?.id;
                   return (
                     <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`} data-testid={`chat-msg-${msg.id}`}>
-                      <div className={`max-w-[75%] rounded-lg p-2.5 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                      <div className={`max-w-[75%] min-w-0 overflow-hidden rounded-lg p-2.5 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                         {!isMe && <p className="text-xs font-medium mb-1">{msg.senderName}</p>}
-                        {msg.message && <p className="text-sm whitespace-pre-wrap">{msg.message}</p>}
+                        {msg.message && <p className="text-sm whitespace-pre-wrap overflow-hidden" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{msg.message}</p>}
                         {msg.fileUrl && msg.fileType?.startsWith("image/") && (
                           <ImageLightbox src={msg.fileUrl} alt="attachment" className="max-w-full max-h-48 rounded mt-1" />
                         )}
@@ -2721,15 +2770,24 @@ function AdminChatTab() {
                     </div>
                   );
                 })}
+                <div ref={messagesEndRef} />
               </div>
-            </ScrollArea>
+            </div>
+            {typingUser && (
+              <div className="px-3 py-1">
+                <p className="text-xs text-muted-foreground italic" data-testid="text-chat-typing">{typingUser} is typing...</p>
+              </div>
+            )}
             <div className="p-3 border-t flex gap-2 items-end">
               <div className="flex-1 space-y-1">
                 {chatFile && <p className="text-xs text-muted-foreground">📎 {chatFile.name}</p>}
                 <div className="flex gap-2">
                   <Input
                     value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
+                    onChange={(e) => {
+                      setMessageText(e.target.value);
+                      if (e.target.value.trim()) sendTypingEvent();
+                    }}
                     placeholder="Type a message..."
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey && (messageText.trim() || chatFile)) {

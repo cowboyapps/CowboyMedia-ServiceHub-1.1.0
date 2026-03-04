@@ -145,7 +145,9 @@ async function getAdminCategoryAccess(userId: string): Promise<string[]> {
 
 const wsClients = new Set<WebSocket>();
 const ticketViewerCounts = new Map<string, Map<string, number>>();
+const adminChatViewerCounts = new Map<string, Map<string, number>>();
 const wsUserMap = new Map<WebSocket, { userId: string; ticketId: string }>();
+const wsAdminChatMap = new Map<WebSocket, { userId: string; threadId: string }>();
 
 function broadcast(data: any) {
   const message = JSON.stringify(data);
@@ -181,6 +183,25 @@ function removeTicketViewer(ticketId: string, userId: string): void {
 
 function isUserViewingTicket(userId: string, ticketId: string): boolean {
   const users = ticketViewerCounts.get(ticketId);
+  return users ? (users.get(userId) || 0) > 0 : false;
+}
+
+function addAdminChatViewer(threadId: string, userId: string): void {
+  if (!adminChatViewerCounts.has(threadId)) adminChatViewerCounts.set(threadId, new Map());
+  const users = adminChatViewerCounts.get(threadId)!;
+  users.set(userId, (users.get(userId) || 0) + 1);
+}
+
+function removeAdminChatViewer(threadId: string, userId: string): void {
+  const users = adminChatViewerCounts.get(threadId);
+  if (!users) return;
+  const count = (users.get(userId) || 0) - 1;
+  if (count <= 0) { users.delete(userId); } else { users.set(userId, count); }
+  if (users.size === 0) adminChatViewerCounts.delete(threadId);
+}
+
+function isUserViewingAdminChat(userId: string, threadId: string): boolean {
+  const users = adminChatViewerCounts.get(threadId);
   return users ? (users.get(userId) || 0) > 0 : false;
 }
 
@@ -2177,12 +2198,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const messagePreview = (req.body.message || "").substring(0, 100) || (req.file ? "Sent an attachment" : "New message");
       for (const p of otherParticipants) {
-        sendPushToUser(p.userId, {
-          title: `Admin Chat - ${threadLabel}`,
-          body: `${user.fullName}: ${messagePreview}`,
-          url: "/admin",
-          tag: `admin-chat-${req.params.id}`,
-        });
+        if (!isUserViewingAdminChat(p.userId, req.params.id)) {
+          sendPushToUser(p.userId, {
+            title: `Admin Chat - ${threadLabel}`,
+            body: `${user.fullName}: ${messagePreview}`,
+            url: "/admin",
+            tag: `admin-chat-${req.params.id}`,
+          });
+        }
       }
 
       res.json({ ...msg, senderName: user.fullName });
@@ -2346,6 +2369,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (data.type === "typing" && data.ticketId && data.userId && data.userName) {
           broadcastExcept({ type: "typing", ticketId: data.ticketId, userId: data.userId, userName: data.userName }, ws);
         }
+        if (data.type === "admin_chat_typing" && data.threadId && data.userId && data.userName) {
+          broadcastExcept({ type: "admin_chat_typing", threadId: data.threadId, userId: data.userId, userName: data.userName }, ws);
+        }
+        if (data.type === "viewing_admin_chat" && data.threadId && data.userId) {
+          const prev = wsAdminChatMap.get(ws);
+          if (prev) {
+            removeAdminChatViewer(prev.threadId, prev.userId);
+          }
+          wsAdminChatMap.set(ws, { userId: data.userId, threadId: data.threadId });
+          addAdminChatViewer(data.threadId, data.userId);
+        }
+        if (data.type === "left_admin_chat" && data.threadId && data.userId) {
+          removeAdminChatViewer(data.threadId, data.userId);
+          const info = wsAdminChatMap.get(ws);
+          if (info && info.threadId === data.threadId) wsAdminChatMap.delete(ws);
+        }
         if (data.type === "viewing_ticket" && data.ticketId && data.userId) {
           const prev = wsUserMap.get(ws);
           if (prev) {
@@ -2367,6 +2406,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (info) {
         removeTicketViewer(info.ticketId, info.userId);
         wsUserMap.delete(ws);
+      }
+      const chatInfo = wsAdminChatMap.get(ws);
+      if (chatInfo) {
+        removeAdminChatViewer(chatInfo.threadId, chatInfo.userId);
+        wsAdminChatMap.delete(ws);
       }
     });
   });
