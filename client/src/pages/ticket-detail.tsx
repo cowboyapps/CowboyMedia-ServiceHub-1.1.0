@@ -183,13 +183,20 @@ export default function TicketDetail() {
     },
   });
 
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [resolutionNote, setResolutionNote] = useState("");
+
   const closeMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("PATCH", `/api/tickets/${params.id}`, { status: "closed" });
+    mutationFn: async (note?: string) => {
+      const body: any = { status: "closed" };
+      if (note) body.resolutionNote = note;
+      await apiRequest("PATCH", `/api/tickets/${params.id}`, body);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      setCloseDialogOpen(false);
+      setResolutionNote("");
       toast({ title: "Ticket closed" });
     },
   });
@@ -424,7 +431,37 @@ export default function TicketDetail() {
               </DialogContent>
             </Dialog>
           )}
-          {ticket.status === "open" && (
+          {ticket.status === "open" && isAdmin && (
+            <Dialog open={closeDialogOpen} onOpenChange={(open) => { setCloseDialogOpen(open); if (!open) setResolutionNote(""); }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" data-testid="button-close-ticket">
+                  <CheckCircle className="w-4 h-4 mr-1" /> Close Ticket
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Close Ticket</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <Textarea
+                    placeholder="Describe the issue and how it was resolved..."
+                    value={resolutionNote}
+                    onChange={(e) => setResolutionNote(e.target.value)}
+                    rows={5}
+                    data-testid="input-resolution-note"
+                  />
+                  <p className="text-xs text-muted-foreground">Customer will receive a copy of your detailed ticket summary</p>
+                  <Button
+                    className="w-full"
+                    disabled={closeMutation.isPending || !resolutionNote.trim()}
+                    onClick={() => closeMutation.mutate(resolutionNote.trim())}
+                    data-testid="button-confirm-close-ticket"
+                  >
+                    {closeMutation.isPending ? "Closing..." : "Close Ticket"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+          {ticket.status === "open" && !isAdmin && (
             <Button variant="outline" size="sm" onClick={() => closeMutation.mutate()} disabled={closeMutation.isPending} data-testid="button-close-ticket">
               <CheckCircle className="w-4 h-4 mr-1" /> Close Ticket
             </Button>
@@ -443,6 +480,13 @@ export default function TicketDetail() {
               Opened {format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}
             </p>
           </div>
+
+          {ticket.status === "closed" && ticket.resolutionNote && (
+            <div className="mx-4 mt-4 p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="resolution-note">
+              <p className="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">Resolution Summary</p>
+              <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+            </div>
+          )}
 
           <div className="flex-1 p-4 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
             {messagesLoading ? (

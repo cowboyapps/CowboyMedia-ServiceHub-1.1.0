@@ -373,12 +373,13 @@ export const DEFAULT_EMAIL_TEMPLATES = [
 <p><strong>Description:</strong> {ticket_description}</p>
 <p><strong>Opened:</strong> {opened_date}</p>
 <p><strong>Closed:</strong> {closed_date}</p>
+{resolution_summary}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
 <h3>Conversation</h3>
 {conversation}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
 <p>Thank you for contacting CowboyMedia Support. If you need further assistance, please submit a new ticket through the app.</p>`,
-    availableVariables: ["ticket_subject", "ticket_description", "customer_name", "opened_date", "closed_date", "conversation"],
+    availableVariables: ["ticket_subject", "ticket_description", "customer_name", "opened_date", "closed_date", "resolution_summary", "conversation"],
     description: "Sent to the customer when their ticket is closed, includes the full conversation transcript",
   },
   {

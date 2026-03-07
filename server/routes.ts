@@ -578,10 +578,14 @@ export async function registerRoutes(
           return res.status(403).json({ message: "You don't have access to this ticket's category" });
         }
       }
-      const { status } = req.body;
+      const { status, resolutionNote } = req.body;
       const data: any = { status };
       if (status === "closed") {
         data.closedAt = new Date();
+        if ((user.role === "admin" || user.role === "master_admin") && (!resolutionNote || !resolutionNote.trim())) {
+          return res.status(400).json({ message: "A resolution note is required when closing a ticket" });
+        }
+        if (resolutionNote) data.resolutionNote = resolutionNote.trim();
       }
       const updated = await storage.updateTicket(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
@@ -662,12 +666,19 @@ export async function registerRoutes(
 ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}" style="color:#3b82f6;font-size:12px;">View Attachment</a></p>` : ""}
 </div>`;
             }).join("");
+            const resolutionHtml = resolutionNote
+              ? `<div style="margin:16px 0;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;">
+<h3 style="margin:0 0 8px 0;font-size:15px;color:#166534;">Resolution Summary</h3>
+<p style="margin:0;font-size:14px;color:#15803d;">${escapeHtml(resolutionNote).replace(/\n/g, "<br/>")}</p>
+</div>`
+              : "";
             sendTemplatedEmail(customer.email, "ticket_transcript", {
               ticket_subject: escapeHtml(ticket.subject),
               ticket_description: escapeHtml(ticket.description),
               customer_name: customer.fullName,
               opened_date: format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a"),
               closed_date: format(new Date(), "MMM d, yyyy 'at' h:mm a"),
+              resolution_summary: resolutionHtml,
               conversation: conversationHtml,
             });
           } catch (transcriptErr) {
