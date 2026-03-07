@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
+import { ClickableImage } from "@/components/image-lightbox";
 import type { ServiceAlert, AlertUpdate, Service } from "@shared/schema";
 
 function StatusIcon({ status }: { status: string }) {
@@ -89,6 +90,9 @@ export default function AlertDetail() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm" data-testid="text-alert-description">{alert.description}</p>
+          {alert.imageUrl && (
+            <ClickableImage src={alert.imageUrl} alt="Alert attachment" className="max-h-48 rounded-md" />
+          )}
           <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
@@ -131,6 +135,9 @@ export default function AlertDetail() {
                       </span>
                     </div>
                     <p className="text-sm">{update.message}</p>
+                    {update.imageUrl && (
+                      <ClickableImage src={update.imageUrl} alt="Update attachment" className="max-h-32 rounded-md mt-1" />
+                    )}
                   </div>
                 </div>
               ))}

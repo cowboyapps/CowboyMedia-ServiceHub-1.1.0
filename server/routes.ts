@@ -1235,9 +1235,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
+  app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
     try {
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const { sendPush, sendEmail, serviceImpact, ...alertData } = req.body;
+      const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
+      const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
+      if (imageUrl) alertData.imageUrl = imageUrl;
       const alert = await storage.createAlert(alertData);
       const impact = serviceImpact || "degraded";
       await storage.updateService(alert.serviceId, { status: impact });
@@ -1249,7 +1253,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const allUsers = await storage.getAllUsers();
       const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
       for (const u of subscribers) {
-        if (sendPush !== false) {
+        if (parsedSendPush) {
           sendPushToUser(u.id, {
             title: `${serviceName}: ${impactLabel}`,
             body: alert.title,
@@ -1257,7 +1261,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             tag: `alert-${alert.id}`,
           });
         }
-        if (sendEmail !== false && u.email && u.emailNotifications !== false) {
+        if (parsedSendEmail && u.email && u.emailNotifications !== false) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceName}: ${impactLabel}`,
             alert_description: `${alert.title}\n\n${alert.description}`,
@@ -1273,13 +1277,34 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
+  app.patch("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
     try {
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
+      const data: Record<string, any> = {};
+      if (req.body.title !== undefined) data.title = req.body.title;
+      if (req.body.description !== undefined) data.description = req.body.description;
+      if (req.body.severity !== undefined) data.severity = req.body.severity;
+      if (imageUrl) data.imageUrl = imageUrl;
+      if (req.body.removeImage === "true") data.imageUrl = null;
+      const updated = await storage.updateAlert(req.params.id, data);
+      if (!updated) return res.status(404).json({ message: "Alert not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+    try {
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const { sendPush, sendEmail, serviceImpact, ...updateData } = req.body;
+      const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
+      const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
       const update = await storage.createAlertUpdate({
         alertId: req.params.id,
         message: updateData.message,
         status: updateData.status,
+        ...(imageUrl ? { imageUrl } : {}),
       });
       if (updateData.status === "resolved") {
         await storage.updateAlert(req.params.id, { status: "resolved", resolvedAt: new Date() });
@@ -1315,7 +1340,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const allUsers = await storage.getAllUsers();
         const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
         for (const u of subscribers) {
-          if (sendPush !== false) {
+          if (parsedSendPush) {
             sendPushToUser(u.id, {
               title: pushTitle,
               body: updateData.message,
@@ -1323,7 +1348,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               tag: `alert-${req.params.id}`,
             });
           }
-          if (sendEmail !== false && u.email && u.emailNotifications !== false) {
+          if (parsedSendEmail && u.email && u.emailNotifications !== false) {
             sendTemplatedEmail(u.email, "customer_service_alert", {
               alert_title: emailTitle,
               alert_description: updateData.message,
@@ -1343,14 +1368,32 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.patch("/api/admin/alerts/:id/resolve", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
+  app.patch("/api/admin/alerts/:alertId/updates/:updateId", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
     try {
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
+      const data: Record<string, any> = {};
+      if (req.body.message !== undefined) data.message = req.body.message;
+      if (imageUrl) data.imageUrl = imageUrl;
+      if (req.body.removeImage === "true") data.imageUrl = null;
+      const updated = await storage.updateAlertUpdate(req.params.updateId, data);
+      if (!updated) return res.status(404).json({ message: "Alert update not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/alerts/:id/resolve", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+    try {
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
+      const resolveMessage = req.body?.message || "Issue has been resolved.";
       const updated = await storage.updateAlert(req.params.id, { status: "resolved", resolvedAt: new Date() });
       if (!updated) return res.status(404).json({ message: "Alert not found" });
       await storage.createAlertUpdate({
         alertId: req.params.id,
-        message: "Issue has been resolved.",
+        message: resolveMessage,
         status: "resolved",
+        ...(imageUrl ? { imageUrl } : {}),
       });
       await storage.updateService(updated.serviceId, { status: "operational" });
       broadcast({ type: "alert_resolved", alertId: req.params.id });

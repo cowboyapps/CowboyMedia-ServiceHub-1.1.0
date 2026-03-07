@@ -49,6 +49,7 @@ export interface IStorage {
 
   getAlertUpdates(alertId: string): Promise<AlertUpdate[]>;
   createAlertUpdate(update: InsertAlertUpdate): Promise<AlertUpdate>;
+  updateAlertUpdate(id: string, data: Partial<{ message: string; imageUrl: string | null }>): Promise<AlertUpdate | undefined>;
 
   getAllNews(): Promise<NewsStory[]>;
   getNewsStory(id: string): Promise<NewsStory | undefined>;
@@ -237,6 +238,11 @@ export class DatabaseStorage implements IStorage {
   async createAlertUpdate(update: InsertAlertUpdate): Promise<AlertUpdate> {
     const [created] = await db.insert(alertUpdates).values(update).returning();
     return created;
+  }
+
+  async updateAlertUpdate(id: string, data: Partial<{ message: string; imageUrl: string | null }>): Promise<AlertUpdate | undefined> {
+    const [updated] = await db.update(alertUpdates).set(data).where(eq(alertUpdates.id, id)).returning();
+    return updated;
   }
 
   async getAllNews(): Promise<NewsStory[]> {

@@ -26,7 +26,7 @@ import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw,
 import { format } from "date-fns";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download } from "lucide-react";
-import type { User, Service, ServiceAlert, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory } from "@shared/schema";
+import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory } from "@shared/schema";
 
 const createServiceSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -676,6 +676,25 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
+  const [alertImageFile, setAlertImageFile] = useState<File | null>(null);
+  const [updateImageFile, setUpdateImageFile] = useState<File | null>(null);
+  const [editAlertDialogOpen, setEditAlertDialogOpen] = useState(false);
+  const [editingAlert, setEditingAlert] = useState<ServiceAlert | null>(null);
+  const [editAlertTitle, setEditAlertTitle] = useState("");
+  const [editAlertDesc, setEditAlertDesc] = useState("");
+  const [editAlertSeverity, setEditAlertSeverity] = useState("warning");
+  const [editAlertImageFile, setEditAlertImageFile] = useState<File | null>(null);
+  const [editAlertRemoveImage, setEditAlertRemoveImage] = useState(false);
+  const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
+  const [resolveAlertId, setResolveAlertId] = useState<string | null>(null);
+  const [resolveMessage, setResolveMessage] = useState("");
+  const [resolveImageFile, setResolveImageFile] = useState<File | null>(null);
+  const [editUpdateDialogOpen, setEditUpdateDialogOpen] = useState(false);
+  const [editingAlertUpdate, setEditingAlertUpdate] = useState<{ alertId: string; update: AlertUpdate } | null>(null);
+  const [editUpdateMessage, setEditUpdateMessage] = useState("");
+  const [editUpdateImageFile, setEditUpdateImageFile] = useState<File | null>(null);
+  const [editUpdateRemoveImage, setEditUpdateRemoveImage] = useState(false);
+  const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
 
   const { data: alerts, isLoading } = useQuery<ServiceAlert[]>({
     queryKey: ["/api/alerts"],
@@ -696,13 +715,18 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const createMutation = useMutation({
     mutationFn: async (data: z.infer<typeof createAlertSchema>) => {
-      await apiRequest("POST", "/api/admin/alerts", data);
+      const formData = new FormData();
+      Object.entries(data).forEach(([k, v]) => formData.append(k, String(v)));
+      if (alertImageFile) formData.append("image", alertImageFile);
+      const res = await fetch("/api/admin/alerts", { method: "POST", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to create alert");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       setDialogOpen(false);
       form.reset();
+      setAlertImageFile(null);
       toast({ title: "Alert created" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -710,27 +734,83 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const addUpdateMutation = useMutation({
     mutationFn: async (data: z.infer<typeof addUpdateSchema>) => {
-      await apiRequest("POST", `/api/admin/alerts/${selectedAlertId}/updates`, data);
+      const formData = new FormData();
+      Object.entries(data).forEach(([k, v]) => formData.append(k, String(v)));
+      if (updateImageFile) formData.append("image", updateImageFile);
+      const res = await fetch(`/api/admin/alerts/${selectedAlertId}/updates`, { method: "POST", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to post update");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
+      if (selectedAlertId) queryClient.invalidateQueries({ queryKey: ["/api/alerts", selectedAlertId, "updates"] });
       setUpdateDialogOpen(false);
       updateForm.reset();
+      setUpdateImageFile(null);
       toast({ title: "Update posted" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const editAlertMutation = useMutation({
+    mutationFn: async ({ id, data, imageFile, removeImage }: { id: string; data: { title: string; description: string; severity: string }; imageFile: File | null; removeImage: boolean }) => {
+      const formData = new FormData();
+      formData.append("title", data.title);
+      formData.append("description", data.description);
+      formData.append("severity", data.severity);
+      if (imageFile) formData.append("image", imageFile);
+      if (removeImage) formData.append("removeImage", "true");
+      const res = await fetch(`/api/admin/alerts/${id}`, { method: "PATCH", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to update alert");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      setEditAlertDialogOpen(false);
+      setEditingAlert(null);
+      setEditAlertImageFile(null);
+      setEditAlertRemoveImage(false);
+      toast({ title: "Alert updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const resolveMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await apiRequest("PATCH", `/api/admin/alerts/${id}/resolve`);
+    mutationFn: async ({ id, message, imageFile }: { id: string; message: string; imageFile: File | null }) => {
+      const formData = new FormData();
+      if (message) formData.append("message", message);
+      if (imageFile) formData.append("image", imageFile);
+      const res = await fetch(`/api/admin/alerts/${id}/resolve`, { method: "PATCH", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to resolve alert");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
+      setResolveDialogOpen(false);
+      setResolveAlertId(null);
+      setResolveMessage("");
+      setResolveImageFile(null);
       toast({ title: "Alert resolved" });
     },
+  });
+
+  const editUpdateMutation = useMutation({
+    mutationFn: async ({ alertId, updateId, message, imageFile, removeImage }: { alertId: string; updateId: string; message: string; imageFile: File | null; removeImage: boolean }) => {
+      const formData = new FormData();
+      formData.append("message", message);
+      if (imageFile) formData.append("image", imageFile);
+      if (removeImage) formData.append("removeImage", "true");
+      const res = await fetch(`/api/admin/alerts/${alertId}/updates/${updateId}`, { method: "PATCH", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to update");
+    },
+    onSuccess: () => {
+      if (editingAlertUpdate) queryClient.invalidateQueries({ queryKey: ["/api/alerts", editingAlertUpdate.alertId, "updates"] });
+      setEditUpdateDialogOpen(false);
+      setEditingAlertUpdate(null);
+      setEditUpdateImageFile(null);
+      setEditUpdateRemoveImage(false);
+      toast({ title: "Update edited" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -746,11 +826,21 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
 
+  const openEditAlert = (alert: ServiceAlert) => {
+    setEditingAlert(alert);
+    setEditAlertTitle(alert.title);
+    setEditAlertDesc(alert.description);
+    setEditAlertSeverity(alert.severity);
+    setEditAlertImageFile(null);
+    setEditAlertRemoveImage(false);
+    setEditAlertDialogOpen(true);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="font-semibold">Alerts ({alerts?.length || 0})</h3>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setAlertImageFile(null); }}>
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-alert"><Plus className="w-4 h-4 mr-1" /> Create Alert</Button>
           </DialogTrigger>}
@@ -811,6 +901,11 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                     </Select>
                   <FormMessage /></FormItem>
                 )} />
+                <div className="space-y-2">
+                  <Label>Attach Image (optional)</Label>
+                  <Input type="file" accept="image/*" onChange={(e) => setAlertImageFile(e.target.files?.[0] || null)} data-testid="input-alert-image" />
+                  {alertImageFile && <img src={URL.createObjectURL(alertImageFile)} alt="Preview" className="max-h-24 rounded-md" />}
+                </div>
                 <FormField control={form.control} name="sendPush" render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-3">
                     <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
@@ -832,7 +927,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </Dialog>
       </div>
 
-      <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+      <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) setUpdateImageFile(null); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Post Update</DialogTitle></DialogHeader>
           <Form {...updateForm}>
@@ -866,6 +961,11 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               <FormField control={updateForm.control} name="message" render={({ field }) => (
                 <FormItem><FormLabel>Message</FormLabel><FormControl><Textarea data-testid="input-update-message" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
+              <div className="space-y-2">
+                <Label>Attach Image (optional)</Label>
+                <Input type="file" accept="image/*" onChange={(e) => setUpdateImageFile(e.target.files?.[0] || null)} data-testid="input-update-image" />
+                {updateImageFile && <img src={URL.createObjectURL(updateImageFile)} alt="Preview" className="max-h-24 rounded-md" />}
+              </div>
               <FormField control={updateForm.control} name="sendPush" render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border p-3">
                   <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
@@ -886,53 +986,200 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={editAlertDialogOpen} onOpenChange={(open) => { if (!open) { setEditAlertDialogOpen(false); setEditingAlert(null); setEditAlertImageFile(null); setEditAlertRemoveImage(false); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Alert</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            {editingAlert && <p className="text-sm text-muted-foreground">Service: {serviceMap.get(editingAlert.serviceId) || "Unknown"}</p>}
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input value={editAlertTitle} onChange={(e) => setEditAlertTitle(e.target.value)} data-testid="input-edit-alert-title" />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={editAlertDesc} onChange={(e) => setEditAlertDesc(e.target.value)} rows={3} data-testid="input-edit-alert-desc" />
+            </div>
+            <div className="space-y-2">
+              <Label>Severity</Label>
+              <Select value={editAlertSeverity} onValueChange={setEditAlertSeverity}>
+                <SelectTrigger data-testid="select-edit-alert-severity"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="info">Info</SelectItem>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Image</Label>
+              {editingAlert?.imageUrl && !editAlertRemoveImage && !editAlertImageFile && (
+                <div className="flex items-center gap-2">
+                  <img src={editingAlert.imageUrl} alt="Current" className="max-h-20 rounded-md" />
+                  <Button variant="ghost" size="sm" onClick={() => setEditAlertRemoveImage(true)}>Remove</Button>
+                </div>
+              )}
+              <Input type="file" accept="image/*" onChange={(e) => { setEditAlertImageFile(e.target.files?.[0] || null); setEditAlertRemoveImage(false); }} data-testid="input-edit-alert-image" />
+              {editAlertImageFile && <img src={URL.createObjectURL(editAlertImageFile)} alt="Preview" className="max-h-20 rounded-md" />}
+            </div>
+            <Button
+              className="w-full"
+              disabled={editAlertMutation.isPending || !editAlertTitle.trim() || !editAlertDesc.trim()}
+              onClick={() => editingAlert && editAlertMutation.mutate({ id: editingAlert.id, data: { title: editAlertTitle, description: editAlertDesc, severity: editAlertSeverity }, imageFile: editAlertImageFile, removeImage: editAlertRemoveImage })}
+              data-testid="button-save-edit-alert"
+            >
+              {editAlertMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Resolve Alert</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Resolve Message (optional)</Label>
+              <Textarea value={resolveMessage} onChange={(e) => setResolveMessage(e.target.value)} placeholder="Issue has been resolved." rows={3} data-testid="input-resolve-message" />
+            </div>
+            <div className="space-y-2">
+              <Label>Attach Image (optional)</Label>
+              <Input type="file" accept="image/*" onChange={(e) => setResolveImageFile(e.target.files?.[0] || null)} data-testid="input-resolve-image" />
+              {resolveImageFile && <img src={URL.createObjectURL(resolveImageFile)} alt="Preview" className="max-h-20 rounded-md" />}
+            </div>
+            <Button
+              className="w-full"
+              disabled={resolveMutation.isPending}
+              onClick={() => resolveAlertId && resolveMutation.mutate({ id: resolveAlertId, message: resolveMessage, imageFile: resolveImageFile })}
+              data-testid="button-confirm-resolve"
+            >
+              {resolveMutation.isPending ? "Resolving..." : "Resolve Alert"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editUpdateDialogOpen} onOpenChange={(open) => { if (!open) { setEditUpdateDialogOpen(false); setEditingAlertUpdate(null); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Update</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <Textarea value={editUpdateMessage} onChange={(e) => setEditUpdateMessage(e.target.value)} rows={3} data-testid="input-edit-update-message" />
+            </div>
+            <div className="space-y-2">
+              <Label>Image</Label>
+              {editingAlertUpdate?.update.imageUrl && !editUpdateRemoveImage && !editUpdateImageFile && (
+                <div className="flex items-center gap-2">
+                  <img src={editingAlertUpdate.update.imageUrl} alt="Current" className="max-h-20 rounded-md" />
+                  <Button variant="ghost" size="sm" onClick={() => setEditUpdateRemoveImage(true)}>Remove</Button>
+                </div>
+              )}
+              <Input type="file" accept="image/*" onChange={(e) => { setEditUpdateImageFile(e.target.files?.[0] || null); setEditUpdateRemoveImage(false); }} data-testid="input-edit-update-image" />
+              {editUpdateImageFile && <img src={URL.createObjectURL(editUpdateImageFile)} alt="Preview" className="max-h-20 rounded-md" />}
+            </div>
+            <Button
+              className="w-full"
+              disabled={editUpdateMutation.isPending || !editUpdateMessage.trim()}
+              onClick={() => editingAlertUpdate && editUpdateMutation.mutate({ alertId: editingAlertUpdate.alertId, updateId: editingAlertUpdate.update.id, message: editUpdateMessage, imageFile: editUpdateImageFile, removeImage: editUpdateRemoveImage })}
+              data-testid="button-save-edit-update"
+            >
+              {editUpdateMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {isLoading ? <Skeleton className="h-40" /> : (
         <div className="space-y-3">
           {alerts?.map((alert) => (
             <Card key={alert.id} data-testid={`card-admin-alert-${alert.id}`}>
-              <CardContent className="flex items-start justify-between gap-3 p-4">
-                <div className="space-y-1">
-                  <h4 className="font-semibold text-sm">{alert.title}</h4>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-xs capitalize">{alert.severity}</Badge>
-                    <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">{alert.status}</Badge>
-                    {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>}
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <h4 className="font-semibold text-sm">{alert.title}</h4>
+                    <p className="text-xs text-muted-foreground">{alert.description}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-xs capitalize">{alert.severity}</Badge>
+                      <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">{alert.status}</Badge>
+                      {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>}
+                    </div>
+                    {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md mt-2" />}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {canManage && alert.status !== "resolved" && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => { setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
+                          Update
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-alert-${alert.id}`}>
+                          Resolve
+                        </Button>
+                      </>
+                    )}
+                    {canManage && (
+                      <Button size="icon" variant="ghost" onClick={() => openEditAlert(alert)} data-testid={`button-edit-alert-${alert.id}`}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    )}
+                    {canManage && <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" data-testid={`button-delete-alert-${alert.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Alert</AlertDialogTitle>
+                          <AlertDialogDescription>Are you sure you want to delete this alert? This will also delete all associated updates. This action cannot be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(alert.id)} data-testid={`button-confirm-delete-alert-${alert.id}`}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {canManage && alert.status !== "resolved" && (
-                    <>
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
-                        Update
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => resolveMutation.mutate(alert.id)} data-testid={`button-resolve-alert-${alert.id}`}>
-                        Resolve
-                      </Button>
-                    </>
-                  )}
-                  {canManage && <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="icon" variant="ghost" data-testid={`button-delete-alert-${alert.id}`}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Alert</AlertDialogTitle>
-                        <AlertDialogDescription>Are you sure you want to delete this alert? This will also delete all associated updates. This action cannot be undone.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => deleteMutation.mutate(alert.id)} data-testid={`button-confirm-delete-alert-${alert.id}`}>Delete</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>}
-                </div>
+                <Button variant="ghost" size="sm" className="text-xs" onClick={() => setExpandedAlertId(expandedAlertId === alert.id ? null : alert.id)} data-testid={`button-toggle-updates-${alert.id}`}>
+                  {expandedAlertId === alert.id ? "Hide Updates" : "Show Updates"}
+                </Button>
+                {expandedAlertId === alert.id && <AlertUpdatesList alertId={alert.id} canManage={canManage} onEditUpdate={(update) => { setEditingAlertUpdate({ alertId: alert.id, update }); setEditUpdateMessage(update.message); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); setEditUpdateDialogOpen(true); }} />}
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AlertUpdatesList({ alertId, canManage, onEditUpdate }: { alertId: string; canManage: boolean; onEditUpdate: (update: AlertUpdate) => void }) {
+  const { data: updates, isLoading } = useQuery<AlertUpdate[]>({
+    queryKey: ["/api/alerts", alertId, "updates"],
+  });
+
+  if (isLoading) return <Skeleton className="h-16" />;
+  if (!updates || updates.length === 0) return <p className="text-xs text-muted-foreground text-center py-2">No updates yet</p>;
+
+  return (
+    <div className="space-y-2 border-t pt-2">
+      {updates.map((update) => (
+        <div key={update.id} className="flex items-start justify-between gap-2 p-2 rounded bg-muted/50" data-testid={`alert-update-entry-${update.id}`}>
+          <div className="space-y-1 min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-xs capitalize">{update.status}</Badge>
+              <span className="text-xs text-muted-foreground">{format(new Date(update.createdAt), "MMM d, h:mm a")}</span>
+            </div>
+            <p className="text-xs">{update.message}</p>
+            {update.imageUrl && <ClickableImage src={update.imageUrl} alt="Update image" className="max-h-20 rounded-md mt-1" />}
+          </div>
+          {canManage && (
+            <Button size="icon" variant="ghost" className="flex-shrink-0" onClick={() => onEditUpdate(update)} data-testid={`button-edit-update-${update.id}`}>
+              <Edit className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

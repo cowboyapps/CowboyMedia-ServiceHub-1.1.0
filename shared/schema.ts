@@ -34,6 +34,7 @@ export const serviceAlerts = pgTable("service_alerts", {
   severity: text("severity").notNull().default("warning"),
   status: text("status").notNull().default("investigating"),
   serviceId: varchar("service_id").notNull(),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   resolvedAt: timestamp("resolved_at"),
 });
@@ -43,6 +44,7 @@ export const alertUpdates = pgTable("alert_updates", {
   alertId: varchar("alert_id").notNull(),
   message: text("message").notNull(),
   status: text("status").notNull(),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
