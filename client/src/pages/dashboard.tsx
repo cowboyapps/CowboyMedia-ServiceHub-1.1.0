@@ -137,11 +137,8 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base">Service Status</CardTitle>
-            <Link href="/services">
-              <Button variant="ghost" size="sm" data-testid="link-view-all-services">View All</Button>
-            </Link>
           </CardHeader>
           <CardContent className="space-y-3">
             {servicesLoading ? (
@@ -149,7 +146,7 @@ export default function Dashboard() {
             ) : displayServices.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">No services to display</p>
             ) : (
-              displayServices.slice(0, 5).map((service) => (
+              displayServices.map((service) => (
                 <div key={service.id} className="flex items-center justify-between gap-2 py-1.5" data-testid={`service-row-${service.id}`}>
                   <div className="flex items-center gap-2.5">
                     <StatusIndicator status={service.status} />
