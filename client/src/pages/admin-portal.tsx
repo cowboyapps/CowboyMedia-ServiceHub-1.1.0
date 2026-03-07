@@ -1094,51 +1094,51 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           {alerts?.map((alert) => (
             <Card key={alert.id} data-testid={`card-admin-alert-${alert.id}`}>
               <CardContent className="p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <h4 className="font-semibold text-sm">{alert.title}</h4>
-                    <p className="text-xs text-muted-foreground">{alert.description}</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-xs capitalize">{alert.severity}</Badge>
-                      <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">{alert.status}</Badge>
-                      {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="font-semibold text-sm min-w-0 truncate">{alert.title}</h4>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {canManage && (
+                        <Button size="icon" variant="ghost" onClick={() => openEditAlert(alert)} data-testid={`button-edit-alert-${alert.id}`}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {canManage && <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="icon" variant="ghost" data-testid={`button-delete-alert-${alert.id}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Alert</AlertDialogTitle>
+                            <AlertDialogDescription>Are you sure you want to delete this alert? This will also delete all associated updates. This action cannot be undone.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteMutation.mutate(alert.id)} data-testid={`button-confirm-delete-alert-${alert.id}`}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>}
                     </div>
-                    {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md mt-2" />}
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {canManage && alert.status !== "resolved" && (
-                      <>
-                        <Button size="sm" variant="outline" onClick={() => { setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
-                          Update
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-alert-${alert.id}`}>
-                          Resolve
-                        </Button>
-                      </>
-                    )}
-                    {canManage && (
-                      <Button size="icon" variant="ghost" onClick={() => openEditAlert(alert)} data-testid={`button-edit-alert-${alert.id}`}>
-                        <Edit className="w-4 h-4" />
+                  <p className="text-xs text-muted-foreground">{alert.description}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-xs capitalize">{alert.severity}</Badge>
+                    <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">{alert.status}</Badge>
+                    {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>}
+                  </div>
+                  {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md" />}
+                  {canManage && alert.status !== "resolved" && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button size="sm" variant="outline" onClick={() => { setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
+                        Update
                       </Button>
-                    )}
-                    {canManage && <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" data-testid={`button-delete-alert-${alert.id}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Alert</AlertDialogTitle>
-                          <AlertDialogDescription>Are you sure you want to delete this alert? This will also delete all associated updates. This action cannot be undone.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteMutation.mutate(alert.id)} data-testid={`button-confirm-delete-alert-${alert.id}`}>Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>}
-                  </div>
+                      <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-alert-${alert.id}`}>
+                        Resolve
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <Button variant="ghost" size="sm" className="text-xs" onClick={() => setExpandedAlertId(expandedAlertId === alert.id ? null : alert.id)} data-testid={`button-toggle-updates-${alert.id}`}>
                   {expandedAlertId === alert.id ? "Hide Updates" : "Show Updates"}
