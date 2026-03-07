@@ -844,7 +844,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-alert"><Plus className="w-4 h-4 mr-1" /> Create Alert</Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Service Alert</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
@@ -928,7 +928,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </div>
 
       <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) setUpdateImageFile(null); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Post Update</DialogTitle></DialogHeader>
           <Form {...updateForm}>
             <form onSubmit={updateForm.handleSubmit((d) => addUpdateMutation.mutate(d))} className="space-y-3">
@@ -987,7 +987,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </Dialog>
 
       <Dialog open={editAlertDialogOpen} onOpenChange={(open) => { if (!open) { setEditAlertDialogOpen(false); setEditingAlert(null); setEditAlertImageFile(null); setEditAlertRemoveImage(false); } }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Alert</DialogTitle></DialogHeader>
           <div className="space-y-3">
             {editingAlert && <p className="text-sm text-muted-foreground">Service: {serviceMap.get(editingAlert.serviceId) || "Unknown"}</p>}
@@ -1059,7 +1059,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </Dialog>
 
       <Dialog open={editUpdateDialogOpen} onOpenChange={(open) => { if (!open) { setEditUpdateDialogOpen(false); setEditingAlertUpdate(null); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); } }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Update</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
