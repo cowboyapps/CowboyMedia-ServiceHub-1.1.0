@@ -526,6 +526,15 @@ export class DatabaseStorage implements IStorage {
     const existing = await this.getEmailTemplateByKey(data.templateKey);
     if (!existing) {
       await db.insert(emailTemplates).values(data);
+    } else if (existing.customized) {
+      const existingVars = JSON.stringify(existing.availableVariables?.sort() || []);
+      const newVars = JSON.stringify([...data.availableVariables].sort());
+      if (existingVars !== newVars) {
+        await db.update(emailTemplates).set({
+          availableVariables: data.availableVariables,
+          description: data.description,
+        }).where(eq(emailTemplates.templateKey, data.templateKey));
+      }
     } else {
       const existingVars = JSON.stringify(existing.availableVariables?.sort() || []);
       const newVars = JSON.stringify([...data.availableVariables].sort());

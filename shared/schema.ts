@@ -175,6 +175,7 @@ export const emailTemplates = pgTable("email_templates", {
   availableVariables: text("available_variables").array().default(sql`'{}'::text[]`),
   description: text("description"),
   enabled: boolean("enabled").notNull().default(true),
+  customized: boolean("customized").notNull().default(false),
 });
 
 export const uploadedFiles = pgTable("uploaded_files", {

@@ -1954,6 +1954,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (subject !== undefined) updateData.subject = subject;
       if (body !== undefined) updateData.body = body;
       if (enabled !== undefined) updateData.enabled = enabled;
+      if (subject !== undefined || body !== undefined) updateData.customized = true;
       const updated = await storage.updateEmailTemplate(req.params.id, updateData);
       if (!updated) return res.status(404).json({ message: "Template not found" });
       res.json(updated);
@@ -1972,6 +1973,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateEmailTemplate(req.params.id, {
         subject: defaultTpl.subject,
         body: defaultTpl.body,
+        customized: false,
       });
       res.json(updated);
     } catch (e: any) {
