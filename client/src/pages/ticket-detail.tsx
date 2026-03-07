@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw } from "lucide-react";
+import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock } from "lucide-react";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -73,6 +73,7 @@ export default function TicketDetail() {
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [customerInfoOpen, setCustomerInfoOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [transferToAdminId, setTransferToAdminId] = useState("");
   const [transferReason, setTransferReason] = useState("");
@@ -108,6 +109,28 @@ export default function TicketDetail() {
   const { data: quickResponses } = useQuery<QuickResponse[]>({
     queryKey: ["/api/quick-responses"],
     enabled: isAdmin,
+  });
+
+  type PreviousTicket = {
+    id: string;
+    subject: string;
+    status: string;
+    resolutionNote: string | null;
+    closedBy: string | null;
+    categoryId: string | null;
+    categoryName: string | null;
+    createdAt: string;
+    closedAt: string | null;
+  };
+
+  const { data: previousTickets, isLoading: previousTicketsLoading } = useQuery<PreviousTicket[]>({
+    queryKey: ["/api/admin/customers", ticket?.customerId, "tickets", { excludeTicketId: params.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/customers/${ticket!.customerId}/tickets?excludeTicketId=${params.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: isAdmin && !!ticket?.customerId && historyOpen,
   });
 
   useEffect(() => {
@@ -389,6 +412,52 @@ export default function TicketDetail() {
               </DialogContent>
             </Dialog>
           )}
+          {isAdmin && (
+            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" data-testid="button-ticket-history">
+                  <Clock className="w-4 h-4 mr-1" /> History
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[80vh] flex flex-col">
+                <DialogHeader><DialogTitle>Customer's Previous Tickets</DialogTitle></DialogHeader>
+                <div className="flex-1 overflow-y-auto space-y-3">
+                  {previousTicketsLoading ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
+                    </div>
+                  ) : !previousTickets || previousTickets.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">No previous tickets from this customer</p>
+                  ) : (
+                    previousTickets.map((pt) => (
+                      <div key={pt.id} className="p-3 rounded-md border space-y-2" data-testid={`previous-ticket-${pt.id}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{pt.subject}</p>
+                          <Badge variant={pt.status === "closed" ? "secondary" : "default"} className="text-xs capitalize flex-shrink-0">{pt.status}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                          <span>Opened {format(new Date(pt.createdAt), "MMM d, yyyy")}</span>
+                          {pt.closedAt && <span>· Closed {format(new Date(pt.closedAt), "MMM d, yyyy")}</span>}
+                          {pt.categoryName && <Badge variant="outline" className="text-[10px]">{pt.categoryName}</Badge>}
+                          {pt.closedBy && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {pt.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
+                            </Badge>
+                          )}
+                        </div>
+                        {pt.resolutionNote && (
+                          <div className={`p-2 rounded text-xs whitespace-pre-wrap ${pt.closedBy === ticket.customerId ? "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300" : "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300"}`} style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                            <span className="font-semibold">{pt.closedBy === ticket.customerId ? "Customer Note: " : "Resolution: "}</span>
+                            {pt.resolutionNote}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
           {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
             <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
               <DialogTrigger asChild>
@@ -462,9 +531,33 @@ export default function TicketDetail() {
             </Dialog>
           )}
           {ticket.status === "open" && !isAdmin && (
-            <Button variant="outline" size="sm" onClick={() => closeMutation.mutate()} disabled={closeMutation.isPending} data-testid="button-close-ticket">
-              <CheckCircle className="w-4 h-4 mr-1" /> Close Ticket
-            </Button>
+            <Dialog open={closeDialogOpen} onOpenChange={(open) => { setCloseDialogOpen(open); if (!open) setResolutionNote(""); }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" data-testid="button-close-ticket">
+                  <CheckCircle className="w-4 h-4 mr-1" /> Close Ticket
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Close Ticket</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <Textarea
+                    placeholder="Add a note about this ticket (optional)"
+                    value={resolutionNote}
+                    onChange={(e) => setResolutionNote(e.target.value)}
+                    rows={4}
+                    data-testid="input-customer-close-note"
+                  />
+                  <Button
+                    className="w-full"
+                    disabled={closeMutation.isPending}
+                    onClick={() => closeMutation.mutate(resolutionNote.trim() || undefined)}
+                    data-testid="button-confirm-close-ticket"
+                  >
+                    {closeMutation.isPending ? "Closing..." : "Close Ticket"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           )}
         </div>
       </div>
@@ -481,10 +574,25 @@ export default function TicketDetail() {
             </p>
           </div>
 
-          {ticket.status === "closed" && ticket.resolutionNote && (
-            <div className="mx-4 mt-4 p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="resolution-note">
-              <p className="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">Resolution Summary</p>
-              <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+          {ticket.status === "closed" && (
+            <div className="mx-4 mt-4 space-y-2">
+              {ticket.closedBy && (
+                <Badge variant="outline" className="text-xs" data-testid="badge-closed-by">
+                  {ticket.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
+                </Badge>
+              )}
+              {ticket.resolutionNote && ticket.closedBy === ticket.customerId && (
+                <div className="p-3 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30" data-testid="customer-close-note">
+                  <p className="text-xs font-semibold text-blue-800 dark:text-blue-400 mb-1">Customer's Closing Note</p>
+                  <p className="text-sm text-blue-700 dark:text-blue-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+                </div>
+              )}
+              {ticket.resolutionNote && ticket.closedBy !== ticket.customerId && (
+                <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="resolution-note">
+                  <p className="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">Resolution Summary</p>
+                  <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+                </div>
+              )}
             </div>
           )}
 

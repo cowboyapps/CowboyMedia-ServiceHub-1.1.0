@@ -69,6 +69,7 @@ export const tickets = pgTable("tickets", {
   claimedBy: varchar("claimed_by"),
   imageUrl: text("image_url"),
   resolutionNote: text("resolution_note"),
+  closedBy: varchar("closed_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
 });

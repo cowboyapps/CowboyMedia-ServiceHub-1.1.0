@@ -582,10 +582,11 @@ export async function registerRoutes(
       const data: any = { status };
       if (status === "closed") {
         data.closedAt = new Date();
+        data.closedBy = req.session.userId;
         if ((user.role === "admin" || user.role === "master_admin") && (!resolutionNote || !resolutionNote.trim())) {
           return res.status(400).json({ message: "A resolution note is required when closing a ticket" });
         }
-        if (resolutionNote) data.resolutionNote = resolutionNote.trim();
+        if (resolutionNote && resolutionNote.trim()) data.resolutionNote = resolutionNote.trim();
       }
       const updated = await storage.updateTicket(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
@@ -973,6 +974,40 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       senderRole: senderMap.get(m.senderId)?.role || "customer",
     }));
     res.json(enriched);
+  });
+
+  app.get("/api/admin/customers/:customerId/tickets", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const customerTickets = await storage.getTicketsByCustomer(req.params.customerId);
+      const excludeId = req.query.excludeTicketId as string | undefined;
+      let filtered = excludeId ? customerTickets.filter(t => t.id !== excludeId) : customerTickets;
+      if (user.role === "admin") {
+        const accessibleIds = await getAdminCategoryAccess(user.id);
+        if (!accessibleIds.includes("*")) {
+          filtered = filtered.filter(t => !t.categoryId || accessibleIds.includes(t.categoryId));
+        }
+      }
+      const categories = await storage.getAllTicketCategories();
+      const categoryMap = new Map(categories.map(c => [c.id, c.name]));
+      const result = filtered.map(t => ({
+        id: t.id,
+        subject: t.subject,
+        status: t.status,
+        resolutionNote: t.resolutionNote,
+        closedBy: t.closedBy,
+        categoryId: t.categoryId,
+        categoryName: t.categoryId ? categoryMap.get(t.categoryId) || null : null,
+        createdAt: t.createdAt,
+        closedAt: t.closedAt,
+      }));
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.get("/api/tickets/:id/customer", requireAuth, async (req, res) => {
