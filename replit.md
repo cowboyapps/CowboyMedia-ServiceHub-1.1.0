@@ -7,6 +7,7 @@ ServiceHub is a comprehensive Progressive Web App (PWA) designed to provide a ce
 I prefer detailed explanations.
 I want iterative development.
 Ask before making major changes.
+When the user says "change the version to...", update the version string in both `client/src/pages/profile-page.tsx` and `client/src/components/app-sidebar.tsx` without further explanation.
 
 ## System Architecture
 ServiceHub is built with a modern web stack, emphasizing PWA capabilities and real-time communication.

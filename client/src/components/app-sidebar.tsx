@@ -173,7 +173,7 @@ export function AppSidebar() {
         )}
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-2">
         <div className="flex items-center gap-2.5">
           <Avatar className="w-8 h-8">
             <AvatarFallback className="text-xs">{user?.fullName?.[0] || "U"}</AvatarFallback>
@@ -186,6 +186,7 @@ export function AppSidebar() {
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
+        <p className="text-[10px] text-muted-foreground/60 text-center" data-testid="text-sidebar-version">Version 1.0.9c</p>
       </SidebarFooter>
     </Sidebar>
   );
