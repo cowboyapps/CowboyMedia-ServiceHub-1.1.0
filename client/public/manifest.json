@@ -108,6 +108,13 @@
       "label": "CowboyMedia ServiceHub Mobile"
     }
   ],
+  "related_applications": [
+    {
+      "platform": "play",
+      "url": "https://play.google.com/store/apps/details?id=app.cowboyhub.servicehub",
+      "id": "app.cowboyhub.servicehub"
+    }
+  ],
   "prefer_related_applications": false,
   "serviceworker": {
     "src": "/sw.js",

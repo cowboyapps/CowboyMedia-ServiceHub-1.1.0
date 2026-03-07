@@ -33,6 +33,19 @@ The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI fo
 - **Customer Engagement**: News stories with photo support, private messaging from admins to customers (with push, email, and in-app popups), and a customer message center with unread badges.
 - **User Onboarding**: Setup reminder system with in-app dialogs and email notifications to encourage push notification and service configuration.
 
+### Android TWA (Trusted Web Activity)
+- Digital Asset Links file at `client/public/.well-known/assetlinks.json` — serves at `/.well-known/assetlinks.json` for Google Play TWA verification
+- Package name: `app.cowboyhub.servicehub`
+- Production domain: `cowboyhub.app`
+- Build guide: `TWA_BUILD_GUIDE.md`
+- The `manifest.json` includes `related_applications` pointing to the Play Store listing
+- `prefer_related_applications` remains `false` so PWA install prompts still work for non-Android users
+
+### Email Template Protection
+- `customized` boolean column on `emailTemplates` table tracks admin-edited templates
+- The seeder (`upsertEmailTemplate`) skips body/subject overwrites on customized templates but still syncs new `availableVariables`
+- Editing a template via admin panel sets `customized = true`; resetting to defaults sets `customized = false`
+
 ## External Dependencies
 - **Database**: PostgreSQL
 - **Email Service**: SendGrid
