@@ -695,7 +695,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [editUpdateImageFile, setEditUpdateImageFile] = useState<File | null>(null);
   const [editUpdateRemoveImage, setEditUpdateRemoveImage] = useState(false);
   const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
-  const [alertsListExpanded, setAlertsListExpanded] = useState(false);
+  const [expandedAlertCardId, setExpandedAlertCardId] = useState<string | null>(null);
 
   const { data: alerts, isLoading } = useQuery<ServiceAlert[]>({
     queryKey: ["/api/alerts"],
@@ -840,10 +840,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <button className="flex items-center gap-1 font-semibold cursor-pointer" onClick={() => setAlertsListExpanded(!alertsListExpanded)} data-testid="button-toggle-alerts-list">
-          {alertsListExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          Alerts ({alerts?.length || 0})
-        </button>
+        <h3 className="font-semibold">Alerts ({alerts?.length || 0})</h3>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setAlertImageFile(null); }}>
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-alert"><Plus className="w-4 h-4 mr-1" /> Create Alert</Button>
@@ -1093,24 +1090,49 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </DialogContent>
       </Dialog>
 
-      {isLoading ? <Skeleton className="h-40" /> : alertsListExpanded ? (
+      {isLoading ? <Skeleton className="h-40" /> : (
         <div className="space-y-3">
           {alerts?.map((alert) => (
             <Card key={alert.id} data-testid={`card-admin-alert-${alert.id}`}>
-              <CardContent className="p-4 space-y-3">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 cursor-pointer" onClick={() => setExpandedAlertCardId(expandedAlertCardId === alert.id ? null : alert.id)} data-testid={`button-expand-alert-${alert.id}`}>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {expandedAlertCardId === alert.id ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground" />}
                     <h4 className="font-semibold text-sm min-w-0 truncate">{alert.title}</h4>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] capitalize">{alert.severity}</Badge>
+                    <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-[10px] capitalize">{alert.status}</Badge>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap pl-6">
+                  {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-[10px]">{serviceMap.get(alert.serviceId)}</Badge>}
+                  <span className="text-[10px] text-muted-foreground">{format(new Date(alert.createdAt), "MMM d, yyyy h:mm a")}</span>
+                </div>
+                {expandedAlertCardId === alert.id && (
+                  <div className="space-y-2 pt-1 pl-6">
+                    <p className="text-xs text-muted-foreground">{alert.description}</p>
+                    {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md" />}
+                    <div className="flex items-center gap-1 flex-wrap">
                       {canManage && (
-                        <Button size="icon" variant="ghost" onClick={() => openEditAlert(alert)} data-testid={`button-edit-alert-${alert.id}`}>
-                          <Edit className="w-4 h-4" />
+                        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditAlert(alert); }} data-testid={`button-edit-alert-${alert.id}`}>
+                          <Edit className="w-3 h-3 mr-1" /> Edit
                         </Button>
+                      )}
+                      {canManage && alert.status !== "resolved" && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
+                            Update
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-alert-${alert.id}`}>
+                            Resolve
+                          </Button>
+                        </>
                       )}
                       {canManage && <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="icon" variant="ghost" data-testid={`button-delete-alert-${alert.id}`}>
-                            <Trash2 className="w-4 h-4" />
+                          <Button size="sm" variant="ghost" className="text-destructive" data-testid={`button-delete-alert-${alert.id}`}>
+                            <Trash2 className="w-3 h-3 mr-1" /> Delete
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -1125,34 +1147,17 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                         </AlertDialogContent>
                       </AlertDialog>}
                     </div>
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={(e) => { e.stopPropagation(); setExpandedAlertId(expandedAlertId === alert.id ? null : alert.id); }} data-testid={`button-toggle-updates-${alert.id}`}>
+                      {expandedAlertId === alert.id ? "Hide Updates" : "Show Updates"}
+                    </Button>
+                    {expandedAlertId === alert.id && <AlertUpdatesList alertId={alert.id} canManage={canManage} onEditUpdate={(update) => { setEditingAlertUpdate({ alertId: alert.id, update }); setEditUpdateMessage(update.message); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); setEditUpdateDialogOpen(true); }} />}
                   </div>
-                  <p className="text-xs text-muted-foreground">{alert.description}</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-xs capitalize">{alert.severity}</Badge>
-                    <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">{alert.status}</Badge>
-                    {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>}
-                  </div>
-                  {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md" />}
-                  {canManage && alert.status !== "resolved" && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <Button size="sm" variant="outline" onClick={() => { setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
-                        Update
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-alert-${alert.id}`}>
-                        Resolve
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                <Button variant="ghost" size="sm" className="text-xs" onClick={() => setExpandedAlertId(expandedAlertId === alert.id ? null : alert.id)} data-testid={`button-toggle-updates-${alert.id}`}>
-                  {expandedAlertId === alert.id ? "Hide Updates" : "Show Updates"}
-                </Button>
-                {expandedAlertId === alert.id && <AlertUpdatesList alertId={alert.id} canManage={canManage} onEditUpdate={(update) => { setEditingAlertUpdate({ alertId: alert.id, update }); setEditUpdateMessage(update.message); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); setEditUpdateDialogOpen(true); }} />}
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -1911,7 +1916,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editMatureContent, setEditMatureContent] = useState(false);
-  const [updatesListExpanded, setUpdatesListExpanded] = useState(false);
+  const [expandedUpdateId, setExpandedUpdateId] = useState<string | null>(null);
 
   const { data: updates, isLoading } = useQuery<ServiceUpdate[]>({
     queryKey: ["/api/service-updates"],
@@ -1988,10 +1993,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <button className="flex items-center gap-1 text-xl font-semibold cursor-pointer" onClick={() => setUpdatesListExpanded(!updatesListExpanded)} data-testid="button-toggle-updates-list">
-          {updatesListExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          Service Updates ({updates?.length || 0})
-        </button>
+        <h2 className="text-xl font-semibold" data-testid="text-admin-service-updates-title">Service Updates ({updates?.length || 0})</h2>
         <Dialog open={open} onOpenChange={setOpen}>
           {canManage && <DialogTrigger asChild>
             <Button data-testid="button-add-service-update"><Plus className="w-4 h-4 mr-2" />Add Service Update</Button>
@@ -2067,38 +2069,46 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
         </Dialog>
       </div>
 
-      {updatesListExpanded && (!updates || updates.length === 0) ? (
+      {!updates || updates.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground" data-testid="text-no-admin-updates">
             No service updates yet
           </CardContent>
         </Card>
-      ) : updatesListExpanded ? (
+      ) : (
         <div className="space-y-3">
-          {updates?.map((update) => (
+          {updates.map((update) => (
             <Card key={update.id} data-testid={`card-admin-update-${update.id}`}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-base">{update.title}</CardTitle>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <Badge variant="outline">{getServiceName(update.serviceId)}</Badge>
-                      {update.matureContent && <Badge variant="destructive" className="text-xs" data-testid={`badge-mature-${update.id}`}>Mature</Badge>}
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(update.createdAt), "MMM d, yyyy h:mm a")}
-                      </span>
-                    </div>
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 cursor-pointer" onClick={() => setExpandedUpdateId(expandedUpdateId === update.id ? null : update.id)} data-testid={`button-expand-update-${update.id}`}>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {expandedUpdateId === update.id ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground" />}
+                    <h4 className="font-semibold text-sm min-w-0 truncate">{update.title}</h4>
                   </div>
-                  {canManage && (
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" onClick={() => openEditDialog(update)} data-testid={`button-admin-edit-update-${update.id}`}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <AlertDialog>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Badge variant="outline" className="text-[10px]">{getServiceName(update.serviceId)}</Badge>
+                    {update.matureContent && <Badge variant="destructive" className="text-[10px]" data-testid={`badge-mature-${update.id}`}>Mature</Badge>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap pl-6">
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {format(new Date(update.createdAt), "MMM d, yyyy h:mm a")}
+                  </span>
+                </div>
+                {expandedUpdateId === update.id && (
+                  <div className="space-y-2 pt-1 pl-6">
+                    <p className="text-sm whitespace-pre-wrap">{update.description}</p>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {canManage && (
+                        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditDialog(update); }} data-testid={`button-admin-edit-update-${update.id}`}>
+                          <Edit className="w-3 h-3 mr-1" /> Edit
+                        </Button>
+                      )}
+                      {canManage && <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" data-testid={`button-admin-delete-update-${update.id}`}>
-                            <Trash2 className="w-4 h-4" />
+                          <Button size="sm" variant="ghost" className="text-destructive" data-testid={`button-admin-delete-update-${update.id}`}>
+                            <Trash2 className="w-3 h-3 mr-1" /> Delete
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -2111,18 +2121,15 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                             <AlertDialogAction onClick={() => deleteMutation.mutate(update.id)}>Delete</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
-                      </AlertDialog>
+                      </AlertDialog>}
                     </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{update.description}</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
-      ) : null}
+      )}
 
       <Dialog open={!!editingUpdate} onOpenChange={(open) => { if (!open) setEditingUpdate(null); }}>
         <DialogContent>
