@@ -36,8 +36,12 @@ async function sendTemplatedEmail(
   const body = rendered ? tpl.body : replaceVarsSimple(tpl.body, variables);
   if (Array.isArray(to)) {
     sendEmailToMultiple(to, subject, body).catch(() => {});
+    for (const addr of to) {
+      logActivity("email", "email_sent", { summary: `Email to ${addr}: ${subject}`, details: JSON.stringify({ to: addr, templateKey, subject }) });
+    }
   } else {
     sendEmail(to, subject, body).catch(() => {});
+    logActivity("email", "email_sent", { summary: `Email to ${to}: ${subject}`, details: JSON.stringify({ to, templateKey, subject }) });
   }
 }
 
@@ -239,6 +243,9 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
       }
     }
     console.log(`[Push] User ${userId} — ${sent} sent, ${failed} failed out of ${subs.length} subscription(s)`);
+    if (sent > 0) {
+      logActivity("push", "push_sent", { recipientId: userId, summary: `Push: ${payload.title}`, details: JSON.stringify(payload) });
+    }
   } catch (e) {
     console.error(`[Push] User ${userId} — error:`, e);
   }
@@ -254,6 +261,10 @@ async function sendPushToSubscribedUsers(serviceId: string, payload: { title: st
   } catch (e) {
     console.error("Push notification error:", e);
   }
+}
+
+function logActivity(category: string, action: string, opts: { actorId?: string; targetId?: string; targetType?: string; recipientId?: string; summary: string; details?: string }) {
+  storage.createActivityLog({ category, action, ...opts }).catch(e => console.error("[ActivityLog] Failed to write:", e.message));
 }
 
 export async function registerRoutes(
@@ -306,6 +317,7 @@ export async function registerRoutes(
       req.session.userId = user.id;
       const { password: _, ...safe } = user;
       res.json(safe);
+      logActivity("user", "user_registered", { targetId: user.id, targetType: "user", summary: `New user registered: ${fullName} (${username})`, details: JSON.stringify({ username, email, fullName }) });
 
       const allUsers = await storage.getAllUsers();
       const admins = allUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support");
@@ -487,6 +499,7 @@ export async function registerRoutes(
         imageUrl: imageUrl || null,
       });
       broadcast({ type: "new_ticket", ticket });
+      logActivity("ticket", "ticket_opened", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket opened: ${ticket.subject}`, details: JSON.stringify({ subject: ticket.subject, description: ticket.description, priority: ticket.priority, serviceId: ticket.serviceId }) });
 
       const customer = await storage.getUser(req.session.userId!);
       const service = ticket.serviceId ? await storage.getService(ticket.serviceId) : null;
@@ -602,6 +615,11 @@ export async function registerRoutes(
       const updated = await storage.updateTicket(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
+      if (status === "closed") {
+        logActivity("ticket", "ticket_closed", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket closed: ${ticket.subject}`, details: JSON.stringify({ subject: ticket.subject, resolutionNote: data.resolutionNote }) });
+      } else {
+        logActivity("ticket", "ticket_updated", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket updated to ${status}: ${ticket.subject}` });
+      }
 
       if (status === "closed") {
         try {
@@ -731,6 +749,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateTicket(req.params.id, { claimedBy: admin.id });
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
+      logActivity("ticket", "ticket_claimed", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", summary: `${admin.fullName} claimed ticket: ${ticket.subject}` });
 
       const pendingTransfer = await storage.getPendingTransferByTicketId(req.params.id);
       const isTransfer = pendingTransfer && pendingTransfer.toAdminId === admin.id;
@@ -823,6 +842,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         toAdminId,
         reason,
       });
+      logActivity("ticket", "ticket_transferred", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", recipientId: toAdminId, summary: `${admin.fullName} transferred ticket "${ticket.subject}" to ${targetAdmin.fullName}`, details: JSON.stringify({ reason, fromAdmin: admin.fullName, toAdmin: targetAdmin.fullName }) });
 
       await storage.updateTicket(req.params.id, { claimedBy: null });
 
@@ -1117,6 +1137,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         message: req.body.message,
         imageUrl: imageUrl || null,
       });
+      logActivity("ticket", "ticket_message", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Message on ticket "${ticket.subject}" by ${user.fullName}` });
       broadcast({ type: "ticket_message", ticketId: req.params.id, message });
       if (isAdmin) {
         sendPushToUser(ticket.customerId, {
@@ -1311,6 +1332,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const service = await storage.getService(alert.serviceId);
       const serviceName = service?.name || "Service";
       const impactLabel = impact === "outage" ? "Outage" : impact === "maintenance" ? "Maintenance" : "Degraded Performance";
+      logActivity("alert", "alert_created", { actorId: req.session.userId!, targetId: alert.id, targetType: "alert", summary: `Alert created: ${alert.title} (${serviceName} — ${impactLabel})`, details: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity, service: serviceName, impact }) });
       broadcast({ type: "new_alert", alert });
       broadcast({ type: "service_updated", serviceId: alert.serviceId });
       const allUsers = await storage.getAllUsers();
@@ -1376,6 +1398,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await storage.updateAlert(req.params.id, { status: updateData.status });
       }
       broadcast({ type: "alert_update", alertId: req.params.id, update });
+      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact }) });
       const alert = await storage.getAlert(req.params.id);
       if (alert) {
         const service = await storage.getService(alert.serviceId);
@@ -1461,10 +1484,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         ...(imageUrl ? { imageUrl } : {}),
       });
       await storage.updateService(updated.serviceId, { status: "operational" });
-      broadcast({ type: "alert_resolved", alertId: req.params.id });
-      broadcast({ type: "service_updated", serviceId: updated.serviceId });
       const service = await storage.getService(updated.serviceId);
       const serviceName = service?.name || "Service";
+      logActivity("alert", "alert_resolved", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert resolved: ${updated.title} (${serviceName})`, details: JSON.stringify({ title: updated.title, resolveMessage, service: serviceName }) });
+      broadcast({ type: "alert_resolved", alertId: req.params.id });
+      broadcast({ type: "service_updated", serviceId: updated.serviceId });
       const allUsers = await storage.getAllUsers();
       const subscribers = allUsers.filter(u => u.subscribedServices?.includes(updated.serviceId) && u.id !== req.session.userId);
       console.log(`[Alert Resolve] Alert ${req.params.id} — ${subscribers.length} subscriber(s) to notify`);
@@ -1493,7 +1517,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
     try {
+      const alertToDelete = await storage.getAlert(req.params.id);
       await storage.deleteAlert(req.params.id);
+      logActivity("alert", "alert_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert deleted: ${alertToDelete?.title || req.params.id}` });
       res.json({ message: "Alert deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1523,9 +1549,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const { title, description, serviceId, matureContent } = parsed.data;
       const update = await storage.createServiceUpdate({ title, description, serviceId, matureContent: matureContent ?? false });
-
       const service = await storage.getService(serviceId);
       const serviceName = service?.name || "Unknown Service";
+      logActivity("service_update", "service_update_created", { actorId: req.session.userId!, targetId: update.id, targetType: "service_update", summary: `Service update created: ${title} (${serviceName})`, details: JSON.stringify({ title, description, service: serviceName }) });
       broadcast({ type: "new_service_update", update });
 
       const allUsers = await storage.getAllUsers();
@@ -1563,6 +1589,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (matureContent !== undefined) data.matureContent = matureContent;
       const updated = await storage.updateServiceUpdate(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Service update not found" });
+      logActivity("service_update", "service_update_edited", { actorId: req.session.userId!, targetId: req.params.id, targetType: "service_update", summary: `Service update edited: ${updated.title}` });
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1578,6 +1605,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           return res.json({ message: "Service update hidden for you" });
         }
         await storage.deleteServiceUpdate(req.params.id);
+        logActivity("service_update", "service_update_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "service_update", summary: `Service update deleted` });
         return res.json({ message: "Service update deleted" });
       }
       await storage.hideServiceUpdate(req.session.userId!, req.params.id);
@@ -1596,6 +1624,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         imageUrl: imageUrl || null,
         authorId: req.session.userId!,
       });
+      logActivity("news", "news_created", { actorId: req.session.userId!, targetId: story.id, targetType: "news", summary: `News story created: ${story.title}`, details: JSON.stringify({ title: story.title, content: story.content?.substring(0, 200) }) });
       broadcast({ type: "new_news", story });
       const allUsers = await storage.getAllUsers();
       for (const u of allUsers.filter(u => u.role === "customer")) {
@@ -1636,6 +1665,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       const updated = await storage.updateNewsStory(req.params.id, updateData);
+      logActivity("news", "news_edited", { actorId: req.session.userId!, targetId: req.params.id, targetType: "news", summary: `News story edited: ${updated?.title || req.params.id}` });
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1644,7 +1674,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/news/:id", requirePermission("news.view", "news.manage"), async (req, res) => {
     try {
+      const storyToDelete = await storage.getNewsStory(req.params.id);
       await storage.deleteNewsStory(req.params.id);
+      logActivity("news", "news_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "news", summary: `News story deleted: ${storyToDelete?.title || req.params.id}` });
       res.json({ message: "News story deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1821,6 +1853,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         imageUrl: imageUrl || null,
         status: "pending",
       });
+      logActivity("report", "report_submitted", { actorId: user.id, targetId: rr.id, targetType: "report", summary: `Report submitted: ${title} (${type})`, details: JSON.stringify({ type, title, description }) });
 
       const service = serviceId ? await storage.getService(serviceId) : null;
       const typeLabels: Record<string, string> = {
@@ -1883,6 +1916,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const updated = await storage.updateReportRequest(req.params.id, updateData);
       if (!updated) return res.status(404).json({ message: "Not found" });
+      if (status) {
+        logActivity("report", "report_status_changed", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report "${existing.title}" status changed to ${status}`, details: JSON.stringify({ title: existing.title, oldStatus: existing.status, newStatus: status, adminNotes }) });
+      }
 
       if (status && status !== existing.status) {
         const typeLabelsMap: Record<string, string> = {
@@ -1946,6 +1982,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.delete("/api/admin/report-requests/:id", requirePermission("reports.view", "reports.manage"), async (req, res) => {
     try {
       await storage.deleteReportRequest(req.params.id);
+      logActivity("report", "report_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report deleted: ${req.params.id}` });
       res.json({ message: "Deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2159,6 +2196,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (adminRoleId !== undefined) updateData.adminRoleId = adminRoleId;
       const updated = await storage.updateUser(req.params.id, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
+      if (role !== undefined) {
+        logActivity("user", "user_role_changed", { actorId: req.session.userId!, targetId: targetUser.id, targetType: "user", summary: `${targetUser.fullName} role changed to ${role}`, details: JSON.stringify({ username: targetUser.username, oldRole: targetUser.role, newRole: role, adminRoleId }) });
+      }
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2485,6 +2525,47 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   // WebSocket
+  app.get("/api/admin/activity-logs", requirePermission("logs.view"), async (req, res) => {
+    try {
+      const { category, action, search, page, limit } = req.query;
+      const result = await storage.getActivityLogs({
+        category: category as string | undefined,
+        action: action as string | undefined,
+        search: search as string | undefined,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      });
+      const allUsers = await storage.getAllUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u.fullName]));
+      const enrichedLogs = result.logs.map(log => ({
+        ...log,
+        actorName: log.actorId ? userMap.get(log.actorId) || null : null,
+        recipientName: log.recipientId ? userMap.get(log.recipientId) || null : null,
+      }));
+      res.json({ logs: enrichedLogs, total: result.total });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/activity-logs/:id", requirePermission("logs.view"), async (req, res) => {
+    try {
+      const log = await storage.getActivityLog(req.params.id);
+      if (!log) return res.status(404).json({ message: "Log entry not found" });
+      if (log.actorId) {
+        const actor = await storage.getUser(log.actorId);
+        (log as any).actorName = actor?.fullName || null;
+      }
+      if (log.recipientId) {
+        const recipient = await storage.getUser(log.recipientId);
+        (log as any).recipientName = recipient?.fullName || null;
+      }
+      res.json(log);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
   wss.on("connection", (ws) => {
     wsClients.add(ws);

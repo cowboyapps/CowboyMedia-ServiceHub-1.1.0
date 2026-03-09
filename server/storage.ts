@@ -22,7 +22,8 @@ import {
   type BroadcastMessage, type InsertBroadcastMessage,
   type BroadcastRecipient, type InsertBroadcastRecipient,
   type TicketTransfer, type InsertTicketTransfer,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers,
+  type AdminActivityLog, type InsertAdminActivityLog,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
@@ -153,6 +154,10 @@ export interface IStorage {
   getPendingTransfersForAdmin(adminId: string): Promise<TicketTransfer[]>;
   getPendingTransferByTicketId(ticketId: string): Promise<TicketTransfer | undefined>;
   updateTicketTransfer(id: string, data: Partial<TicketTransfer>): Promise<TicketTransfer | undefined>;
+
+  createActivityLog(data: InsertAdminActivityLog): Promise<AdminActivityLog>;
+  getActivityLogs(filters: { category?: string; action?: string; search?: string; page?: number; limit?: number }): Promise<{ logs: AdminActivityLog[]; total: number }>;
+  getActivityLog(id: string): Promise<AdminActivityLog | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -762,6 +767,30 @@ export class DatabaseStorage implements IStorage {
   async updateTicketTransfer(id: string, data: Partial<TicketTransfer>): Promise<TicketTransfer | undefined> {
     const [transfer] = await db.update(ticketTransfers).set(data).where(eq(ticketTransfers.id, id)).returning();
     return transfer;
+  }
+
+  async createActivityLog(data: InsertAdminActivityLog): Promise<AdminActivityLog> {
+    const [log] = await db.insert(adminActivityLogs).values(data).returning();
+    return log;
+  }
+
+  async getActivityLogs(filters: { category?: string; action?: string; search?: string; page?: number; limit?: number }): Promise<{ logs: AdminActivityLog[]; total: number }> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 50;
+    const offset = (page - 1) * limit;
+    const conditions = [];
+    if (filters.category) conditions.push(eq(adminActivityLogs.category, filters.category));
+    if (filters.action) conditions.push(eq(adminActivityLogs.action, filters.action));
+    if (filters.search) conditions.push(sql`${adminActivityLogs.summary} ILIKE ${'%' + filters.search + '%'}`);
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const logs = await db.select().from(adminActivityLogs).where(where).orderBy(desc(adminActivityLogs.createdAt)).limit(limit).offset(offset);
+    const [countResult] = await db.select({ count: sql<number>`count(*)::int` }).from(adminActivityLogs).where(where);
+    return { logs, total: countResult?.count || 0 };
+  }
+
+  async getActivityLog(id: string): Promise<AdminActivityLog | undefined> {
+    const [log] = await db.select().from(adminActivityLogs).where(eq(adminActivityLogs.id, id));
+    return log;
   }
 }
 

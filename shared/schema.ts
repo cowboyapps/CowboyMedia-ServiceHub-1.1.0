@@ -325,6 +325,23 @@ export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
 export type InsertTicketTransfer = z.infer<typeof insertTicketTransferSchema>;
 export type TicketTransfer = typeof ticketTransfers.$inferSelect;
 
+export const adminActivityLogs = pgTable("admin_activity_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: varchar("category").notNull(),
+  action: varchar("action").notNull(),
+  actorId: varchar("actor_id"),
+  targetId: varchar("target_id"),
+  targetType: varchar("target_type"),
+  recipientId: varchar("recipient_id"),
+  summary: text("summary").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAdminActivityLogSchema = createInsertSchema(adminActivityLogs).omit({ id: true, createdAt: true });
+export type InsertAdminActivityLog = z.infer<typeof insertAdminActivityLogSchema>;
+export type AdminActivityLog = typeof adminActivityLogs.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),

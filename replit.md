@@ -33,6 +33,14 @@ The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI fo
 - **Customer Engagement**: News stories with photo support, private messaging from admins to customers (with push, email, and in-app popups), and a customer message center with unread badges.
 - **User Onboarding**: Setup reminder system with in-app dialogs and email notifications to encourage push notification and service configuration.
 
+### Admin Activity Logs
+- `admin_activity_logs` table stores all major system events: emails sent, push notifications, ticket lifecycle, alert lifecycle, service updates, news, reports, user role changes
+- Gated by `logs.view` permission — assignable per admin role
+- `logActivity()` helper in `server/routes.ts` writes logs fire-and-forget (non-blocking)
+- Email logs store template key and subject only (no PII/variable content)
+- Push logs store the notification payload (title, body, url)
+- Frontend `LogsTab` component with category filter, search, pagination, and collapsible detail view
+
 ### Email Template Protection
 - `customized` boolean column on `emailTemplates` table tracks admin-edited templates
 - The seeder (`upsertEmailTemplate`) skips body/subject overwrites on customized templates but still syncs new `availableVariables`

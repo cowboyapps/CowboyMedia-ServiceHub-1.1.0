@@ -22,7 +22,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search } from "lucide-react";
 import { format } from "date-fns";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download } from "lucide-react";
@@ -2430,6 +2430,185 @@ function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   );
 }
 
+interface ActivityLog {
+  id: string;
+  category: string;
+  action: string;
+  actorId: string | null;
+  targetId: string | null;
+  targetType: string | null;
+  recipientId: string | null;
+  summary: string;
+  details: string | null;
+  createdAt: string;
+  actorName?: string | null;
+  recipientName?: string | null;
+}
+
+const LOG_CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: typeof Mail }> = {
+  email: { label: "Email", color: "bg-indigo-500/10 text-indigo-500", icon: Mail },
+  push: { label: "Push", color: "bg-green-500/10 text-green-500", icon: Bell },
+  ticket: { label: "Ticket", color: "bg-sky-500/10 text-sky-500", icon: LifeBuoy },
+  alert: { label: "Alert", color: "bg-amber-500/10 text-amber-500", icon: AlertTriangle },
+  user: { label: "User", color: "bg-blue-500/10 text-blue-500", icon: Users },
+  news: { label: "News", color: "bg-purple-500/10 text-purple-500", icon: Newspaper },
+  service_update: { label: "Service Update", color: "bg-teal-500/10 text-teal-500", icon: RefreshCw },
+  report: { label: "Report", color: "bg-cyan-500/10 text-cyan-500", icon: FileText },
+};
+
+function LogsTab() {
+  const [category, setCategory] = useState<string>("");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const limit = 30;
+
+  const { data, isLoading } = useQuery<{ logs: ActivityLog[]; total: number }>({
+    queryKey: ["/api/admin/activity-logs", category, search, page],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (search) params.set("search", search);
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      const res = await fetch(`/api/admin/activity-logs?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load logs");
+      return res.json();
+    },
+    refetchInterval: 15000,
+  });
+
+  const logs = data?.logs || [];
+  const total = data?.total || 0;
+  const totalPages = Math.ceil(total / limit);
+
+  const handleSearch = () => {
+    setSearch(searchInput);
+    setPage(1);
+  };
+
+  const renderDetails = (log: ActivityLog) => {
+    if (!log.details) return null;
+    try {
+      const parsed = JSON.parse(log.details);
+      return (
+        <div className="space-y-1.5" data-testid={`log-details-${log.id}`}>
+          {Object.entries(parsed).map(([key, value]) => (
+            <div key={key} className="flex gap-2 text-xs">
+              <span className="font-medium text-muted-foreground min-w-[80px] capitalize">{key.replace(/_/g, " ")}:</span>
+              <span className="text-foreground break-all whitespace-pre-wrap">{typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}</span>
+            </div>
+          ))}
+        </div>
+      );
+    } catch {
+      return <p className="text-xs text-muted-foreground whitespace-pre-wrap">{log.details}</p>;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Select value={category} onValueChange={(v) => { setCategory(v === "all" ? "" : v); setPage(1); }}>
+          <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-log-category">
+            <SelectValue placeholder="All Categories" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {Object.entries(LOG_CATEGORY_CONFIG).map(([key, cfg]) => (
+              <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex gap-2 flex-1">
+          <Input
+            placeholder="Search logs..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            className="flex-1"
+            data-testid="input-log-search"
+          />
+          <Button size="icon" variant="outline" onClick={handleSearch} data-testid="button-log-search">
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="text-xs text-muted-foreground">{total} log entries</div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+        </div>
+      ) : logs.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <ScrollText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No log entries found</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {logs.map((log) => {
+            const config = LOG_CATEGORY_CONFIG[log.category] || { label: log.category, color: "bg-gray-500/10 text-gray-500", icon: ScrollText };
+            const Icon = config.icon;
+            const isExpanded = expandedLogId === log.id;
+            return (
+              <Card key={log.id} data-testid={`card-log-${log.id}`}>
+                <CardContent className="p-3 space-y-1.5">
+                  <div
+                    className="flex items-center gap-2 cursor-pointer"
+                    onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                    data-testid={`button-expand-log-${log.id}`}
+                  >
+                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
+                    <div className={`rounded-full p-1 ${config.color.split(" ")[0]}`}>
+                      <Icon className={`w-3 h-3 ${config.color.split(" ")[1]}`} />
+                    </div>
+                    <span className="text-sm flex-1 min-w-0 truncate">{log.summary}</span>
+                    <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${config.color}`}>{config.label}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 pl-7 flex-wrap">
+                    {log.actorName && (
+                      <span className="text-[10px] text-muted-foreground">by {log.actorName}</span>
+                    )}
+                    {log.recipientName && (
+                      <span className="text-[10px] text-muted-foreground">→ {log.recipientName}</span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                      <Clock className="w-2.5 h-2.5" />
+                      {format(new Date(log.createdAt), "MMM d, yyyy h:mm a")}
+                    </span>
+                  </div>
+                  {isExpanded && log.details && (
+                    <div className="mt-2 pl-7 border-l-2 border-muted ml-2 pl-4 py-2">
+                      {renderDetails(log)}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-log-prev">
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)} data-testid="button-log-next">
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ALL_PERMISSIONS = [
   { category: "Users", perms: ["users.view", "users.manage"] },
   { category: "Services", perms: ["services.view", "services.manage"] },
@@ -2442,6 +2621,7 @@ const ALL_PERMISSIONS = [
   { category: "Email Templates", perms: ["email_templates.view", "email_templates.manage"] },
   { category: "Support Tickets", perms: ["support_tickets"] },
   { category: "Admin Chat", perms: ["admin_chat"] },
+  { category: "Logs", perms: ["logs.view"] },
 ];
 
 function AdminManagementTab() {
@@ -3250,6 +3430,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "email-templates": "email_templates.view",
   "support-tickets": "support_tickets",
   "admin-chat": "admin_chat",
+  "logs": "logs.view",
 };
 
 const TILE_MANAGE_MAP: Record<string, string> = {
@@ -3309,6 +3490,7 @@ export default function AdminPortal() {
     { key: "email-templates", label: "Email Templates", icon: MailOpen, color: "text-indigo-500", bg: "bg-indigo-500/10" },
     { key: "support-tickets", label: "Support Tickets", icon: LifeBuoy, color: "text-sky-500", bg: "bg-sky-500/10", navigateTo: "/tickets" },
     { key: "admin-chat", label: "Admin Chat", icon: MessageSquare, color: "text-pink-500", bg: "bg-pink-500/10" },
+    { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
   ];
 
@@ -3336,6 +3518,7 @@ export default function AdminPortal() {
       case "reports-requests": return <ReportsRequestsTab canManage={canManageSection("reports-requests")} />;
       case "email-templates": return <EmailTemplatesTab canManage={canManageSection("email-templates")} />;
       case "admin-chat": return <AdminChatTab />;
+      case "logs": return <LogsTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab /> : null;
       default: return null;
     }
