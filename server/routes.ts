@@ -26,6 +26,7 @@ async function sendTemplatedEmail(
   to: string | string[],
   templateKey: string,
   variables: Record<string, string>,
+  recipientName?: string,
 ): Promise<void> {
   const rendered = await renderTemplate(templateKey, variables);
   if (rendered && !rendered.enabled) return;
@@ -37,11 +38,11 @@ async function sendTemplatedEmail(
   if (Array.isArray(to)) {
     sendEmailToMultiple(to, subject, body).catch(() => {});
     for (const addr of to) {
-      logActivity("email", "email_sent", { summary: `Email to ${addr}: ${subject}`, details: JSON.stringify({ to: addr, templateKey, subject }) });
+      logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${addr}): ${subject}` : `Email to ${addr}: ${subject}`, details: JSON.stringify({ to: addr, recipientName: recipientName || null, templateKey, subject }) });
     }
   } else {
     sendEmail(to, subject, body).catch(() => {});
-    logActivity("email", "email_sent", { summary: `Email to ${to}: ${subject}`, details: JSON.stringify({ to, templateKey, subject }) });
+    logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${to}): ${subject}` : `Email to ${to}: ${subject}`, details: JSON.stringify({ to, recipientName: recipientName || null, templateKey, subject }) });
   }
 }
 
@@ -244,7 +245,8 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
     }
     console.log(`[Push] User ${userId} — ${sent} sent, ${failed} failed out of ${subs.length} subscription(s)`);
     if (sent > 0) {
-      logActivity("push", "push_sent", { recipientId: userId, summary: `Push: ${payload.title}`, details: JSON.stringify(payload) });
+      const pushRecipient = await storage.getUser(userId);
+      logActivity("push", "push_sent", { recipientId: userId, summary: `Push to ${pushRecipient?.fullName || "user"}: ${payload.title} — ${payload.body}`, details: JSON.stringify({ recipientName: pushRecipient?.fullName || null, ...payload }) });
     }
   } catch (e) {
     console.error(`[Push] User ${userId} — error:`, e);
@@ -335,7 +337,7 @@ export async function registerRoutes(
           customer_name: fullName,
           customer_username: username,
           customer_email: email,
-        });
+        }, "Admins");
       }
       const adminIds = admins.map(a => a.id);
       storage.createContentNotificationBulk(adminIds, "admin-users", `New signup: ${fullName} (${username})`, user.id).catch(() => {});
@@ -499,9 +501,8 @@ export async function registerRoutes(
         imageUrl: imageUrl || null,
       });
       broadcast({ type: "new_ticket", ticket });
-      logActivity("ticket", "ticket_opened", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket opened: ${ticket.subject}`, details: JSON.stringify({ subject: ticket.subject, description: ticket.description, priority: ticket.priority, serviceId: ticket.serviceId }) });
-
       const customer = await storage.getUser(req.session.userId!);
+      logActivity("ticket", "ticket_opened", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket opened by ${customer?.fullName || "Unknown"}: ${ticket.subject}`, details: JSON.stringify({ customer: customer?.fullName, customerEmail: customer?.email, subject: ticket.subject, description: ticket.description, priority: ticket.priority, serviceId: ticket.serviceId }) });
       const service = ticket.serviceId ? await storage.getService(ticket.serviceId) : null;
       const allUsers = await storage.getAllUsers();
       let admins = allUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support");
@@ -533,7 +534,7 @@ export async function registerRoutes(
             ticket_subject: ticket.subject,
             ticket_priority: ticket.priority,
             ticket_description: ticket.description,
-          });
+          }, admin.fullName);
         }
       }
 
@@ -575,7 +576,7 @@ export async function registerRoutes(
           sendTemplatedEmail(customer.email, "customer_ticket_received", {
             ticket_subject: ticket.subject,
             customer_name: customer.fullName,
-          });
+          }, customer.fullName);
         }
       } catch (autoReplyErr) {
         console.error("Auto-reply error:", autoReplyErr);
@@ -615,10 +616,12 @@ export async function registerRoutes(
       const updated = await storage.updateTicket(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
+      const ticketCustomer = await storage.getUser(ticket.customerId);
+      const customerName = ticketCustomer?.fullName || "Unknown";
       if (status === "closed") {
-        logActivity("ticket", "ticket_closed", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket closed: ${ticket.subject}`, details: JSON.stringify({ subject: ticket.subject, resolutionNote: data.resolutionNote }) });
+        logActivity("ticket", "ticket_closed", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket closed by ${user.fullName}: "${ticket.subject}" (customer: ${customerName})`, details: JSON.stringify({ customer: customerName, customerEmail: ticketCustomer?.email, subject: ticket.subject, closedBy: user.fullName, resolutionNote: data.resolutionNote }) });
       } else {
-        logActivity("ticket", "ticket_updated", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket updated to ${status}: ${ticket.subject}` });
+        logActivity("ticket", "ticket_updated", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Ticket updated to ${status}: "${ticket.subject}" (customer: ${customerName})`, details: JSON.stringify({ customer: customerName, subject: ticket.subject, newStatus: status }) });
       }
 
       if (status === "closed") {
@@ -673,7 +676,7 @@ export async function registerRoutes(
               customer_username: customer.username,
               customer_email: customer.email,
               ticket_subject: ticket.subject,
-            });
+            }, admin.fullName);
           }
         }
 
@@ -716,7 +719,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               closed_date: format(new Date(), "MMM d, yyyy 'at' h:mm a"),
               resolution_summary: resolutionHtml,
               conversation: conversationHtml,
-            });
+            }, customer.fullName);
           } catch (transcriptErr) {
             console.error("Transcript email error:", transcriptErr);
           }
@@ -749,7 +752,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateTicket(req.params.id, { claimedBy: admin.id });
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
-      logActivity("ticket", "ticket_claimed", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", summary: `${admin.fullName} claimed ticket: ${ticket.subject}` });
+      const claimCustomer = await storage.getUser(ticket.customerId);
+      logActivity("ticket", "ticket_claimed", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", summary: `${admin.fullName} claimed ticket: "${ticket.subject}" (customer: ${claimCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ admin: admin.fullName, customer: claimCustomer?.fullName, customerEmail: claimCustomer?.email, subject: ticket.subject }) });
 
       const pendingTransfer = await storage.getPendingTransferByTicketId(req.params.id);
       const isTransfer = pendingTransfer && pendingTransfer.toAdminId === admin.id;
@@ -811,7 +815,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           admin_name: admin.fullName,
           ticket_subject: ticket.subject,
           customer_name: customer.fullName,
-        });
+        }, customer.fullName);
       }
 
       res.json(updated);
@@ -842,7 +846,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         toAdminId,
         reason,
       });
-      logActivity("ticket", "ticket_transferred", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", recipientId: toAdminId, summary: `${admin.fullName} transferred ticket "${ticket.subject}" to ${targetAdmin.fullName}`, details: JSON.stringify({ reason, fromAdmin: admin.fullName, toAdmin: targetAdmin.fullName }) });
+      const transferCustomer = await storage.getUser(ticket.customerId);
+      logActivity("ticket", "ticket_transferred", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", recipientId: toAdminId, summary: `${admin.fullName} transferred ticket "${ticket.subject}" to ${targetAdmin.fullName} (customer: ${transferCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ reason, fromAdmin: admin.fullName, toAdmin: targetAdmin.fullName, customer: transferCustomer?.fullName, customerEmail: transferCustomer?.email }) });
 
       await storage.updateTicket(req.params.id, { claimedBy: null });
 
@@ -901,7 +906,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           ticket_priority: ticket.priority,
           customer_name: customer?.fullName || "Unknown",
           customer_email: customer?.email || "N/A",
-        });
+        }, targetAdmin.fullName);
       }
 
       broadcast({
@@ -1137,7 +1142,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         message: req.body.message,
         imageUrl: imageUrl || null,
       });
-      logActivity("ticket", "ticket_message", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Message on ticket "${ticket.subject}" by ${user.fullName}` });
+      const msgCustomer = isAdmin ? await storage.getUser(ticket.customerId) : user;
+      logActivity("ticket", "ticket_message", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Message on ticket "${ticket.subject}" by ${user.fullName} (customer: ${msgCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ sender: user.fullName, customer: msgCustomer?.fullName, subject: ticket.subject }) });
       broadcast({ type: "ticket_message", ticketId: req.params.id, message });
       if (isAdmin) {
         sendPushToUser(ticket.customerId, {
@@ -1158,7 +1164,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             ticket_subject: ticket.subject,
             message: req.body.message,
             customer_name: customer.fullName,
-          });
+          }, customer.fullName);
         }
       } else {
         const allAdminUsers = await storage.getAllUsers();
@@ -1188,7 +1194,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               customer_username: user.username,
               ticket_subject: ticket.subject,
               message: req.body.message,
-            });
+            }, admin.fullName);
           }
         }
       }
@@ -1299,7 +1305,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               service_name: updated.name,
               service_status: updated.status,
               customer_name: u.fullName,
-            });
+            }, u.fullName);
           }
         }
         storage.createContentNotificationBulk(subIds, "services", `${updated.name}: ${updated.status}`, updated.id).catch(() => {});
@@ -1352,7 +1358,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             alert_title: `${serviceName}: ${impactLabel}`,
             alert_description: `${alert.title}\n\n${alert.description}`,
             customer_name: u.fullName,
-          });
+          }, u.fullName);
         }
       }
       const subIds = subscribers.map(u => u.id);
@@ -1441,7 +1447,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               alert_title: emailTitle,
               alert_description: updateData.message,
               customer_name: u.fullName,
-            });
+            }, u.fullName);
           }
         }
         const subIds = subscribers.map(u => u.id);
@@ -1504,7 +1510,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             alert_title: `${serviceName}: Issue Resolved — Service Restored`,
             alert_description: `${updated.title} has been resolved. Service is back to operational.`,
             customer_name: u.fullName,
-          });
+          }, u.fullName);
         }
       }
       const subIds = subscribers.map(u => u.id);
@@ -1569,7 +1575,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             update_title: title,
             update_description: description,
             customer_name: u.fullName,
-          });
+          }, u.fullName);
         }
       }
       const subIds = subscribedCustomers.map(u => u.id);
@@ -1640,7 +1646,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         sendTemplatedEmail(customerEmails, "customer_news", {
           story_title: story.title,
           story_content: story.content,
-        });
+        }, "Customers");
       }
       const customerIds = allUsers.filter(u => u.role === "customer").map(u => u.id);
       storage.createContentNotificationBulk(customerIds, "news", story.title, story.id).catch(() => {});
@@ -1731,7 +1737,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           message_subject: subject,
           message_body: body,
           customer_name: recipient.fullName,
-        });
+        }, recipient.fullName);
       }
 
       res.json(message);
@@ -1853,7 +1859,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         imageUrl: imageUrl || null,
         status: "pending",
       });
-      logActivity("report", "report_submitted", { actorId: user.id, targetId: rr.id, targetType: "report", summary: `Report submitted: ${title} (${type})`, details: JSON.stringify({ type, title, description }) });
+      logActivity("report", "report_submitted", { actorId: user.id, targetId: rr.id, targetType: "report", summary: `Report submitted by ${user.fullName}: ${title} (${type})`, details: JSON.stringify({ customer: user.fullName, customerEmail: user.email, type, title, description }) });
 
       const service = serviceId ? await storage.getService(serviceId) : null;
       const typeLabels: Record<string, string> = {
@@ -1870,7 +1876,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           report_title: title,
           report_description_block: description ? `<blockquote>${description}</blockquote>` : "",
           customer_name: user.fullName,
-        });
+        }, user.fullName);
       }
 
       const allUsers = await storage.getAllUsers();
@@ -1892,7 +1898,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             service_name: service?.name || "N/A",
             report_title: title,
             report_description_block: description ? `<blockquote>${description}</blockquote>` : "",
-          });
+          }, admin.fullName);
         }
       }
       const adminIds = admins.map(a => a.id);
@@ -1917,7 +1923,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateReportRequest(req.params.id, updateData);
       if (!updated) return res.status(404).json({ message: "Not found" });
       if (status) {
-        logActivity("report", "report_status_changed", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report "${existing.title}" status changed to ${status}`, details: JSON.stringify({ title: existing.title, oldStatus: existing.status, newStatus: status, adminNotes }) });
+        const reportCustomer = existing.customerId ? await storage.getUser(existing.customerId) : null;
+        logActivity("report", "report_status_changed", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report "${existing.title}" by ${reportCustomer?.fullName || "Unknown"} status changed to ${status}`, details: JSON.stringify({ customer: reportCustomer?.fullName, customerEmail: reportCustomer?.email, title: existing.title, oldStatus: existing.status, newStatus: status, adminNotes }) });
       }
 
       if (status && status !== existing.status) {
@@ -1951,7 +1958,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             status_label: statusLabel,
             admin_notes_block: notesBlock,
             customer_name: customer.fullName,
-          });
+          }, customer.fullName);
         }
       }
 
@@ -1981,8 +1988,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/report-requests/:id", requirePermission("reports.view", "reports.manage"), async (req, res) => {
     try {
+      const reportToDelete = await storage.getAllReportRequests().then(all => all.find(r => r.id === req.params.id));
+      const delCustomer = reportToDelete?.customerId ? await storage.getUser(reportToDelete.customerId) : null;
       await storage.deleteReportRequest(req.params.id);
-      logActivity("report", "report_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report deleted: ${req.params.id}` });
+      logActivity("report", "report_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report deleted: "${reportToDelete?.title || req.params.id}" by ${delCustomer?.fullName || "Unknown"}`, details: JSON.stringify({ title: reportToDelete?.title, customer: delCustomer?.fullName }) });
       res.json({ message: "Deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
