@@ -294,7 +294,7 @@ export default function TicketDetail() {
 
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] max-h-[calc(100vh-4rem)] overflow-x-hidden" style={{ overscrollBehavior: "none" }}>
-      <div className="flex items-center justify-between gap-3 pb-4 flex-wrap">
+      <div className="flex items-center justify-between gap-3 pb-4 flex-wrap flex-shrink-0">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">
             <ArrowLeft className="w-4 h-4" />
@@ -612,39 +612,40 @@ export default function TicketDetail() {
 
       <Card className="flex-1 flex flex-col min-h-0">
         <CardContent className="flex-1 flex flex-col min-h-0 p-0">
-          <div className="p-4 border-b bg-card">
-            <p className="text-sm" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
-            {ticket.imageUrl && (
-              <ClickableImage src={ticket.imageUrl} alt="Ticket attachment" className="mt-2 max-w-[100px] max-h-16 object-cover rounded-md cursor-pointer" />
-            )}
-            <p className="text-xs text-muted-foreground mt-2">
-              Opened {format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}
-            </p>
-          </div>
-
-          {ticket.status === "closed" && (
-            <div className="mx-4 mt-4 space-y-2">
-              {ticket.closedBy && (
-                <Badge variant="outline" className="text-xs" data-testid="badge-closed-by">
-                  {ticket.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
-                </Badge>
+          <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}>
+            <div className="p-4 border-b bg-card">
+              <p className="text-sm" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
+              {ticket.imageUrl && (
+                <ClickableImage src={ticket.imageUrl} alt="Ticket attachment" className="mt-2 max-w-[100px] max-h-16 object-cover rounded-md cursor-pointer" />
               )}
-              {ticket.resolutionNote && ticket.closedBy === ticket.customerId && (
-                <div className="p-3 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30" data-testid="customer-close-note">
-                  <p className="text-xs font-semibold text-blue-800 dark:text-blue-400 mb-1">Customer's Closing Note</p>
-                  <p className="text-sm text-blue-700 dark:text-blue-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
-                </div>
-              )}
-              {ticket.resolutionNote && ticket.closedBy !== ticket.customerId && (
-                <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="resolution-note">
-                  <p className="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">Resolution Summary</p>
-                  <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
-                </div>
-              )}
+              <p className="text-xs text-muted-foreground mt-2">
+                Opened {format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}
+              </p>
             </div>
-          )}
 
-          <div className="flex-1 p-4 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}>
+            {ticket.status === "closed" && (
+              <div className="mx-4 mt-4 space-y-2">
+                {ticket.closedBy && (
+                  <Badge variant="outline" className="text-xs" data-testid="badge-closed-by">
+                    {ticket.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
+                  </Badge>
+                )}
+                {ticket.resolutionNote && ticket.closedBy === ticket.customerId && (
+                  <div className="p-3 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30" data-testid="customer-close-note">
+                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-400 mb-1">Customer's Closing Note</p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+                  </div>
+                )}
+                {ticket.resolutionNote && ticket.closedBy !== ticket.customerId && (
+                  <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="resolution-note">
+                    <p className="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">Resolution Summary</p>
+                    <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="p-4">
             {messagesLoading ? (
               <div className="space-y-4">
                 {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
@@ -687,6 +688,7 @@ export default function TicketDetail() {
                 <div ref={messagesEndRef} />
               </div>
             )}
+            </div>
           </div>
 
           {ticket.status === "open" && isAdmin && !ticket.claimedBy && (
