@@ -22,7 +22,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
@@ -209,7 +209,7 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-add-user"><Plus className="w-4 h-4 mr-1" /> Add User</Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader><DialogTitle>Create User</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
@@ -246,7 +246,7 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
       </div>
 
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader><DialogTitle>Reset Password for {selectedUser?.fullName}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Input
@@ -658,7 +658,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-add-service"><Plus className="w-4 h-4 mr-1" /> Add Service</Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader><DialogTitle>{editId ? "Edit Service" : "Add Service"}</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
@@ -935,7 +935,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-alert"><Plus className="w-4 h-4 mr-1" /> Create Alert</Button>
           </DialogTrigger>}
-          <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Service Alert</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
@@ -1019,7 +1019,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </div>
 
       <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) setUpdateImageFile(null); }}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Post Update</DialogTitle></DialogHeader>
           <Form {...updateForm}>
             <form onSubmit={updateForm.handleSubmit((d) => addUpdateMutation.mutate(d))} className="space-y-3">
@@ -1078,7 +1078,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </Dialog>
 
       <Dialog open={editAlertDialogOpen} onOpenChange={(open) => { if (!open) { setEditAlertDialogOpen(false); setEditingAlert(null); setEditAlertImageFile(null); setEditAlertRemoveImage(false); } }}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Alert</DialogTitle></DialogHeader>
           <div className="space-y-3">
             {editingAlert && <p className="text-sm text-muted-foreground">Service: {serviceMap.get(editingAlert.serviceId) || "Unknown"}</p>}
@@ -1125,7 +1125,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </Dialog>
 
       <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); } }}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader><DialogTitle>Resolve Alert</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
@@ -1150,7 +1150,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       </Dialog>
 
       <Dialog open={editUpdateDialogOpen} onOpenChange={(open) => { if (!open) { setEditUpdateDialogOpen(false); setEditingAlertUpdate(null); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); } }}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Update</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
@@ -1385,7 +1385,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-news"><Plus className="w-4 h-4 mr-1" /> Publish Story</Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader><DialogTitle>Publish News Story</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
@@ -1437,7 +1437,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
       )}
 
       <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) { setEditDialogOpen(false); setEditingStory(null); } }}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader><DialogTitle>Edit News Story</DialogTitle></DialogHeader>
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit((d) => editMutation.mutate(d))} className="space-y-3">
@@ -1531,7 +1531,7 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-send-message"><Send className="w-4 h-4 mr-1" /> Send Message</Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader><DialogTitle>Send Private Message</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => sendMutation.mutate(d))} className="space-y-3">
@@ -1708,7 +1708,7 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
               <Plus className="w-4 h-4 mr-1" /> Add Response
             </Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{editingQr ? "Edit Quick Response" : "Add Quick Response"}</DialogTitle>
             </DialogHeader>
@@ -1949,7 +1949,7 @@ function ReportsRequestsTab({ canManage = true }: { canManage?: boolean }) {
       )}
 
       <Dialog open={updateDialogOpen} onOpenChange={(open) => { if (!open) { setUpdateDialogOpen(false); setUpdatingReport(null); } }}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Update Report/Request</DialogTitle>
           </DialogHeader>
@@ -2088,7 +2088,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button data-testid="button-add-service-update"><Plus className="w-4 h-4 mr-2" />Add Service Update</Button>
           </DialogTrigger>}
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Add Service Update</DialogTitle>
             </DialogHeader>
@@ -2222,7 +2222,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
       )}
 
       <Dialog open={!!editingUpdate} onOpenChange={(open) => { if (!open) setEditingUpdate(null); }}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Service Update</DialogTitle>
           </DialogHeader>
@@ -2395,7 +2395,7 @@ function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
       </div>
 
       <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-template">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-template">
           <DialogHeader>
             <DialogTitle data-testid="text-edit-template-title">Edit Template: {editingTemplate?.name}</DialogTitle>
           </DialogHeader>
@@ -2919,7 +2919,7 @@ function AdminManagementTab() {
         </div>
 
         <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingRole ? "Edit Role" : "Create Role"}</DialogTitle>
             </DialogHeader>
@@ -3013,7 +3013,7 @@ function AdminManagementTab() {
         </div>
 
         <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>{editingCat ? "Edit Category" : "Create Category"}</DialogTitle>
             </DialogHeader>
@@ -3151,6 +3151,7 @@ interface ChatThread {
 function AdminChatTab() {
   const { user, isMasterAdmin } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [chatParticipantIds, setChatParticipantIds] = useState<string[]>([]);
@@ -3302,9 +3303,13 @@ function AdminChatTab() {
     return others.map(p => p.fullName).join(", ") || "Chat";
   };
 
+  const showThreadList = !isMobile || !activeThreadId;
+  const showMessages = !isMobile || !!activeThreadId;
+
   return (
-    <div className="flex h-[600px] rounded-lg border overflow-hidden" data-testid="admin-chat-container">
-      <div className="w-1/3 border-r flex flex-col">
+    <div className={`flex ${isMobile ? "h-[calc(100dvh-12rem)]" : "h-[600px]"} rounded-lg border overflow-hidden`} data-testid="admin-chat-container">
+      {showThreadList && (
+      <div className={`${isMobile ? "w-full" : "w-1/3"} border-r flex flex-col`}>
         <div className="p-3 border-b flex justify-between items-center">
           <h4 className="font-semibold text-sm">Threads</h4>
           <Button size="icon" variant="ghost" onClick={() => setNewChatOpen(true)} data-testid="button-new-chat">
@@ -3334,14 +3339,29 @@ function AdminChatTab() {
           {threads.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No chats yet</p>}
         </div>
       </div>
+      )}
 
+      {showMessages && (
       <div className="flex-1 flex flex-col">
         {activeThread ? (
           <>
             <div className="p-3 border-b flex justify-between items-start">
-              <div>
-                <p className="font-semibold text-sm">{getThreadDisplayName(activeThread)}</p>
-                <p className="text-xs text-muted-foreground">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
+              <div className="flex items-center gap-2">
+                {isMobile && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 flex-shrink-0"
+                    onClick={() => setActiveThreadId(null)}
+                    data-testid="button-chat-back"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </Button>
+                )}
+                <div>
+                  <p className="font-semibold text-sm">{getThreadDisplayName(activeThread)}</p>
+                  <p className="text-xs text-muted-foreground">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
+                </div>
               </div>
               <div className="flex items-center gap-1">
                 <Button
@@ -3467,9 +3487,10 @@ function AdminChatTab() {
           </div>
         )}
       </div>
+      )}
 
       <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>New Chat</DialogTitle>
           </DialogHeader>
