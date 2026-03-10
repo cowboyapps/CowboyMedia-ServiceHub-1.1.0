@@ -80,6 +80,8 @@ export default function TicketDetail() {
   const [transferToAdminId, setTransferToAdminId] = useState("");
   const [transferReason, setTransferReason] = useState("");
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  const [originTicketId, setOriginTicketId] = useState<string | null>(null);
+  const [originTicketSubject, setOriginTicketSubject] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +179,13 @@ export default function TicketDetail() {
     setCloseDialogOpen(false);
     setMessage("");
     setImageFile(null);
+
+    requestAnimationFrame(() => {
+      document.body.style.removeProperty("pointer-events");
+      document.body.removeAttribute("data-scroll-locked");
+      document.body.style.removeProperty("overflow");
+      document.body.style.removeProperty("padding-right");
+    });
   }, [params.id]);
 
   useEffect(() => {
@@ -400,6 +409,25 @@ export default function TicketDetail() {
         </div>
       </div>
 
+      {originTicketId && originTicketId !== params.id && (
+        <div className="flex-shrink-0 mb-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs gap-1.5 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40"
+            onClick={() => {
+              setOriginTicketId(null);
+              setOriginTicketSubject(null);
+              setLocation(`/tickets/${originTicketId}`);
+            }}
+            data-testid="button-return-to-ticket"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            Return to: {originTicketSubject || "Previous Ticket"}
+          </Button>
+        </div>
+      )}
+
       <Dialog open={customerInfoOpen} onOpenChange={setCustomerInfoOpen}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
@@ -504,7 +532,14 @@ export default function TicketDetail() {
                   key={pt.id}
                   className="p-3 rounded-md border space-y-2 cursor-pointer transition-colors"
                   data-testid={`previous-ticket-${pt.id}`}
-                  onClick={() => { setHistoryOpen(false); setTimeout(() => setLocation(`/tickets/${pt.id}`), 200); }}
+                  onClick={() => {
+                    if (ticket) {
+                      setOriginTicketId(params.id);
+                      setOriginTicketSubject(ticket.subject);
+                    }
+                    setHistoryOpen(false);
+                    setTimeout(() => setLocation(`/tickets/${pt.id}`), 150);
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium underline underline-offset-2" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{pt.subject}</p>
