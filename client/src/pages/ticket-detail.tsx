@@ -180,12 +180,16 @@ export default function TicketDetail() {
     setMessage("");
     setImageFile(null);
 
-    requestAnimationFrame(() => {
+    const cleanupBodyStyles = () => {
       document.body.style.removeProperty("pointer-events");
       document.body.removeAttribute("data-scroll-locked");
       document.body.style.removeProperty("overflow");
       document.body.style.removeProperty("padding-right");
-    });
+    };
+    cleanupBodyStyles();
+    const interval = setInterval(cleanupBodyStyles, 50);
+    const timeout = setTimeout(() => clearInterval(interval), 500);
+    return () => { clearInterval(interval); clearTimeout(timeout); };
   }, [params.id]);
 
   useEffect(() => {
@@ -538,7 +542,7 @@ export default function TicketDetail() {
                       setOriginTicketSubject(ticket.subject);
                     }
                     setHistoryOpen(false);
-                    setTimeout(() => setLocation(`/tickets/${pt.id}`), 150);
+                    setLocation(`/tickets/${pt.id}`);
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
