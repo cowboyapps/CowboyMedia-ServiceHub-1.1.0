@@ -1,4 +1,4 @@
-const CACHE_NAME = 'servicehub-v6';
+const CACHE_NAME = 'servicehub-v7';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -80,7 +80,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body,
     icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    badge: '/icons/badge-96.png',
     vibrate: [200, 100, 200],
     data: { url: data.url || '/' },
     actions: data.actions || [],

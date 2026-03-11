@@ -29,7 +29,7 @@ The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI fo
 - **Database**: PostgreSQL, managed via Drizzle ORM.
 - **Real-time Communication**: WebSockets are used for real-time messaging in ticket support and admin chat functionalities.
 - **File Management**: Multer is used for file uploads, storing data as base64 in the PostgreSQL `uploaded_files` table.
-- **PWA Features**: Implemented with a Service Worker and Web App Manifest for installability on mobile devices, providing an offline-first and native app-like experience. Includes offline indicator banner, API response caching for offline data display, and auto-refresh on reconnection. Service worker cache version: `servicehub-v6` (static assets) + `servicehub-v6-api` (API response cache, cleared on logout for privacy).
+- **PWA Features**: Implemented with a Service Worker and Web App Manifest for installability on mobile devices, providing an offline-first and native app-like experience. Includes offline indicator banner, API response caching for offline data display, and auto-refresh on reconnection. Service worker cache version: `servicehub-v7` (static assets). Push notification badge uses monochrome silhouette icon (`/icons/badge-96.png`) for Android status bar.
 - **Push Notifications**: Utilizes the Web Push API with VAPID for service alerts and ticket updates, avoiding third-party services like OneSignal or Firebase.
 - **Email Services**: Integration with SendGrid for all transactional email communications.
 
