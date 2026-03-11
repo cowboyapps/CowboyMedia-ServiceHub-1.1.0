@@ -66,7 +66,17 @@ export default function ServicesPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
+            <div key={i} className="border rounded-lg p-4 flex items-start gap-3">
+              <Skeleton className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                </div>
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-2/3" />
+              </div>
+            </div>
           ))}
         </div>
       ) : !services || services.length === 0 ? (

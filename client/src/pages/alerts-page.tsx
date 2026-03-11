@@ -70,7 +70,19 @@ export default function AlertsPage() {
 
         <TabsContent value="active" className="mt-4 space-y-3">
           {alertsLoading ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="border rounded-lg p-4 flex items-start gap-3">
+                <Skeleton className="w-5 h-5 rounded flex-shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3 w-32" />
+                </div>
+                <Skeleton className="w-4 h-4 flex-shrink-0 self-center" />
+              </div>
+            ))
           ) : activeAlerts.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">

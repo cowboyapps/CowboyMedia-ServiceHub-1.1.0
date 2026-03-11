@@ -281,7 +281,21 @@ export default function TicketsPage() {
 
         <TabsContent value="open" className="mt-4 space-y-3">
           {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="border rounded-lg p-4 flex items-start gap-3">
+                <Skeleton className="w-5 h-5 rounded flex-shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-full" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3 w-28" />
+                </div>
+                <Skeleton className="w-4 h-4 flex-shrink-0 self-center" />
+              </div>
+            ))
           ) : openTickets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">

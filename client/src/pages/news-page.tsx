@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { Newspaper, ChevronRight } from "lucide-react";
+import { LazyImage } from "@/components/lazy-image";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { NewsStory } from "@shared/schema";
 
@@ -27,8 +28,18 @@ export default function NewsPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)}
+        <div className="flex flex-col gap-5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="border rounded-lg p-4 flex gap-4">
+              <Skeleton className="w-20 h-14 sm:w-28 sm:h-20 rounded-md flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-2/3" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : !news || news.length === 0 ? (
         <Card>
@@ -44,11 +55,10 @@ export default function NewsPage() {
               <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-news-${story.id}`}>
                 <CardContent className="flex gap-4 p-4">
                   {story.imageUrl && (
-                    <img
+                    <LazyImage
                       src={story.imageUrl}
                       alt=""
                       className="w-20 h-14 sm:w-28 sm:h-20 rounded-md object-contain flex-shrink-0"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
                   )}
                   <div className="flex-1 min-w-0 space-y-1.5">

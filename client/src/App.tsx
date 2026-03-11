@@ -13,6 +13,9 @@ import { useScrollRestore } from "@/hooks/use-scroll-restore";
 import { onlineManager } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { BottomNav } from "@/components/bottom-nav";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Link } from "wouter";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -40,10 +43,33 @@ import ReportRequestPage from "@/pages/report-request-page";
 import ServiceUpdatesPage from "@/pages/service-updates-page";
 import ServiceDetail from "@/pages/service-detail";
 
+function getRouteDepth(path: string): number {
+  if (path === "/") return 0;
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length >= 2) return 2;
+  return 1;
+}
+
 function PageTransition({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const prevDepthRef = useRef(getRouteDepth(location));
+  const [animClass, setAnimClass] = useState("animate-page-enter");
+
+  useEffect(() => {
+    const newDepth = getRouteDepth(location);
+    const prevDepth = prevDepthRef.current;
+    if (newDepth > prevDepth) {
+      setAnimClass("animate-slide-in-right");
+    } else if (newDepth < prevDepth) {
+      setAnimClass("animate-slide-in-left");
+    } else {
+      setAnimClass("animate-page-enter");
+    }
+    prevDepthRef.current = newDepth;
+  }, [location]);
+
   return (
-    <div key={location} className="animate-page-enter">
+    <div key={location} className={animClass}>
       {children}
     </div>
   );
@@ -75,6 +101,7 @@ function AppRouter() {
 
 function AuthenticatedLayout() {
   const [location] = useLocation();
+  const isMobile = useIsMobile();
   const isTicketDetail = /^\/tickets\/[^/?]+/.test(location);
   const isAdminPortal = /^\/admin/.test(location);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -90,17 +117,22 @@ function AuthenticatedLayout() {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <div className="sticky top-0 z-50">
-            <OfflineBanner />
-            <header className="flex items-center justify-between gap-2 px-4 py-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] border-b bg-background">
-              <SidebarTrigger className="h-12 w-12 min-h-[48px] min-w-[48px] [&_svg]:!h-7 [&_svg]:!w-7" data-testid="button-sidebar-toggle" />
+          <OfflineBanner />
+          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-14' : ''}`} disabled={isTicketDetail || isAdminPortal}>
+            <header className="flex items-center gap-2 px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] border-b bg-background">
+              <SidebarTrigger className="hidden md:flex h-10 w-10 min-h-[40px] min-w-[40px] [&_svg]:!h-5 [&_svg]:!w-5" data-testid="button-sidebar-toggle" />
+              <div className="flex-1 flex justify-center">
+                <Link href="/" data-testid="link-header-home">
+                  <img src={logoImg} alt="CowboyMedia" className="h-8 cursor-pointer" />
+                </Link>
+              </div>
+              {!isMobile && <div className="w-10" />}
             </header>
-          </div>
-          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'}`} disabled={isTicketDetail || isAdminPortal}>
             <main className={isTicketDetail ? "h-full" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>
           </PullToRefresh>
+          <BottomNav />
         </div>
       </div>
     </SidebarProvider>

@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { Activity, AlertTriangle, Bell, CheckCircle, Clock, Newspaper, Ticket } from "lucide-react";
 import type { Service, ServiceAlert, NewsStory, Ticket as TicketType, ServiceUpdate } from "@shared/schema";
 import { format } from "date-fns";
+import { LazyImage } from "@/components/lazy-image";
 
 function StatusIndicator({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -143,7 +144,15 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="space-y-3">
             {servicesLoading ? (
-              Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 py-1.5">
+                  <div className="flex items-center gap-2.5">
+                    <Skeleton className="w-3 h-3 rounded-full" />
+                    <Skeleton className="h-4 w-28" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+              ))
             ) : displayServices.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">No services to display</p>
             ) : (
@@ -169,7 +178,15 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="space-y-3">
             {alertsLoading ? (
-              Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-start justify-between gap-2 py-1.5">
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+              ))
             ) : activeAlerts.length === 0 ? (
               <div className="text-center py-6">
                 <CheckCircle className="w-8 h-8 text-status-online mx-auto mb-2" />
@@ -205,7 +222,16 @@ export default function Dashboard() {
         <CardContent>
           {newsLoading ? (
             <div className="space-y-3">
-              {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-3 py-2">
+                  <Skeleton className="w-16 h-12 rounded-md flex-shrink-0" />
+                  <div className="space-y-1.5 flex-1">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : !news || news.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">No news stories yet</p>
@@ -215,7 +241,7 @@ export default function Dashboard() {
                 <Link key={story.id} href={`/news/${story.id}`}>
                   <div className="flex items-start gap-3 py-2 hover-elevate tap-interactive rounded-md px-2 -mx-2 cursor-pointer" data-testid={`news-row-${story.id}`}>
                     {story.imageUrl && (
-                      <img src={story.imageUrl} alt="" className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
+                      <LazyImage src={story.imageUrl} alt="" className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
                     )}
                     <div className="space-y-0.5 min-w-0">
                       <p className="text-sm font-medium truncate">{story.title}</p>

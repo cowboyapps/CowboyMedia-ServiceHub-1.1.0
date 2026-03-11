@@ -211,6 +211,28 @@ body {
   }
 }
 
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(8%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-8%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .animate-shimmer {
   background: linear-gradient(
     90deg,
@@ -230,6 +252,14 @@ body {
   animation: page-enter 0.2s ease-out;
 }
 
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.2s ease-out;
+}
+
 .tap-interactive {
   transition: transform 0.1s ease-in-out;
 }
@@ -246,6 +276,12 @@ body {
     animation: none;
   }
   .animate-page-enter {
+    animation: none;
+  }
+  .animate-slide-in-right {
+    animation: none;
+  }
+  .animate-slide-in-left {
     animation: none;
   }
   .tap-interactive:active {

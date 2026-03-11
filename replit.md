@@ -15,6 +15,14 @@ ServiceHub is built with a modern web stack, emphasizing PWA capabilities and re
 ### UI/UX Decisions
 The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI for a clean, modern aesthetic. Wouter is used for routing. The application supports system/light/dark theme modes (system mode auto-syncs with device `prefers-color-scheme`, with manual override available) and features a mobile-responsive design with safe area support. Scroll position is remembered per-route via the `useScrollRestore` hook. PWA manifest includes shortcuts for Services, Tickets, Alerts, and News. Image lightboxes are implemented for an enhanced viewing experience.
 
+### Mobile Navigation (Version 1.1)
+- **Bottom Navigation Bar** (`client/src/components/bottom-nav.tsx`): Fixed bottom tab bar on mobile (<768px) with 5 tabs: Services, Tickets, Alerts, News, More. "More" opens the existing sidebar drawer via `setOpenMobile(true)`. Badge support: Tickets tab shows unread ticket notification count; More tab shows a dot badge when sidebar-only sections have unread items (messages + report/request + content notifications). Desktop layout is unchanged — bottom nav only renders on mobile.
+- **Scrollable Header**: Header scrolls with content (not sticky). Centered CowboyMedia logo links to dashboard (`/`). SidebarTrigger hidden on mobile (`hidden md:flex`), replaced by the "More" bottom tab. OfflineBanner renders above PullToRefresh so it stays visible.
+- **Directional Page Transitions**: `PageTransition` component uses route depth (0=dashboard, 1=top-level, 2=detail) to animate `slide-in-right` (going deeper), `slide-in-left` (going shallower), or `page-enter` (same level). CSS keyframes in `index.css` with `prefers-reduced-motion` fallback.
+- **Haptic Feedback** (`client/src/lib/haptics.ts`): `hapticLight()`, `hapticMedium()`, `hapticSuccess()`, `hapticError()` using `navigator.vibrate()`. Applied to bottom nav taps (light) and pull-to-refresh trigger (medium). Gracefully no-ops on unsupported platforms.
+- **Content-Shaped Skeletons**: Loading states on Dashboard, Services, Alerts, News, and Tickets pages use skeletons that mirror actual card layouts (status dots, title lines, badges, image placeholders).
+- **Lazy Image Loading** (`client/src/components/lazy-image.tsx`): Uses IntersectionObserver (200px rootMargin) + crossfade transition. Shows shimmer placeholder before image enters viewport. Applied to news list images and dashboard news thumbnails.
+
 ### Technical Implementations
 - **Frontend**: React, Vite, TailwindCSS, Shadcn UI, Wouter.
 - **Backend**: Express.js, secured with session-based authentication using scrypt for password hashing.

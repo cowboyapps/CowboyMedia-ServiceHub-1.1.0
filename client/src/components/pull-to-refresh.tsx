@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { RefreshCw } from "lucide-react";
+import { hapticMedium } from "@/lib/haptics";
 
 interface PullToRefreshProps {
   children: React.ReactNode;
@@ -58,6 +59,7 @@ export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
       pullingRef.current = false;
 
       if (pullDistance >= threshold && !refreshing) {
+        hapticMedium();
         setRefreshing(true);
         setPullDistance(threshold);
         window.location.reload();
