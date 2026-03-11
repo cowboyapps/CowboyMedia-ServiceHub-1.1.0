@@ -21,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone, ArrowRightLeft, LayoutDashboard } from "lucide-react";
+import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone, ArrowRightLeft, Home } from "lucide-react";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush } from "@/lib/push-notifications";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
@@ -118,11 +118,11 @@ function AuthenticatedLayout() {
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <OfflineBanner />
-          <header className="relative flex items-center px-3 py-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)] border-b bg-muted">
+          <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)] border-b bg-muted min-h-[3rem]">
             <div className="z-10">
               {isMobile ? (
-                <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-full px-3 py-1.5 bg-primary/10 hover:bg-primary/15 transition-colors" data-testid="link-header-dashboard">
-                  <LayoutDashboard className="w-4 h-4 text-primary" />
+                <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-lg px-2.5 py-1.5 bg-primary/10 hover:bg-primary/15 transition-colors" data-testid="link-header-dashboard">
+                  <Home className="w-4 h-4 text-primary" />
                   <span className="text-xs font-semibold text-primary">Dashboard</span>
                 </Link>
               ) : (

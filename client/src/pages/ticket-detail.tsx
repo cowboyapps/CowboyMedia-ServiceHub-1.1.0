@@ -315,7 +315,7 @@ export default function TicketDetail() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ overscrollBehavior: "none" }}>
+    <div className="flex flex-col h-full overflow-hidden px-3 pt-3 sm:px-6 sm:pt-4" style={{ overscrollBehavior: "none" }}>
       <div className="flex items-center justify-between gap-3 pb-4 flex-wrap flex-shrink-0">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">

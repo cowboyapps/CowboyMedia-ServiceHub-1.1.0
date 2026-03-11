@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut } from "lucide-react";
@@ -15,6 +15,10 @@ export function BottomNav() {
   const [location, navigate] = useLocation();
   const { user, logout, isAdmin } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [location]);
 
   const { data: ticketNotifData } = useQuery<{ count: number }>({
     queryKey: ["/api/ticket-notifications/unread-count"],
@@ -145,7 +149,7 @@ export function BottomNav() {
       </nav>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl px-4 pt-3 pb-4" style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}>
+        <SheetContent side="bottom" className="rounded-t-2xl px-4 pt-3 pb-4" overlayStyle={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }} style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}>
           <VisuallyHidden>
             <SheetTitle>More Options</SheetTitle>
           </VisuallyHidden>
