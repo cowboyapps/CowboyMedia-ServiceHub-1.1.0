@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut } from "lucide-react";
@@ -98,51 +98,58 @@ export function BottomNav() {
         data-testid="nav-bottom"
       >
         <div className="flex items-center justify-around h-14">
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const active = isActive(tab.path);
             const Icon = tab.icon;
+            const separator = index < tabs.length - 1 ? (
+              <div className="w-px h-[60%] bg-foreground/10 self-center flex-shrink-0" />
+            ) : null;
 
             if (tab.path === null) {
-              const moreActive = isActive(null);
+              const moreHighlighted = isActive(null) || moreOpen;
               return (
-                <button
-                  key={tab.label}
-                  onClick={() => {
-                    hapticLight();
-                    setMoreOpen(true);
-                  }}
-                  className="flex flex-col items-center justify-center flex-1 h-full relative tap-interactive"
-                  data-testid="button-bottom-nav-more"
-                >
-                  <div className="relative">
-                    <Icon className={`w-5 h-5 ${moreActive ? "text-primary" : "text-muted-foreground"}`} />
-                    {(tab.badge ?? 0) > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-destructive rounded-full" data-testid="badge-bottom-nav-more" />
-                    )}
-                  </div>
-                  <span className={`text-[10px] mt-0.5 ${moreActive ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
-                </button>
+                <Fragment key={tab.label}>
+                  <button
+                    onClick={() => {
+                      hapticLight();
+                      setMoreOpen(true);
+                    }}
+                    className="flex flex-col items-center justify-center flex-1 h-full relative tap-interactive"
+                    data-testid="button-bottom-nav-more"
+                  >
+                    <div className="relative">
+                      <Icon className={`w-5 h-5 ${moreHighlighted ? "text-primary" : "text-muted-foreground"}`} />
+                      {(tab.badge ?? 0) > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-destructive rounded-full" data-testid="badge-bottom-nav-more" />
+                      )}
+                    </div>
+                    <span className={`text-[10px] mt-0.5 ${moreHighlighted ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
+                  </button>
+                  {separator}
+                </Fragment>
               );
             }
 
             return (
-              <Link
-                key={tab.label}
-                href={tab.path}
-                onClick={() => hapticLight()}
-                className="flex flex-col items-center justify-center flex-1 h-full relative tap-interactive no-underline"
-                data-testid={`link-bottom-nav-${tab.label.toLowerCase()}`}
-              >
-                <div className="relative">
-                  <Icon className={`w-5 h-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
-                  {(tab.badge ?? 0) > 0 && (
-                    <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1" data-testid={`badge-bottom-nav-${tab.label.toLowerCase()}`}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </div>
-                <span className={`text-[10px] mt-0.5 ${active ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
-              </Link>
+              <Fragment key={tab.label}>
+                <Link
+                  href={tab.path}
+                  onClick={() => hapticLight()}
+                  className="flex flex-col items-center justify-center flex-1 h-full relative tap-interactive no-underline"
+                  data-testid={`link-bottom-nav-${tab.label.toLowerCase()}`}
+                >
+                  <div className="relative">
+                    <Icon className={`w-5 h-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                    {(tab.badge ?? 0) > 0 && (
+                      <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1" data-testid={`badge-bottom-nav-${tab.label.toLowerCase()}`}>
+                        {tab.badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className={`text-[10px] mt-0.5 ${active ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
+                </Link>
+                {separator}
+              </Fragment>
             );
           })}
         </div>
