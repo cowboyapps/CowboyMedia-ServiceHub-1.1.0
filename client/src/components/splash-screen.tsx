@@ -3,7 +3,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 export function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [fadeOut, setFadeOut] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [showSkip, setShowSkip] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const minTimeElapsedRef = useRef(false);
   const videoEndedRef = useRef(false);
@@ -15,7 +14,6 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
   }, [fadeOut]);
 
   useEffect(() => {
-    const skipTimer = setTimeout(() => setShowSkip(true), 1500);
     const minTimer = setTimeout(() => {
       minTimeElapsedRef.current = true;
       tryFinish();
@@ -24,7 +22,6 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
       if (!fadeOut) setFadeOut(true);
     }, 15000);
     return () => {
-      clearTimeout(skipTimer);
       clearTimeout(minTimer);
       clearTimeout(fallback);
     };
@@ -52,13 +49,6 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
     }, 2000);
   };
 
-  const handleSkip = () => {
-    if (videoRef.current) {
-      videoRef.current.pause();
-    }
-    setFadeOut(true);
-  };
-
   return (
     <div
       className={`fixed inset-0 z-[100] flex items-center justify-center bg-black transition-opacity duration-500 ${fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"}`}
@@ -76,15 +66,6 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
         className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${videoReady ? "opacity-100" : "opacity-0"}`}
         data-testid="splash-video"
       />
-      {showSkip && !fadeOut && (
-        <button
-          onClick={handleSkip}
-          className="absolute bottom-8 right-6 text-white/60 text-sm px-4 py-2 rounded-full border border-white/20 hover:bg-white/10 transition-colors"
-          data-testid="button-skip-splash"
-        >
-          Skip
-        </button>
-      )}
     </div>
   );
 }
