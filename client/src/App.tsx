@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { SplashScreen } from "@/components/splash-screen";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -738,11 +739,21 @@ function AppContent() {
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(() => {
+    return !sessionStorage.getItem("splashShown");
+  });
+
+  const handleSplashComplete = useCallback(() => {
+    sessionStorage.setItem("splashShown", "1");
+    setShowSplash(false);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
           <AuthProvider>
+            {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
             <AppContent />
           </AuthProvider>
           <Toaster />

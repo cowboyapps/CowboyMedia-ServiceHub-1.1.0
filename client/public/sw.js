@@ -1,7 +1,8 @@
-const CACHE_NAME = 'servicehub-v4';
+const CACHE_NAME = 'servicehub-v5';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
+  '/splash.mp4',
 ];
 
 self.addEventListener('install', (event) => {
