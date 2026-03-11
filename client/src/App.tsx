@@ -135,8 +135,8 @@ function AuthenticatedLayout() {
               </Link>
             </div>
           </header>
-          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-14' : ''}`} disabled={isTicketDetail || isAdminPortal}>
-            <main className={isTicketDetail ? "h-full" : "p-3 sm:p-6"}>
+          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-14' : ''}`} disabled={isTicketDetail || isAdminPortal}>
+            <main className={isTicketDetail ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>
           </PullToRefresh>
