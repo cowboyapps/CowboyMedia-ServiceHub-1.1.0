@@ -132,7 +132,7 @@ function AuthenticatedLayout() {
               </div>
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined }}>
                 <Link href="/" className="pointer-events-auto" data-testid="link-header-home">
-                  <img src={logoImg} alt="CowboyMedia" className="h-10 md:h-8 cursor-pointer" />
+                  <img src={logoImg} alt="CowboyMedia" className="h-12 md:h-8 cursor-pointer" />
                 </Link>
               </div>
             </header>

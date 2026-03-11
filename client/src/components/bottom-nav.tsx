@@ -89,7 +89,7 @@ export function BottomNav() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-muted/50 border-t"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         data-testid="nav-bottom"
       >
@@ -145,7 +145,7 @@ export function BottomNav() {
       </nav>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl px-4 pt-3 pb-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1.5rem)" }}>
+        <SheetContent side="bottom" className="rounded-t-2xl px-4 pt-3 pb-4" style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}>
           <VisuallyHidden>
             <SheetTitle>More Options</SheetTitle>
           </VisuallyHidden>
