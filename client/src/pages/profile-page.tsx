@@ -19,7 +19,7 @@ import type { Service } from "@shared/schema";
 
 export default function ProfilePage() {
   const { user } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const { toast } = useToast();
 
   const [pushSupported, setPushSupported] = useState(false);
@@ -234,22 +234,40 @@ export default function ProfilePage() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            {theme === "dark" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            {resolvedTheme === "dark" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             Appearance
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Dark Mode</p>
-              <p className="text-xs text-muted-foreground">Switch between light and dark themes</p>
-            </div>
-            <Switch
-              checked={theme === "dark"}
-              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-              data-testid="switch-dark-mode"
-            />
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <Button
+              variant={theme === "system" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTheme("system")}
+              data-testid="button-theme-system"
+            >
+              System
+            </Button>
+            <Button
+              variant={theme === "light" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTheme("light")}
+              data-testid="button-theme-light"
+            >
+              <Sun className="w-4 h-4 mr-1" /> Light
+            </Button>
+            <Button
+              variant={theme === "dark" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTheme("dark")}
+              data-testid="button-theme-dark"
+            >
+              <Moon className="w-4 h-4 mr-1" /> Dark
+            </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            {theme === "system" ? "Automatically matches your device settings" : `Using ${theme} theme`}
+          </p>
         </CardContent>
       </Card>
 

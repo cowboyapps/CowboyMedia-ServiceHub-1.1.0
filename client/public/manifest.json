@@ -92,6 +92,32 @@
       "purpose": "maskable"
     }
   ],
+  "shortcuts": [
+    {
+      "name": "Service Status",
+      "short_name": "Services",
+      "url": "/services",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Support Tickets",
+      "short_name": "Tickets",
+      "url": "/tickets",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Active Alerts",
+      "short_name": "Alerts",
+      "url": "/alerts",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "News & Updates",
+      "short_name": "News",
+      "url": "/news",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+    }
+  ],
   "screenshots": [
     {
       "src": "/icons/icon-512.png",

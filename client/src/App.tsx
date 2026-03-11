@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/lib/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { SplashScreen } from "@/components/splash-screen";
 import { OfflineBanner } from "@/components/offline-banner";
+import { useScrollRestore } from "@/hooks/use-scroll-restore";
 import { onlineManager } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -76,6 +77,8 @@ function AuthenticatedLayout() {
   const [location] = useLocation();
   const isTicketDetail = /^\/tickets\/[^/?]+/.test(location);
   const isAdminPortal = /^\/admin/.test(location);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollRestore(scrollRef);
 
   const style = {
     "--sidebar-width": "16rem",
@@ -94,7 +97,7 @@ function AuthenticatedLayout() {
               <ThemeToggle />
             </header>
           </div>
-          <PullToRefresh className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'}`} disabled={isTicketDetail || isAdminPortal}>
+          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'}`} disabled={isTicketDetail || isAdminPortal}>
             <main className={isTicketDetail ? "h-full" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>

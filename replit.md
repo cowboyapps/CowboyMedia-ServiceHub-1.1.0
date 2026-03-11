@@ -13,7 +13,7 @@ When the user says "change the version to...", update the version string in both
 ServiceHub is built with a modern web stack, emphasizing PWA capabilities and real-time communication.
 
 ### UI/UX Decisions
-The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI for a clean, modern aesthetic. Wouter is used for routing. The application supports dark/light mode toggling and features a mobile-responsive design with safe area support. Image lightboxes are implemented for an enhanced viewing experience.
+The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI for a clean, modern aesthetic. Wouter is used for routing. The application supports system/light/dark theme modes (system mode auto-syncs with device `prefers-color-scheme`, with manual override available) and features a mobile-responsive design with safe area support. Scroll position is remembered per-route via the `useScrollRestore` hook. PWA manifest includes shortcuts for Services, Tickets, Alerts, and News. Image lightboxes are implemented for an enhanced viewing experience.
 
 ### Technical Implementations
 - **Frontend**: React, Vite, TailwindCSS, Shadcn UI, Wouter.
