@@ -89,7 +89,7 @@ export function BottomNav() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-muted/50 border-t"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-muted border-t"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         data-testid="nav-bottom"
       >

@@ -119,7 +119,7 @@ function AuthenticatedLayout() {
         <div className="flex flex-col flex-1 min-w-0">
           <OfflineBanner />
           <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-14' : ''}`} disabled={isTicketDetail || isAdminPortal}>
-            <header className="relative flex items-center px-3 py-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)] border-b bg-muted/50">
+            <header className="relative flex items-center px-3 py-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)] border-b bg-muted">
               <div className="z-10">
                 {isMobile ? (
                   <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-full px-3 py-1.5 bg-primary/10 hover:bg-primary/15 transition-colors" data-testid="link-header-dashboard">
