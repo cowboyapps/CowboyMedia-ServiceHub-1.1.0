@@ -379,7 +379,7 @@ export async function registerRoutes(
     res.json(safe);
   });
 
-  app.patch("/api/auth/profile", requireAuth, async (req, res) => {
+  app.patch("/api/auth/settings", requireAuth, async (req, res) => {
     try {
       const { subscribedServices, fullName, emailNotifications, setupReminderDismissed } = req.body;
       const updateData: any = {};

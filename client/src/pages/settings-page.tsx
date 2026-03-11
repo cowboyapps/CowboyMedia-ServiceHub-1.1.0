@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink } from "lucide-react";
 import type { Service } from "@shared/schema";
 
-export default function ProfilePage() {
+export default function SettingsPage() {
   const { user } = useAuth();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const { toast } = useToast();
@@ -39,7 +39,7 @@ export default function ProfilePage() {
 
   const emailNotifMutation = useMutation({
     mutationFn: async (emailNotifications: boolean) => {
-      await apiRequest("PATCH", "/api/auth/profile", { emailNotifications });
+      await apiRequest("PATCH", "/api/auth/settings", { emailNotifications });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -52,7 +52,7 @@ export default function ProfilePage() {
 
   const fullNameMutation = useMutation({
     mutationFn: async (newFullName: string) => {
-      await apiRequest("PATCH", "/api/auth/profile", { fullName: newFullName });
+      await apiRequest("PATCH", "/api/auth/settings", { fullName: newFullName });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -110,7 +110,7 @@ export default function ProfilePage() {
 
   const updateMutation = useMutation({
     mutationFn: async (subscribedServices: string[]) => {
-      await apiRequest("PATCH", "/api/auth/profile", { subscribedServices });
+      await apiRequest("PATCH", "/api/auth/settings", { subscribedServices });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -138,7 +138,7 @@ export default function ProfilePage() {
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-profile-title">Profile</h1>
+        <h1 className="text-2xl font-bold" data-testid="text-settings-title">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your account and preferences</p>
       </div>
 
@@ -148,7 +148,7 @@ export default function ProfilePage() {
             <AvatarFallback className="text-lg">{user.fullName[0]}</AvatarFallback>
           </Avatar>
           <div className="space-y-0.5">
-            <h2 className="font-semibold text-lg" data-testid="text-profile-name">{user.fullName}</h2>
+            <h2 className="font-semibold text-lg" data-testid="text-settings-name">{user.fullName}</h2>
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               <Mail className="w-3.5 h-3.5" /> {user.email}
             </p>

@@ -390,7 +390,7 @@ export const DEFAULT_EMAIL_TEMPLATES = [
 <p>Hi {customer_name},</p>
 <p>Thanks for signing up for CowboyMedia ServiceHub! We noticed you haven't completed a couple of important steps to get the most out of your account:</p>
 {missing_items}
-<p>You can complete these steps anytime by visiting your <strong>Profile</strong> page in the app.</p>
+<p>You can complete these steps anytime by visiting your <strong>Settings</strong> page in the app.</p>
 <p>Without completing these steps, you won't be notified when new service issues arise or be able to fully take advantage of the many features the app provides regarding your service.</p>
 <p style="color:#6b7280;font-size:13px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">This is a one-time reminder. You will not receive any more emails about this.</p>`,
     availableVariables: ["customer_name", "missing_items"],

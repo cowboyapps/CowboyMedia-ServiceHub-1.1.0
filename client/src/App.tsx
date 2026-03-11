@@ -13,7 +13,7 @@ import { useScrollRestore } from "@/hooks/use-scroll-restore";
 import { onlineManager } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ThemeToggle } from "@/components/theme-toggle";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ import NewsPage from "@/pages/news-page";
 import NewsDetail from "@/pages/news-detail";
 import TicketsPage from "@/pages/tickets-page";
 import TicketDetail from "@/pages/ticket-detail";
-import ProfilePage from "@/pages/profile-page";
+import SettingsPage from "@/pages/settings-page";
 import AdminPortal from "@/pages/admin-portal";
 import MessagesPage from "@/pages/messages-page";
 import ReportRequestPage from "@/pages/report-request-page";
@@ -62,7 +62,7 @@ function AppRouter() {
         <Route path="/news/:id" component={NewsDetail} />
         <Route path="/tickets" component={TicketsPage} />
         <Route path="/tickets/:id" component={TicketDetail} />
-        <Route path="/profile" component={ProfilePage} />
+        <Route path="/settings" component={SettingsPage} />
         <Route path="/messages" component={MessagesPage} />
         <Route path="/service-updates" component={ServiceUpdatesPage} />
         <Route path="/report-request" component={ReportRequestPage} />
@@ -94,7 +94,6 @@ function AuthenticatedLayout() {
             <OfflineBanner />
             <header className="flex items-center justify-between gap-2 px-4 py-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] border-b bg-background">
               <SidebarTrigger className="h-12 w-12 min-h-[48px] min-w-[48px] [&_svg]:!h-7 [&_svg]:!w-7" data-testid="button-sidebar-toggle" />
-              <ThemeToggle />
             </header>
           </div>
           <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'overflow-hidden' : 'overflow-auto'}`} disabled={isTicketDetail || isAdminPortal}>
@@ -140,7 +139,7 @@ function SetupReminderDialog() {
     setDismissing(true);
     try {
       const { apiRequest } = await import("@/lib/queryClient");
-      await apiRequest("PATCH", "/api/auth/profile", { setupReminderDismissed: true });
+      await apiRequest("PATCH", "/api/auth/settings", { setupReminderDismissed: true });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     } catch {} finally {
       setDismissing(false);
@@ -161,7 +160,7 @@ function SetupReminderDialog() {
         </DialogHeader>
         <div className="space-y-4 text-sm text-muted-foreground">
           <p className="text-center">
-            It looks like you haven't finished setting up your account. To get the most out of ServiceHub, please visit your <strong className="text-foreground">Profile</strong> page to:
+            It looks like you haven't finished setting up your account. To get the most out of ServiceHub, please visit your <strong className="text-foreground">Settings</strong> page to:
           </p>
           {missingPush && (
             <div className="flex items-start gap-3">
@@ -185,8 +184,8 @@ function SetupReminderDialog() {
           )}
         </div>
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-          <Button className="w-full" data-testid="button-reminder-go-profile" onClick={() => { setShowReminder(false); window.location.href = "/profile"; }}>
-            Go to Profile
+          <Button className="w-full" data-testid="button-reminder-go-settings" onClick={() => { setShowReminder(false); window.location.href = "/settings"; }}>
+            Go to Settings
           </Button>
           <Button variant="outline" className="w-full" data-testid="button-reminder-dismiss" onClick={() => setShowReminder(false)}>
             Remind Me Later
@@ -467,7 +466,7 @@ function WelcomeDialog() {
               <Activity className="w-4 h-4 text-primary" />
             </div>
             <p>
-              Head over to <strong className="text-foreground">"Profile"</strong> and select the <strong className="text-foreground">services you subscribe to</strong> so you receive the right notifications for your services.
+              Head over to <strong className="text-foreground">"Settings"</strong> and select the <strong className="text-foreground">services you subscribe to</strong> so you receive the right notifications for your services.
             </p>
           </div>
           <div className="flex items-start gap-3">
