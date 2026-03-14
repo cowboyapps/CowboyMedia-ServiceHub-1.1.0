@@ -2958,6 +2958,7 @@ const ALL_PERMISSIONS = [
   { category: "Service Updates", perms: ["service_updates.view", "service_updates.manage"] },
   { category: "Reports/Requests", perms: ["reports.view", "reports.manage"] },
   { category: "Email Templates", perms: ["email_templates.view", "email_templates.manage"] },
+  { category: "Downloads", perms: ["downloads.view", "downloads.manage"] },
   { category: "Support Tickets", perms: ["support_tickets"] },
   { category: "Admin Chat", perms: ["admin_chat"] },
   { category: "Logs", perms: ["logs.view"] },
