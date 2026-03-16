@@ -655,7 +655,7 @@ export default function TicketDetail() {
               <Button
                 className="w-full"
                 disabled={closeMutation.isPending}
-                onClick={() => closeMutation.mutate(resolutionNote.trim() || undefined)}
+                onClick={() => closeMutation.mutate(resolutionNote.trim() || "Customer closed without providing a closing description")}
                 data-testid="button-confirm-close-ticket"
               >
                 {closeMutation.isPending ? "Closing..." : "Close Ticket"}
