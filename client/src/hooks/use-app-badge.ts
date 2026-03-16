@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { queryClient } from "@/lib/queryClient";
 
 declare global {
   interface Navigator {
@@ -18,8 +19,16 @@ function syncAppBadge(count: number) {
   }
 }
 
+const BADGE_QUERY_KEYS = [
+  "/api/ticket-notifications/unread-count",
+  "/api/private-messages/unread-count",
+  "/api/report-notifications/unread-count",
+  "/api/content-notifications/counts",
+];
+
 export function useAppBadge() {
   const { user } = useAuth();
+  const badgeRef = useRef(0);
 
   const { data: ticketNotifData } = useQuery<{ count: number }>({
     queryKey: ["/api/ticket-notifications/unread-count"],
@@ -53,18 +62,29 @@ export function useAppBadge() {
   const totalBadge = unreadTicketCount + unreadMessageCount + unreadReportCount +
     Object.values(contentCounts).reduce((sum, c) => sum + c, 0);
 
+  badgeRef.current = totalBadge;
+
+  const invalidateAndResync = useCallback(() => {
+    for (const key of BADGE_QUERY_KEYS) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) return;
-
     syncAppBadge(totalBadge);
+  }, [user, totalBadge]);
+
+  useEffect(() => {
+    if (!user) return;
 
     const onVisChange = () => {
       if (document.visibilityState === "visible") {
         navigator.clearAppBadge?.().catch(() => {});
-        syncAppBadge(totalBadge);
+        invalidateAndResync();
       }
     };
     document.addEventListener("visibilitychange", onVisChange);
     return () => document.removeEventListener("visibilitychange", onVisChange);
-  }, [user, totalBadge]);
+  }, [user, invalidateAndResync]);
 }
