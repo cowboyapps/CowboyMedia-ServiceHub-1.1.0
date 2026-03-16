@@ -3703,9 +3703,8 @@ function AdminChatTab() {
                     }}
                     placeholder="Type a message..."
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && (messageText.trim() || chatFile)) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        sendMessageMutation.mutate({ threadId: activeThreadId!, message: messageText, file: chatFile });
                       }
                     }}
                     data-testid="input-chat-message"

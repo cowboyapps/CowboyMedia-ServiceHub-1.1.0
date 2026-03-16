@@ -781,11 +781,7 @@ export default function TicketDetail() {
                   </Button>
                 </div>
               )}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (message.trim() || imageFile) sendMutation.mutate();
-                }}
+              <div
                 className="flex items-center gap-2"
               >
                 <input
@@ -827,14 +823,17 @@ export default function TicketDetail() {
                     setMessage(e.target.value);
                     if (e.target.value.trim()) sendTypingEvent();
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.preventDefault();
+                  }}
                   placeholder="Type a message..."
                   className="flex-1"
                   data-testid="input-message"
                 />
-                <Button type="submit" size="icon" disabled={sendMutation.isPending || (!message.trim() && !imageFile)} data-testid="button-send-message">
+                <Button type="button" size="icon" disabled={sendMutation.isPending || (!message.trim() && !imageFile)} onClick={() => { if (message.trim() || imageFile) sendMutation.mutate(); }} data-testid="button-send-message">
                   <Send className="w-4 h-4" />
                 </Button>
-              </form>
+              </div>
             </div>
           )}
         </CardContent>
