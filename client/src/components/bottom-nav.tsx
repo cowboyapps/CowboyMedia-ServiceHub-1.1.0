@@ -56,6 +56,30 @@ export function BottomNav() {
     (contentCounts["service-updates"] ?? 0) +
     (isAdmin ? adminBadgeCount : 0);
 
+  const totalBadge = unreadTicketCount + unreadMessageCount + unreadReportCount +
+    Object.values(contentCounts).reduce((sum: number, c: number) => sum + c, 0);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const syncBadge = () => {
+      if ("setAppBadge" in navigator) {
+        if (totalBadge > 0) {
+          (navigator as any).setAppBadge(totalBadge).catch(() => {});
+        } else {
+          (navigator as any).clearAppBadge().catch(() => {});
+        }
+      }
+    };
+    syncBadge();
+    const onVisChange = () => {
+      if (document.visibilityState === "visible") {
+        syncBadge();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => document.removeEventListener("visibilitychange", onVisChange);
+  }, [isMobile, totalBadge]);
+
   if (!isMobile) return null;
 
   const tabs = [

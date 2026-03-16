@@ -1,4 +1,4 @@
-const CACHE_NAME = 'servicehub-v7';
+const CACHE_NAME = 'servicehub-v8';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -100,9 +100,16 @@ self.addEventListener('push', (event) => {
         }
       }
       return self.registration.showNotification(data.title, options).then(() => {
-        if (self.navigator && self.navigator.setAppBadge) {
-          self.navigator.setAppBadge().catch(() => {});
-        }
+        return self.registration.getNotifications().then((notifications) => {
+          const count = notifications.length;
+          if (self.navigator && self.navigator.setAppBadge) {
+            self.navigator.setAppBadge(count).catch(() => {});
+          }
+        }).catch(() => {
+          if (self.navigator && self.navigator.setAppBadge) {
+            self.navigator.setAppBadge(1).catch(() => {});
+          }
+        });
       });
     })
   );
@@ -112,14 +119,24 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url || '/';
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.navigate(url);
-          return client.focus();
+    self.registration.getNotifications().then((notifications) => {
+      const remaining = notifications.length;
+      if (self.navigator && self.navigator.setAppBadge) {
+        if (remaining > 0) {
+          self.navigator.setAppBadge(remaining).catch(() => {});
+        } else {
+          self.navigator.clearAppBadge().catch(() => {});
         }
       }
-      return self.clients.openWindow(url);
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        for (const client of clients) {
+          if (client.url.includes(self.location.origin) && 'focus' in client) {
+            client.navigate(url);
+            return client.focus();
+          }
+        }
+        return self.clients.openWindow(url);
+      });
     })
   );
 });
