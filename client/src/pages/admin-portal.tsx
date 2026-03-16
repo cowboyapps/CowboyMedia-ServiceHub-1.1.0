@@ -2801,6 +2801,7 @@ function LogsTab() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [previewLog, setPreviewLog] = useState<ActivityLog | null>(null);
   const limit = 30;
 
   const { data, isLoading } = useQuery<{ logs: ActivityLog[]; total: number }>({
@@ -2827,13 +2828,23 @@ function LogsTab() {
     setPage(1);
   };
 
+  const getLogParsedDetails = (log: ActivityLog) => {
+    if (!log.details) return null;
+    try { return JSON.parse(log.details); } catch { return null; }
+  };
+
+  const hasPreview = (log: ActivityLog) => {
+    return log.category === "email" || log.category === "push";
+  };
+
   const renderDetails = (log: ActivityLog) => {
     if (!log.details) return null;
     try {
       const parsed = JSON.parse(log.details);
+      const hideKeys = log.category === "email" ? ["body"] : [];
       return (
         <div className="space-y-1.5" data-testid={`log-details-${log.id}`}>
-          {Object.entries(parsed).map(([key, value]) => (
+          {Object.entries(parsed).filter(([key]) => !hideKeys.includes(key)).map(([key, value]) => (
             <div key={key} className="flex gap-2 text-xs">
               <span className="font-medium text-muted-foreground min-w-[80px] capitalize">{key.replace(/_/g, " ")}:</span>
               <span className="text-foreground break-all whitespace-pre-wrap">{typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}</span>
@@ -2844,6 +2855,66 @@ function LogsTab() {
     } catch {
       return <p className="text-xs text-muted-foreground whitespace-pre-wrap">{log.details}</p>;
     }
+  };
+
+  const renderEmailPreview = (parsed: Record<string, string>) => {
+    const styledBody = (parsed.body || "")
+      .replace(/<h2>(.*?)<\/h2>/g, '<h2 style="margin:0 0 16px;color:#1a1a2e;font-size:22px;font-weight:600;line-height:1.3;">$1</h2>')
+      .replace(/<p>(.*?)<\/p>/g, '<p style="margin:0 0 12px;color:#374151;font-size:15px;line-height:1.6;">$1</p>');
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>body{margin:0;padding:0;background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;}</style></head><body style="margin:0;padding:0;background-color:#f4f4f7;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;"><tr><td align="center" style="padding:24px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<tr><td style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);padding:32px 40px;text-align:center;">
+<h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:0.5px;">CowboyMedia</h1>
+<p style="margin:6px 0 0;color:#94a3b8;font-size:13px;letter-spacing:1px;text-transform:uppercase;">Service Hub</p>
+</td></tr>
+<tr><td style="padding:32px 40px 24px;">${styledBody}</td></tr>
+<tr><td style="padding:0 40px 32px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e5e7eb;padding-top:24px;">
+<p style="margin:0 0 8px;color:#6b7280;font-size:12px;text-align:center;">This is an automated notification from CowboyMedia Service Hub.</p>
+<p style="margin:0 0 8px;color:#6b7280;font-size:12px;text-align:center;">Please do not reply to this email.</p>
+<p style="margin:0;color:#9ca3af;font-size:11px;text-align:center;">&copy; CowboyMedia. All rights reserved.</p>
+</td></tr></table></td></tr>
+</table></td></tr></table></body></html>`;
+    return fullHtml;
+  };
+
+  const renderPushPreview = (parsed: Record<string, string>) => {
+    return (
+      <div className="flex flex-col items-center py-6 px-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-800 shadow-xl border border-border overflow-hidden">
+          <div className="flex items-start gap-3 p-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1a1a2e] to-[#0f3460] flex items-center justify-center flex-shrink-0">
+              <Bell className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-xs font-semibold text-foreground">CowboyMedia</span>
+                <span className="text-[10px] text-muted-foreground">now</span>
+              </div>
+              <p className="text-sm font-semibold text-foreground mb-0.5 truncate">{parsed.title || "Notification"}</p>
+              <p className="text-xs text-muted-foreground line-clamp-3" style={{ overflowWrap: "anywhere" }}>{parsed.body || ""}</p>
+              {parsed.url && (
+                <p className="text-[10px] text-blue-500 mt-1 truncate">{parsed.url}</p>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 space-y-2 w-full max-w-sm">
+          {parsed.recipientName && (
+            <div className="flex gap-2 text-xs">
+              <span className="font-medium text-muted-foreground min-w-[70px]">To:</span>
+              <span className="text-foreground">{parsed.recipientName}</span>
+            </div>
+          )}
+          {parsed.tag && (
+            <div className="flex gap-2 text-xs">
+              <span className="font-medium text-muted-foreground min-w-[70px]">Tag:</span>
+              <span className="text-foreground font-mono">{parsed.tag}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -2907,6 +2978,17 @@ function LogsTab() {
                       <Icon className={`w-3 h-3 ${config.color.split(" ")[1]}`} />
                     </div>
                     <span className="text-sm flex-1 min-w-0 truncate">{log.summary}</span>
+                    {hasPreview(log) && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); setPreviewLog(log); }}
+                        data-testid={`button-preview-log-${log.id}`}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                     <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${config.color}`}>{config.label}</Badge>
                   </div>
                   <div className="flex items-center gap-2 pl-7 flex-wrap">
@@ -2944,6 +3026,58 @@ function LogsTab() {
           </Button>
         </div>
       )}
+
+      <Dialog open={!!previewLog} onOpenChange={(open) => { if (!open) setPreviewLog(null); }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" data-testid="dialog-log-preview">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {previewLog?.category === "email" ? <Mail className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+              {previewLog?.category === "email" ? "Email Preview" : "Push Notification Preview"}
+            </DialogTitle>
+          </DialogHeader>
+          {previewLog && (() => {
+            const parsed = getLogParsedDetails(previewLog);
+            if (!parsed) return <p className="text-sm text-muted-foreground">No preview data available</p>;
+            if (previewLog.category === "email") {
+              const emailBody = parsed.body;
+              if (!emailBody) {
+                return (
+                  <div className="p-4 text-center text-muted-foreground space-y-2">
+                    <MailOpen className="w-8 h-8 mx-auto opacity-50" />
+                    <p className="text-sm">Email body not available for this log entry.</p>
+                    <p className="text-xs">Older logs may not include the full email content.</p>
+                    <div className="text-left mt-4 space-y-1.5">
+                      <div className="flex gap-2 text-xs"><span className="font-medium text-muted-foreground min-w-[60px]">To:</span><span>{parsed.to}</span></div>
+                      <div className="flex gap-2 text-xs"><span className="font-medium text-muted-foreground min-w-[60px]">Subject:</span><span>{parsed.subject}</span></div>
+                      <div className="flex gap-2 text-xs"><span className="font-medium text-muted-foreground min-w-[60px]">Template:</span><span className="font-mono">{parsed.templateKey}</span></div>
+                    </div>
+                  </div>
+                );
+              }
+              const htmlContent = renderEmailPreview(parsed);
+              return (
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2 flex-wrap">
+                    <span><strong>To:</strong> {parsed.recipientName ? `${parsed.recipientName} (${parsed.to})` : parsed.to}</span>
+                    <span><strong>Subject:</strong> {parsed.subject}</span>
+                  </div>
+                  <div className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-[#f4f4f7]">
+                    <iframe
+                      srcDoc={htmlContent}
+                      className="w-full h-full border-0"
+                      style={{ minHeight: "400px" }}
+                      sandbox=""
+                      title="Email Preview"
+                      data-testid="iframe-email-preview"
+                    />
+                  </div>
+                </div>
+              );
+            }
+            return renderPushPreview(parsed);
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

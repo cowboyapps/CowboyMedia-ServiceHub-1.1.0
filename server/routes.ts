@@ -38,11 +38,11 @@ async function sendTemplatedEmail(
   if (Array.isArray(to)) {
     sendEmailToMultiple(to, subject, body).catch(() => {});
     for (const addr of to) {
-      logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${addr}): ${subject}` : `Email to ${addr}: ${subject}`, details: JSON.stringify({ to: addr, recipientName: recipientName || null, templateKey, subject }) });
+      logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${addr}): ${subject}` : `Email to ${addr}: ${subject}`, details: JSON.stringify({ to: addr, recipientName: recipientName || null, templateKey, subject, body }) });
     }
   } else {
     sendEmail(to, subject, body).catch(() => {});
-    logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${to}): ${subject}` : `Email to ${to}: ${subject}`, details: JSON.stringify({ to, recipientName: recipientName || null, templateKey, subject }) });
+    logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${to}): ${subject}` : `Email to ${to}: ${subject}`, details: JSON.stringify({ to, recipientName: recipientName || null, templateKey, subject, body }) });
   }
 }
 
