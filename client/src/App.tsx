@@ -121,6 +121,7 @@ function AuthenticatedLayout() {
       <div className="flex h-dvh w-full overflow-hidden">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          <div className="flex-shrink-0 bg-muted" style={{ height: "env(safe-area-inset-top, 0px)" }} />
           <OfflineBanner />
           <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
             <div className="z-10">
@@ -787,6 +788,7 @@ function AppContent() {
   if (!user) {
     return (
       <>
+        <div className="flex-shrink-0 bg-background" style={{ height: "env(safe-area-inset-top, 0px)" }} />
         <OfflineBanner />
         <AuthPage />
       </>
