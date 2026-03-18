@@ -12,8 +12,18 @@ body {
 }
 
 @media (display-mode: standalone) {
-  body {
+  html, body {
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+    position: fixed;
     overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
   }
 }
 

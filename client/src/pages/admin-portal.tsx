@@ -3842,6 +3842,11 @@ function AdminChatTab() {
                         e.preventDefault();
                       }
                     }}
+                    onBlur={() => {
+                      if (window.matchMedia('(display-mode: standalone)').matches && window.scrollY !== 0) {
+                        window.scrollTo(0, 0);
+                      }
+                    }}
                     data-testid="input-chat-message"
                   />
                   <input

@@ -877,6 +877,11 @@ export default function TicketDetail() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") e.preventDefault();
                   }}
+                  onBlur={() => {
+                    if (window.matchMedia('(display-mode: standalone)').matches && window.scrollY !== 0) {
+                      window.scrollTo(0, 0);
+                    }
+                  }}
                   placeholder="Type a message..."
                   className="flex-1"
                   data-testid="input-message"
