@@ -191,6 +191,27 @@ function isUserViewingTicket(userId: string, ticketId: string): boolean {
   return users ? (users.get(userId) || 0) > 0 : false;
 }
 
+const TICKET_EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
+const ticketEmailCooldowns = new Map<string, number>();
+
+function shouldSendTicketEmail(userId: string, ticketId: string): boolean {
+  const key = `${userId}:${ticketId}`;
+  const lastSent = ticketEmailCooldowns.get(key);
+  if (!lastSent) return true;
+  return Date.now() - lastSent >= TICKET_EMAIL_COOLDOWN_MS;
+}
+
+function recordTicketEmailSent(userId: string, ticketId: string): void {
+  ticketEmailCooldowns.set(`${userId}:${ticketId}`, Date.now());
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [key, ts] of ticketEmailCooldowns) {
+    if (ts < cutoff) ticketEmailCooldowns.delete(key);
+  }
+}, 5 * 60 * 1000);
+
 function addAdminChatViewer(threadId: string, userId: string): void {
   if (!adminChatViewerCounts.has(threadId)) adminChatViewerCounts.set(threadId, new Map());
   const users = adminChatViewerCounts.get(threadId)!;
@@ -1184,11 +1205,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         });
         const customer = await storage.getUser(ticket.customerId);
         if (customer?.email && customer.emailNotifications !== false && !isUserViewingTicket(ticket.customerId, ticket.id)) {
-          sendTemplatedEmail(customer.email, "customer_ticket_reply", {
-            ticket_subject: ticket.subject,
-            message: req.body.message,
-            customer_name: customer.fullName,
-          }, customer.fullName);
+          if (shouldSendTicketEmail(ticket.customerId, ticket.id)) {
+            recordTicketEmailSent(ticket.customerId, ticket.id);
+            sendTemplatedEmail(customer.email, "customer_ticket_reply", {
+              ticket_subject: ticket.subject,
+              message: req.body.message,
+              customer_name: customer.fullName,
+            }, customer.fullName);
+          } else {
+            console.log(`[Email Cooldown] Skipped ticket reply email to customer ${customer.fullName} for ticket ${ticket.id} (cooldown active)`);
+          }
         }
       } else {
         const allAdminUsers = await storage.getAllUsers();
@@ -1213,12 +1239,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             message: `${user.fullName} replied: ${ticket.subject}`,
           });
           if (admin.email && !isUserViewingTicket(admin.id, ticket.id)) {
-            sendTemplatedEmail(admin.email, "admin_ticket_reply", {
-              customer_name: user.fullName,
-              customer_username: user.username,
-              ticket_subject: ticket.subject,
-              message: req.body.message,
-            }, admin.fullName);
+            if (shouldSendTicketEmail(admin.id, ticket.id)) {
+              recordTicketEmailSent(admin.id, ticket.id);
+              sendTemplatedEmail(admin.email, "admin_ticket_reply", {
+                customer_name: user.fullName,
+                customer_username: user.username,
+                ticket_subject: ticket.subject,
+                message: req.body.message,
+              }, admin.fullName);
+            } else {
+              console.log(`[Email Cooldown] Skipped ticket reply email to admin ${admin.fullName} for ticket ${ticket.id} (cooldown active)`);
+            }
           }
         }
       }
