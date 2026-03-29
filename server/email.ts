@@ -121,14 +121,21 @@ export async function sendEmail(to: string, subject: string, html: string) {
       html: fullHtml,
     });
     console.log(`Email sent to ${to}: ${subject}`);
-  } catch (err) {
-    console.error('Failed to send email:', err);
+  } catch (err: any) {
+    console.error('Failed to send email:', err?.message || err);
+    if (err?.response?.body) {
+      console.error('SendGrid error details:', JSON.stringify(err.response.body));
+    }
   }
 }
 
 export async function sendEmailToMultiple(recipients: string[], subject: string, html: string) {
   for (const to of recipients) {
-    await sendEmail(to, subject, html);
+    try {
+      await sendEmail(to, subject, html);
+    } catch (err: any) {
+      console.error(`Failed to send email to ${to}, continuing with remaining recipients:`, err?.message || err);
+    }
   }
 }
 
