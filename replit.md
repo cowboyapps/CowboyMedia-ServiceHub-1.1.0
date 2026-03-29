@@ -31,7 +31,7 @@ The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI fo
 - **File Management**: Multer is used for file uploads, storing data as base64 in the PostgreSQL `uploaded_files` table.
 - **PWA Features**: Implemented with a Service Worker and Web App Manifest for installability on mobile devices, providing an offline-first and native app-like experience. Includes offline indicator banner, API response caching for offline data display, and auto-refresh on reconnection. Service worker cache version: `servicehub-v8` (static assets). Push notification badge uses monochrome silhouette icon (`/icons/badge-96.png`) for Android status bar. App badge (home screen icon count) uses `setAppBadge(count)`/`clearAppBadge()`: SW sets numeric count on push, clears on notification click when none remain; both sidebar (desktop) and bottom-nav (mobile) sync badge to in-app unread total on mount and `visibilitychange` (foreground resume).
 - **Push Notifications**: Utilizes the Web Push API with VAPID for service alerts and ticket updates, avoiding third-party services like OneSignal or Firebase.
-- **Email Services**: Integration with SendGrid for all transactional email communications.
+- **Email Services**: SendGrid via user's own API key (`SENDGRID_API_KEY` env secret), from address `noreply@cowboymedia.net`.
 
 ### Feature Specifications
 - **Authentication & Authorization**: Local username/password authentication with a robust admin role system. `master_admin` has full access, while custom admin roles have granular, permission-based access (`users.view`, `services.manage`, `admin_chat`, `support_tickets`, etc.).
