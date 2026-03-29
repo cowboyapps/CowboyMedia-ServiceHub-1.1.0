@@ -106,6 +106,7 @@ function AuthenticatedLayout() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
   const isTicketDetail = /^\/tickets\/[^/?]+/.test(location);
+  const isNewsDetail = /^\/news\/[^/?]+/.test(location);
   const isAdminPortal = /^\/admin/.test(location);
   const scrollRef = useRef<HTMLDivElement>(null);
   useScrollRestore(scrollRef);
@@ -139,7 +140,7 @@ function AuthenticatedLayout() {
               </Link>
             </div>
           </header>
-          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-14' : ''}`} disabled={isTicketDetail || isAdminPortal}>
+          <PullToRefresh ref={scrollRef} className={`flex-1 ${isTicketDetail ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-14' : ''}`} disabled={isTicketDetail || isNewsDetail || isAdminPortal}>
             <main className={isTicketDetail ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>
