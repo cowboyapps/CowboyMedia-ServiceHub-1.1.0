@@ -296,6 +296,13 @@ export async function registerRoutes(
 ): Promise<Server> {
   const PgStore = ConnectPgSimple(session);
 
+  pool.query("UPDATE users SET username = TRIM(username) WHERE username != TRIM(username)")
+    .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Trimmed whitespace from ${r.rowCount} username(s)`); })
+    .catch((e) => console.error("[Migration] Failed to trim usernames:", e.message));
+  pool.query("UPDATE users SET full_name = TRIM(full_name) WHERE full_name != TRIM(full_name)")
+    .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Trimmed whitespace from ${r.rowCount} full_name(s)`); })
+    .catch((e) => console.error("[Migration] Failed to trim full_names:", e.message));
+
   app.set("trust proxy", 1);
 
   app.use(
