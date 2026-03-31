@@ -410,7 +410,7 @@ export async function registerRoutes(
       const { subscribedServices, fullName, emailNotifications, setupReminderDismissed } = req.body;
       const updateData: any = {};
       if (subscribedServices !== undefined) updateData.subscribedServices = subscribedServices;
-      if (fullName !== undefined) updateData.fullName = fullName;
+      if (fullName !== undefined) updateData.fullName = fullName?.trim();
       if (emailNotifications !== undefined) updateData.emailNotifications = emailNotifications;
       if (setupReminderDismissed !== undefined) updateData.setupReminderDismissed = setupReminderDismissed;
       const updated = await storage.updateUser(req.session.userId!, updateData);
