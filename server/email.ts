@@ -370,6 +370,21 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the customer when their ticket is closed, includes the full conversation transcript",
   },
   {
+    templateKey: "password_reset",
+    name: "Password Reset",
+    subject: "Reset Your Password - CowboyMedia",
+    body: `<h2>Password Reset Request</h2>
+<p>Hi {fullName},</p>
+<p>We received a request to reset the password for your CowboyMedia ServiceHub account.</p>
+<p>Click the link below to set a new password. This link will expire in {expiryMinutes} minutes.</p>
+<p><a href="{resetLink}" style="display:inline-block;padding:12px 24px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Reset Password</a></p>
+<p>Or copy and paste this URL into your browser:</p>
+<p style="word-break:break-all;">{resetLink}</p>
+<p style="color:#6b7280;font-size:13px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>`,
+    availableVariables: ["fullName", "resetLink", "expiryMinutes"],
+    description: "Sent to a user when they request a password reset via the forgot password form",
+  },
+  {
     templateKey: "customer_setup_reminder",
     name: "Account Setup Reminder",
     subject: "Complete Your CowboyMedia ServiceHub Setup",

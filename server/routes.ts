@@ -35,14 +35,16 @@ async function sendTemplatedEmail(
   if (!tpl) return;
   const subject = rendered ? tpl.subject : replaceVarsSimple(tpl.subject, variables);
   const body = rendered ? tpl.body : replaceVarsSimple(tpl.body, variables);
+  const sensitiveTemplates = ["password_reset"];
+  const isSensitive = sensitiveTemplates.includes(templateKey);
   if (Array.isArray(to)) {
     sendEmailToMultiple(to, subject, body).catch(() => {});
     for (const addr of to) {
-      logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${addr}): ${subject}` : `Email to ${addr}: ${subject}`, details: JSON.stringify({ to: addr, recipientName: recipientName || null, templateKey, subject, body }) });
+      logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${addr}): ${subject}` : `Email to ${addr}: ${subject}`, details: JSON.stringify(isSensitive ? { to: addr, recipientName: recipientName || null, templateKey, subject } : { to: addr, recipientName: recipientName || null, templateKey, subject, body }) });
     }
   } else {
     sendEmail(to, subject, body).catch(() => {});
-    logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${to}): ${subject}` : `Email to ${to}: ${subject}`, details: JSON.stringify({ to, recipientName: recipientName || null, templateKey, subject, body }) });
+    logActivity("email", "email_sent", { summary: recipientName ? `Email to ${recipientName} (${to}): ${subject}` : `Email to ${to}: ${subject}`, details: JSON.stringify(isSensitive ? { to, recipientName: recipientName || null, templateKey, subject } : { to, recipientName: recipientName || null, templateKey, subject, body }) });
   }
 }
 
@@ -398,6 +400,76 @@ export async function registerRoutes(
     req.session.destroy(() => {
       res.json({ message: "Logged out" });
     });
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { usernameOrEmail } = req.body;
+      if (!usernameOrEmail || typeof usernameOrEmail !== "string") {
+        return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+      }
+      const input = usernameOrEmail.trim();
+      let user = await storage.getUserByUsername(input);
+      if (!user) {
+        user = await storage.getUserByEmail(input);
+      }
+      if (!user) {
+        return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+      }
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await storage.createPasswordResetToken({ userId: user.id, tokenHash, expiresAt });
+      const replitDomains = process.env.REPLIT_DOMAINS;
+      let baseUrl: string;
+      if (replitDomains) {
+        const primaryDomain = replitDomains.split(",")[0];
+        baseUrl = `https://${primaryDomain}`;
+      } else {
+        baseUrl = `${req.protocol}://${req.get("host") || "localhost:5000"}`;
+      }
+      const resetLink = `${baseUrl}/reset-password?token=${rawToken}`;
+      sendTemplatedEmail(user.email, "password_reset", {
+        fullName: user.fullName,
+        resetLink,
+        expiryMinutes: "60",
+      }, user.fullName);
+      logActivity("user", "password_reset_requested", { targetId: user.id, targetType: "user", summary: `Password reset requested for ${user.fullName} (${user.username})` });
+      res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+    } catch (e: any) {
+      res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) {
+        return res.status(400).json({ message: "Token and password are required" });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+      const resetToken = await storage.getPasswordResetTokenByHash(tokenHash);
+      if (!resetToken) {
+        return res.status(400).json({ message: "Invalid or expired reset link. Please request a new one." });
+      }
+      if (resetToken.usedAt) {
+        return res.status(400).json({ message: "This reset link has already been used. Please request a new one." });
+      }
+      if (new Date() > resetToken.expiresAt) {
+        return res.status(400).json({ message: "This reset link has expired. Please request a new one." });
+      }
+      const hashed = await hashPassword(password);
+      await storage.updateUser(resetToken.userId, { password: hashed });
+      await storage.markPasswordResetTokenUsed(resetToken.id);
+      const user = await storage.getUser(resetToken.userId);
+      logActivity("user", "password_reset_completed", { targetId: resetToken.userId, targetType: "user", summary: `Password reset completed for ${user?.fullName || "unknown"} (${user?.username || "unknown"})` });
+      res.json({ message: "Password has been reset successfully. You can now sign in with your new password." });
+    } catch (e: any) {
+      res.status(500).json({ message: "An error occurred. Please try again." });
+    }
   });
 
   app.get("/api/auth/me", async (req, res) => {

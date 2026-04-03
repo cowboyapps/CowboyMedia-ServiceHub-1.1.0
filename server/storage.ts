@@ -24,7 +24,8 @@ import {
   type TicketTransfer, type InsertTicketTransfer,
   type AdminActivityLog, type InsertAdminActivityLog,
   type Download, type InsertDownload,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads,
+  type PasswordResetToken, type InsertPasswordResetToken,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
@@ -165,6 +166,11 @@ export interface IStorage {
   createActivityLog(data: InsertAdminActivityLog): Promise<AdminActivityLog>;
   getActivityLogs(filters: { category?: string; action?: string; search?: string; page?: number; limit?: number }): Promise<{ logs: AdminActivityLog[]; total: number }>;
   getActivityLog(id: string): Promise<AdminActivityLog | undefined>;
+
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken>;
+  getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined>;
+  markPasswordResetTokenUsed(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -821,6 +827,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDownload(id: string): Promise<void> {
     await db.delete(downloads).where(eq(downloads.id, id));
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken> {
+    const [token] = await db.insert(passwordResetTokens).values(data).returning();
+    return token;
+  }
+
+  async getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined> {
+    const [token] = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, tokenHash));
+    return token;
+  }
+
+  async markPasswordResetTokenUsed(id: string): Promise<void> {
+    await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
   }
 }
 

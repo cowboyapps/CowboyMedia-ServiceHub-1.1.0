@@ -40,6 +40,7 @@ The frontend utilizes React with Vite, styled using TailwindCSS and Shadcn UI fo
 - **Admin Communications**: Real-time admin chat with threads and file attachments. Typing indicators, mobile-optimized scrolling, URL word-wrap, push notification suppression when actively viewing threads, and refresh buttons mirror the support ticket chat improvements. `master_admin` can send broadcast priority alerts that persist and require acknowledgment.
 - **Customer Engagement**: News stories with photo support, private messaging from admins to customers (with push, email, and in-app popups), and a customer message center with unread badges.
 - **User Onboarding**: Setup reminder system with in-app dialogs and email notifications to encourage push notification and service configuration.
+- **Password Reset**: Self-service forgot password flow via email. `password_reset_tokens` table stores hashed tokens with 1-hour expiry. Reset link built from `REPLIT_DOMAINS` (safe origin). `password_reset` email template in admin Email Templates (customizable). Sensitive email bodies excluded from activity logs. Routes: `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`. Frontend: `/forgot-password`, `/reset-password?token=...` pages accessible without login.
 
 ### Admin Activity Logs
 - `admin_activity_logs` table stores all major system events: emails sent, push notifications, ticket lifecycle, alert lifecycle, service updates, news, reports, user role changes

@@ -356,6 +356,19 @@ export const insertDownloadSchema = createInsertSchema(downloads).omit({ id: tru
 export type InsertDownload = z.infer<typeof insertDownloadSchema>;
 export type Download = typeof downloads.$inferSelect;
 
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
+export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),

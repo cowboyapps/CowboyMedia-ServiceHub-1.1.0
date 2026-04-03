@@ -44,6 +44,8 @@ import ReportRequestPage from "@/pages/report-request-page";
 import ServiceUpdatesPage from "@/pages/service-updates-page";
 import ServiceDetail from "@/pages/service-detail";
 import DownloadsPage from "@/pages/downloads-page";
+import ForgotPasswordPage from "@/pages/forgot-password-page";
+import ResetPasswordPage from "@/pages/reset-password-page";
 
 function getRouteDepth(path: string): number {
   if (path === "/") return 0;
@@ -789,7 +791,13 @@ function AppContent() {
     return (
       <>
         <OfflineBanner />
-        <AuthPage />
+        <Switch>
+          <Route path="/forgot-password" component={ForgotPasswordPage} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route>
+            <AuthPage />
+          </Route>
+        </Switch>
       </>
     );
   }

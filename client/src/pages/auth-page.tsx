@@ -12,6 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, Wifi, Bell, MessageSquare } from "lucide-react";
+import { Link } from "wouter";
 
 export default function AuthPage() {
   const { login, register, user } = useAuth();
@@ -106,6 +107,11 @@ export default function AuthPage() {
                     <Button type="submit" className="w-full" disabled={isSubmitting} data-testid="button-login">
                       {isSubmitting ? "Signing in..." : "Sign In"}
                     </Button>
+                    <div className="text-center">
+                      <Link href="/forgot-password" className="text-sm text-primary hover:underline" data-testid="link-forgot-password">
+                        Forgot your password?
+                      </Link>
+                    </div>
                   </form>
                 </Form>
               </TabsContent>
