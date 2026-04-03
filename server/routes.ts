@@ -425,8 +425,10 @@ export async function registerRoutes(
       if (replitDomains) {
         const primaryDomain = replitDomains.split(",")[0];
         baseUrl = `https://${primaryDomain}`;
+      } else if (process.env.NODE_ENV === "production") {
+        return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
       } else {
-        baseUrl = `${req.protocol}://${req.get("host") || "localhost:5000"}`;
+        baseUrl = `http://localhost:5000`;
       }
       const resetLink = `${baseUrl}/reset-password?token=${rawToken}`;
       sendTemplatedEmail(user.email, "password_reset", {
