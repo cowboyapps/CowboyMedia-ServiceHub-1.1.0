@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server } from "http";
+import { createServer, type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from "ws";
 import session from "express-session";
@@ -3061,8 +3061,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   httpServer.on("upgrade", (req, socket, head) => {
     if (req.url !== "/ws") { socket.destroy(); return; }
-    (sessionMiddleware as any)(req, {} as any, () => {
-      const userId = (req as any).session?.userId;
+    const fakeRes = Object.create(ServerResponse.prototype);
+    sessionMiddleware(req as unknown as Request, fakeRes as unknown as Response, () => {
+      const sessionReq = req as unknown as Request;
+      const userId = sessionReq.session?.userId;
       wss.handleUpgrade(req, socket, head, (ws) => {
         if (userId) wsSessionUserMap.set(ws, userId);
         wss.emit("connection", ws, req);
@@ -3097,20 +3099,35 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           if (info && info.threadId === data.threadId) wsAdminChatMap.delete(ws);
         }
         if (data.type === "thread_typing" && data.threadId && sessionUserId && data.userName) {
-          const msg = JSON.stringify({ type: "thread_typing", threadId: data.threadId, userId: sessionUserId, userName: data.userName });
-          wsThreadMap.forEach((info, client) => {
-            if (client !== ws && info.threadId === data.threadId && client.readyState === WebSocket.OPEN) {
-              client.send(msg);
-            }
-          });
+          storage.getMessageThread(data.threadId).then((thread) => {
+            if (!thread) return;
+            if (thread.adminId !== sessionUserId && thread.customerId !== sessionUserId) return;
+            const msg = JSON.stringify({ type: "thread_typing", threadId: data.threadId, userId: sessionUserId, userName: data.userName });
+            wsThreadMap.forEach((info, client) => {
+              if (client !== ws && info.threadId === data.threadId && client.readyState === WebSocket.OPEN) {
+                client.send(msg);
+              }
+            });
+          }).catch(() => {});
         }
         if (data.type === "viewing_thread" && data.threadId && sessionUserId) {
-          const prev = wsThreadMap.get(ws);
-          if (prev) {
-            removeThreadViewer(prev.threadId, prev.userId);
-          }
-          wsThreadMap.set(ws, { userId: sessionUserId, threadId: data.threadId });
-          addThreadViewer(data.threadId, sessionUserId);
+          storage.getMessageThread(data.threadId).then((thread) => {
+            if (!thread) return;
+            if (thread.adminId !== sessionUserId && thread.customerId !== sessionUserId) {
+              storage.getUser(sessionUserId).then((u) => {
+                if (u?.role !== "master_admin") return;
+                const prev = wsThreadMap.get(ws);
+                if (prev) removeThreadViewer(prev.threadId, prev.userId);
+                wsThreadMap.set(ws, { userId: sessionUserId, threadId: data.threadId });
+                addThreadViewer(data.threadId, sessionUserId);
+              }).catch(() => {});
+              return;
+            }
+            const prev = wsThreadMap.get(ws);
+            if (prev) removeThreadViewer(prev.threadId, prev.userId);
+            wsThreadMap.set(ws, { userId: sessionUserId, threadId: data.threadId });
+            addThreadViewer(data.threadId, sessionUserId);
+          }).catch(() => {});
         }
         if (data.type === "left_thread" && data.threadId && sessionUserId) {
           removeThreadViewer(data.threadId, sessionUserId);

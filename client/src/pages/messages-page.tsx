@@ -306,7 +306,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
               el.style.height = Math.min(el.scrollHeight, 120) + "px";
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !(e as any).isComposing) {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleSend();
               }

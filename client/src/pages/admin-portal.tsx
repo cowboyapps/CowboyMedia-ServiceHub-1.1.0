@@ -1802,7 +1802,7 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
               el.style.height = Math.min(el.scrollHeight, 120) + "px";
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !(e as any).isComposing) { e.preventDefault(); handleSend(); }
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); }
             }}
             placeholder="Type a message..."
             className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm"
