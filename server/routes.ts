@@ -3102,8 +3102,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   async function clearRelatedBadge(userId: string, notif: { type: string; referenceType: string | null; referenceId: string | null }) {
     try {
-      if (notif.type === "ticket_update" && notif.referenceId) {
-        await storage.deleteTicketNotificationsByTicket(notif.referenceId);
+      if (notif.type === "ticket_update") {
+        await storage.markTicketNotificationsRead(userId);
       } else if (notif.type === "message" && notif.referenceId) {
         await storage.markThreadMessagesRead(notif.referenceId, userId);
       } else if (notif.type === "report_update") {
@@ -3159,11 +3159,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const unreadNotifs = await storage.getUserNotifications(userId, 200, 0);
       const unread = unreadNotifs.filter(n => !n.readAt);
       await storage.markAllUserNotificationsRead(userId);
+      const seenTypes = new Set<string>();
       for (const notif of unread) {
-        await clearRelatedBadge(userId, notif);
-      }
-      if (unread.some(n => n.type === "ticket_update")) {
-        await storage.markTicketNotificationsRead(userId);
+        if (!seenTypes.has(notif.type)) {
+          seenTypes.add(notif.type);
+          await clearRelatedBadge(userId, notif);
+        }
       }
       res.json({ message: "All marked as read" });
     } catch (e: any) {

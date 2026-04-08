@@ -205,12 +205,16 @@ export function NotificationCenter() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
 
+  const isCustomer = user?.role === "customer";
+
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
     refetchInterval: 15000,
-    enabled: !!user,
+    enabled: !!user && isCustomer,
   });
   const unreadCount = unreadData?.count ?? 0;
+
+  if (!isCustomer) return null;
 
   const handleNavigate = (url: string) => {
     setOpen(false);
