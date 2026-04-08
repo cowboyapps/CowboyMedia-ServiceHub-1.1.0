@@ -2342,7 +2342,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           type_label: typeLabel,
           service_name: service?.name || "N/A",
           report_title: title,
-          report_description_block: description ? `<blockquote>${description}</blockquote>` : "",
+          report_description_block: description ? `<blockquote>${escapeHtml(description).replace(/\n/g, "<br/>")}</blockquote>` : "",
           customer_name: user.fullName,
         }, user.fullName, new Set(["report_description_block"]));
       }
@@ -2365,7 +2365,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             customer_email: user.email,
             service_name: service?.name || "N/A",
             report_title: title,
-            report_description_block: description ? `<blockquote>${description}</blockquote>` : "",
+            report_description_block: description ? `<blockquote>${escapeHtml(description).replace(/\n/g, "<br/>")}</blockquote>` : "",
           }, admin.fullName, new Set(["report_description_block"]));
         }
       }
