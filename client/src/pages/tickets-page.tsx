@@ -129,6 +129,7 @@ export default function TicketsPage() {
   const markTicketsRead = useCallback(() => {
     apiRequest("POST", "/api/ticket-notifications/mark-read").then(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/ticket-notifications/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     }).catch(() => {});
   }, []);
 

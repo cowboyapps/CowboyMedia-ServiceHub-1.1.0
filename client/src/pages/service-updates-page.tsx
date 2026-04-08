@@ -21,7 +21,10 @@ export default function ServiceUpdatesPage() {
 
   const markUpdatesRead = useCallback(() => {
     apiRequest("POST", "/api/content-notifications/mark-read", { category: "service-updates" })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      })
       .catch(() => {});
   }, []);
 

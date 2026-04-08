@@ -43,7 +43,10 @@ export default function AlertsPage() {
 
   const markAlertsRead = useCallback(() => {
     apiRequest("POST", "/api/content-notifications/mark-read", { category: "alerts" })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      })
       .catch(() => {});
   }, []);
 

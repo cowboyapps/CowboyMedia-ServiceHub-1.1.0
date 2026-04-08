@@ -92,6 +92,7 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
         setNewUserIds(ids);
         await apiRequest("POST", "/api/content-notifications/mark-read", { category: "admin-users" });
         queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
       })
       .catch(() => {});
   }, []);
@@ -2215,7 +2216,10 @@ function ReportsRequestsTab({ canManage = true }: { canManage?: boolean }) {
 
   useEffect(() => {
     apiRequest("POST", "/api/content-notifications/mark-read", { category: "admin-reports" })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      })
       .catch(() => {});
   }, []);
 

@@ -16,7 +16,10 @@ export default function NewsPage() {
 
   const markNewsRead = useCallback(() => {
     apiRequest("POST", "/api/content-notifications/mark-read", { category: "news" })
-      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] }))
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      })
       .catch(() => {});
   }, []);
 

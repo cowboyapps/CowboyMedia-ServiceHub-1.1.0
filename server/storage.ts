@@ -206,6 +206,7 @@ export interface IStorage {
   markUserNotificationRead(id: string, userId: string): Promise<void>;
   dismissUserNotification(id: string, userId: string): Promise<void>;
   markAllUserNotificationsRead(userId: string): Promise<void>;
+  markUserNotificationsByTypeRead(userId: string, types: string[]): Promise<void>;
   deleteExpiredUserNotifications(daysOld: number): Promise<number>;
 }
 
@@ -1024,6 +1025,17 @@ export class DatabaseStorage implements IStorage {
   async markAllUserNotificationsRead(userId: string): Promise<void> {
     await db.update(userNotifications).set({ readAt: new Date() })
       .where(and(eq(userNotifications.userId, userId), isNull(userNotifications.readAt), isNull(userNotifications.dismissedAt)));
+  }
+
+  async markUserNotificationsByTypeRead(userId: string, types: string[]): Promise<void> {
+    if (types.length === 0) return;
+    await db.update(userNotifications).set({ readAt: new Date() })
+      .where(and(
+        eq(userNotifications.userId, userId),
+        isNull(userNotifications.readAt),
+        isNull(userNotifications.dismissedAt),
+        inArray(userNotifications.type, types)
+      ));
   }
 
   async deleteExpiredUserNotifications(daysOld: number): Promise<number> {

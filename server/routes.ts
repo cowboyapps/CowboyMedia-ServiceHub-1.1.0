@@ -2432,6 +2432,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/report-notifications/mark-read", requireAuth, async (req, res) => {
     try {
       await storage.markReportNotificationsRead(req.session.userId!);
+      await storage.markUserNotificationsByTypeRead(req.session.userId!, ["report_update", "new_report"]);
       res.json({ message: "Marked as read" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2915,6 +2916,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/ticket-notifications/mark-read", requireAuth, async (req, res) => {
     try {
       await storage.markTicketNotificationsRead(req.session.userId!);
+      await storage.markUserNotificationsByTypeRead(req.session.userId!, ["ticket_update", "new_ticket"]);
       res.json({ message: "Notifications marked as read" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2944,6 +2946,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const { category } = req.body;
       if (!category) return res.status(400).json({ message: "Category is required" });
       await storage.markContentNotificationsRead(req.session.userId!, category);
+      const categoryToNotifTypes: Record<string, string[]> = {
+        "alerts": ["alert"],
+        "news": ["news"],
+        "service-updates": ["service_update"],
+        "services": ["service_status"],
+        "admin-users": ["new_signup"],
+      };
+      const notifTypes = categoryToNotifTypes[category];
+      if (notifTypes) {
+        await storage.markUserNotificationsByTypeRead(req.session.userId!, notifTypes);
+      }
       res.json({ message: "Marked as read" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

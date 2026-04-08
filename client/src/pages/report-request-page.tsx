@@ -65,6 +65,7 @@ export default function ReportRequestPage() {
   useEffect(() => {
     apiRequest("POST", "/api/report-notifications/mark-read").then(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/report-notifications/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     });
   }, []);
 
