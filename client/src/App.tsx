@@ -110,6 +110,8 @@ function AuthenticatedLayout() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
   const isTicketDetail = /^\/tickets\/[^/?]+/.test(location);
+  const isMessageChat = /^\/messages\/[^/?]+/.test(location);
+  const isFullHeightChat = isTicketDetail || isMessageChat;
   const isNewsPage = /^\/news(\/|$)/.test(location);
   const isAdminPortal = /^\/admin/.test(location);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -147,8 +149,8 @@ function AuthenticatedLayout() {
               <NotificationCenter />
             </div>
           </header>
-          <PullToRefresh ref={scrollRef} className={`flex-1 min-h-0 ${isTicketDetail ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]' : ''}`} disabled={isTicketDetail || isNewsPage || isAdminPortal}>
-            <main className={isTicketDetail ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
+          <PullToRefresh ref={scrollRef} className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
+            <main className={isFullHeightChat ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>
           </PullToRefresh>
