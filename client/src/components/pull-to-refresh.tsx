@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
+import { useState, useRef, useCallback, useEffect, forwardRef } from "react";
 import { RefreshCw } from "lucide-react";
 import { hapticMedium } from "@/lib/haptics";
 
@@ -17,7 +17,14 @@ export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
     const startYRef = useRef(0);
     const pullingRef = useRef(false);
 
-    useImperativeHandle(ref, () => containerRef.current!, []);
+    const setRefs = useCallback((node: HTMLDivElement | null) => {
+      (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      }
+    }, [ref]);
 
     const threshold = 80;
     const maxPull = 120;
@@ -86,49 +93,54 @@ export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
     }, [disabled, handleTouchStart, handleTouchMove, handleTouchEnd]);
 
     if (disabled) {
-      return <div ref={ref} className={className}>{children}</div>;
+      return <div ref={setRefs} className={className}>{children}</div>;
     }
 
     const rotation = Math.min((pullDistance / threshold) * 360, 360);
     const opacity = Math.min(pullDistance / (threshold * 0.5), 1);
     const scale = Math.min(pullDistance / threshold, 1);
+    const isPulling = pullDistance > 0;
 
     return (
-      <div ref={containerRef} className={className} style={{ position: "relative" }}>
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            display: "flex",
-            justifyContent: "center",
-            transform: `translateY(${pullDistance - 40}px)`,
-            transition: pulling ? "none" : "transform 0.3s ease",
-            zIndex: 100,
-            pointerEvents: "none",
-          }}
-        >
-          <div
-            style={{
-              opacity,
-              transform: `scale(${scale}) rotate(${rotation}deg)`,
-              transition: pulling ? "none" : "all 0.3s ease",
-            }}
-          >
-            <RefreshCw
-              className={`w-6 h-6 text-muted-foreground ${refreshing ? "animate-spin" : ""}`}
-            />
-          </div>
-        </div>
-        <div
-          style={{
-            transform: `translateY(${pullDistance > 0 ? pullDistance : 0}px)`,
-            transition: pulling ? "none" : "transform 0.3s ease",
-          }}
-        >
-          {children}
-        </div>
+      <div ref={setRefs} className={className} style={isPulling ? { position: "relative" } : undefined}>
+        {isPulling ? (
+          <>
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                display: "flex",
+                justifyContent: "center",
+                transform: `translateY(${pullDistance - 40}px)`,
+                transition: pulling ? "none" : "transform 0.3s ease",
+                zIndex: 100,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  opacity,
+                  transform: `scale(${scale}) rotate(${rotation}deg)`,
+                  transition: pulling ? "none" : "all 0.3s ease",
+                }}
+              >
+                <RefreshCw
+                  className={`w-6 h-6 text-muted-foreground ${refreshing ? "animate-spin" : ""}`}
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                transform: `translateY(${pullDistance}px)`,
+                transition: pulling ? "none" : "transform 0.3s ease",
+              }}
+            >
+              {children}
+            </div>
+          </>
+        ) : children}
       </div>
     );
   }
