@@ -27,7 +27,9 @@ import {
   type PasswordResetToken, type InsertPasswordResetToken,
   type UrlMonitor, type InsertUrlMonitor,
   type MonitorIncident, type InsertMonitorIncident,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents,
+  type MessageThread, type InsertMessageThread,
+  type ThreadMessage, type InsertThreadMessage,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
@@ -184,6 +186,17 @@ export interface IStorage {
   getOpenIncident(monitorId: string): Promise<MonitorIncident | undefined>;
   createMonitorIncident(data: InsertMonitorIncident): Promise<MonitorIncident>;
   updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined>;
+
+  createMessageThread(data: InsertMessageThread): Promise<MessageThread>;
+  getMessageThread(id: string): Promise<MessageThread | undefined>;
+  getMessageThreadsForUser(userId: string, role: string): Promise<MessageThread[]>;
+  updateMessageThread(id: string, data: Partial<MessageThread>): Promise<MessageThread | undefined>;
+  deleteMessageThread(id: string): Promise<void>;
+
+  getThreadMessages(threadId: string): Promise<ThreadMessage[]>;
+  createThreadMessage(data: InsertThreadMessage): Promise<ThreadMessage>;
+  markThreadMessagesRead(threadId: string, userId: string): Promise<void>;
+  getUnreadThreadMessageCount(userId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -902,6 +915,68 @@ export class DatabaseStorage implements IStorage {
   async updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined> {
     const [inc] = await db.update(monitorIncidents).set(data).where(eq(monitorIncidents.id, id)).returning();
     return inc;
+  }
+
+  async createMessageThread(data: InsertMessageThread): Promise<MessageThread> {
+    const [t] = await db.insert(messageThreads).values(data).returning();
+    return t;
+  }
+
+  async getMessageThread(id: string): Promise<MessageThread | undefined> {
+    const [t] = await db.select().from(messageThreads).where(eq(messageThreads.id, id));
+    return t;
+  }
+
+  async getMessageThreadsForUser(userId: string, role: string): Promise<MessageThread[]> {
+    if (role === "master_admin") {
+      return db.select().from(messageThreads).orderBy(desc(messageThreads.lastMessageAt));
+    }
+    if (role === "admin") {
+      return db.select().from(messageThreads).where(eq(messageThreads.adminId, userId)).orderBy(desc(messageThreads.lastMessageAt));
+    }
+    return db.select().from(messageThreads).where(eq(messageThreads.customerId, userId)).orderBy(desc(messageThreads.lastMessageAt));
+  }
+
+  async updateMessageThread(id: string, data: Partial<MessageThread>): Promise<MessageThread | undefined> {
+    const [t] = await db.update(messageThreads).set(data).where(eq(messageThreads.id, id)).returning();
+    return t;
+  }
+
+  async deleteMessageThread(id: string): Promise<void> {
+    await db.delete(threadMessages).where(eq(threadMessages.threadId, id));
+    await db.delete(messageThreads).where(eq(messageThreads.id, id));
+  }
+
+  async getThreadMessages(threadId: string): Promise<ThreadMessage[]> {
+    return db.select().from(threadMessages).where(eq(threadMessages.threadId, threadId)).orderBy(threadMessages.createdAt);
+  }
+
+  async createThreadMessage(data: InsertThreadMessage): Promise<ThreadMessage> {
+    const [m] = await db.insert(threadMessages).values(data).returning();
+    return m;
+  }
+
+  async markThreadMessagesRead(threadId: string, userId: string): Promise<void> {
+    await db.update(threadMessages).set({ readAt: new Date() }).where(
+      and(
+        eq(threadMessages.threadId, threadId),
+        isNull(threadMessages.readAt),
+        sql`${threadMessages.senderId} != ${userId}`
+      )
+    );
+  }
+
+  async getUnreadThreadMessageCount(userId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)::int` }).from(threadMessages)
+      .innerJoin(messageThreads, eq(threadMessages.threadId, messageThreads.id))
+      .where(
+        and(
+          isNull(threadMessages.readAt),
+          sql`${threadMessages.senderId} != ${userId}`,
+          sql`(${messageThreads.customerId} = ${userId} OR ${messageThreads.adminId} = ${userId})`
+        )
+      );
+    return result[0]?.count ?? 0;
   }
 }
 

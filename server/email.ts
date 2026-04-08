@@ -399,6 +399,31 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "One-time email sent 2 days after registration if push notifications or service subscriptions aren't set up",
   },
   {
+    templateKey: "customer_thread_message",
+    name: "New Message (Customer)",
+    subject: "New Message from {sender_name}: {thread_subject}",
+    body: `<h2>New Message</h2>
+<p>You have received a new message from <strong>{sender_name}</strong>.</p>
+<p><strong>Subject:</strong> {thread_subject}</p>
+<blockquote>{message_body}</blockquote>
+<p>Log in to the app to view and reply to this message.</p>`,
+    availableVariables: ["sender_name", "thread_subject", "message_body", "customer_name"],
+    description: "Sent to a customer when an admin sends them a message in a conversation thread",
+  },
+  {
+    templateKey: "admin_thread_message",
+    name: "New Message Reply (Admin)",
+    subject: "Message Reply from {sender_name}: {thread_subject}",
+    body: `<h2>New Message Reply</h2>
+<p>A customer has replied to your message thread.</p>
+<p><strong>From:</strong> {sender_name}</p>
+<p><strong>Subject:</strong> {thread_subject}</p>
+<blockquote>{message_body}</blockquote>
+<p>Log in to the app to continue the conversation.</p>`,
+    availableVariables: ["sender_name", "thread_subject", "message_body", "customer_name"],
+    description: "Sent to the admin when a customer replies to a message thread",
+  },
+  {
     templateKey: "monitor_down",
     name: "URL Monitor Down",
     subject: "⚠️ Monitor Alert: {monitor_name} is DOWN",

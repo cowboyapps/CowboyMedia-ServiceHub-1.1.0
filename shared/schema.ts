@@ -407,6 +407,33 @@ export const insertMonitorIncidentSchema = createInsertSchema(monitorIncidents).
 export type InsertMonitorIncident = z.infer<typeof insertMonitorIncidentSchema>;
 export type MonitorIncident = typeof monitorIncidents.$inferSelect;
 
+// Message threads (conversational messaging)
+export const messageThreads = pgTable("message_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adminId: varchar("admin_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  subject: text("subject").notNull(),
+  lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const threadMessages = pgTable("thread_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull(),
+  senderId: varchar("sender_id").notNull(),
+  body: text("body").notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMessageThreadSchema = createInsertSchema(messageThreads).omit({ id: true, lastMessageAt: true, createdAt: true });
+export type InsertMessageThread = z.infer<typeof insertMessageThreadSchema>;
+export type MessageThread = typeof messageThreads.$inferSelect;
+
+export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, readAt: true, createdAt: true });
+export type InsertThreadMessage = z.infer<typeof insertThreadMessageSchema>;
+export type ThreadMessage = typeof threadMessages.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),

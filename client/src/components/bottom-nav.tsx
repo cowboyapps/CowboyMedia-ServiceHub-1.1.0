@@ -28,7 +28,7 @@ export function BottomNav() {
   const unreadTicketCount = ticketNotifData?.count ?? 0;
 
   const { data: messageData } = useQuery<{ count: number }>({
-    queryKey: ["/api/private-messages/unread-count"],
+    queryKey: ["/api/message-threads/unread-count"],
     refetchInterval: 15000,
     enabled: !!user,
   });

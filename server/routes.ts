@@ -154,8 +154,46 @@ async function getAdminCategoryAccess(userId: string): Promise<string[]> {
 const wsClients = new Set<WebSocket>();
 const ticketViewerCounts = new Map<string, Map<string, { count: number; role: string }>>();
 const adminChatViewerCounts = new Map<string, Map<string, number>>();
+const threadViewerCounts = new Map<string, Map<string, number>>();
 const wsUserMap = new Map<WebSocket, { userId: string; ticketId: string; userRole: string }>();
 const wsAdminChatMap = new Map<WebSocket, { userId: string; threadId: string }>();
+const wsThreadMap = new Map<WebSocket, { userId: string; threadId: string }>();
+
+function addThreadViewer(threadId: string, userId: string): void {
+  if (!threadViewerCounts.has(threadId)) threadViewerCounts.set(threadId, new Map());
+  const users = threadViewerCounts.get(threadId)!;
+  users.set(userId, (users.get(userId) || 0) + 1);
+  broadcast({ type: "thread_presence", threadId, userId, status: "online" });
+}
+
+function removeThreadViewer(threadId: string, userId: string): void {
+  const users = threadViewerCounts.get(threadId);
+  if (!users) return;
+  const count = (users.get(userId) || 0) - 1;
+  if (count <= 0) {
+    users.delete(userId);
+    broadcast({ type: "thread_presence", threadId, userId, status: "offline" });
+  } else {
+    users.set(userId, count);
+  }
+  if (users.size === 0) threadViewerCounts.delete(threadId);
+}
+
+function isUserViewingThread(userId: string, threadId: string): boolean {
+  const users = threadViewerCounts.get(threadId);
+  if (!users) return false;
+  return (users.get(userId) || 0) > 0;
+}
+
+function broadcastToThread(data: any, participantUserIds: string[]) {
+  const message = JSON.stringify(data);
+  const participantSet = new Set(participantUserIds);
+  wsThreadMap.forEach((info, client) => {
+    if (participantSet.has(info.userId) && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
 
 function broadcast(data: any) {
   const message = JSON.stringify(data);
@@ -1935,6 +1973,209 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // === Message Threads (Conversational Messaging) ===
+
+  app.post("/api/message-threads", requirePermission("messages.view", "messages.manage"), async (req, res) => {
+    try {
+      const { customerId, subject, body } = req.body;
+      if (!customerId || !subject || !body) {
+        return res.status(400).json({ message: "customerId, subject, and body are required" });
+      }
+      const customer = await storage.getUser(customerId);
+      if (!customer) return res.status(404).json({ message: "Customer not found" });
+
+      const thread = await storage.createMessageThread({
+        adminId: req.session.userId!,
+        customerId,
+        subject,
+      });
+
+      const msg = await storage.createThreadMessage({
+        threadId: thread.id,
+        senderId: req.session.userId!,
+        body,
+      });
+
+      const sender = await storage.getUser(req.session.userId!);
+      broadcastToThread({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
+
+      sendPushToUser(customerId, {
+        title: `Message from ${sender?.fullName || "Support"}`,
+        body: `${subject}: ${body.substring(0, 100)}`,
+        url: `/messages/${thread.id}`,
+        tag: `thread-${thread.id}`,
+      });
+
+      if (customer.email && customer.emailNotifications !== false && sender) {
+        sendTemplatedEmail(customer.email, "customer_thread_message", {
+          sender_name: sender.fullName,
+          thread_subject: subject,
+          message_body: body,
+          customer_name: customer.fullName,
+        }, customer.fullName);
+      }
+
+      logActivity(req.session.userId!, "messages", "thread_created", `Started conversation "${subject}" with ${customer.fullName}`);
+
+      res.json({ thread, message: msg });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/message-threads", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const threads = await storage.getMessageThreadsForUser(req.session.userId!, user.role);
+      const enriched = await Promise.all(threads.map(async (t) => {
+        const admin = await storage.getUser(t.adminId);
+        const customer = await storage.getUser(t.customerId);
+        const msgs = await storage.getThreadMessages(t.id);
+        const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+        const unreadCount = msgs.filter(m => !m.readAt && m.senderId !== req.session.userId!).length;
+        return {
+          ...t,
+          adminName: admin?.fullName || "Admin",
+          customerName: customer?.fullName || "Customer",
+          lastMessage: lastMsg ? { body: lastMsg.body, senderId: lastMsg.senderId, createdAt: lastMsg.createdAt } : null,
+          unreadCount,
+        };
+      }));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/message-threads/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await storage.getUnreadThreadMessageCount(req.session.userId!);
+      res.json({ count });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/message-threads/:id", requireAuth, async (req, res) => {
+    try {
+      const thread = await storage.getMessageThread(req.params.id);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      const reqUser = await storage.getUser(req.session.userId!);
+      if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser?.role !== "master_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const admin = await storage.getUser(thread.adminId);
+      const customer = await storage.getUser(thread.customerId);
+      res.json({ ...thread, adminName: admin?.fullName || "Admin", customerName: customer?.fullName || "Customer" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/message-threads/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const thread = await storage.getMessageThread(req.params.id);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      const reqUser2 = await storage.getUser(req.session.userId!);
+      if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser2?.role !== "master_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const messages = await storage.getThreadMessages(req.params.id);
+      const senderIds = [...new Set(messages.map(m => m.senderId))];
+      const senderMap = new Map<string, string>();
+      await Promise.all(senderIds.map(async (id) => {
+        const user = await storage.getUser(id);
+        if (user) senderMap.set(id, user.fullName);
+      }));
+      const enriched = messages.map(m => ({
+        ...m,
+        senderName: senderMap.get(m.senderId) || "Unknown",
+      }));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/message-threads/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const thread = await storage.getMessageThread(req.params.id);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      const reqUser3 = await storage.getUser(req.session.userId!);
+      if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser3?.role !== "master_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const { body } = req.body;
+      if (!body || !body.trim()) return res.status(400).json({ message: "Message body is required" });
+
+      const msg = await storage.createThreadMessage({
+        threadId: thread.id,
+        senderId: req.session.userId!,
+        body: body.trim(),
+      });
+
+      await storage.updateMessageThread(thread.id, { lastMessageAt: new Date() });
+
+      const sender = await storage.getUser(req.session.userId!);
+      broadcastToThread({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
+
+      const recipientId = thread.adminId === req.session.userId ? thread.customerId : thread.adminId;
+      const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
+
+      sendPushToUser(recipientId, {
+        title: `${sender?.fullName || "User"}`,
+        body: body.trim().substring(0, 100),
+        url: `/messages/${thread.id}`,
+        tag: `thread-${thread.id}`,
+      });
+
+      if (!isRecipientViewing) {
+        const recipient = await storage.getUser(recipientId);
+        if (recipient?.email && recipient.emailNotifications !== false && sender) {
+          const isAdminSending = req.session.userId === thread.adminId;
+          const templateKey = isAdminSending ? "customer_thread_message" : "admin_thread_message";
+          sendTemplatedEmail(recipient.email, templateKey, {
+            sender_name: sender.fullName,
+            thread_subject: thread.subject,
+            message_body: body.trim(),
+            customer_name: isAdminSending ? recipient.fullName : sender.fullName,
+          }, recipient.fullName);
+        }
+      }
+
+      res.json(msg);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/message-threads/:id/read", requireAuth, async (req, res) => {
+    try {
+      const thread = await storage.getMessageThread(req.params.id);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      const reqUser4 = await storage.getUser(req.session.userId!);
+      if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser4?.role !== "master_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      await storage.markThreadMessagesRead(req.params.id, req.session.userId!);
+      res.json({ message: "Marked as read" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/message-threads/:id", requirePermission("messages.view", "messages.manage"), async (req, res) => {
+    try {
+      const thread = await storage.getMessageThread(req.params.id);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      await storage.deleteMessageThread(req.params.id);
+      res.json({ message: "Thread deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/admin/quick-responses", requirePermission("quick_responses.view", "quick_responses.manage"), async (req, res) => {
     try {
       const responses = await storage.getAllQuickResponses();
@@ -2824,6 +3065,27 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           const info = wsAdminChatMap.get(ws);
           if (info && info.threadId === data.threadId) wsAdminChatMap.delete(ws);
         }
+        if (data.type === "thread_typing" && data.threadId && data.userId && data.userName) {
+          const msg = JSON.stringify({ type: "thread_typing", threadId: data.threadId, userId: data.userId, userName: data.userName });
+          wsThreadMap.forEach((info, client) => {
+            if (client !== ws && info.threadId === data.threadId && client.readyState === WebSocket.OPEN) {
+              client.send(msg);
+            }
+          });
+        }
+        if (data.type === "viewing_thread" && data.threadId && data.userId) {
+          const prev = wsThreadMap.get(ws);
+          if (prev) {
+            removeThreadViewer(prev.threadId, prev.userId);
+          }
+          wsThreadMap.set(ws, { userId: data.userId, threadId: data.threadId });
+          addThreadViewer(data.threadId, data.userId);
+        }
+        if (data.type === "left_thread" && data.threadId && data.userId) {
+          removeThreadViewer(data.threadId, data.userId);
+          const info = wsThreadMap.get(ws);
+          if (info && info.threadId === data.threadId) wsThreadMap.delete(ws);
+        }
         if (data.type === "viewing_ticket" && data.ticketId && data.userId) {
           const prev = wsUserMap.get(ws);
           if (prev) {
@@ -2855,6 +3117,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (chatInfo) {
         removeAdminChatViewer(chatInfo.threadId, chatInfo.userId);
         wsAdminChatMap.delete(ws);
+      }
+      const threadInfo = wsThreadMap.get(ws);
+      if (threadInfo) {
+        removeThreadViewer(threadInfo.threadId, threadInfo.userId);
+        wsThreadMap.delete(ws);
       }
     });
   });

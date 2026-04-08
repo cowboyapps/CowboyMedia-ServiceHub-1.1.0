@@ -94,6 +94,7 @@ function AppRouter() {
         <Route path="/tickets/:id" component={TicketDetail} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/messages" component={MessagesPage} />
+        <Route path="/messages/:id" component={MessagesPage} />
         <Route path="/service-updates" component={ServiceUpdatesPage} />
         <Route path="/report-request" component={ReportRequestPage} />
         <Route path="/downloads" component={DownloadsPage} />

@@ -34,9 +34,9 @@ export function AppSidebar() {
   const { isMobile, setOpenMobile } = useSidebar();
 
   const { data: unreadData } = useQuery<{ count: number }>({
-    queryKey: ["/api/private-messages/unread-count"],
+    queryKey: ["/api/message-threads/unread-count"],
     refetchInterval: 30000,
-    enabled: !!user && user.role !== "admin" && user.role !== "master_admin",
+    enabled: !!user,
   });
   const unreadCount = unreadData?.count ?? 0;
 

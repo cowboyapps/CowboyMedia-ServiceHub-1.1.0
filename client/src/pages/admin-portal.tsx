@@ -1577,72 +1577,322 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
   );
 }
 
-const sendMessageSchema = z.object({
-  recipientId: z.string().min(1, "Recipient is required"),
+const newThreadSchema = z.object({
+  customerId: z.string().min(1, "Customer is required"),
   subject: z.string().min(1, "Subject is required"),
   body: z.string().min(1, "Message is required"),
 });
 
-function MessagesTab({ canManage = true }: { canManage?: boolean }) {
-  const { toast } = useToast();
-  const [dialogOpen, setDialogOpen] = useState(false);
+type AdminEnrichedThread = {
+  id: string;
+  adminId: string;
+  customerId: string;
+  subject: string;
+  lastMessageAt: string;
+  createdAt: string;
+  adminName: string;
+  customerName: string;
+  lastMessage: { body: string; senderId: string; createdAt: string } | null;
+  unreadCount: number;
+};
 
-  const { data: users } = useQuery<User[]>({
-    queryKey: ["/api/admin/users"],
+type AdminThreadMsg = {
+  id: string;
+  threadId: string;
+  senderId: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+  senderName?: string;
+};
+
+function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBack: () => void; userId: string }) {
+  const { toast } = useToast();
+  const [message, setMessage] = useState("");
+  const [typingUser, setTypingUser] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
+  const isNearBottomRef = useRef(true);
+  const prevCountRef = useRef(0);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const { user } = useAuth();
+
+  const { data: thread } = useQuery<AdminEnrichedThread>({
+    queryKey: ["/api/message-threads", threadId],
   });
 
-  const { data: sentMessages, isLoading: sentLoading } = useQuery<import("@shared/schema").PrivateMessage[]>({
-    queryKey: ["/api/admin/private-messages/sent"],
+  const { data: messages, isLoading } = useQuery<AdminThreadMsg[]>({
+    queryKey: ["/api/message-threads", threadId, "messages"],
+    refetchInterval: 5000,
+  });
+
+  const markRead = useMutation({
+    mutationFn: async () => { await apiRequest("PATCH", `/api/message-threads/${threadId}/read`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+    },
+  });
+
+  useEffect(() => { markRead.mutate(); }, [threadId]);
+
+  useEffect(() => {
+    let disposed = false;
+    let ws: WebSocket | null = null;
+    let reconnect: ReturnType<typeof setTimeout> | null = null;
+    function connect() {
+      if (disposed) return;
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+      wsRef.current = ws;
+      ws.onopen = () => { ws!.send(JSON.stringify({ type: "viewing_thread", threadId, userId })); };
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.type === "thread_message" && d.threadId === threadId) {
+            queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+            setTypingUser(null);
+            markRead.mutate();
+          }
+          if (d.type === "thread_typing" && d.threadId === threadId && d.userId !== userId) {
+            setTypingUser(d.userName);
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+          }
+        } catch {}
+      };
+      ws.onclose = () => { wsRef.current = null; if (!disposed) reconnect = setTimeout(connect, 2000); };
+      ws.onerror = () => ws?.close();
+    }
+    connect();
+    const handleVis = () => {
+      if (document.visibilityState === "visible") {
+        markRead.mutate();
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "viewing_thread", threadId, userId }));
+        } else connect();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVis);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVis);
+      if (reconnect) clearTimeout(reconnect);
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "left_thread", threadId, userId }));
+      ws?.close();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, [threadId, userId]);
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  };
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  };
+  useEffect(() => {
+    const count = messages?.length || 0;
+    if (count > prevCountRef.current && prevCountRef.current > 0 && isNearBottomRef.current) scrollToBottom();
+    else if (count > 0 && prevCountRef.current === 0) scrollToBottom("auto");
+    prevCountRef.current = count;
+  }, [messages]);
+
+  const sendTyping = () => {
+    if (Date.now() - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = Date.now();
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN && user) {
+      ws.send(JSON.stringify({ type: "thread_typing", threadId, userId, userName: user.fullName }));
+    }
+  };
+
+  const sendMut = useMutation({
+    mutationFn: async (body: string) => {
+      const r = await fetch(`/api/message-threads/${threadId}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }), credentials: "include",
+      });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+    },
+    onError: () => toast({ title: "Failed to send", variant: "destructive" }),
+  });
+
+  const handleSend = () => {
+    const t = message.trim();
+    if (!t) return;
+    setMessage("");
+    sendMut.mutate(t);
+    if (isNearBottomRef.current) setTimeout(() => scrollToBottom(), 50);
+    setTimeout(() => {
+      const el = messageInputRef.current;
+      if (el) { el.style.height = "auto"; el.focus(); }
+    }, 0);
+  };
+
+  return (
+    <div className="flex flex-col h-[500px] sm:h-[600px]" data-testid="admin-thread-chat">
+      <div className="flex items-center gap-2 p-2 border-b flex-shrink-0">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack} data-testid="button-admin-thread-back">
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{thread?.subject || "Loading..."}</p>
+          <p className="text-xs text-muted-foreground truncate">{thread?.customerName}</p>
+        </div>
+      </div>
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1 min-h-0">
+        {isLoading ? (
+          <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4" />)}</div>
+        ) : (messages || []).map((msg, idx) => {
+          const isMe = msg.senderId === userId;
+          const msgDate = new Date(msg.createdAt);
+          const prevDate = idx > 0 ? new Date((messages || [])[idx - 1].createdAt) : null;
+          const dayStr = (d: Date) => d.toDateString();
+          const showSep = !prevDate || dayStr(msgDate) !== dayStr(prevDate);
+          return (
+            <div key={msg.id}>
+              {showSep && (
+                <div className="flex items-center justify-center my-3">
+                  <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{format(msgDate, "MMMM d, yyyy")}</span>
+                </div>
+              )}
+              <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1`}>
+                <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                  {!isMe && <p className="text-[10px] font-medium mb-0.5 opacity-70">{msg.senderName}</p>}
+                  <p className="text-sm whitespace-pre-wrap break-words">{msg.body}</p>
+                  <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>{format(msgDate, "h:mm a")}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={messagesEndRef} />
+      </div>
+      <div className="border-t p-2 flex-shrink-0">
+        {typingUser && (
+          <div className="flex items-center gap-1.5 mb-1.5 px-1">
+            <span className="text-xs text-muted-foreground">{typingUser} is typing</span>
+            <span className="inline-flex items-center gap-0.5">
+              {[0, 1, 2].map(i => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full bg-muted-foreground" style={{ animation: "bounce-dot 1.4s infinite ease-in-out both", animationDelay: `${i * 0.16}s` }} />
+              ))}
+            </span>
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <Textarea
+            ref={messageInputRef}
+            value={message}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              if (e.target.value.trim()) sendTyping();
+              const el = e.target;
+              el.style.height = "auto";
+              el.style.height = Math.min(el.scrollHeight, 120) + "px";
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !(e as any).isComposing) { e.preventDefault(); handleSend(); }
+            }}
+            placeholder="Type a message..."
+            className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm"
+            rows={1}
+            data-testid="input-admin-thread-message"
+          />
+          <Button size="icon" className="flex-shrink-0 h-9 w-9" onClick={handleSend} disabled={!message.trim() || sendMut.isPending} data-testid="button-admin-send-thread">
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessagesTab({ canManage = true }: { canManage?: boolean }) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
+  const { data: users } = useQuery<User[]>({ queryKey: ["/api/admin/users"] });
+  const { data: threads, isLoading } = useQuery<AdminEnrichedThread[]>({
+    queryKey: ["/api/message-threads"],
+    refetchInterval: 15000,
   });
 
   const customers = users?.filter((u) => u.role === "customer") || [];
-  const userMap = new Map(users?.map((u) => [u.id, u.fullName]) || []);
 
   const form = useForm({
-    resolver: zodResolver(sendMessageSchema),
-    defaultValues: { recipientId: "", subject: "", body: "" },
+    resolver: zodResolver(newThreadSchema),
+    defaultValues: { customerId: "", subject: "", body: "" },
   });
 
-  const sendMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof sendMessageSchema>) => {
-      await apiRequest("POST", "/api/admin/private-messages", data);
+  const createMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof newThreadSchema>) => {
+      const res = await fetch("/api/message-threads", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data), credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setDialogOpen(false);
       form.reset();
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/private-messages/sent"] });
-      toast({ title: "Message sent successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+      toast({ title: "Conversation started" });
+      if (data.thread?.id) setActiveThreadId(data.thread.id);
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const deleteSentMutation = useMutation({
+  const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/admin/private-messages/${id}`);
+      const res = await fetch(`/api/message-threads/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/private-messages/sent"] });
-      toast({ title: "Message deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+      toast({ title: "Thread deleted" });
+      setActiveThreadId(null);
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  if (activeThreadId && user) {
+    return (
+      <div className="space-y-4">
+        <AdminThreadChat threadId={activeThreadId} onBack={() => setActiveThreadId(null)} userId={user.id} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-semibold">Private Messages</h3>
+        <h3 className="font-semibold">Conversations</h3>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           {canManage && <DialogTrigger asChild>
-            <Button size="sm" data-testid="button-send-message"><Send className="w-4 h-4 mr-1" /> Send Message</Button>
+            <Button size="sm" data-testid="button-new-conversation"><MessageSquare className="w-4 h-4 mr-1" /> New Conversation</Button>
           </DialogTrigger>}
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
-            <DialogHeader><DialogTitle>Send Private Message</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Start Conversation</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((d) => sendMutation.mutate(d))} className="space-y-3">
-                <FormField control={form.control} name="recipientId" render={({ field }) => (
-                  <FormItem><FormLabel>Recipient</FormLabel>
+              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
+                <FormField control={form.control} name="customerId" render={({ field }) => (
+                  <FormItem><FormLabel>Customer</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger data-testid="select-message-recipient"><SelectValue placeholder="Select a customer" /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger data-testid="select-thread-customer"><SelectValue placeholder="Select a customer" /></SelectTrigger></FormControl>
                       <SelectContent>
                         {customers.map((u) => (
                           <SelectItem key={u.id} value={u.id}>{u.fullName} (@{u.username})</SelectItem>
@@ -1652,13 +1902,13 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
                   <FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="subject" render={({ field }) => (
-                  <FormItem><FormLabel>Subject</FormLabel><FormControl><Input data-testid="input-message-subject" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Subject</FormLabel><FormControl><Input data-testid="input-thread-subject" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="body" render={({ field }) => (
-                  <FormItem><FormLabel>Message</FormLabel><FormControl><Textarea className="min-h-[120px]" data-testid="input-message-body" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>First Message</FormLabel><FormControl><Textarea className="min-h-[100px]" data-testid="input-thread-body" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <Button type="submit" className="w-full" disabled={sendMutation.isPending} data-testid="button-submit-message">
-                  {sendMutation.isPending ? "Sending..." : "Send Message"}
+                <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-start-conversation">
+                  {createMutation.isPending ? "Starting..." : "Start Conversation"}
                 </Button>
               </form>
             </Form>
@@ -1666,52 +1916,65 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
         </Dialog>
       </div>
 
-      <h4 className="font-medium text-sm text-muted-foreground">Sent Messages ({sentMessages?.length || 0})</h4>
-
-      {sentLoading ? (
-        <Skeleton className="h-40" />
-      ) : !sentMessages || sentMessages.length === 0 ? (
+      {isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)}</div>
+      ) : !threads || threads.length === 0 ? (
         <Card>
           <CardContent className="p-6">
             <div className="text-center py-6">
-              <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No sent messages yet. Use the "Send Message" button to send a private message to any customer.</p>
+              <MessageSquare className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground" data-testid="text-no-threads">No conversations yet. Start one using the button above.</p>
             </div>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {sentMessages.map((msg) => (
-            <Card key={msg.id} data-testid={`card-sent-message-${msg.id}`}>
-              <CardContent className="flex items-start justify-between gap-3 p-4">
-                <div className="flex-1 min-w-0 space-y-1">
-                  <p className="text-sm font-medium truncate">{msg.subject}</p>
-                  <p className="text-xs text-muted-foreground">
-                    To: {userMap.get(msg.recipientId) || "Unknown User"}
-                  </p>
-                  <p className="text-xs text-muted-foreground line-clamp-1">{msg.body}</p>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {format(new Date(msg.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                  </p>
+        <div className="space-y-2">
+          {threads.map((t) => (
+            <Card
+              key={t.id}
+              className={`cursor-pointer hover-elevate transition-colors ${t.unreadCount > 0 ? "border-primary/40 bg-primary/5" : ""}`}
+              onClick={() => setActiveThreadId(t.id)}
+              data-testid={`card-admin-thread-${t.id}`}
+            >
+              <CardContent className="flex items-center justify-between gap-3 p-3 sm:p-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-medium truncate ${t.unreadCount > 0 ? "" : "text-muted-foreground"}`}>{t.subject}</p>
+                    {t.unreadCount > 0 && (
+                      <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1">{t.unreadCount}</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{t.customerName}</p>
+                  {t.lastMessage && (
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {t.lastMessage.senderId === user?.id ? "You: " : ""}{t.lastMessage.body}
+                    </p>
+                  )}
                 </div>
-                {canManage && <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="icon" variant="ghost" data-testid={`button-delete-sent-message-${msg.id}`}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Sent Message</AlertDialogTitle>
-                      <AlertDialogDescription>Are you sure you want to delete this sent message? This action cannot be undone.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => deleteSentMutation.mutate(msg.id)} data-testid="button-confirm-delete-sent-message">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-muted-foreground">
+                    {t.lastMessage ? format(new Date(t.lastMessage.createdAt), "MMM d") : format(new Date(t.createdAt), "MMM d")}
+                  </span>
+                  {canManage && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()} data-testid={`button-delete-thread-${t.id}`}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Conversation</AlertDialogTitle>
+                          <AlertDialogDescription>Delete this entire conversation and all messages? This cannot be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(t.id)} data-testid="button-confirm-delete-thread">Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}
