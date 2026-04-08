@@ -2860,28 +2860,61 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     res.json(monitor);
   });
 
+  function isPrivateIP(ip: string): boolean {
+    if (ip === "127.0.0.1" || ip === "0.0.0.0" || ip === "::1" || ip === "::") return true;
+    if (ip.startsWith("10.")) return true;
+    if (ip.startsWith("192.168.")) return true;
+    if (ip.startsWith("169.254.")) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
+    if (ip.startsWith("fc") || ip.startsWith("fd")) return true;
+    if (ip.startsWith("fe80")) return true;
+    if (ip.startsWith("100.") && /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return true;
+    return false;
+  }
+
   function validateMonitorUrl(url: string): string | null {
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) return "Only http and https URLs are allowed";
       const hostname = parsed.hostname.toLowerCase();
-      if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1") return "Cannot monitor localhost addresses";
-      if (hostname.startsWith("10.") || hostname.startsWith("192.168.") || hostname.startsWith("169.254.")) return "Cannot monitor private/internal IP ranges";
-      if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return "Cannot monitor private IP ranges";
-      if (hostname.endsWith(".internal") || hostname.endsWith(".local")) return "Cannot monitor internal hostnames";
+      if (hostname === "localhost" || hostname === "0.0.0.0" || hostname === "::1") return "Cannot monitor localhost addresses";
+      if (isPrivateIP(hostname)) return "Cannot monitor private/internal IP ranges";
+      if (hostname.endsWith(".internal") || hostname.endsWith(".local") || hostname.endsWith(".localhost")) return "Cannot monitor internal hostnames";
+      if (/^metadata\.google\.internal/.test(hostname) || hostname === "metadata.google.internal") return "Cannot monitor cloud metadata endpoints";
+      if (hostname === "169.254.169.254") return "Cannot monitor cloud metadata endpoints";
       return null;
     } catch {
       return "Invalid URL format";
     }
   }
 
+  async function validateMonitorUrlDns(url: string): Promise<string | null> {
+    const basicError = validateMonitorUrl(url);
+    if (basicError) return basicError;
+    try {
+      const { hostname } = new URL(url);
+      const dns = await import("dns");
+      const { resolve4 } = dns.promises;
+      const addresses = await resolve4(hostname);
+      for (const addr of addresses) {
+        if (isPrivateIP(addr)) return `URL resolves to private IP (${addr}) — not allowed`;
+      }
+    } catch {
+    }
+    return null;
+  }
+
+  const ALLOWED_INTERVALS = [30, 60, 120, 300, 600];
+  const ALLOWED_TIMEOUTS = [5, 10, 30];
+  const ALLOWED_THRESHOLDS = [1, 2, 3, 4, 5];
+
   const monitorUpdateSchema = z.object({
     name: z.string().min(1).optional(),
     url: z.string().url().optional(),
-    checkIntervalSeconds: z.number().int().min(10).max(86400).optional(),
+    checkIntervalSeconds: z.number().int().refine(v => ALLOWED_INTERVALS.includes(v), { message: "Must be 30, 60, 120, 300, or 600" }).optional(),
     expectedStatusCode: z.number().int().min(100).max(599).optional(),
-    timeoutSeconds: z.number().int().min(1).max(120).optional(),
-    consecutiveFailuresThreshold: z.number().int().min(1).max(100).optional(),
+    timeoutSeconds: z.number().int().refine(v => ALLOWED_TIMEOUTS.includes(v), { message: "Must be 5, 10, or 30" }).optional(),
+    consecutiveFailuresThreshold: z.number().int().min(1).max(5).optional(),
     emailNotifications: z.boolean().optional(),
     enabled: z.boolean().optional(),
   });
@@ -2889,8 +2922,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/admin/monitors", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
     const parsed = insertUrlMonitorSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
-    const urlError = validateMonitorUrl(parsed.data.url);
+    const urlError = await validateMonitorUrlDns(parsed.data.url);
     if (urlError) return res.status(400).json({ message: urlError });
+    if (parsed.data.checkIntervalSeconds && !ALLOWED_INTERVALS.includes(parsed.data.checkIntervalSeconds)) {
+      return res.status(400).json({ message: "Check interval must be 30, 60, 120, 300, or 600 seconds" });
+    }
+    if (parsed.data.timeoutSeconds && !ALLOWED_TIMEOUTS.includes(parsed.data.timeoutSeconds)) {
+      return res.status(400).json({ message: "Timeout must be 5, 10, or 30 seconds" });
+    }
+    if (parsed.data.consecutiveFailuresThreshold && !ALLOWED_THRESHOLDS.includes(parsed.data.consecutiveFailuresThreshold)) {
+      return res.status(400).json({ message: "Failure threshold must be between 1 and 5" });
+    }
     const monitor = await storage.createUrlMonitor(parsed.data);
     logActivity("monitoring", "monitor_created", {
       actorId: req.session.userId,
@@ -2907,7 +2949,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     const parsed = monitorUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
     if (parsed.data.url) {
-      const urlError = validateMonitorUrl(parsed.data.url);
+      const urlError = await validateMonitorUrlDns(parsed.data.url);
       if (urlError) return res.status(400).json({ message: urlError });
     }
     const updated = await storage.updateUrlMonitor(req.params.id, parsed.data);
@@ -3071,7 +3113,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       consecutiveFailures: newConsecutiveFailures,
       status: newStatus,
       lastStatusChange: newStatus !== prevStatus ? now : monitor.lastStatusChange,
-    } as any);
+    });
 
     if (newStatus === "down" && prevStatus !== "down") {
       const incident = await storage.createMonitorIncident({

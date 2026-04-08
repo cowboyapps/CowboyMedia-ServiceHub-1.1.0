@@ -3273,7 +3273,8 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/monitors"] }),
   });
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string, enabled: boolean) => {
+    if (!enabled) return "text-muted-foreground";
     switch (status) {
       case "up": return "text-green-500";
       case "down": return "text-red-500";
@@ -3281,7 +3282,8 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
     }
   };
 
-  const getStatusBg = (status: string) => {
+  const getStatusBg = (status: string, enabled: boolean) => {
+    if (!enabled) return "bg-muted";
     switch (status) {
       case "up": return "bg-green-500/10";
       case "down": return "bg-red-500/10";
@@ -3326,8 +3328,8 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
             <Card key={m.id} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSelectedMonitor(m)} data-testid={`card-monitor-${m.id}`}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className={`rounded-full p-2 ${getStatusBg(m.status)}`}>
-                    <Circle className={`w-4 h-4 ${getStatusColor(m.status)} ${m.status === "up" ? "animate-status-glow fill-current" : m.status === "down" ? "fill-current" : ""}`} />
+                  <div className={`rounded-full p-2 ${getStatusBg(m.status, m.enabled)}`}>
+                    <Circle className={`w-4 h-4 ${getStatusColor(m.status, m.enabled)} ${m.enabled && m.status === "up" ? "animate-status-glow fill-current" : m.enabled && m.status === "down" ? "fill-current" : ""}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -3390,8 +3392,17 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Check Interval (sec)</Label>
-                <Input type="number" value={checkInterval} onChange={e => setCheckInterval(e.target.value)} data-testid="input-monitor-interval" />
+                <Label>Check Interval</Label>
+                <Select value={checkInterval} onValueChange={setCheckInterval}>
+                  <SelectTrigger data-testid="select-monitor-interval"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">30 seconds</SelectItem>
+                    <SelectItem value="60">1 minute</SelectItem>
+                    <SelectItem value="120">2 minutes</SelectItem>
+                    <SelectItem value="300">5 minutes</SelectItem>
+                    <SelectItem value="600">10 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Expected Status</Label>
@@ -3400,12 +3411,28 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Timeout (sec)</Label>
-                <Input type="number" value={timeout} onChange={e => setTimeout_(e.target.value)} data-testid="input-monitor-timeout" />
+                <Label>Timeout</Label>
+                <Select value={timeout} onValueChange={setTimeout_}>
+                  <SelectTrigger data-testid="select-monitor-timeout"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5 seconds</SelectItem>
+                    <SelectItem value="10">10 seconds</SelectItem>
+                    <SelectItem value="30">30 seconds</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Failure Threshold</Label>
-                <Input type="number" value={failureThreshold} onChange={e => setFailureThreshold(e.target.value)} data-testid="input-monitor-threshold" />
+                <Select value={failureThreshold} onValueChange={setFailureThreshold}>
+                  <SelectTrigger data-testid="select-monitor-threshold"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 failure</SelectItem>
+                    <SelectItem value="2">2 failures</SelectItem>
+                    <SelectItem value="3">3 failures</SelectItem>
+                    <SelectItem value="4">4 failures</SelectItem>
+                    <SelectItem value="5">5 failures</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -3427,7 +3454,8 @@ function MonitorDetailView({ monitor, onBack }: { monitor: UrlMonitor; onBack: (
   const { data: incidents = [], isLoading } = useQuery<MonitorIncident[]>({ queryKey: ["/api/admin/monitors", monitor.id, "incidents"] });
   const m = liveMonitor || monitor;
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string, enabled: boolean) => {
+    if (!enabled) return "text-muted-foreground";
     switch (status) {
       case "up": return "text-green-500";
       case "down": return "text-red-500";
@@ -3435,7 +3463,8 @@ function MonitorDetailView({ monitor, onBack }: { monitor: UrlMonitor; onBack: (
     }
   };
 
-  const getStatusLabel = (status: string) => {
+  const getStatusLabel = (status: string, enabled: boolean) => {
+    if (!enabled) return "Paused";
     switch (status) {
       case "up": return "Operational";
       case "down": return "Down";
@@ -3463,15 +3492,15 @@ function MonitorDetailView({ monitor, onBack }: { monitor: UrlMonitor; onBack: (
       <Card>
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-3">
-            <Circle className={`w-5 h-5 ${getStatusColor(m.status)} ${m.status === "up" ? "animate-status-glow fill-current" : m.status === "down" ? "fill-current" : ""}`} />
+            <Circle className={`w-5 h-5 ${getStatusColor(m.status, m.enabled)} ${m.enabled && m.status === "up" ? "animate-status-glow fill-current" : m.enabled && m.status === "down" ? "fill-current" : ""}`} />
             <div>
               <h3 className="text-lg font-semibold" data-testid="text-monitor-detail-name">{m.name}</h3>
               <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:underline flex items-center gap-1" data-testid="link-monitor-url">
                 {m.url} <ExternalLink className="w-3 h-3" />
               </a>
             </div>
-            <Badge className={`ml-auto ${m.status === "up" ? "bg-green-500/10 text-green-600 border-green-500/20" : m.status === "down" ? "bg-red-500/10 text-red-600 border-red-500/20" : ""}`} variant="outline">
-              {getStatusLabel(m.status)}
+            <Badge className={`ml-auto ${!m.enabled ? "bg-muted text-muted-foreground border-muted" : m.status === "up" ? "bg-green-500/10 text-green-600 border-green-500/20" : m.status === "down" ? "bg-red-500/10 text-red-600 border-red-500/20" : ""}`} variant="outline">
+              {getStatusLabel(m.status, m.enabled)}
             </Badge>
           </div>
 
