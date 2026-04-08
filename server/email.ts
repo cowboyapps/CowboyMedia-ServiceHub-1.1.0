@@ -110,6 +110,10 @@ export async function sendEmailToMultiple(recipients: string[], subject: string,
   }
 }
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function replaceVariablesPlain(template: string, variables: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key) => {
     if (variables[key] === undefined) return match;
@@ -121,7 +125,7 @@ function replaceVariablesHtml(template: string, variables: Record<string, string
   return template.replace(/\{(\w+)\}/g, (match, key) => {
     if (variables[key] === undefined) return match;
     if (rawHtmlKeys && rawHtmlKeys.has(key)) return variables[key];
-    return variables[key].replace(/\n/g, "<br/>");
+    return escapeHtml(variables[key]).replace(/\n/g, "<br/>");
   });
 }
 

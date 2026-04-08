@@ -54,7 +54,7 @@ function replaceVarsSimple(template: string, variables: Record<string, string>, 
   return template.replace(/\{(\w+)\}/g, (match, key) => {
     if (variables[key] === undefined) return match;
     if (rawHtmlKeys && rawHtmlKeys.has(key)) return variables[key];
-    return variables[key].replace(/\n/g, "<br/>");
+    return escapeHtml(variables[key]).replace(/\n/g, "<br/>");
   });
 }
 
@@ -928,8 +928,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               customer_name: customer.fullName,
               customer_username: customer.username,
               customer_email: customer.email || "",
-              ticket_subject: escapeHtml(ticket.subject),
-              ticket_description: escapeHtml(ticket.description),
+              ticket_subject: ticket.subject,
+              ticket_description: ticket.description,
               opened_date: openedDate,
               closed_date: closedDate,
               closed_by: closedByLabel,
@@ -942,8 +942,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (customer?.email && customer.emailNotifications !== false) {
           try {
             sendTemplatedEmail(customer.email, "ticket_transcript", {
-              ticket_subject: escapeHtml(ticket.subject),
-              ticket_description: escapeHtml(ticket.description),
+              ticket_subject: ticket.subject,
+              ticket_description: ticket.description,
               customer_name: customer.fullName,
               opened_date: openedDate,
               closed_date: closedDate,
