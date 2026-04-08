@@ -1931,59 +1931,82 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
             </div>
           </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-2">
-          {threads.map((t) => (
-            <Card
-              key={t.id}
-              className={`cursor-pointer hover-elevate transition-colors ${t.unreadCount > 0 ? "border-primary/40 bg-primary/5" : ""}`}
-              onClick={() => setActiveThreadId(t.id)}
-              data-testid={`card-admin-thread-${t.id}`}
-            >
-              <CardContent className="flex items-center justify-between gap-3 p-3 sm:p-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className={`text-sm font-medium truncate ${t.unreadCount > 0 ? "" : "text-muted-foreground"}`}>{t.subject}</p>
-                    {t.unreadCount > 0 && (
-                      <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1">{t.unreadCount}</Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate">{t.customerName}</p>
-                  {t.lastMessage && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {t.lastMessage.senderId === user?.id ? "You: " : ""}{t.lastMessage.body}
-                    </p>
-                  )}
+      ) : (() => {
+        const grouped = new Map<string, AdminEnrichedThread[]>();
+        threads.forEach((t) => {
+          const key = t.customerId;
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key)!.push(t);
+        });
+        const groups = Array.from(grouped.entries()).sort((a, b) => {
+          const aLatest = Math.max(...a[1].map(t => new Date(t.lastMessageAt).getTime()));
+          const bLatest = Math.max(...b[1].map(t => new Date(t.lastMessageAt).getTime()));
+          return bLatest - aLatest;
+        });
+        return (
+          <div className="space-y-4">
+            {groups.map(([customerId, customerThreads]) => (
+              <div key={customerId}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  <h4 className="text-sm font-medium">{customerThreads[0].customerName}</h4>
+                  <Badge variant="outline" className="text-[10px]">{customerThreads.length}</Badge>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] text-muted-foreground">
-                    {t.lastMessage ? format(new Date(t.lastMessage.createdAt), "MMM d") : format(new Date(t.createdAt), "MMM d")}
-                  </span>
-                  {canManage && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()} data-testid={`button-delete-thread-${t.id}`}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Conversation</AlertDialogTitle>
-                          <AlertDialogDescription>Delete this entire conversation and all messages? This cannot be undone.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteMutation.mutate(t.id)} data-testid="button-confirm-delete-thread">Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
+                <div className="space-y-2 ml-6">
+                  {customerThreads.map((t) => (
+                    <Card
+                      key={t.id}
+                      className={`cursor-pointer hover-elevate transition-colors ${t.unreadCount > 0 ? "border-primary/40 bg-primary/5" : ""}`}
+                      onClick={() => setActiveThreadId(t.id)}
+                      data-testid={`card-admin-thread-${t.id}`}
+                    >
+                      <CardContent className="flex items-center justify-between gap-3 p-3 sm:p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm font-medium truncate ${t.unreadCount > 0 ? "" : "text-muted-foreground"}`}>{t.subject}</p>
+                            {t.unreadCount > 0 && (
+                              <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1">{t.unreadCount}</Badge>
+                            )}
+                          </div>
+                          {t.lastMessage && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              {t.lastMessage.senderId === user?.id ? "You: " : ""}{t.lastMessage.body}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t.lastMessage ? format(new Date(t.lastMessage.createdAt), "MMM d") : format(new Date(t.createdAt), "MMM d")}
+                          </span>
+                          {canManage && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()} data-testid={`button-delete-thread-${t.id}`}>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Conversation</AlertDialogTitle>
+                                  <AlertDialogDescription>Delete this entire conversation and all messages? This cannot be undone.</AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => deleteMutation.mutate(t.id)} data-testid="button-confirm-delete-thread">Delete</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {sentMessages && sentMessages.length > 0 && (
         <div className="space-y-3 mt-6">

@@ -159,11 +159,20 @@ const wsUserMap = new Map<WebSocket, { userId: string; ticketId: string; userRol
 const wsAdminChatMap = new Map<WebSocket, { userId: string; threadId: string }>();
 const wsThreadMap = new Map<WebSocket, { userId: string; threadId: string }>();
 
+function broadcastToThreadViewers(data: any, threadId: string) {
+  const message = JSON.stringify(data);
+  wsThreadMap.forEach((info, client) => {
+    if (info.threadId === threadId && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
 function addThreadViewer(threadId: string, userId: string): void {
   if (!threadViewerCounts.has(threadId)) threadViewerCounts.set(threadId, new Map());
   const users = threadViewerCounts.get(threadId)!;
   users.set(userId, (users.get(userId) || 0) + 1);
-  broadcast({ type: "thread_presence", threadId, userId, status: "online" });
+  broadcastToThreadViewers({ type: "thread_presence", threadId, userId, status: "online" }, threadId);
 }
 
 function removeThreadViewer(threadId: string, userId: string): void {
@@ -172,7 +181,7 @@ function removeThreadViewer(threadId: string, userId: string): void {
   const count = (users.get(userId) || 0) - 1;
   if (count <= 0) {
     users.delete(userId);
-    broadcast({ type: "thread_presence", threadId, userId, status: "offline" });
+    broadcastToThreadViewers({ type: "thread_presence", threadId, userId, status: "offline" }, threadId);
   } else {
     users.set(userId, count);
   }
@@ -185,15 +194,19 @@ function isUserViewingThread(userId: string, threadId: string): boolean {
   return (users.get(userId) || 0) > 0;
 }
 
-function broadcastToThread(data: any, participantUserIds: string[]) {
+function broadcastToThreadParticipants(data: any, participantUserIds: string[]) {
   const message = JSON.stringify(data);
   const participantSet = new Set(participantUserIds);
-  wsThreadMap.forEach((info, client) => {
-    if (participantSet.has(info.userId) && client.readyState === WebSocket.OPEN) {
+  wsClients.forEach((client) => {
+    if (client.readyState !== WebSocket.OPEN) return;
+    const sessionUid = wsSessionUserMap?.get(client);
+    if (sessionUid && participantSet.has(sessionUid)) {
       client.send(message);
     }
   });
 }
+
+let wsSessionUserMap: Map<WebSocket, string>;
 
 function broadcast(data: any) {
   const message = JSON.stringify(data);
@@ -1997,7 +2010,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       const sender = await storage.getUser(req.session.userId!);
-      broadcastToThread({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
+      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
 
       sendPushToUser(customerId, {
         title: `Message from ${sender?.fullName || "Support"}`,
@@ -2118,7 +2131,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.updateMessageThread(thread.id, { lastMessageAt: new Date() });
 
       const sender = await storage.getUser(req.session.userId!);
-      broadcastToThread({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
+      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
 
       const recipientId = thread.adminId === req.session.userId ? thread.customerId : thread.adminId;
       const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
@@ -3044,7 +3057,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   const wss = new WebSocketServer({ noServer: true });
-  const wsSessionUserMap = new Map<WebSocket, string>();
+  wsSessionUserMap = new Map<WebSocket, string>();
 
   httpServer.on("upgrade", (req, socket, head) => {
     if (req.url !== "/ws") { socket.destroy(); return; }
