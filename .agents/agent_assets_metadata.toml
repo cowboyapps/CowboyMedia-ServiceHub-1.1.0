@@ -6,3 +6,9 @@ id = "Nsyb5EPURR0dhissWhFDj"
 uri = "file://servicehub-project.tar.gz"
 type = "unspecified"
 title = "ServiceHub Project Archive"
+
+[[outputs]]
+id = "hw2TxUW0ZUvU8K9RAWSdu"
+uri = "file://CHANGELOG.md"
+type = "text"
+title = "CowboyMedia Changelog"
