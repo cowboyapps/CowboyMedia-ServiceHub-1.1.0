@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -202,6 +202,7 @@ export default function ReportRequestPage() {
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Report Content Issue</DialogTitle>
+            <DialogDescription className="sr-only">Report a content issue with a service</DialogDescription>
           </DialogHeader>
           <Form {...contentForm}>
             <form onSubmit={contentForm.handleSubmit(handleContentSubmit)} className="space-y-4">
@@ -249,6 +250,7 @@ export default function ReportRequestPage() {
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Request Movie/Series</DialogTitle>
+            <DialogDescription className="sr-only">Submit a request for a movie or series</DialogDescription>
           </DialogHeader>
           <Form {...movieForm}>
             <form onSubmit={movieForm.handleSubmit(handleMovieSubmit)} className="space-y-4">
@@ -296,6 +298,7 @@ export default function ReportRequestPage() {
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Report App Issue / Feature Request</DialogTitle>
+            <DialogDescription className="sr-only">Report a bug or suggest a feature</DialogDescription>
           </DialogHeader>
           <Form {...appIssueForm}>
             <form onSubmit={appIssueForm.handleSubmit(handleAppIssueSubmit)} className="space-y-4">

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -14,6 +14,7 @@ export function ImageLightbox({ src, alt, open, onOpenChange }: ImageLightboxPro
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-4xl p-0 bg-transparent border-none">
+        <DialogTitle className="sr-only">Image preview</DialogTitle>
         <div className="relative">
           <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
             <a href={src} download target="_blank" rel="noopener noreferrer">
@@ -57,6 +58,7 @@ export function VideoLightbox({ src, open, onOpenChange }: VideoLightboxProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-4xl p-0 bg-transparent border-none">
+        <DialogTitle className="sr-only">Video preview</DialogTitle>
         <div className="relative">
           <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
             <a href={src} download target="_blank" rel="noopener noreferrer">

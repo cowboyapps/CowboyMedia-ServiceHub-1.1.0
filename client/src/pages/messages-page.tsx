@@ -85,6 +85,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     },
   });
 

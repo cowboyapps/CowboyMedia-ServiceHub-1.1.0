@@ -8,7 +8,7 @@ import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications } from "@shared/schema";
 import { z } from "zod";
-import { eq, isNotNull, and, notInArray } from "drizzle-orm";
+import { eq, isNotNull, isNull, and, notInArray } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import crypto from "crypto";
@@ -2198,6 +2198,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(403).json({ message: "Forbidden" });
       }
       await storage.markThreadMessagesRead(req.params.id, req.session.userId!);
+      await db.update(userNotifications).set({ readAt: new Date() })
+        .where(and(
+          eq(userNotifications.userId, req.session.userId!),
+          eq(userNotifications.type, "message"),
+          eq(userNotifications.referenceId, req.params.id),
+          isNull(userNotifications.readAt),
+          isNull(userNotifications.dismissedAt)
+        ));
       res.json({ message: "Marked as read" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
