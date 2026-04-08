@@ -3144,10 +3144,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.delete("/api/notifications/cleanup", requireAuth, async (req, res) => {
+  app.delete("/api/notifications/cleanup", requireMasterAdmin, async (req, res) => {
     try {
-      const days = Math.max(1, parseInt(req.query.days as string) || 30);
-      const count = await storage.deleteExpiredUserNotifications(days);
+      const count = await storage.deleteExpiredUserNotifications(30);
       res.json({ deleted: count });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

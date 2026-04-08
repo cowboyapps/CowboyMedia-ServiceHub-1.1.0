@@ -163,10 +163,13 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
               const Icon = getIcon(notif.type);
               const isUnread = !notif.readAt;
               return (
-                <button
+                <div
                   key={notif.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleTap(notif)}
-                  className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 ${isUnread ? "bg-primary/5" : ""}`}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTap(notif); } }}
+                  className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${isUnread ? "bg-primary/5" : ""}`}
                   data-testid={`notification-item-${notif.id}`}
                 >
                   <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-0.5 ${isUnread ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
@@ -186,7 +189,7 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
                   >
                     <X className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
-                </button>
+                </div>
               );
             })}
           </div>
