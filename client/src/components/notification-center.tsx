@@ -98,22 +98,6 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
     },
   });
 
-  const handleTap = (notif: UserNotification) => {
-    hapticLight();
-    dismissMutation.mutate(notif.id);
-    invalidateRelatedBadges(notif.type);
-    if (notif.url) {
-      onNavigate(notif.url);
-    }
-  };
-
-  const handleDismiss = (e: React.MouseEvent, notif: UserNotification) => {
-    e.stopPropagation();
-    hapticLight();
-    dismissMutation.mutate(notif.id);
-    invalidateRelatedBadges(notif.type);
-  };
-
   const handleMarkAllRead = () => {
     hapticMedium();
     markAllReadMutation.mutate();
@@ -150,6 +134,56 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
     );
   }
 
+  type GroupedNotification = {
+    key: string;
+    notifications: UserNotification[];
+    latest: UserNotification;
+    count: number;
+  };
+
+  const groupedNotifications: GroupedNotification[] = (() => {
+    const groups: GroupedNotification[] = [];
+    const messageGroups = new Map<string, UserNotification[]>();
+
+    for (const notif of notifications) {
+      if (notif.type === "message" && notif.referenceId) {
+        const key = `message-${notif.referenceId}`;
+        if (!messageGroups.has(key)) messageGroups.set(key, []);
+        messageGroups.get(key)!.push(notif);
+      } else {
+        groups.push({ key: notif.id, notifications: [notif], latest: notif, count: 1 });
+      }
+    }
+
+    for (const [key, notifs] of messageGroups) {
+      const sorted = notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      groups.push({ key, notifications: sorted, latest: sorted[0], count: sorted.length });
+    }
+
+    groups.sort((a, b) => new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime());
+    return groups;
+  })();
+
+  const handleDismissGroup = (e: React.MouseEvent, group: GroupedNotification) => {
+    e.stopPropagation();
+    hapticLight();
+    for (const notif of group.notifications) {
+      dismissMutation.mutate(notif.id);
+    }
+    invalidateRelatedBadges(group.latest.type);
+  };
+
+  const handleTapGroup = (group: GroupedNotification) => {
+    hapticLight();
+    for (const notif of group.notifications) {
+      dismissMutation.mutate(notif.id);
+    }
+    invalidateRelatedBadges(group.latest.type);
+    if (group.latest.url) {
+      onNavigate(group.latest.url);
+    }
+  };
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-4 py-2.5 border-b">
@@ -169,23 +203,24 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
         )}
       </div>
       <ScrollArea className="max-h-[60vh] md:max-h-[400px]">
-        {notifications.length === 0 ? (
+        {groupedNotifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-muted-foreground">
             <Bell className="w-10 h-10 mb-2 opacity-40" />
             <p className="text-sm">No notifications</p>
           </div>
         ) : (
           <div className="divide-y">
-            {notifications.map(notif => {
+            {groupedNotifications.map(group => {
+              const notif = group.latest;
               const Icon = getIcon(notif.type);
-              const isUnread = !notif.readAt;
+              const isUnread = group.notifications.some(n => !n.readAt);
               return (
                 <div
-                  key={notif.id}
+                  key={group.key}
                   role="button"
                   tabIndex={0}
-                  onClick={() => handleTap(notif)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTap(notif); } }}
+                  onClick={() => handleTapGroup(group)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTapGroup(group); } }}
                   className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${isUnread ? "bg-primary/5" : ""}`}
                   data-testid={`notification-item-${notif.id}`}
                 >
@@ -193,16 +228,25 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
                     <Icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm leading-tight ${isUnread ? "font-medium" : "text-muted-foreground"}`}>{notif.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.body}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`text-sm leading-tight ${isUnread ? "font-medium" : "text-muted-foreground"}`}>{notif.title}</p>
+                      {group.count > 1 && (
+                        <span className="flex-shrink-0 text-[10px] font-medium bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                          {group.count}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                      {group.count > 1 ? `${group.count} new messages` : notif.body}
+                    </p>
                     <p className="text-[10px] text-muted-foreground/60 mt-1">
                       {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
                     </p>
                   </div>
                   <button
-                    onClick={(e) => handleDismiss(e, notif)}
+                    onClick={(e) => handleDismissGroup(e, group)}
                     className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
-                    data-testid={`button-dismiss-${notif.id}`}
+                    data-testid={`button-dismiss-${group.key}`}
                   >
                     <X className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>

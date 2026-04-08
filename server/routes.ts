@@ -2157,10 +2157,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const sender = await storage.getUser(req.session.userId!);
       broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
 
-      const recipientId = thread.adminId === req.session.userId ? thread.customerId : thread.adminId;
+      const isAdminSending = reqUser3?.role === "master_admin" || reqUser3?.role === "admin" || req.session.userId === thread.adminId;
+      const recipientId = isAdminSending ? thread.customerId : thread.adminId;
       const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
 
-      const recipientUser = await storage.getUser(recipientId);
       const shouldCreateNotif = !isRecipientViewing;
       sendPushToUser(recipientId, {
         title: `${sender?.fullName || "User"}`,
@@ -2172,7 +2172,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!isRecipientViewing) {
         const recipient = await storage.getUser(recipientId);
         if (recipient?.email && recipient.emailNotifications !== false && sender) {
-          const isAdminSending = req.session.userId === thread.adminId;
           const templateKey = isAdminSending ? "customer_thread_message" : "admin_thread_message";
           sendTemplatedEmail(recipient.email, templateKey, {
             sender_name: sender.fullName,
