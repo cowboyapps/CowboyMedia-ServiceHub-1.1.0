@@ -5,6 +5,8 @@ import { createServer } from "http";
 import { seed } from "./seed";
 import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
 import { storage } from "./storage";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -71,6 +73,12 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  try {
+    await db.execute(sql`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+  } catch (e) {
+    console.error("Migration error (ticket_messages.read_at):", e);
+  }
 
   try {
     await seed();
