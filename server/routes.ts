@@ -20,11 +20,11 @@ import sanitizeHtml from "sanitize-html";
 
 const sanitizeNewsContent = (html: string): string =>
   sanitizeHtml(html, {
-    allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "u", "span"]),
+    allowedTags: ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a"],
     allowedAttributes: {
-      ...sanitizeHtml.defaults.allowedAttributes,
-      "*": ["style", "class"],
+      "*": ["style"],
       img: ["src", "alt", "width", "height"],
+      a: ["href", "target", "rel"],
     },
     allowedStyles: {
       "*": {

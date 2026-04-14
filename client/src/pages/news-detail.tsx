@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import { ArrowLeft, Calendar } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
 import { isHtmlContent } from "@/components/rich-text-editor";
+import DOMPurify from "dompurify";
 import type { NewsStory } from "@shared/schema";
 
 export default function NewsDetail() {
@@ -68,7 +69,7 @@ export default function NewsDetail() {
             <div
               className="prose prose-sm dark:prose-invert max-w-none prose-img:rounded-md prose-img:max-w-full"
               data-testid="text-story-content"
-              dangerouslySetInnerHTML={{ __html: story.content }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(story.content, { ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a"], ALLOWED_ATTR: ["style", "src", "alt", "width", "height", "href", "target"] }) }}
             />
           ) : (
             <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap" data-testid="text-story-content">
