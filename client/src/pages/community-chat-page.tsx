@@ -253,7 +253,7 @@ function NotificationSettingsPopover({ currentPref, onUpdate }: { currentPref: s
   );
 }
 
-function EmojiPicker({ onSelect, onClose }: { onSelect: (emoji: string) => void; onClose: () => void }) {
+function EmojiPicker({ onSelect, onClose, alignRight }: { onSelect: (emoji: string) => void; onClose: () => void; alignRight?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -265,7 +265,7 @@ function EmojiPicker({ onSelect, onClose }: { onSelect: (emoji: string) => void;
   }, [onClose]);
 
   return (
-    <div ref={ref} className="absolute bottom-full mb-1 left-0 bg-popover border rounded-lg shadow-lg p-1.5 flex gap-1 z-50" data-testid="emoji-picker">
+    <div ref={ref} className={`absolute bottom-full mb-1 ${alignRight ? "right-0" : "left-0"} bg-popover border rounded-lg shadow-lg p-1 grid grid-cols-4 gap-0.5 z-50 w-[144px]`} data-testid="emoji-picker">
       {EMOJI_OPTIONS.map((emoji) => (
         <button
           key={emoji}
@@ -515,7 +515,7 @@ export default function CommunityChatPage() {
         <NotificationSettingsPopover currentPref={chatNotifPref} onUpdate={setChatNotifPref} />
       </div>
 
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1 min-h-0">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-3 space-y-1 min-h-0">
         {isLoading ? (
           <div className="space-y-2">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4" />)}
@@ -545,20 +545,20 @@ export default function CommunityChatPage() {
                     </div>
                   )}
                   <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1`}>
-                    <div className="relative max-w-[85%] sm:max-w-[70%]">
+                    <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
                       <div className={`rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                         {!isMe && (
                           <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${msgIsAdmin ? "text-primary" : "opacity-70"}`}>
-                            {msg.chatUsername}
-                            {msgIsAdmin && <Shield className="w-2.5 h-2.5" />}
+                            <span className="truncate">{msg.chatUsername}</span>
+                            {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
                           </p>
                         )}
-                        <p className="text-sm whitespace-pre-wrap break-words" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
+                        <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
                         <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
-                          <p className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                          <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                             {format(msgDate, "h:mm a")}
                           </p>
-                          <div className="relative">
+                          <div className="relative flex-shrink-0">
                             <button
                               onClick={() => setActiveEmojiPicker(activeEmojiPicker === msg.id ? null : msg.id)}
                               className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-primary-foreground/80" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
@@ -567,13 +567,13 @@ export default function CommunityChatPage() {
                               <Smile className="w-3 h-3" />
                             </button>
                             {activeEmojiPicker === msg.id && (
-                              <EmojiPicker onSelect={(emoji) => handleReaction(msg.id, emoji)} onClose={() => setActiveEmojiPicker(null)} />
+                              <EmojiPicker onSelect={(emoji) => handleReaction(msg.id, emoji)} onClose={() => setActiveEmojiPicker(null)} alignRight={isMe} />
                             )}
                           </div>
                           {isAdminUser && !isMe && (
                             <button
                               onClick={() => handleDeleteMessage(msg.id)}
-                              className="w-5 h-5 flex items-center justify-center rounded-full text-muted-foreground/50 hover:text-destructive transition-colors"
+                              className="w-5 h-5 flex items-center justify-center rounded-full text-muted-foreground/50 hover:text-destructive transition-colors flex-shrink-0"
                               data-testid={`button-delete-msg-${msg.id}`}
                             >
                               <Trash2 className="w-3 h-3" />
