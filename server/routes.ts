@@ -3698,6 +3698,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  app.get("/api/community-chat/participants", requireAuth, async (req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const participants: { username: string; isAdmin: boolean }[] = [];
+      for (const u of allUsers) {
+        const isAdminUser = u.role === "admin" || u.role === "master_admin";
+        const name = isAdminUser ? u.fullName : u.chatUsername;
+        if (name) {
+          participants.push({ username: name, isAdmin: isAdminUser });
+        }
+      }
+      res.json(participants);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/community-chat/username-available", requireAuth, async (req, res) => {
     try {
       const username = req.query.username as string;

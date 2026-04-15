@@ -302,6 +302,80 @@ function ReactionBadges({ reactions, userId, onToggle }: { reactions: ReactionGr
   );
 }
 
+type Participant = { username: string; isAdmin: boolean };
+
+function MentionAutocomplete({
+  query,
+  participants,
+  isAdmin,
+  onSelect,
+  selectedIndex,
+}: {
+  query: string;
+  participants: Participant[];
+  isAdmin: boolean;
+  onSelect: (username: string) => void;
+  selectedIndex: number;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const q = query.toLowerCase();
+
+  const filtered = useMemo(() => {
+    const items: Participant[] = [];
+    if (isAdmin && "everyone".startsWith(q)) {
+      items.push({ username: "everyone", isAdmin: true });
+    }
+    for (const p of participants) {
+      if (p.username.toLowerCase().startsWith(q)) {
+        items.push(p);
+      }
+    }
+    if (items.length === 0) {
+      for (const p of participants) {
+        if (p.username.toLowerCase().includes(q) && !items.some(i => i.username === p.username)) {
+          items.push(p);
+        }
+      }
+    }
+    return items.slice(0, 8);
+  }, [q, participants, isAdmin]);
+
+  useEffect(() => {
+    const el = listRef.current?.children[selectedIndex] as HTMLElement;
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div ref={listRef} className="absolute bottom-full mb-1 left-0 right-0 bg-popover border rounded-lg shadow-lg overflow-y-auto max-h-48 z-50" data-testid="mention-autocomplete">
+      {filtered.map((p, i) => (
+        <button
+          key={p.username}
+          onMouseDown={(e) => { e.preventDefault(); onSelect(p.username); }}
+          className={`w-full text-left px-3 py-2 flex items-center gap-2 text-sm transition-colors ${i === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`}
+          data-testid={`mention-option-${p.username}`}
+        >
+          {p.username === "everyone" ? (
+            <Users className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+          ) : p.isAdmin ? (
+            <Shield className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+          ) : (
+            <AtSign className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+          )}
+          <span className="truncate">{p.username === "everyone" ? "@everyone" : p.username}</span>
+          {p.username === "everyone" && (
+            <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">notify all</span>
+          )}
+          {p.isAdmin && p.username !== "everyone" && (
+            <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">admin</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function CommunityChatPage() {
   const { user, isAdmin } = useAuth();
   const { toast } = useToast();
@@ -312,6 +386,9 @@ export default function CommunityChatPage() {
   const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -338,6 +415,41 @@ export default function CommunityChatPage() {
     queryKey: ["/api/community-chat/messages"],
     refetchInterval: 30000,
   });
+
+  const { data: participants } = useQuery<Participant[]>({
+    queryKey: ["/api/community-chat/participants"],
+    staleTime: 60000,
+  });
+
+  const detectMention = useCallback((text: string, cursorPos: number) => {
+    const before = text.slice(0, cursorPos);
+    const match = before.match(/@([^\s@]*)$/);
+    if (match) {
+      mentionStartRef.current = cursorPos - match[1].length;
+      setMentionQuery(match[1]);
+      setMentionIndex(0);
+    } else {
+      mentionStartRef.current = null;
+      setMentionQuery(null);
+    }
+  }, []);
+
+  const insertMention = useCallback((username: string) => {
+    const el = messageInputRef.current;
+    if (!el || mentionStartRef.current === null) return;
+    const start = mentionStartRef.current - 1;
+    const before = message.slice(0, start);
+    const after = message.slice(el.selectionStart);
+    const newMsg = `${before}@${username} ${after}`;
+    setMessage(newMsg);
+    setMentionQuery(null);
+    mentionStartRef.current = null;
+    setTimeout(() => {
+      const pos = start + username.length + 2;
+      el.setSelectionRange(pos, pos);
+      el.focus();
+    }, 0);
+  }, [message]);
 
   useEffect(() => {
     let disposed = false;
@@ -437,6 +549,8 @@ export default function CommunityChatPage() {
     const content = message.trim();
     if (!content) return;
     setMessage("");
+    setMentionQuery(null);
+    mentionStartRef.current = null;
     try {
       const res = await fetch("/api/community-chat/messages", {
         method: "POST",
@@ -607,7 +721,16 @@ export default function CommunityChatPage() {
             <BouncingDots />
           </div>
         )}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 relative">
+          {mentionQuery !== null && participants && (
+            <MentionAutocomplete
+              query={mentionQuery}
+              participants={participants}
+              isAdmin={isAdminUser}
+              onSelect={insertMention}
+              selectedIndex={mentionIndex}
+            />
+          )}
           <Textarea
             ref={messageInputRef}
             value={message}
@@ -617,12 +740,56 @@ export default function CommunityChatPage() {
               const el = e.target;
               el.style.height = "auto";
               el.style.height = Math.min(el.scrollHeight, 120) + "px";
+              detectMention(e.target.value, el.selectionStart);
             }}
             onKeyDown={(e) => {
+              if (mentionQuery !== null && participants) {
+                const q = mentionQuery.toLowerCase();
+                const filtered: Participant[] = [];
+                if (isAdminUser && "everyone".startsWith(q)) {
+                  filtered.push({ username: "everyone", isAdmin: true });
+                }
+                for (const p of participants) {
+                  if (p.username.toLowerCase().startsWith(q)) filtered.push(p);
+                }
+                if (filtered.length === 0) {
+                  for (const p of participants) {
+                    if (p.username.toLowerCase().includes(q) && !filtered.some(f => f.username === p.username)) filtered.push(p);
+                  }
+                }
+                const shown = filtered.slice(0, 8);
+                if (shown.length > 0) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setMentionIndex(i => (i + 1) % shown.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setMentionIndex(i => (i - 1 + shown.length) % shown.length);
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    insertMention(shown[mentionIndex].username);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setMentionQuery(null);
+                    mentionStartRef.current = null;
+                    return;
+                  }
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleSend();
               }
+            }}
+            onSelect={(e) => {
+              const el = e.target as HTMLTextAreaElement;
+              detectMention(el.value, el.selectionStart);
             }}
             placeholder="Type a message..."
             className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm"
