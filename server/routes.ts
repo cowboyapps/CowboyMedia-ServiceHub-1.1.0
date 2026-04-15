@@ -3336,8 +3336,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           const info = wsThreadMap.get(ws);
           if (info && info.threadId === data.threadId) wsThreadMap.delete(ws);
         }
-        if (data.type === "community_typing" && sessionUserId && data.chatUsername) {
-          broadcastExcept({ type: "community_typing", userId: sessionUserId, chatUsername: data.chatUsername }, ws);
+        if (data.type === "community_typing" && sessionUserId) {
+          storage.getUser(sessionUserId).then((u) => {
+            if (!u) return;
+            const isAdminU = u.role === "admin" || u.role === "master_admin";
+            const name = isAdminU ? u.fullName : (u.chatUsername || "Anonymous");
+            broadcastExcept({ type: "community_typing", userId: sessionUserId, chatUsername: name }, ws);
+          }).catch(() => {});
         }
         if (data.type === "viewing_ticket" && data.ticketId && data.userId) {
           const prev = wsUserMap.get(ws);
