@@ -329,7 +329,7 @@ function ReviewCustomerDialog({ userId, username, onClose }: { userId: string; u
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/community-chat/user-snapshot/${userId}`, { credentials: "include" })
+    fetch(`/api/admin/community-chat/user-snapshot/${userId}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then(d => { setSnapshot(d); setLoading(false); })
       .catch(() => setLoading(false));
@@ -880,15 +880,22 @@ export default function CommunityChatPage() {
   const handleReply = useCallback((username: string) => {
     const el = messageInputRef.current;
     const mention = `@${username} `;
-    setMessage((prev) => prev + mention);
-    setTimeout(() => {
-      if (el) {
+    if (el) {
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? start;
+      const before = message.slice(0, start);
+      const after = message.slice(end);
+      const newMsg = before + mention + after;
+      setMessage(newMsg);
+      setTimeout(() => {
+        const pos = start + mention.length;
+        el.setSelectionRange(pos, pos);
         el.focus();
-        const len = el.value.length;
-        el.setSelectionRange(len, len);
-      }
-    }, 0);
-  }, []);
+      }, 0);
+    } else {
+      setMessage((prev) => prev + mention);
+    }
+  }, [message]);
 
   const handleAdminClose = useCallback((next?: string) => {
     if (next === "warn" && adminAction && "userId" in adminAction) {

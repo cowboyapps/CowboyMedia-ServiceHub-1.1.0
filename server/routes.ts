@@ -3915,7 +3915,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.get("/api/community-chat/user-snapshot/:userId", requireAdmin, async (req, res) => {
+  app.get("/api/admin/community-chat/user-snapshot/:userId", requireAdmin, async (req, res) => {
     try {
       const target = await storage.getUser(req.params.userId);
       if (!target || target.role === "admin" || target.role === "master_admin") {
