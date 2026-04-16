@@ -32,7 +32,8 @@ import {
   type UserNotification, type InsertUserNotification,
   type CommunityMessage, type InsertCommunityMessage,
   type CommunityReaction, type InsertCommunityReaction,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions,
+  type ChatWordFilter,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
@@ -219,6 +220,11 @@ export interface IStorage {
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
   toggleCommunityReaction(messageId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
   isChatUsernameTaken(chatUsername: string, excludeUserId?: string): Promise<boolean>;
+
+  getAllWordFilters(): Promise<ChatWordFilter[]>;
+  addWordFilter(word: string): Promise<ChatWordFilter>;
+  deleteWordFilter(id: string): Promise<void>;
+  getBannedUsers(): Promise<User[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1124,6 +1130,23 @@ export class DatabaseStorage implements IStorage {
       return rows.some(r => r.id !== excludeUserId);
     }
     return rows.length > 0;
+  }
+
+  async getAllWordFilters(): Promise<ChatWordFilter[]> {
+    return db.select().from(chatWordFilters).orderBy(chatWordFilters.word);
+  }
+
+  async addWordFilter(word: string): Promise<ChatWordFilter> {
+    const [created] = await db.insert(chatWordFilters).values({ word: word.toLowerCase() }).returning();
+    return created;
+  }
+
+  async deleteWordFilter(id: string): Promise<void> {
+    await db.delete(chatWordFilters).where(eq(chatWordFilters.id, id));
+  }
+
+  async getBannedUsers(): Promise<User[]> {
+    return db.select().from(users).where(eq(users.chatBanned, true));
   }
 }
 

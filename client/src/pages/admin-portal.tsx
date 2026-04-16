@@ -4767,6 +4767,179 @@ function AdminChatTab() {
   );
 }
 
+type BannedUser = { id: string; fullName: string; username: string; chatUsername: string | null; email: string };
+type WordFilter = { id: string; word: string; createdAt: string };
+
+function ChatAdminTab() {
+  const { toast } = useToast();
+  const [newWord, setNewWord] = useState("");
+
+  const { data: wordFilters, isLoading: filtersLoading } = useQuery<WordFilter[]>({
+    queryKey: ["/api/community-chat/word-filters"],
+  });
+
+  const { data: bannedUsers, isLoading: bannedLoading } = useQuery<BannedUser[]>({
+    queryKey: ["/api/community-chat/banned-users"],
+  });
+
+  const addFilterMutation = useMutation({
+    mutationFn: async (word: string) => {
+      const res = await apiRequest("POST", "/api/community-chat/word-filters", { word });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to add word");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/community-chat/word-filters"] });
+      setNewWord("");
+      toast({ title: "Word filter added" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteFilterMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/community-chat/word-filters/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/community-chat/word-filters"] });
+      toast({ title: "Word filter removed" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const unbanMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiRequest("POST", "/api/community-chat/unban-user", { userId });
+      if (!res.ok) throw new Error("Failed to unban user");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/community-chat/banned-users"] });
+      toast({ title: "User unbanned from chat" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const handleAddWord = () => {
+    const cleaned = newWord.trim().toLowerCase();
+    if (cleaned.length < 2) return;
+    addFilterMutation.mutate(cleaned);
+  };
+
+  return (
+    <div className="space-y-6">
+      <h3 className="font-semibold">Chat Admin</h3>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Shield className="w-4 h-4 text-orange-500" />
+            Word Filters
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Add words to automatically censor in community chat messages. Filtered words will have their middle characters replaced with asterisks.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <Input
+              value={newWord}
+              onChange={(e) => setNewWord(e.target.value)}
+              placeholder="Enter a word to filter..."
+              className="flex-1"
+              onKeyDown={(e) => { if (e.key === "Enter") handleAddWord(); }}
+              data-testid="input-add-word-filter"
+            />
+            <Button
+              size="sm"
+              onClick={handleAddWord}
+              disabled={newWord.trim().length < 2 || addFilterMutation.isPending}
+              data-testid="button-add-word-filter"
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Add
+            </Button>
+          </div>
+
+          {filtersLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+            </div>
+          ) : wordFilters && wordFilters.length > 0 ? (
+            <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
+              {wordFilters.map((f) => (
+                <div key={f.id} className="flex items-center justify-between px-3 py-2" data-testid={`word-filter-${f.id}`}>
+                  <span className="text-sm font-mono">{f.word}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => deleteFilterMutation.mutate(f.id)}
+                    disabled={deleteFilterMutation.isPending}
+                    data-testid={`button-delete-filter-${f.id}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-word-filters">
+              No word filters configured. Add words above to keep the chat family-friendly.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="w-4 h-4 text-red-500" />
+            Banned Users
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Users banned from community chat. You can unban them to restore their access.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {bannedLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : bannedUsers && bannedUsers.length > 0 ? (
+            <div className="border rounded-md divide-y">
+              {bannedUsers.map((u) => (
+                <div key={u.id} className="flex items-center justify-between px-3 py-2.5 gap-3" data-testid={`banned-user-${u.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{u.fullName}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      @{u.username}{u.chatUsername ? ` · Chat: ${u.chatUsername}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => unbanMutation.mutate(u.id)}
+                    disabled={unbanMutation.isPending}
+                    data-testid={`button-unban-${u.id}`}
+                  >
+                    Unban
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-banned-users">
+              No users are currently banned from chat.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const TILE_PERM_MAP: Record<string, string> = {
   "users": "users.view",
   "services": "services.view",
@@ -4782,6 +4955,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "admin-chat": "admin_chat",
   "logs": "logs.view",
   "monitoring": "monitoring.view",
+  "chat-admin": "admin_chat",
 };
 
 const TILE_MANAGE_MAP: Record<string, string> = {
@@ -4844,6 +5018,7 @@ export default function AdminPortal() {
     { key: "downloads", label: "Downloads", icon: Download, color: "text-emerald-500", bg: "bg-emerald-500/10" },
     { key: "support-tickets", label: "Support Tickets", icon: LifeBuoy, color: "text-sky-500", bg: "bg-sky-500/10", navigateTo: "/tickets" },
     { key: "admin-chat", label: "Admin Chat", icon: MessageSquare, color: "text-pink-500", bg: "bg-pink-500/10" },
+    { key: "chat-admin", label: "Chat Admin", icon: ShieldCheck, color: "text-violet-500", bg: "bg-violet-500/10" },
     { key: "monitoring", label: "URL Monitoring", icon: Globe, color: "text-lime-500", bg: "bg-lime-500/10" },
     { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
@@ -4874,6 +5049,7 @@ export default function AdminPortal() {
       case "email-templates": return <EmailTemplatesTab canManage={canManageSection("email-templates")} />;
       case "downloads": return <DownloadsTab canManage={canManageSection("downloads")} />;
       case "admin-chat": return <AdminChatTab />;
+      case "chat-admin": return <ChatAdminTab />;
       case "monitoring": return <MonitoringTab canManage={canManageSection("monitoring")} />;
       case "logs": return <LogsTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab /> : null;

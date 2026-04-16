@@ -481,6 +481,17 @@ export const insertCommunityReactionSchema = createInsertSchema(communityReactio
 export type InsertCommunityReaction = z.infer<typeof insertCommunityReactionSchema>;
 export type CommunityReaction = typeof communityReactions.$inferSelect;
 
+// Chat word filters
+export const chatWordFilters = pgTable("chat_word_filters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  word: text("word").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertChatWordFilterSchema = createInsertSchema(chatWordFilters).omit({ id: true, createdAt: true });
+export type InsertChatWordFilter = z.infer<typeof insertChatWordFilterSchema>;
+export type ChatWordFilter = typeof chatWordFilters.$inferSelect;
+
 // Login schema
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),

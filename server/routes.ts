@@ -3583,11 +3583,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const isAdminUser = user.role === "admin" || user.role === "master_admin";
       const chatUsername = isAdminUser ? user.fullName : (user.chatUsername || "Anonymous");
-      const trimmedContent = content.trim();
+      let trimmedContent = content.trim();
 
       const hasEveryone = /@everyone\b/i.test(trimmedContent);
       if (hasEveryone && !isAdminUser) {
         return res.status(403).json({ error: "Only admins can use @everyone" });
+      }
+
+      const wordFilters = await storage.getAllWordFilters();
+      if (wordFilters.length > 0) {
+        for (const filter of wordFilters) {
+          const pattern = new RegExp(filter.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+          trimmedContent = trimmedContent.replace(pattern, (match) => {
+            if (match.length <= 2) return match[0] + "*".repeat(match.length - 1);
+            if (match.length === 3) return match[0] + "*" + match[match.length - 1];
+            return match[0] + "*".repeat(match.length - 2) + match[match.length - 1];
+          });
+        }
       }
 
       const msg = await storage.createCommunityMessage({
@@ -3852,6 +3864,69 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/community-chat/word-filters", requireAdmin, async (_req, res) => {
+    try {
+      const filters = await storage.getAllWordFilters();
+      res.json(filters);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community-chat/word-filters", requireAdmin, async (req, res) => {
+    try {
+      const { word } = req.body;
+      if (!word || typeof word !== "string" || !word.trim()) {
+        return res.status(400).json({ error: "Word is required" });
+      }
+      const cleaned = word.trim().toLowerCase();
+      if (cleaned.length < 2) {
+        return res.status(400).json({ error: "Word must be at least 2 characters" });
+      }
+      const existing = await storage.getAllWordFilters();
+      if (existing.some(f => f.word === cleaned)) {
+        return res.status(409).json({ error: "Word already in filter list" });
+      }
+      const filter = await storage.addWordFilter(cleaned);
+      logActivity("community_chat", "word_filter_added", {
+        actorId: req.session.userId!,
+        summary: `Added word filter: ${cleaned}`,
+      });
+      res.json(filter);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/community-chat/word-filters/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteWordFilter(req.params.id);
+      logActivity("community_chat", "word_filter_removed", {
+        actorId: req.session.userId!,
+        summary: `Removed word filter (ID: ${req.params.id})`,
+      });
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/community-chat/banned-users", requireAdmin, async (_req, res) => {
+    try {
+      const banned = await storage.getBannedUsers();
+      const safe = banned.map(u => ({
+        id: u.id,
+        fullName: u.fullName,
+        username: u.username,
+        chatUsername: u.chatUsername,
+        email: u.email,
+      }));
+      res.json(safe);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

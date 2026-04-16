@@ -123,6 +123,16 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_word_filters (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      word TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )`);
+  } catch (e) {
+    console.error("Migration error (chat_word_filters):", e);
+  }
+
+  try {
     await seed();
   } catch (e) {
     console.error("Seed error:", e);
