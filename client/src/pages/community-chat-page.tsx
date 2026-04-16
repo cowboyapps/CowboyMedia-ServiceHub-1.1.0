@@ -12,11 +12,17 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
 import type { CommunityMessage } from "@shared/schema";
 
-type AdminAction = { type: "menu"; messageId: string; userId: string; username: string } | { type: "warn"; userId: string; username: string } | null;
+type AdminAction =
+  | { type: "menu"; messageId: string; userId: string; username: string }
+  | { type: "warn"; userId: string; username: string }
+  | { type: "review"; userId: string; username: string }
+  | { type: "reply-only"; username: string }
+  | null;
 
 type ReactionGroup = { emoji: string; userIds: string[] };
 type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean };
@@ -306,17 +312,110 @@ function ReactionBadges({ reactions, userId, onToggle }: { reactions: ReactionGr
 
 type Participant = { username: string; isAdmin: boolean };
 
-function AdminActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan }: {
+type UserSnapshot = {
+  fullName: string;
+  email: string;
+  username: string;
+  chatUsername: string | null;
+  createdAt: string;
+  subscribedServices: string[];
+  openTickets: number;
+  totalTickets: number;
+  chatBanned: boolean;
+};
+
+function ReviewCustomerDialog({ userId, username, onClose }: { userId: string; username: string; onClose: () => void }) {
+  const [snapshot, setSnapshot] = useState<UserSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/community-chat/user-snapshot/${userId}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { setSnapshot(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [userId]);
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-review-customer">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserSearch className="w-4 h-4 text-primary" />
+            Review Customer
+          </DialogTitle>
+        </DialogHeader>
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : !snapshot ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Could not load customer info.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Avatar className="w-10 h-10">
+                <AvatarFallback className="text-sm font-medium">{snapshot.fullName.charAt(0).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="font-medium text-sm truncate" data-testid="text-review-fullname">{snapshot.fullName}</p>
+                <p className="text-xs text-muted-foreground truncate">@{snapshot.username}</p>
+              </div>
+              {snapshot.chatBanned && <Badge variant="destructive" className="text-[10px] ml-auto flex-shrink-0">Banned</Badge>}
+            </div>
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div className="flex items-center gap-2">
+                <AtSign className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-muted-foreground">Chat name:</span>
+                <span className="truncate font-medium" data-testid="text-review-chatname">{snapshot.chatUsername || "Not set"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-muted-foreground">Email:</span>
+                <span className="truncate" data-testid="text-review-email">{snapshot.email}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-muted-foreground">Member since:</span>
+                <span data-testid="text-review-joined">{format(new Date(snapshot.createdAt), "MMM d, yyyy")}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Ticket className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-muted-foreground">Tickets:</span>
+                <span data-testid="text-review-tickets">{snapshot.openTickets} open / {snapshot.totalTickets} total</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Bell className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-muted-foreground">Subscriptions:</span>
+                <span data-testid="text-review-subs">
+                  {snapshot.subscribedServices.length > 0
+                    ? snapshot.subscribedServices.join(", ")
+                    : "None"}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, onReply }: {
   action: AdminAction;
   onClose: (next?: string) => void;
   onDelete: (messageId: string) => void;
   onWarnSubmit: (userId: string, message: string) => void;
   onBan: (userId: string) => void;
+  onReply: (username: string) => void;
 }) {
   const [warnMessage, setWarnMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
   if (!action) return null;
+
+  if (action.type === "review") {
+    return <ReviewCustomerDialog userId={action.userId} username={action.username} onClose={() => onClose()} />;
+  }
 
   if (action.type === "warn") {
     return (
@@ -359,6 +458,28 @@ function AdminActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan }: {
     );
   }
 
+  if (action.type === "reply-only") {
+    return (
+      <Dialog open onOpenChange={onClose}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[280px] p-0 gap-0" data-testid="dialog-reply-actions">
+          <div className="px-4 py-3 border-b">
+            <p className="text-sm font-medium truncate">{action.username}</p>
+          </div>
+          <div className="py-1">
+            <button
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+              onClick={() => { onReply(action.username); onClose(); }}
+              data-testid="button-reply"
+            >
+              <Reply className="w-4 h-4 text-muted-foreground" />
+              Reply
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[280px] p-0 gap-0" data-testid="dialog-admin-actions">
@@ -366,6 +487,22 @@ function AdminActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan }: {
           <p className="text-sm font-medium truncate">{action.username}</p>
         </div>
         <div className="py-1">
+          <button
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+            onClick={() => { onReply(action.username); onClose(); }}
+            data-testid="button-reply"
+          >
+            <Reply className="w-4 h-4 text-muted-foreground" />
+            Reply
+          </button>
+          <button
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+            onClick={() => onClose("review")}
+            data-testid="button-review-customer"
+          >
+            <UserSearch className="w-4 h-4 text-muted-foreground" />
+            Review Customer
+          </button>
           <button
             className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
             onClick={() => { onDelete(action.messageId); onClose(); }}
@@ -740,9 +877,24 @@ export default function CommunityChatPage() {
     }
   }, [toast]);
 
+  const handleReply = useCallback((username: string) => {
+    const el = messageInputRef.current;
+    const mention = `@${username} `;
+    setMessage((prev) => prev + mention);
+    setTimeout(() => {
+      if (el) {
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+    }, 0);
+  }, []);
+
   const handleAdminClose = useCallback((next?: string) => {
     if (next === "warn" && adminAction && "userId" in adminAction) {
       setAdminAction({ type: "warn", userId: adminAction.userId, username: adminAction.username });
+    } else if (next === "review" && adminAction && "userId" in adminAction) {
+      setAdminAction({ type: "review", userId: adminAction.userId, username: adminAction.username });
     } else {
       setAdminAction(null);
     }
@@ -800,10 +952,16 @@ export default function CommunityChatPage() {
                     <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
                       <div className={`rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                         <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
-                          {isAdminUser && !isMe && !msgIsAdmin ? (
+                          {!isMe ? (
                             <button
                               className="truncate underline decoration-dotted underline-offset-2 hover:opacity-80 transition-opacity"
-                              onClick={() => setAdminAction({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername })}
+                              onClick={() => {
+                                if (isAdminUser && !msgIsAdmin) {
+                                  setAdminAction({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername });
+                                } else {
+                                  setAdminAction({ type: "reply-only", username: msg.chatUsername });
+                                }
+                              }}
                               data-testid={`button-username-${msg.id}`}
                             >
                               {msg.chatUsername}
@@ -961,12 +1119,13 @@ export default function CommunityChatPage() {
       )}
 
       <UsernameSetupDialog open={showUsernameDialog} onComplete={handleUsernameComplete} />
-      <AdminActionPopup
+      <MessageActionPopup
         action={adminAction}
         onClose={handleAdminClose}
         onDelete={handleDeleteMessage}
         onWarnSubmit={handleWarnUser}
         onBan={handleBanUser}
+        onReply={handleReply}
       />
     </div>
   );

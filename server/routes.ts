@@ -3915,6 +3915,34 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  app.get("/api/community-chat/user-snapshot/:userId", requireAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.userId);
+      if (!target || target.role === "admin" || target.role === "master_admin") {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      const tickets = await storage.getTicketsByCustomer(target.id);
+      const openTickets = tickets.filter(t => t.status === "open" || t.status === "in_progress");
+      const services = await storage.getAllServices();
+      const subscribedNames = (target.subscribedServices || [])
+        .map(sid => services.find(s => s.id === sid)?.name)
+        .filter(Boolean);
+      res.json({
+        fullName: target.fullName,
+        email: target.email,
+        username: target.username,
+        chatUsername: target.chatUsername,
+        createdAt: target.createdAt,
+        subscribedServices: subscribedNames,
+        openTickets: openTickets.length,
+        totalTickets: tickets.length,
+        chatBanned: target.chatBanned || false,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/community-chat/banned-users", requireAdmin, async (_req, res) => {
     try {
       const banned = await storage.getBannedUsers();
