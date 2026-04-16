@@ -17,6 +17,12 @@ body {
   }
 }
 
+@supports (-webkit-touch-callout: none) {
+  .ios-input-fix {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
 /* LIGHT MODE */
 :root {
   --button-outline: rgba(0,0,0, .10);

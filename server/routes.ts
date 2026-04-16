@@ -3571,6 +3571,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ error: "User not found" });
+      if (user.chatBanned) {
+        return res.status(403).json({ error: "You have been banned from community chat" });
+      }
       const { content } = req.body;
       if (!content || typeof content !== "string" || !content.trim()) {
         return res.status(400).json({ error: "Content is required" });
@@ -3753,6 +3756,102 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const updated = await storage.updateUser(req.session.userId!, updateData);
       res.json({ chatUsername: updated?.chatUsername, chatNotifications: updated?.chatNotifications });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community-chat/warn-user", requireAdmin, async (req, res) => {
+    try {
+      const { userId, message: warnMessage } = req.body;
+      if (!userId || !warnMessage) return res.status(400).json({ error: "userId and message required" });
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      const admin = await storage.getUser(req.session.userId!);
+
+      await storage.createUserNotification({
+        userId,
+        type: "warning",
+        title: "⚠️ Warning from Admin",
+        body: warnMessage,
+        url: "/community",
+      });
+
+      sendPushToUser(userId, {
+        title: "⚠️ Community Chat Warning",
+        body: warnMessage,
+        data: { url: "/community" },
+      });
+
+      logActivity("community_chat", "warn_user", {
+        actorId: req.session.userId!,
+        targetId: userId,
+        targetType: "user",
+        summary: `Admin warned ${targetUser.chatUsername || targetUser.fullName}: ${warnMessage}`,
+      });
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community-chat/ban-user", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) return res.status(400).json({ error: "userId required" });
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      if (targetUser.role === "admin" || targetUser.role === "master_admin") {
+        return res.status(403).json({ error: "Cannot ban admin users" });
+      }
+
+      await storage.updateUser(userId, { chatBanned: true });
+
+      await storage.createUserNotification({
+        userId,
+        type: "warning",
+        title: "🚫 Banned from Community Chat",
+        body: "You have been banned from the community chat by an admin.",
+        url: "/community",
+      });
+
+      sendPushToUser(userId, {
+        title: "🚫 Community Chat Ban",
+        body: "You have been banned from the community chat.",
+        data: { url: "/community" },
+      });
+
+      logActivity("community_chat", "ban_user", {
+        actorId: req.session.userId!,
+        targetId: userId,
+        targetType: "user",
+        summary: `Admin banned ${targetUser.chatUsername || targetUser.fullName} from community chat`,
+      });
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community-chat/unban-user", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) return res.status(400).json({ error: "userId required" });
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+
+      await storage.updateUser(userId, { chatBanned: false });
+
+      logActivity("community_chat", "unban_user", {
+        actorId: req.session.userId!,
+        targetId: userId,
+        targetType: "user",
+        summary: `Admin unbanned ${targetUser.chatUsername || targetUser.fullName} from community chat`,
+      });
+
+      res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

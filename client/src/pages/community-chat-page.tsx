@@ -12,9 +12,11 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import type { CommunityMessage } from "@shared/schema";
+
+type AdminAction = { type: "menu"; messageId: string; userId: string; username: string } | { type: "warn"; userId: string; username: string } | null;
 
 type ReactionGroup = { emoji: string; userIds: string[] };
 type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean };
@@ -304,6 +306,96 @@ function ReactionBadges({ reactions, userId, onToggle }: { reactions: ReactionGr
 
 type Participant = { username: string; isAdmin: boolean };
 
+function AdminActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan }: {
+  action: AdminAction;
+  onClose: (next?: string) => void;
+  onDelete: (messageId: string) => void;
+  onWarnSubmit: (userId: string, message: string) => void;
+  onBan: (userId: string) => void;
+}) {
+  const [warnMessage, setWarnMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (!action) return null;
+
+  if (action.type === "warn") {
+    return (
+      <Dialog open onOpenChange={onClose}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-warn-user">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-500" />
+              Warn {action.username}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Send a warning notification to this user. They'll receive a push notification and in-app alert.</p>
+            <Textarea
+              value={warnMessage}
+              onChange={(e) => setWarnMessage(e.target.value)}
+              placeholder="Enter your warning message..."
+              className="min-h-[80px] text-sm"
+              data-testid="input-warn-message"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={onClose} data-testid="button-cancel-warn">Cancel</Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={!warnMessage.trim() || saving}
+              onClick={async () => {
+                setSaving(true);
+                await onWarnSubmit(action.userId, warnMessage.trim());
+                setSaving(false);
+              }}
+              data-testid="button-send-warning"
+            >
+              {saving ? "Sending..." : "Send Warning"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[280px] p-0 gap-0" data-testid="dialog-admin-actions">
+        <div className="px-4 py-3 border-b">
+          <p className="text-sm font-medium truncate">{action.username}</p>
+        </div>
+        <div className="py-1">
+          <button
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+            onClick={() => { onDelete(action.messageId); onClose(); }}
+            data-testid="button-admin-delete-msg"
+          >
+            <Trash2 className="w-4 h-4 text-muted-foreground" />
+            Delete Message
+          </button>
+          <button
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+            onClick={() => onClose("warn")}
+            data-testid="button-admin-warn-user"
+          >
+            <AlertTriangle className="w-4 h-4 text-yellow-500" />
+            Warn User
+          </button>
+          <button
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors"
+            onClick={() => { onBan(action.userId); onClose(); }}
+            data-testid="button-admin-ban-user"
+          >
+            <Ban className="w-4 h-4" />
+            Ban from Chat
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MentionAutocomplete({
   query,
   participants,
@@ -388,6 +480,7 @@ export default function CommunityChatPage() {
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [adminAction, setAdminAction] = useState<AdminAction>(null);
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -611,9 +704,54 @@ export default function CommunityChatPage() {
     queryClient.invalidateQueries({ queryKey: ["/api/user"] });
   }, []);
 
+  const handleWarnUser = useCallback(async (userId: string, warnMsg: string) => {
+    try {
+      const res = await fetch("/api/community-chat/warn-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, message: warnMsg }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error();
+      toast({ title: "Warning sent to user" });
+      setAdminAction(null);
+    } catch {
+      toast({ title: "Failed to send warning", variant: "destructive" });
+    }
+  }, [toast]);
+
+  const handleBanUser = useCallback(async (userId: string) => {
+    try {
+      const res = await fetch("/api/community-chat/ban-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast({ title: data.error || "Failed to ban", variant: "destructive" });
+        return;
+      }
+      toast({ title: "User banned from community chat" });
+      setAdminAction(null);
+    } catch {
+      toast({ title: "Failed to ban user", variant: "destructive" });
+    }
+  }, [toast]);
+
+  const handleAdminClose = useCallback((next?: string) => {
+    if (next === "warn" && adminAction && "userId" in adminAction) {
+      setAdminAction({ type: "warn", userId: adminAction.userId, username: adminAction.username });
+    } else {
+      setAdminAction(null);
+    }
+  }, [adminAction]);
+
   const typingNames = useMemo(() => Array.from(typingUsers.values()), [typingUsers]);
 
   const isAdminUser = user?.role === "admin" || user?.role === "master_admin";
+  const isBanned = user?.chatBanned === true;
 
   return (
     <div className="flex flex-col h-full" data-testid="community-chat-page">
@@ -662,7 +800,17 @@ export default function CommunityChatPage() {
                     <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
                       <div className={`rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                         <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
-                          <span className="truncate">{msg.chatUsername}</span>
+                          {isAdminUser && !isMe && !msgIsAdmin ? (
+                            <button
+                              className="truncate underline decoration-dotted underline-offset-2 hover:opacity-80 transition-opacity"
+                              onClick={() => setAdminAction({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername })}
+                              data-testid={`button-username-${msg.id}`}
+                            >
+                              {msg.chatUsername}
+                            </button>
+                          ) : (
+                            <span className="truncate">{msg.chatUsername}</span>
+                          )}
                           {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
                         </p>
                         <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
@@ -682,15 +830,6 @@ export default function CommunityChatPage() {
                               <EmojiPicker onSelect={(emoji) => handleReaction(msg.id, emoji)} onClose={() => setActiveEmojiPicker(null)} alignRight={isMe} />
                             )}
                           </div>
-                          {isAdminUser && !isMe && (
-                            <button
-                              onClick={() => handleDeleteMessage(msg.id)}
-                              className="w-5 h-5 flex items-center justify-center rounded-full text-muted-foreground/50 hover:text-destructive transition-colors flex-shrink-0"
-                              data-testid={`button-delete-msg-${msg.id}`}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
                         </div>
                       </div>
                       <ReactionBadges reactions={msg.reactions} userId={user?.id || ""} onToggle={(emoji) => handleReaction(msg.id, emoji)} />
@@ -712,103 +851,119 @@ export default function CommunityChatPage() {
         </div>
       )}
 
-      <div className="border-t p-2 sm:p-3 flex-shrink-0">
-        {typingNames.length > 0 && (
-          <div className="flex items-center gap-1.5 mb-1.5 px-1">
-            <span className="text-xs text-muted-foreground">
-              {typingNames.length === 1 ? typingNames[0] : `${typingNames.length} people`}
-            </span>
-            <BouncingDots />
+      {isBanned ? (
+        <div className="border-t p-3 flex-shrink-0 text-center" data-testid="text-chat-banned">
+          <div className="flex items-center justify-center gap-2 text-destructive">
+            <Ban className="w-4 h-4" />
+            <p className="text-sm font-medium">You have been banned from community chat</p>
           </div>
-        )}
-        <div className="flex items-end gap-2 relative">
-          {mentionQuery !== null && participants && (
-            <MentionAutocomplete
-              query={mentionQuery}
-              participants={participants}
-              isAdmin={isAdminUser}
-              onSelect={insertMention}
-              selectedIndex={mentionIndex}
-            />
-          )}
-          <Textarea
-            ref={messageInputRef}
-            value={message}
-            onChange={(e) => {
-              setMessage(e.target.value);
-              if (e.target.value.trim()) sendTypingEvent();
-              const el = e.target;
-              el.style.height = "auto";
-              el.style.height = Math.min(el.scrollHeight, 120) + "px";
-              detectMention(e.target.value, el.selectionStart);
-            }}
-            onKeyDown={(e) => {
-              if (mentionQuery !== null && participants) {
-                const q = mentionQuery.toLowerCase();
-                const filtered: Participant[] = [];
-                if (isAdminUser && "everyone".startsWith(q)) {
-                  filtered.push({ username: "everyone", isAdmin: true });
-                }
-                for (const p of participants) {
-                  if (p.username.toLowerCase().startsWith(q)) filtered.push(p);
-                }
-                if (filtered.length === 0) {
-                  for (const p of participants) {
-                    if (p.username.toLowerCase().includes(q) && !filtered.some(f => f.username === p.username)) filtered.push(p);
-                  }
-                }
-                const shown = filtered.slice(0, 8);
-                if (shown.length > 0) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setMentionIndex(i => (i + 1) % shown.length);
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setMentionIndex(i => (i - 1 + shown.length) % shown.length);
-                    return;
-                  }
-                  if (e.key === "Enter" || e.key === "Tab") {
-                    e.preventDefault();
-                    insertMention(shown[mentionIndex].username);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setMentionQuery(null);
-                    mentionStartRef.current = null;
-                    return;
-                  }
-                }
-              }
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            onSelect={(e) => {
-              const el = e.target as HTMLTextAreaElement;
-              detectMention(el.value, el.selectionStart);
-            }}
-            placeholder="Type a message..."
-            className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm"
-            rows={1}
-            data-testid="input-community-message"
-          />
-          <Button
-            size="icon"
-            className="flex-shrink-0 h-9 w-9"
-            onClick={handleSend}
-            disabled={!message.trim()}
-            data-testid="button-send-community-message"
-          >
-            <Send className="w-4 h-4" />
-          </Button>
         </div>
-      </div>
+      ) : (
+        <div className="border-t p-2 sm:p-3 flex-shrink-0 ios-input-fix">
+          {typingNames.length > 0 && (
+            <div className="flex items-center gap-1.5 mb-1.5 px-1">
+              <span className="text-xs text-muted-foreground">
+                {typingNames.length === 1 ? typingNames[0] : `${typingNames.length} people`}
+              </span>
+              <BouncingDots />
+            </div>
+          )}
+          <div className="flex items-end gap-2 relative">
+            {mentionQuery !== null && participants && (
+              <MentionAutocomplete
+                query={mentionQuery}
+                participants={participants}
+                isAdmin={isAdminUser}
+                onSelect={insertMention}
+                selectedIndex={mentionIndex}
+              />
+            )}
+            <Textarea
+              ref={messageInputRef}
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (e.target.value.trim()) sendTypingEvent();
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = Math.min(el.scrollHeight, 120) + "px";
+                detectMention(e.target.value, el.selectionStart);
+              }}
+              onKeyDown={(e) => {
+                if (mentionQuery !== null && participants) {
+                  const q = mentionQuery.toLowerCase();
+                  const filtered: Participant[] = [];
+                  if (isAdminUser && "everyone".startsWith(q)) {
+                    filtered.push({ username: "everyone", isAdmin: true });
+                  }
+                  for (const p of participants) {
+                    if (p.username.toLowerCase().startsWith(q)) filtered.push(p);
+                  }
+                  if (filtered.length === 0) {
+                    for (const p of participants) {
+                      if (p.username.toLowerCase().includes(q) && !filtered.some(f => f.username === p.username)) filtered.push(p);
+                    }
+                  }
+                  const shown = filtered.slice(0, 8);
+                  if (shown.length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setMentionIndex(i => (i + 1) % shown.length);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setMentionIndex(i => (i - 1 + shown.length) % shown.length);
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      insertMention(shown[mentionIndex].username);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setMentionQuery(null);
+                      mentionStartRef.current = null;
+                      return;
+                    }
+                  }
+                }
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              onSelect={(e) => {
+                const el = e.target as HTMLTextAreaElement;
+                detectMention(el.value, el.selectionStart);
+              }}
+              placeholder="Type a message..."
+              className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm"
+              rows={1}
+              data-testid="input-community-message"
+            />
+            <Button
+              size="icon"
+              className="flex-shrink-0 h-9 w-9"
+              onClick={handleSend}
+              disabled={!message.trim()}
+              data-testid="button-send-community-message"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       <UsernameSetupDialog open={showUsernameDialog} onComplete={handleUsernameComplete} />
+      <AdminActionPopup
+        action={adminAction}
+        onClose={handleAdminClose}
+        onDelete={handleDeleteMessage}
+        onWarnSubmit={handleWarnUser}
+        onBan={handleBanUser}
+      />
     </div>
   );
 }
