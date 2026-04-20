@@ -11,6 +11,19 @@ function stripHtml(html: string): string {
   return String(html ?? "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }
 
+function stripHtmlPreserveBreaks(html: string): string {
+  let s = String(html ?? "");
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/(p|div|h[1-6]|li|blockquote|tr)>/gi, "\n\n");
+  s = s.replace(/<li[^>]*>/gi, "• ");
+  s = s.replace(/<[^>]*>/g, "");
+  s = s.replace(/&nbsp;/gi, " ");
+  s = s.replace(/[ \t]+/g, " ");
+  s = s.replace(/[ \t]*\n[ \t]*/g, "\n");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
 function truncate(text: string, max = 800): string {
   const t = text ?? "";
   return t.length > max ? t.substring(0, max) + "..." : t;
@@ -203,7 +216,7 @@ export function composeNews(opts: {
   title: string;
   content: string;
 }): string[] {
-  const plain = stripHtml(opts.content);
+  const plain = stripHtmlPreserveBreaks(opts.content);
   const escapedTitle = escapeHtml(opts.title);
   const firstHeader = `📰 <b>NEWS</b>\n\n<b>${escapedTitle}</b>\n`;
   const contHeader = `📰 <b>NEWS (continued)</b>\n\n`;
