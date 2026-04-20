@@ -17,7 +17,7 @@ import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
-import { fireTelegram, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
+import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
 
 const sanitizeNewsContent = (html: string): string =>
   sanitizeHtml(html, {
@@ -1962,7 +1962,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const customerIds = allUsers.filter(u => u.role === "customer").map(u => u.id);
       storage.createContentNotificationBulk(customerIds, "news", story.title, story.id).catch(() => {});
-      fireTelegram(composeNews({ title: story.title, content: story.content || "" }), "news");
+      fireTelegramMany(composeNews({ title: story.title, content: story.content || "" }), "news");
       res.json(story);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

@@ -65,6 +65,15 @@ export function fireTelegram(text: string, category?: TelegramCategory): void {
   sendTelegramMessage(text, category).catch((e) => console.error("[Telegram] fire error:", e));
 }
 
+export function fireTelegramMany(texts: string[], category?: TelegramCategory): void {
+  (async () => {
+    for (const t of texts) {
+      const r = await sendTelegramMessage(t, category);
+      if (!r.ok) break;
+    }
+  })().catch((e) => console.error("[Telegram] fire-many error:", e));
+}
+
 const impactEmoji: Record<string, string> = {
   outage: "🔴",
   degraded: "🟡",
@@ -155,15 +164,57 @@ export function composeServiceUpdate(opts: {
   ].join("\n");
 }
 
+const TELEGRAM_MAX_LEN = 4096;
+
+function splitForTelegram(body: string, headerLen: number): string[] {
+  const firstBudget = TELEGRAM_MAX_LEN - headerLen - 16;
+  const restBudget = TELEGRAM_MAX_LEN - 64;
+  const chunks: string[] = [];
+  let remaining = body;
+  let budget = firstBudget;
+  while (remaining.length > budget) {
+    const slice = remaining.slice(0, budget);
+    let cut = slice.lastIndexOf("\n\n");
+    if (cut < budget * 0.5) {
+      const sentenceCut = Math.max(
+        slice.lastIndexOf(". "),
+        slice.lastIndexOf("! "),
+        slice.lastIndexOf("? "),
+        slice.lastIndexOf(".\n"),
+        slice.lastIndexOf("!\n"),
+        slice.lastIndexOf("?\n"),
+      );
+      if (sentenceCut >= budget * 0.5) cut = sentenceCut + 1;
+    }
+    if (cut < budget * 0.5) {
+      const wsCut = slice.lastIndexOf(" ");
+      if (wsCut > 0) cut = wsCut;
+    }
+    if (cut <= 0) cut = budget;
+    chunks.push(remaining.slice(0, cut).trimEnd());
+    remaining = remaining.slice(cut).trimStart();
+    budget = restBudget;
+  }
+  if (remaining.length > 0) chunks.push(remaining);
+  return chunks;
+}
+
 export function composeNews(opts: {
   title: string;
   content: string;
-}): string {
+}): string[] {
   const plain = stripHtml(opts.content);
-  return [
-    `📰 <b>NEWS</b>`,
-    ``,
-    `<b>${escapeHtml(opts.title)}</b>`,
-    `<i>${escapeHtml(truncate(plain, 600))}</i>`,
-  ].join("\n");
+  const escapedTitle = escapeHtml(opts.title);
+  const firstHeader = `📰 <b>NEWS</b>\n\n<b>${escapedTitle}</b>\n`;
+  const contHeader = `📰 <b>NEWS (continued)</b>\n\n`;
+
+  const escaped = escapeHtml(plain);
+  const firstHeaderLen = firstHeader.length + 7; // <i></i> wrapper
+  const bodyChunks = splitForTelegram(escaped, firstHeaderLen);
+  if (bodyChunks.length === 0) return [`${firstHeader}<i></i>`];
+  return bodyChunks.map((chunk, i) =>
+    i === 0
+      ? `${firstHeader}<i>${chunk}</i>`
+      : `${contHeader}<i>${chunk}</i>`
+  );
 }
