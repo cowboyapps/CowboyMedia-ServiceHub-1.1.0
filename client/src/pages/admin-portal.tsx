@@ -5153,7 +5153,7 @@ export default function AdminPortal() {
     { key: "chat-admin", label: "Chat Admin", icon: ShieldCheck, color: "text-violet-500", bg: "bg-violet-500/10" },
     { key: "monitoring", label: "URL Monitoring", icon: Globe, color: "text-lime-500", bg: "bg-lime-500/10" },
     { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
-    { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10", masterOnly: true },
+    { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
   ];
 
@@ -5185,7 +5185,7 @@ export default function AdminPortal() {
       case "chat-admin": return <ChatAdminTab />;
       case "monitoring": return <MonitoringTab canManage={canManageSection("monitoring")} />;
       case "logs": return <LogsTab />;
-      case "telegram": return isMasterAdmin ? <TelegramTab /> : null;
+      case "telegram": return <TelegramTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab /> : null;
       default: return null;
     }
