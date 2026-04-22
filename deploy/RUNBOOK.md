@@ -175,6 +175,7 @@ Optional: change SSH port, restrict source IPs in UFW, enable unattended-upgrade
 | Push notifications stop arriving | VAPID keys regenerated, OR domain changed | Same domain + same VAPID keys = no problem. If either changed, every browser sub is dead; users must re-enable. |
 | `pg_restore` errors about missing extensions | The dump uses `pgcrypto` for `gen_random_uuid()`. | `sudo -u postgres psql servicehub -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'` then re-run. |
 | App keeps restart-looping | Bad env var | `sudo -u servicehub pm2 logs servicehub --lines 100`. Most often a missing or malformed `DATABASE_URL`. |
+| `Error: SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string` spamming err.log | PM2 was started in a shell that never sourced `.env`, so `DATABASE_URL` is undefined. Should not happen with current scripts; only seen on instances installed before that fix. | `sudo -u servicehub bash -lc 'cd /opt/servicehub && set -a && . .env && set +a && pm2 restart servicehub --update-env && pm2 save'` |
 | Nginx 502 | App not listening on 5000 | `curl http://127.0.0.1:5000/api/health` directly. If it fails, fix the app first. |
 | Disk filling | Logs / backups | `du -sh /var/log/servicehub /var/backups/servicehub`. logrotate caps logs; backup script caps snapshots. |
 

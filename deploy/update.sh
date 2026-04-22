@@ -69,7 +69,11 @@ if ! sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && se
 fi
 
 echo "==> Reloading PM2 (zero downtime)..."
-sudo -u "$APP_USER" -H bash -lc "pm2 reload servicehub --update-env"
+# Source $ENV_FILE so --update-env actually has fresh vars to propagate
+# (--update-env reads from the calling shell's environment, not from disk).
+# Re-save afterwards so PM2's resurrect dump matches running state.
+sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+  pm2 reload servicehub --update-env && pm2 save"
 
 echo "==> Post-update health check..."
 sleep 5

@@ -137,9 +137,17 @@ echo "==> Pushing schema (drizzle db:push)..."
 sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push"
 
 echo "==> Starting PM2..."
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && pm2 start deploy/ecosystem.config.cjs && pm2 save"
+# Source $ENV_FILE before pm2 start so the spawned Node process inherits
+# DATABASE_URL and friends. PM2's `env_file` option is silently ignored on
+# older PM2 builds, so we never rely on it. `--update-env` + `pm2 save`
+# captures the env into the saved dump that `pm2 resurrect` reads on boot.
+sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && \
+  pm2 start deploy/ecosystem.config.cjs --update-env && pm2 save"
 # pm2 startup writes a systemd unit that runs PM2 as $APP_USER on boot.
-env PATH=$PATH:/usr/bin pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_USER" | tail -n 1 | bash
+# When invoked as root with -u $APP_USER it self-installs; the previous
+# `| tail -n 1 | bash` only piped a "$ ..." copy/paste hint into bash and
+# produced a noisy `bash: line 1: $: command not found`.
+env PATH=$PATH:/usr/bin pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_USER"
 
 echo "==> Configuring Nginx..."
 NGINX_CONF=/etc/nginx/sites-available/servicehub

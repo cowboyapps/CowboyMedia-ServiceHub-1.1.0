@@ -270,8 +270,15 @@ sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a 
 
 if [[ "$MODE" == "full" ]]; then
   echo "==> Starting PM2..."
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && pm2 start deploy/ecosystem.config.cjs && pm2 save"
-  env PATH=$PATH:/usr/bin pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_USER" | tail -n 1 | bash
+  # Source $ENV_FILE before pm2 start so DATABASE_URL et al. land in the
+  # spawned Node process. Pass --update-env on save so PM2's saved dump
+  # (read by `pm2 resurrect` on reboot) contains the correct env too.
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && \
+    pm2 start deploy/ecosystem.config.cjs --update-env && pm2 save"
+  # When pm2 startup is invoked as root with -u $APP_USER, PM2 self-installs
+  # the systemd unit; no need to pipe its hint output through bash (which
+  # used to fail with `bash: line 1: $: command not found`).
+  env PATH=$PATH:/usr/bin pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_USER"
 
   echo "==> Configuring Nginx..."
   NGINX_CONF=/etc/nginx/sites-available/servicehub
@@ -323,7 +330,9 @@ EOF
   systemctl enable --now servicehub-backup.timer
 else
   echo "==> Reloading PM2..."
-  sudo -u "$APP_USER" -H bash -lc "pm2 reload servicehub || (cd $APP_DIR && pm2 start deploy/ecosystem.config.cjs && pm2 save)"
+  sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+    (pm2 reload servicehub --update-env || \
+     (cd $APP_DIR && pm2 start deploy/ecosystem.config.cjs --update-env)) && pm2 save"
 fi
 
 echo "==> Smoke-testing /api/health..."
