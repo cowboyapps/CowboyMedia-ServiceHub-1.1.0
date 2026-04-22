@@ -40,11 +40,12 @@ echo "==> Extracting bundle to $WORK..."
 tar -xzf "$BUNDLE" -C "$WORK"
 BUNDLE_ROOT="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [[ -z "$BUNDLE_ROOT" ]] && BUNDLE_ROOT="$WORK"
-# Make extracted contents readable+traversable by $APP_USER without granting
-# write. Files inside the bundle (db.dump, MANIFEST, secrets.env) inherit
-# tar's recorded mode which may also be 0600 — normalize them so pg_restore
-# running as servicehub can open db.dump.
-chmod -R a+rX "$BUNDLE_ROOT"
+# Narrow read access: only the bundle dir (so $APP_USER can traverse) and
+# db.dump (so pg_restore can read it). secrets.env is parsed by *this* root
+# script and never read by the unprivileged user, so leave its tar-recorded
+# 0600 mode intact to keep credentials off other-readable.
+chmod 755 "$BUNDLE_ROOT"
+[[ -f "$BUNDLE_ROOT/db.dump" ]] && chmod 644 "$BUNDLE_ROOT/db.dump"
 
 DUMP_FILE="$BUNDLE_ROOT/db.dump"
 SECRETS_FILE="$BUNDLE_ROOT/secrets.env"
