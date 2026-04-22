@@ -32,10 +32,19 @@ ENV_FILE="$APP_DIR/.env"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# mktemp -d creates a 0700 dir owned by root. The unprivileged $APP_USER
+# (servicehub) needs to traverse it to read the extracted db.dump for
+# pg_restore, so relax to 0755 (traversable, not writable by others).
+chmod 755 "$WORK"
 echo "==> Extracting bundle to $WORK..."
 tar -xzf "$BUNDLE" -C "$WORK"
 BUNDLE_ROOT="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [[ -z "$BUNDLE_ROOT" ]] && BUNDLE_ROOT="$WORK"
+# Make extracted contents readable+traversable by $APP_USER without granting
+# write. Files inside the bundle (db.dump, MANIFEST, secrets.env) inherit
+# tar's recorded mode which may also be 0600 — normalize them so pg_restore
+# running as servicehub can open db.dump.
+chmod -R a+rX "$BUNDLE_ROOT"
 
 DUMP_FILE="$BUNDLE_ROOT/db.dump"
 SECRETS_FILE="$BUNDLE_ROOT/secrets.env"
