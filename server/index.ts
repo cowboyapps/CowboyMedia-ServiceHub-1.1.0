@@ -5,11 +5,23 @@ import { createServer } from "http";
 import { seed } from "./seed";
 import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
+
+app.get("/api/health", async (_req, res) => {
+  let dbStatus: "up" | "down" = "down";
+  try {
+    await db.execute(sql`SELECT 1`);
+    dbStatus = "up";
+  } catch (e) {
+    dbStatus = "down";
+  }
+  const ok = dbStatus === "up";
+  res.status(ok ? 200 : 503).json({ ok, db: dbStatus });
+});
 
 declare module "http" {
   interface IncomingMessage {
@@ -244,4 +256,31 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log(`received ${signal}, shutting down gracefully...`);
+    const forceExit = setTimeout(() => {
+      log("forced exit after 10s shutdown timeout");
+      process.exit(1);
+    }, 10000);
+    forceExit.unref();
+    httpServer.close(async (err) => {
+      if (err) {
+        log(`httpServer close error: ${err.message}`);
+      }
+      try {
+        await pool.end();
+        log("postgres pool drained");
+      } catch (e: any) {
+        log(`pool end error: ${e?.message ?? e}`);
+      }
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();

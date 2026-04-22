@@ -334,8 +334,12 @@ function isUserViewingAdminChat(userId: string, threadId: string): boolean {
 }
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  const vapidContact = process.env.VAPID_CONTACT_EMAIL || "admin@servicehub.app";
+  const vapidSubject = vapidContact.startsWith("mailto:") || vapidContact.startsWith("https:")
+    ? vapidContact
+    : `mailto:${vapidContact}`;
   webpush.setVapidDetails(
-    "mailto:admin@servicehub.app",
+    vapidSubject,
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );
@@ -537,12 +541,19 @@ export async function registerRoutes(
       const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
       await storage.createPasswordResetToken({ userId: user.id, tokenHash, expiresAt });
+      const appBaseUrl = process.env.APP_BASE_URL;
       const replitDomains = process.env.REPLIT_DOMAINS;
       let baseUrl: string;
-      if (replitDomains) {
+      if (appBaseUrl) {
+        baseUrl = appBaseUrl.replace(/\/+$/, "");
+      } else if (replitDomains) {
         const primaryDomain = replitDomains.split(",")[0];
         baseUrl = `https://${primaryDomain}`;
       } else if (process.env.NODE_ENV === "production") {
+        // Fail closed: never derive base URL from request Host header in
+        // production (host-header poisoning would let an attacker craft the
+        // reset link sent in our outbound email).
+        console.error("Password reset: APP_BASE_URL must be set in production. Aborting reset link send.");
         return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
       } else {
         baseUrl = `http://localhost:5000`;
