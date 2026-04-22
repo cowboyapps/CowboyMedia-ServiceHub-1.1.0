@@ -29,10 +29,26 @@ pg_dump --format=custom --no-owner --no-acl --clean --if-exists \
 
 echo "==> Generating MANIFEST.txt..."
 GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+# Schema version: hash of shared/schema.ts (the single source of truth for
+# the Drizzle schema). On the VPS, after restore, the same hash should be
+# producible from the deployed code if the schemas match. Mismatch is not
+# an error (the VPS code is usually one or more commits ahead — that is
+# the whole point of update.sh and additive-only migrations) but it is
+# useful for forensic comparison if a restore behaves unexpectedly.
+SCHEMA_HASH="unknown"
+if [[ -f "shared/schema.ts" ]]; then
+  SCHEMA_HASH="$(sha256sum shared/schema.ts | awk '{print $1}')"
+fi
+# List of tables present in the live DB at export time — restore can compare.
+TABLE_LIST="$(psql "$DATABASE_URL" -tAc \
+  "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name" \
+  2>/dev/null | tr '\n' ',' | sed 's/,$//')"
 {
   echo "ServiceHub migration bundle"
   echo "Generated: $TS UTC"
   echo "Source git SHA: $GIT_SHA"
+  echo "Schema version (sha256 of shared/schema.ts): $SCHEMA_HASH"
+  echo "Tables at export: $TABLE_LIST"
   echo ""
   echo "Row counts:"
   for tbl in users tickets ticket_messages services service_alerts news_stories \

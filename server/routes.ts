@@ -234,6 +234,10 @@ function broadcastToThreadParticipants(data: any, participantUserIds: string[]) 
 }
 
 let wsSessionUserMap: Map<WebSocket, string>;
+let wssRef: WebSocketServer | null = null;
+export function getWebSocketServer(): WebSocketServer | null {
+  return wssRef;
+}
 
 function broadcast(data: any) {
   const message = JSON.stringify(data);
@@ -550,11 +554,23 @@ export async function registerRoutes(
         const primaryDomain = replitDomains.split(",")[0];
         baseUrl = `https://${primaryDomain}`;
       } else if (process.env.NODE_ENV === "production") {
-        // Fail closed: never derive base URL from request Host header in
-        // production (host-header poisoning would let an attacker craft the
-        // reset link sent in our outbound email).
-        console.error("Password reset: APP_BASE_URL must be set in production. Aborting reset link send.");
-        return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+        // Last-resort production fallback: derive from request Host. Only
+        // trusted when ALLOW_HOST_HEADER_BASE_URL=true is explicitly set,
+        // because Host header is attacker-controllable. Default behaviour
+        // is fail-closed — operator must set APP_BASE_URL in /opt/servicehub/.env.
+        if (process.env.ALLOW_HOST_HEADER_BASE_URL === "true") {
+          const hostHeader = req.get("host");
+          if (hostHeader) {
+            const proto = (req.get("x-forwarded-proto") || "https").split(",")[0].trim();
+            baseUrl = `${proto}://${hostHeader}`;
+          } else {
+            console.error("Password reset: no APP_BASE_URL/REPLIT_DOMAINS/Host header available");
+            return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+          }
+        } else {
+          console.error("Password reset: APP_BASE_URL must be set in production (or ALLOW_HOST_HEADER_BASE_URL=true to opt into Host-header fallback). Aborting.");
+          return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
+        }
       } else {
         baseUrl = `http://localhost:5000`;
       }
@@ -3292,6 +3308,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   const wss = new WebSocketServer({ noServer: true });
+  wssRef = wss;
   wsSessionUserMap = new Map<WebSocket, string>();
 
   httpServer.on("upgrade", (req, socket, head) => {

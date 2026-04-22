@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes, getWebSocketServer } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
@@ -267,6 +267,7 @@ app.use((req, res, next) => {
       process.exit(1);
     }, 10000);
     forceExit.unref();
+    // 1) stop accepting new HTTP/WS connections
     httpServer.close(async (err) => {
       if (err) {
         log(`httpServer close error: ${err.message}`);
@@ -280,6 +281,31 @@ app.use((req, res, next) => {
       clearTimeout(forceExit);
       process.exit(0);
     });
+
+    // 2) explicitly close the WebSocket server and existing clients —
+    //    httpServer.close() alone does NOT terminate already-connected
+    //    WebSockets, which would block close() from completing.
+    const wss = getWebSocketServer();
+    if (wss) {
+      try {
+        wss.clients.forEach((ws) => {
+          try { ws.close(1001, "server shutting down"); } catch {}
+        });
+        // Hard-terminate any client that hasn't acknowledged in 5s.
+        const wsForce = setTimeout(() => {
+          wss.clients.forEach((ws) => {
+            try { (ws as any).terminate?.(); } catch {}
+          });
+        }, 5000);
+        wsForce.unref();
+        wss.close((wsErr) => {
+          if (wsErr) log(`wss close error: ${wsErr.message}`);
+          else log("websocket server closed");
+        });
+      } catch (e: any) {
+        log(`wss shutdown error: ${e?.message ?? e}`);
+      }
+    }
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
