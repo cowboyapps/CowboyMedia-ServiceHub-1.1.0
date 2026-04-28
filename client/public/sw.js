@@ -1,4 +1,4 @@
-const CACHE_NAME = 'servicehub-v9';
+const CACHE_NAME = 'servicehub-v10';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
