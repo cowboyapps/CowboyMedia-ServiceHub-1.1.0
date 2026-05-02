@@ -36,7 +36,10 @@ import {
   type TelegramSettings,
   type BusinessHours,
   type UpdateBusinessHoursData,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours,
+  type Announcement,
+  type InsertAnnouncement,
+  type UpdateAnnouncement,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
@@ -233,6 +236,15 @@ export interface IStorage {
   updateTelegramSettings(data: { chatId?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<TelegramSettings>;
   getBusinessHours(): Promise<BusinessHours>;
   updateBusinessHours(data: UpdateBusinessHoursData): Promise<BusinessHours>;
+
+  listAnnouncements(): Promise<Announcement[]>;
+  getAnnouncement(id: string): Promise<Announcement | undefined>;
+  getActiveAnnouncement(): Promise<Announcement | undefined>;
+  createAnnouncement(data: InsertAnnouncement & { createdByUserId: string }): Promise<Announcement>;
+  updateAnnouncement(id: string, data: UpdateAnnouncement): Promise<Announcement | undefined>;
+  deleteAnnouncement(id: string): Promise<void>;
+  hasUserSeenAnnouncement(announcementId: string, userId: string): Promise<boolean>;
+  markAnnouncementSeen(announcementId: string, userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1194,6 +1206,76 @@ export class DatabaseStorage implements IStorage {
     if (updated) return updated;
     const [created] = await db.insert(businessHours).values({ id: "singleton", ...patch }).returning();
     return created;
+  }
+
+  async listAnnouncements(): Promise<Announcement[]> {
+    return db.select().from(announcements).orderBy(desc(announcements.createdAt));
+  }
+
+  async getAnnouncement(id: string): Promise<Announcement | undefined> {
+    const [row] = await db.select().from(announcements).where(eq(announcements.id, id));
+    return row;
+  }
+
+  async getActiveAnnouncement(): Promise<Announcement | undefined> {
+    const [row] = await db
+      .select()
+      .from(announcements)
+      .where(eq(announcements.active, true))
+      .orderBy(desc(announcements.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async createAnnouncement(data: InsertAnnouncement & { createdByUserId: string }): Promise<Announcement> {
+    const [created] = await db.insert(announcements).values({
+      title: data.title,
+      bodyHtml: data.bodyHtml,
+      linkPath: data.linkPath ?? null,
+      linkLabel: data.linkLabel ?? null,
+      frequency: data.frequency ?? "once",
+      active: data.active ?? true,
+      createdByUserId: data.createdByUserId,
+    }).returning();
+    return created;
+  }
+
+  async updateAnnouncement(id: string, data: UpdateAnnouncement): Promise<Announcement | undefined> {
+    const patch: Record<string, any> = {};
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.bodyHtml !== undefined) patch.bodyHtml = data.bodyHtml;
+    if (data.linkPath !== undefined) patch.linkPath = data.linkPath;
+    if (data.linkLabel !== undefined) patch.linkLabel = data.linkLabel;
+    if (data.frequency !== undefined) patch.frequency = data.frequency;
+    if (data.active !== undefined) patch.active = data.active;
+    if (Object.keys(patch).length === 0) return this.getAnnouncement(id);
+    const [updated] = await db.update(announcements).set(patch).where(eq(announcements.id, id)).returning();
+    return updated;
+  }
+
+  async deleteAnnouncement(id: string): Promise<void> {
+    await db.delete(announcementDismissals).where(eq(announcementDismissals.announcementId, id));
+    await db.delete(announcements).where(eq(announcements.id, id));
+  }
+
+  async hasUserSeenAnnouncement(announcementId: string, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select()
+      .from(announcementDismissals)
+      .where(and(
+        eq(announcementDismissals.announcementId, announcementId),
+        eq(announcementDismissals.userId, userId),
+      ))
+      .limit(1);
+    return !!row;
+  }
+
+  async markAnnouncementSeen(announcementId: string, userId: string): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO announcement_dismissals (announcement_id, user_id)
+      VALUES (${announcementId}, ${userId})
+      ON CONFLICT (announcement_id, user_id) DO NOTHING
+    `);
   }
 }
 

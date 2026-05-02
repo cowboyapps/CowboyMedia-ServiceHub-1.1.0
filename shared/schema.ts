@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -532,6 +532,50 @@ export const updateBusinessHoursSchema = z.object({
 });
 
 export type UpdateBusinessHoursData = z.infer<typeof updateBusinessHoursSchema>;
+
+export const announcements = pgTable("announcements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  bodyHtml: text("body_html").notNull(),
+  linkPath: text("link_path"),
+  linkLabel: text("link_label"),
+  frequency: text("frequency").notNull().default("once"),
+  active: boolean("active").notNull().default(true),
+  createdByUserId: varchar("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const announcementDismissals = pgTable("announcement_dismissals", {
+  announcementId: varchar("announcement_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  dismissedAt: timestamp("dismissed_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.announcementId, table.userId] }),
+}));
+
+export type Announcement = typeof announcements.$inferSelect;
+export type AnnouncementDismissal = typeof announcementDismissals.$inferSelect;
+
+export const insertAnnouncementSchema = createInsertSchema(announcements).omit({
+  id: true,
+  createdAt: true,
+  createdByUserId: true,
+}).extend({
+  title: z.string().min(1, "Title is required").max(200),
+  bodyHtml: z.string().min(1, "Body is required").refine(
+    (val) => val.replace(/<[^>]*>/g, "").trim().length > 0,
+    "Body is required"
+  ),
+  linkPath: z.string().nullable().optional(),
+  linkLabel: z.string().max(60).nullable().optional(),
+  frequency: z.enum(["once", "always"]).default("once"),
+  active: z.boolean().default(true),
+});
+
+export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
+
+export const updateAnnouncementSchema = insertAnnouncementSchema.partial();
+export type UpdateAnnouncement = z.infer<typeof updateAnnouncementSchema>;
 
 // Login schema
 export const loginSchema = z.object({

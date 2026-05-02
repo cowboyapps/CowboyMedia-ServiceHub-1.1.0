@@ -22,13 +22,14 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone } from "lucide-react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
-import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident } from "@shared/schema";
+import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement } from "@shared/schema";
 import { RichTextEditor, stripHtml } from "@/components/rich-text-editor";
+import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 
 const createServiceSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -3951,6 +3952,7 @@ const ALL_PERMISSIONS = [
   { category: "Admin Chat", perms: ["admin_chat"] },
   { category: "Logs", perms: ["logs.view"] },
   { category: "URL Monitoring", perms: ["monitoring.view", "monitoring.manage"] },
+  { category: "Announcements", perms: ["announcements"] },
 ];
 
 function AdminManagementTab() {
@@ -4956,6 +4958,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "logs": "logs.view",
   "monitoring": "monitoring.view",
   "chat-admin": "admin_chat",
+  "announcements": "announcements",
 };
 
 const TILE_MANAGE_MAP: Record<string, string> = {
@@ -4970,7 +4973,277 @@ const TILE_MANAGE_MAP: Record<string, string> = {
   "email-templates": "email_templates.manage",
   "downloads": "downloads.manage",
   "monitoring": "monitoring.manage",
+  "announcements": "announcements",
 };
+
+const NO_LINK_VALUE = "__none__";
+
+function AnnouncementsTab() {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Announcement | null>(null);
+  const [title, setTitle] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [linkPath, setLinkPath] = useState<string>(NO_LINK_VALUE);
+  const [linkLabel, setLinkLabel] = useState("");
+  const [frequency, setFrequency] = useState<"once" | "always">("once");
+  const [active, setActive] = useState(true);
+
+  const { data: list = [], isLoading } = useQuery<Announcement[]>({
+    queryKey: ["/api/admin/announcements"],
+  });
+
+  const resetForm = () => {
+    setEditing(null);
+    setTitle("");
+    setBodyHtml("");
+    setLinkPath(NO_LINK_VALUE);
+    setLinkLabel("");
+    setFrequency("once");
+    setActive(true);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const openEdit = (a: Announcement) => {
+    setEditing(a);
+    setTitle(a.title);
+    setBodyHtml(a.bodyHtml);
+    setLinkPath(a.linkPath ?? NO_LINK_VALUE);
+    setLinkLabel(a.linkLabel ?? "");
+    setFrequency((a.frequency as "once" | "always") ?? "once");
+    setActive(a.active);
+    setDialogOpen(true);
+  };
+
+  const buildPayload = () => ({
+    title: title.trim(),
+    bodyHtml: bodyHtml,
+    linkPath: linkPath === NO_LINK_VALUE ? null : linkPath,
+    linkLabel: linkPath === NO_LINK_VALUE || !linkLabel.trim() ? null : linkLabel.trim(),
+    frequency,
+    active,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/announcements", buildPayload());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+      setDialogOpen(false);
+      resetForm();
+      toast({ title: "Announcement created" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async () => {
+      if (!editing) return;
+      const res = await apiRequest("PATCH", `/api/admin/announcements/${editing.id}`, buildPayload());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+      setDialogOpen(false);
+      resetForm();
+      toast({ title: "Announcement updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
+      await apiRequest("PATCH", `/api/admin/announcements/${id}`, { active });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/announcements/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+      toast({ title: "Announcement deleted" });
+    },
+  });
+
+  const activeShown = list.find(a => a.active);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h3 className="font-semibold">Announcements ({list.length})</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Only the newest Active announcement is shown to customers.
+          </p>
+        </div>
+        <Button size="sm" onClick={openCreate} data-testid="button-create-announcement">
+          <Plus className="w-4 h-4 mr-1" /> New Announcement
+        </Button>
+      </div>
+
+      {activeShown && (
+        <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm" data-testid="banner-active-announcement">
+          <p className="font-medium">Currently shown to customers:</p>
+          <p className="text-muted-foreground">{activeShown.title}</p>
+        </div>
+      )}
+
+      {isLoading ? <Skeleton className="h-32" /> : list.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">No announcements yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {list.map(a => (
+            <Card key={a.id} data-testid={`card-announcement-${a.id}`}>
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-sm truncate">{a.title}</p>
+                      <Badge variant={a.active ? "default" : "secondary"} data-testid={`badge-announcement-status-${a.id}`}>
+                        {a.active ? "Active" : "Inactive"}
+                      </Badge>
+                      <Badge variant="outline">
+                        {a.frequency === "always" ? "Every open" : "Once per user"}
+                      </Badge>
+                      {a.linkPath && (
+                        <Badge variant="outline" className="gap-1">
+                          <ExternalLink className="w-3 h-3" />
+                          {getAnnouncementRouteLabel(a.linkPath) ?? a.linkPath}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Created {format(new Date(a.createdAt), "MMM d, yyyy h:mm a")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Switch
+                      checked={a.active}
+                      onCheckedChange={(v) => toggleActiveMutation.mutate({ id: a.id, active: v })}
+                      data-testid={`switch-announcement-active-${a.id}`}
+                    />
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(a)} data-testid={`button-edit-announcement-${a.id}`}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" data-testid={`button-delete-announcement-${a.id}`}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Announcement</AlertDialogTitle>
+                          <AlertDialogDescription>This permanently deletes the announcement and clears any seen-state for users. Continue?</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(a.id)}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+                <div
+                  className="prose prose-sm dark:prose-invert max-w-none text-sm text-muted-foreground line-clamp-2"
+                  dangerouslySetInnerHTML={{ __html: a.bodyHtml }}
+                />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) { setDialogOpen(false); resetForm(); } }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit Announcement" : "New Announcement"}</DialogTitle>
+            <DialogDescription>
+              Customers see the newest Active announcement when they open the app.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Title (admin-only)</Label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Holiday hours notice"
+                data-testid="input-announcement-title"
+              />
+            </div>
+            <div>
+              <Label>Body</Label>
+              <RichTextEditor value={bodyHtml} onChange={setBodyHtml} testIdPrefix="announcement" />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <Label>Frequency</Label>
+                <Select value={frequency} onValueChange={(v) => setFrequency(v as "once" | "always")}>
+                  <SelectTrigger data-testid="select-announcement-frequency"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="once">Once per user</SelectItem>
+                    <SelectItem value="always">Every app open</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3 gap-2">
+                <div>
+                  <p className="text-sm font-medium">Active</p>
+                  <p className="text-xs text-muted-foreground">Only the newest active is shown.</p>
+                </div>
+                <Switch checked={active} onCheckedChange={setActive} data-testid="switch-announcement-active" />
+              </div>
+            </div>
+            <div>
+              <Label>In-app link (optional)</Label>
+              <Select value={linkPath} onValueChange={setLinkPath}>
+                <SelectTrigger data-testid="select-announcement-link"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_LINK_VALUE}>No link</SelectItem>
+                  {ANNOUNCEMENT_ROUTES.map(r => (
+                    <SelectItem key={r.path} value={r.path}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {linkPath !== NO_LINK_VALUE && (
+              <div>
+                <Label>Button label (optional)</Label>
+                <Input
+                  value={linkLabel}
+                  onChange={(e) => setLinkLabel(e.target.value)}
+                  placeholder={`Defaults to "View"`}
+                  data-testid="input-announcement-link-label"
+                />
+              </div>
+            )}
+            <Button
+              className="w-full"
+              disabled={!title.trim() || createMutation.isPending || updateMutation.isPending}
+              onClick={() => editing ? updateMutation.mutate() : createMutation.mutate()}
+              data-testid="button-save-announcement"
+            >
+              {editing ? "Save Changes" : "Publish Announcement"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 function TelegramTab() {
   const { toast } = useToast();
@@ -5438,6 +5711,7 @@ export default function AdminPortal() {
     { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
+    { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
   ];
 
@@ -5471,6 +5745,7 @@ export default function AdminPortal() {
       case "logs": return <LogsTab />;
       case "telegram": return <TelegramTab />;
       case "business-hours": return <BusinessHoursTab />;
+      case "announcements": return <AnnouncementsTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab /> : null;
       default: return null;
     }

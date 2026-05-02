@@ -19,6 +19,8 @@ import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } fr
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
+import { insertAnnouncementSchema, updateAnnouncementSchema } from "@shared/schema";
+import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 
 const sanitizeNewsContent = (html: string): string =>
   sanitizeHtml(html, {
@@ -4215,6 +4217,112 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         isOpen: status.isOpen,
         nextOpenAt: status.nextOpenAt,
       });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ===== Announcements =====
+  app.get("/api/admin/announcements", requirePermission("announcements", "announcements"), async (_req, res) => {
+    try {
+      const list = await storage.listAnnouncements();
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/announcements", requirePermission("announcements", "announcements"), async (req, res) => {
+    try {
+      const parsed = insertAnnouncementSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid announcement", errors: parsed.error.flatten() });
+      }
+      const data = parsed.data;
+      if (!isAllowedAnnouncementPath(data.linkPath ?? null)) {
+        return res.status(400).json({ message: "Invalid link path" });
+      }
+      const created = await storage.createAnnouncement({
+        title: data.title,
+        bodyHtml: sanitizeNewsContent(data.bodyHtml),
+        linkPath: data.linkPath ?? null,
+        linkLabel: data.linkLabel ?? null,
+        frequency: data.frequency,
+        active: data.active,
+        createdByUserId: req.session.userId!,
+      });
+      logActivity("system", "announcement_created", {
+        actorId: req.session.userId!,
+        targetId: created.id,
+        targetType: "announcement",
+        summary: `Announcement created: ${created.title}`,
+      });
+      res.json(created);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/announcements/:id", requirePermission("announcements", "announcements"), async (req, res) => {
+    try {
+      const parsed = updateAnnouncementSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid announcement", errors: parsed.error.flatten() });
+      }
+      const data = parsed.data;
+      if (data.linkPath !== undefined && !isAllowedAnnouncementPath(data.linkPath)) {
+        return res.status(400).json({ message: "Invalid link path" });
+      }
+      const patch: any = { ...data };
+      if (patch.bodyHtml !== undefined) patch.bodyHtml = sanitizeNewsContent(patch.bodyHtml);
+      const updated = await storage.updateAnnouncement(req.params.id, patch);
+      if (!updated) return res.status(404).json({ message: "Announcement not found" });
+      logActivity("system", "announcement_updated", {
+        actorId: req.session.userId!,
+        targetId: updated.id,
+        targetType: "announcement",
+        summary: `Announcement updated: ${updated.title}${data.active !== undefined ? ` (active=${updated.active})` : ""}`,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/announcements/:id", requirePermission("announcements", "announcements"), async (req, res) => {
+    try {
+      const existing = await storage.getAnnouncement(req.params.id);
+      await storage.deleteAnnouncement(req.params.id);
+      logActivity("system", "announcement_deleted", {
+        actorId: req.session.userId!,
+        targetId: req.params.id,
+        targetType: "announcement",
+        summary: `Announcement deleted: ${existing?.title || req.params.id}`,
+      });
+      res.json({ message: "Announcement deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/announcements/active", async (req, res) => {
+    try {
+      if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
+      const active = await storage.getActiveAnnouncement();
+      res.set("Cache-Control", "no-store");
+      if (!active) return res.json(null);
+      const alreadySeen = await storage.hasUserSeenAnnouncement(active.id, req.session.userId);
+      res.json({ ...active, alreadySeen });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/announcements/:id/dismiss", async (req, res) => {
+    try {
+      if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
+      await storage.markAnnouncementSeen(req.params.id, req.session.userId);
+      res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

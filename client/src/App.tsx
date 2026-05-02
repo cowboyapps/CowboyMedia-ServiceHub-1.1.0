@@ -22,6 +22,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone, ArrowRightLeft, Home } from "lucide-react";
+import DOMPurify from "dompurify";
+import type { Announcement } from "@shared/schema";
 import { NotificationCenter } from "@/components/notification-center";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush } from "@/lib/push-notifications";
@@ -741,6 +743,104 @@ function TicketTransferPopup() {
   );
 }
 
+type ActiveAnnouncement = Announcement & { alreadySeen: boolean };
+
+const shownAnnouncementsByUser = new Map<string, Set<string>>();
+
+function AnnouncementPopup() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState<ActiveAnnouncement | null>(null);
+
+  const { data } = useQuery<ActiveAnnouncement | null>({
+    queryKey: ["/api/announcements/active"],
+    enabled: !!user && user.role === "customer",
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    setOpen(false);
+    setCurrent(null);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user || user.role !== "customer") return;
+    if (!data || !data.id) return;
+    if (!data.active) return;
+    if (data.frequency === "once" && data.alreadySeen) return;
+    const seenSet = shownAnnouncementsByUser.get(user.id) ?? new Set<string>();
+    if (seenSet.has(data.id)) return;
+    seenSet.add(data.id);
+    shownAnnouncementsByUser.set(user.id, seenSet);
+    setCurrent(data);
+    setOpen(true);
+  }, [data, user]);
+
+  const dismissMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("POST", `/api/announcements/${id}/dismiss`);
+    },
+  });
+
+  const handleClose = () => {
+    if (current) {
+      dismissMutation.mutate(current.id);
+    }
+    setOpen(false);
+  };
+
+  const handleLink = () => {
+    if (current?.linkPath) {
+      setLocation(current.linkPath);
+    }
+    handleClose();
+  };
+
+  if (!current) return null;
+
+  const safeHtml = DOMPurify.sanitize(current.bodyHtml, {
+    ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a"],
+    ALLOWED_ATTR: ["style", "src", "alt", "width", "height", "href", "target"],
+  });
+
+  const buttonLabel = current.linkLabel?.trim() || "View";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-announcement">
+        <DialogHeader>
+          <div className="flex justify-center mb-2">
+            <img src={logoImg} alt="CowboyMedia" className="h-16" />
+          </div>
+          <DialogTitle className="text-center text-xl" data-testid="text-announcement-title">Announcement</DialogTitle>
+        </DialogHeader>
+        <div
+          className="prose prose-sm dark:prose-invert max-w-none"
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
+          data-testid="text-announcement-body"
+        />
+        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+          {current.linkPath && (
+            <Button className="w-full" onClick={handleLink} data-testid="button-announcement-link">
+              {buttonLabel}
+            </Button>
+          )}
+          <Button
+            variant={current.linkPath ? "outline" : "default"}
+            className="w-full"
+            onClick={handleClose}
+            data-testid="button-announcement-close"
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AppContent() {
   const { user, isLoading, isAdmin } = useAuth();
 
@@ -823,6 +923,7 @@ function AppContent() {
       <WelcomeDialog />
       <SetupReminderDialog />
       <PrivateMessagePopup />
+      <AnnouncementPopup />
       <AuthenticatedLayout />
     </>
   );
