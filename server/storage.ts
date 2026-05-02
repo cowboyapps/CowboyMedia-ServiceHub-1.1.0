@@ -1241,11 +1241,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateAnnouncement(id: string, data: UpdateAnnouncement): Promise<Announcement | undefined> {
-    const patch: Record<string, any> = {};
+    const patch: Partial<typeof announcements.$inferInsert> = {};
     if (data.title !== undefined) patch.title = data.title;
     if (data.bodyHtml !== undefined) patch.bodyHtml = data.bodyHtml;
-    if (data.linkPath !== undefined) patch.linkPath = data.linkPath;
-    if (data.linkLabel !== undefined) patch.linkLabel = data.linkLabel;
+    if (data.linkPath !== undefined) patch.linkPath = data.linkPath ?? null;
+    if (data.linkLabel !== undefined) patch.linkLabel = data.linkLabel ?? null;
     if (data.frequency !== undefined) patch.frequency = data.frequency;
     if (data.active !== undefined) patch.active = data.active;
     if (Object.keys(patch).length === 0) return this.getAnnouncement(id);

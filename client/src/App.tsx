@@ -745,7 +745,10 @@ function TicketTransferPopup() {
 
 type ActiveAnnouncement = Announcement & { alreadySeen: boolean };
 
-const shownAnnouncementsByUser = new Map<string, Set<string>>();
+// Tracks which announcement ids have already been shown to which user within
+// the current "visibility cycle" (i.e. since the page became visible). Reset
+// on tab/PWA resume so `frequency="always"` shows again on app reopen.
+const shownInVisibilityCycle = new Map<string, Set<string>>();
 
 function AnnouncementPopup() {
   const { user } = useAuth();
@@ -760,9 +763,23 @@ function AnnouncementPopup() {
     staleTime: 60_000,
   });
 
+  // Reset open/current state when the logged-in user changes.
   useEffect(() => {
     setOpen(false);
     setCurrent(null);
+  }, [user?.id]);
+
+  // PWA reopen / tab refocus: clear per-user session set and refetch so an
+  // active announcement (esp. frequency="always") shows on every app open.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (user?.id) shownInVisibilityCycle.delete(user.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/announcements/active"] });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [user?.id]);
 
   useEffect(() => {
@@ -770,10 +787,10 @@ function AnnouncementPopup() {
     if (!data || !data.id) return;
     if (!data.active) return;
     if (data.frequency === "once" && data.alreadySeen) return;
-    const seenSet = shownAnnouncementsByUser.get(user.id) ?? new Set<string>();
-    if (seenSet.has(data.id)) return;
-    seenSet.add(data.id);
-    shownAnnouncementsByUser.set(user.id, seenSet);
+    const shownSet = shownInVisibilityCycle.get(user.id) ?? new Set<string>();
+    if (shownSet.has(data.id)) return;
+    shownSet.add(data.id);
+    shownInVisibilityCycle.set(user.id, shownSet);
     setCurrent(data);
     setOpen(true);
   }, [data, user]);

@@ -19,7 +19,7 @@ import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } fr
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
-import { insertAnnouncementSchema, updateAnnouncementSchema } from "@shared/schema";
+import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 
 const sanitizeNewsContent = (html: string): string =>
@@ -4273,7 +4273,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (data.linkPath !== undefined && !isAllowedAnnouncementPath(data.linkPath)) {
         return res.status(400).json({ message: "Invalid link path" });
       }
-      const patch: any = { ...data };
+      const patch: UpdateAnnouncement = { ...data };
       if (patch.bodyHtml !== undefined) patch.bodyHtml = sanitizeNewsContent(patch.bodyHtml);
       const updated = await storage.updateAnnouncement(req.params.id, patch);
       if (!updated) return res.status(404).json({ message: "Announcement not found" });
