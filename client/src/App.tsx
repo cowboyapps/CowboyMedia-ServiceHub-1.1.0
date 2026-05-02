@@ -26,7 +26,7 @@ import DOMPurify from "dompurify";
 import type { Announcement } from "@shared/schema";
 import { NotificationCenter } from "@/components/notification-center";
 import { format } from "date-fns";
-import { subscribeToPush, isPushSupported, isSubscribedToPush } from "@/lib/push-notifications";
+import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { useAppBadge } from "@/hooks/use-app-badge";
@@ -117,6 +117,13 @@ function AppRouter() {
 function AuthenticatedLayout() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user?.id) return;
+    syncPushSubscription();
+  }, [user?.id]);
+
   const isTicketDetail = /^\/tickets\/[^/?]+/.test(location);
   const isMessageChat = /^\/messages\/[^/?]+/.test(location);
   const isCommunityChat = /^\/community(\/|$)/.test(location);

@@ -115,3 +115,67 @@ export async function isSubscribedToPush(): Promise<boolean> {
     return false;
   }
 }
+
+const PUSH_RESYNC_KEY = "sh-push-resync-v1";
+
+/**
+ * Self-healing push subscription sync. Runs silently on app open for users
+ * who already granted notification permission. Never prompts.
+ *
+ * - Forces a one-time unsubscribe + resubscribe (gated by PUSH_RESYNC_KEY) so
+ *   customers carrying stale endpoints from a previous deploy get fresh ones.
+ * - On every subsequent open, ensures whatever subscription the browser has
+ *   is also recorded server-side (the server's createPushSubscription is an
+ *   upsert keyed by endpoint, so this is safe to call repeatedly).
+ */
+export async function syncPushSubscription(): Promise<void> {
+  try {
+    if (!(await isPushSupported())) return;
+    if (Notification.permission !== "granted") return;
+
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (typeof localStorage !== "undefined" && !localStorage.getItem(PUSH_RESYNC_KEY)) {
+      if (subscription) {
+        try {
+          const oldEndpoint = subscription.endpoint;
+          await subscription.unsubscribe();
+          try {
+            await apiRequest("POST", "/api/push/unsubscribe", { endpoint: oldEndpoint });
+          } catch {}
+        } catch {}
+        subscription = null;
+      }
+      try {
+        localStorage.setItem(PUSH_RESYNC_KEY, "1");
+      } catch {}
+    }
+
+    if (!subscription) {
+      const vapidKey = await getVapidKey();
+      if (!vapidKey) return;
+      try {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+      } catch (e) {
+        console.warn("[Push sync] silent resubscribe failed:", e);
+        return;
+      }
+    }
+
+    const subJson = subscription.toJSON();
+    if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return;
+    await apiRequest("POST", "/api/push/subscribe", {
+      endpoint: subJson.endpoint,
+      keys: {
+        p256dh: subJson.keys.p256dh,
+        auth: subJson.keys.auth,
+      },
+    });
+  } catch (e) {
+    console.warn("[Push sync] failed:", e);
+  }
+}
