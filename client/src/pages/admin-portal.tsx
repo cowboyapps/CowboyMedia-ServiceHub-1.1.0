@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -302,14 +303,8 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null); }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-user-detail">
-          <DialogHeader>
-            <DialogTitle data-testid="text-user-detail-title">
-              {detailUser?.fullName}
-            </DialogTitle>
-          </DialogHeader>
-          {detailUser && (
+      {(() => {
+        const detailBody = detailUser && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -375,25 +370,25 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                 const e = countEnabledChannels(prefs, "email");
                 return (
                   <div className="border rounded-md">
-                    <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
+                    <div className="flex flex-col gap-2 px-3 py-3 border-b sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <p className="text-sm font-medium">Notification preferences</p>
                         <p className="text-xs text-muted-foreground">
                           Read-only view of the customer's per-category choices.
                         </p>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid="badge-detail-push-prefs">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid="badge-detail-push-prefs">
                           <Bell className="w-3 h-3" />Push {p.enabled}/{p.total}
                         </Badge>
-                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid="badge-detail-email-prefs">
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid="badge-detail-email-prefs">
                           <Mail className="w-3 h-3" />Email {e.enabled}/{e.total}
                         </Badge>
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                          className="h-7 text-xs"
+                          className="h-8 text-xs ml-auto sm:ml-0"
                           disabled={resetPrefsMutation.isPending}
                           onClick={() => resetPrefsMutation.mutate(detailUser.id)}
                           data-testid="button-reset-notif-prefs"
@@ -405,36 +400,41 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                     <button
                       type="button"
                       onClick={() => setNotifPrefsExpanded((v) => !v)}
-                      className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                      className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-medium text-muted-foreground hover-elevate active-elevate-2 transition-colors min-h-[44px]"
                       data-testid="button-toggle-notif-prefs-grid"
                     >
                       <span>{notifPrefsExpanded ? "Hide" : "Show"} per-category breakdown</span>
-                      {notifPrefsExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                      {notifPrefsExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </button>
                     {notifPrefsExpanded && (
-                      <div className="px-3 py-2 border-t space-y-3" data-testid="grid-notif-prefs">
+                      <div className="px-3 py-3 border-t space-y-4" data-testid="grid-notif-prefs">
+                        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground pb-1 border-b">
+                          <span className="flex-1">Category</span>
+                          <span className="w-14 flex items-center justify-center gap-1"><Bell className="w-3 h-3" />Push</span>
+                          <span className="w-14 flex items-center justify-center gap-1"><Mail className="w-3 h-3" />Email</span>
+                        </div>
                         {NOTIFICATION_GROUPS.map((group) => {
                           const cats = NOTIFICATION_CATEGORIES.filter((c) => c.group === group);
                           return (
                             <div key={group} className="space-y-1">
                               <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">{group}</p>
-                              <div className="space-y-0.5">
+                              <div className="rounded-md border divide-y bg-card">
                                 {cats.map((cat) => {
                                   const supportsPush = cat.channels.includes("push");
                                   const supportsEmail = cat.channels.includes("email");
                                   const pushOn = supportsPush && userWantsChannel(prefs, cat.key, "push");
                                   const emailOn = supportsEmail && userWantsChannel(prefs, cat.key, "email");
                                   return (
-                                    <div key={cat.key} className="flex items-center gap-2 text-xs" data-testid={`grid-row-${cat.key}`}>
-                                      <span className="flex-1 min-w-0 truncate">{cat.label}</span>
-                                      <span className="w-12 flex items-center justify-center" title={supportsPush ? (pushOn ? "Push enabled" : "Push disabled") : "Push not applicable"}>
+                                    <div key={cat.key} className="flex items-center gap-2 text-xs px-2 py-2.5 min-h-[40px]" data-testid={`grid-row-${cat.key}`}>
+                                      <span className="flex-1 min-w-0 leading-snug">{cat.label}</span>
+                                      <span className="w-14 flex items-center justify-center" title={supportsPush ? (pushOn ? "Push enabled" : "Push disabled") : "Push not applicable"}>
                                         {supportsPush ? (
-                                          pushOn ? <Check className="w-3.5 h-3.5 text-green-500" data-testid={`grid-push-on-${cat.key}`} /> : <Minus className="w-3.5 h-3.5 text-muted-foreground/50" data-testid={`grid-push-off-${cat.key}`} />
+                                          pushOn ? <Check className="w-4 h-4 text-green-600 dark:text-green-400" data-testid={`grid-push-on-${cat.key}`} /> : <Minus className="w-4 h-4 text-muted-foreground/50" data-testid={`grid-push-off-${cat.key}`} />
                                         ) : <span className="text-muted-foreground/30">—</span>}
                                       </span>
-                                      <span className="w-12 flex items-center justify-center" title={supportsEmail ? (emailOn ? "Email enabled" : "Email disabled") : "Email not applicable"}>
+                                      <span className="w-14 flex items-center justify-center" title={supportsEmail ? (emailOn ? "Email enabled" : "Email disabled") : "Email not applicable"}>
                                         {supportsEmail ? (
-                                          emailOn ? <Check className="w-3.5 h-3.5 text-green-500" data-testid={`grid-email-on-${cat.key}`} /> : <Minus className="w-3.5 h-3.5 text-muted-foreground/50" data-testid={`grid-email-off-${cat.key}`} />
+                                          emailOn ? <Check className="w-4 h-4 text-green-600 dark:text-green-400" data-testid={`grid-email-on-${cat.key}`} /> : <Minus className="w-4 h-4 text-muted-foreground/50" data-testid={`grid-email-off-${cat.key}`} />
                                         ) : <span className="text-muted-foreground/30">—</span>}
                                       </span>
                                     </div>
@@ -540,9 +540,33 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                 </div>
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          );
+        if (isMobile) {
+          return (
+            <Sheet open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null); }}>
+              <SheetContent side="bottom" className="h-[92vh] p-0 flex flex-col rounded-t-2xl" data-testid="dialog-user-detail">
+                <div className="flex justify-center pt-2 pb-1">
+                  <div className="w-10 h-1.5 rounded-full bg-muted-foreground/30" />
+                </div>
+                <SheetHeader className="px-4 pb-2 text-left">
+                  <SheetTitle data-testid="text-user-detail-title">{detailUser?.fullName}</SheetTitle>
+                </SheetHeader>
+                <div className="flex-1 overflow-y-auto px-4 pb-6">{detailBody}</div>
+              </SheetContent>
+            </Sheet>
+          );
+        }
+        return (
+          <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null); }}>
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-user-detail">
+              <DialogHeader>
+                <DialogTitle data-testid="text-user-detail-title">{detailUser?.fullName}</DialogTitle>
+              </DialogHeader>
+              {detailBody}
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
