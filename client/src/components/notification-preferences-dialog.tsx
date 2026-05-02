@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Bell, Mail, RotateCcw } from "lucide-react";
+import type { User } from "@shared/schema";
 import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_GROUPS,
@@ -23,6 +24,19 @@ interface NotificationPreferencesDialogProps {
   onOpenChange: (open: boolean) => void;
   prefs: NotificationPrefs | null | undefined;
   pushAvailable: boolean;
+}
+
+const ME_KEY = ["/api/auth/me"] as const;
+
+function applyToggle(
+  prefs: NotificationPrefs | null | undefined,
+  categoryKey: string,
+  channel: NotificationChannel,
+  enabled: boolean,
+): NotificationPrefs {
+  const next: NotificationPrefs = { ...(prefs ?? {}) };
+  next[categoryKey] = { ...(next[categoryKey] ?? {}), [channel]: enabled };
+  return next;
 }
 
 export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushAvailable }: NotificationPreferencesDialogProps) {
@@ -42,11 +56,24 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     mutationFn: async (vars: { categoryKey: string; channel: NotificationChannel; enabled: boolean }) => {
       await apiRequest("PATCH", "/api/auth/notification-prefs", vars);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ME_KEY });
+      const previous = queryClient.getQueryData<User>(ME_KEY);
+      if (previous) {
+        const optimistic: User = {
+          ...previous,
+          notificationPrefs: applyToggle(previous.notificationPrefs, vars.categoryKey, vars.channel, vars.enabled),
+        };
+        queryClient.setQueryData<User>(ME_KEY, optimistic);
+      }
+      return { previous };
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(ME_KEY, ctx.previous);
       toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ME_KEY });
     },
   });
 
@@ -54,12 +81,23 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     mutationFn: async () => {
       await apiRequest("PATCH", "/api/auth/notification-prefs", { prefs: {} });
     },
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ME_KEY });
+      const previous = queryClient.getQueryData<User>(ME_KEY);
+      if (previous) {
+        queryClient.setQueryData<User>(ME_KEY, { ...previous, notificationPrefs: {} });
+      }
+      return { previous };
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(ME_KEY, ctx.previous);
+      toast({ title: "Failed to reset", description: e.message, variant: "destructive" });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: "Notification preferences reset to defaults" });
     },
-    onError: (e: Error) => {
-      toast({ title: "Failed to reset", description: e.message, variant: "destructive" });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ME_KEY });
     },
   });
 
@@ -111,7 +149,6 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
                       const emailEnabled = userWantsChannel(prefs, cat.key, "email");
                       const supportsPush = cat.channels.includes("push");
                       const supportsEmail = cat.channels.includes("email");
-                      const pushDisabled = !pushAvailable || toggleMutation.isPending;
                       return (
                         <div key={cat.key} className="flex items-start gap-3 px-3 py-3" data-testid={`row-notif-${cat.key}`}>
                           <div className="flex-1 min-w-0">
@@ -129,7 +166,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
                                       onCheckedChange={(checked) =>
                                         toggleMutation.mutate({ categoryKey: cat.key, channel: "push", enabled: checked })
                                       }
-                                      disabled={pushDisabled}
+                                      disabled={!pushAvailable}
                                       data-testid={`switch-push-${cat.key}`}
                                     />
                                   </label>
@@ -151,7 +188,6 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
                                   onCheckedChange={(checked) =>
                                     toggleMutation.mutate({ categoryKey: cat.key, channel: "email", enabled: checked })
                                   }
-                                  disabled={toggleMutation.isPending}
                                   data-testid={`switch-email-${cat.key}`}
                                 />
                               </label>

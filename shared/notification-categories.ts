@@ -49,14 +49,14 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     label: "Ticket closed (with transcript)",
     description: "When your ticket is closed; the email includes the full conversation",
     group: "Tickets",
-    channels: ["push", "email"],
+    channels: ["email"],
   },
   {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",
     group: "Reports",
-    channels: ["push", "email"],
+    channels: ["email"],
   },
   {
     key: "report_update",
