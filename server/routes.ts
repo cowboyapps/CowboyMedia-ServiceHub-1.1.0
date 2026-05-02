@@ -4321,6 +4321,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/announcements/:id/dismiss", async (req, res) => {
     try {
       if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
+      const u = await storage.getUser(req.session.userId);
+      if (!u || u.role !== "customer") return res.status(403).json({ message: "Forbidden" });
       await storage.markAnnouncementSeen(req.params.id, req.session.userId);
       res.json({ ok: true });
     } catch (e: any) {
