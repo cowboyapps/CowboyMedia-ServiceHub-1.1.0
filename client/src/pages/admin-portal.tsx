@@ -378,11 +378,11 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid="badge-detail-push-prefs">
-                          <Bell className="w-3 h-3" />Push {p.enabled}/{p.total}
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push categories. This is only delivered if their device is also subscribed (see Push Notifications above).`} data-testid="badge-detail-push-prefs">
+                          <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total}
                         </Badge>
-                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid="badge-detail-email-prefs">
-                          <Mail className="w-3 h-3" />Email {e.enabled}/{e.total}
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email categories.`} data-testid="badge-detail-email-prefs">
+                          <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total}
                         </Badge>
                         <Button
                           type="button"
@@ -698,11 +698,11 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                       const e = countEnabledChannels(prefs, "email");
                       return (
                         <>
-                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
-                            <Bell className="w-2.5 h-2.5" />Push {p.enabled}/{p.total}
+                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push categories (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
+                            <Bell className="w-2.5 h-2.5" />Push prefs {p.enabled}/{p.total}
                           </Badge>
-                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
-                            <Mail className="w-2.5 h-2.5" />Email {e.enabled}/{e.total}
+                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email categories`} data-testid={`badge-email-prefs-${u.id}`}>
+                            <Mail className="w-2.5 h-2.5" />Email prefs {e.enabled}/{e.total}
                           </Badge>
                         </>
                       );
@@ -780,11 +780,11 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                         const e = countEnabledChannels(prefs, "email");
                         return (
                           <>
-                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
-                              <Bell className="w-3 h-3" />Push {p.enabled}/{p.total}
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push categories (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
+                              <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total}
                             </Badge>
-                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
-                              <Mail className="w-3 h-3" />Email {e.enabled}/{e.total}
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email categories`} data-testid={`badge-email-prefs-${u.id}`}>
+                              <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total}
                             </Badge>
                           </>
                         );
