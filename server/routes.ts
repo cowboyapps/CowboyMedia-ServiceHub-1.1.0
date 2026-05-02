@@ -493,7 +493,7 @@ export async function registerRoutes(
       const hashed = await hashPassword(password);
       const user = await storage.createUser({ username, password: hashed, email, fullName, role: "customer", theme: "light" });
       req.session.userId = user.id;
-      const { password: _, ...safe } = user;
+      const { password: _, emailNotifications: __, ...safe } = user;
       res.json(safe);
       logActivity("user", "user_registered", { targetId: user.id, targetType: "user", summary: `New user registered: ${fullName} (${username})`, details: JSON.stringify({ username, email, fullName }) });
 
@@ -531,7 +531,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Invalid credentials" });
       }
       req.session.userId = user.id;
-      const { password: _, ...safe } = user;
+      const { password: _, emailNotifications: __, ...safe } = user;
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -643,21 +643,20 @@ export async function registerRoutes(
     if (!user) {
       return res.status(401).json({ message: "User not found" });
     }
-    const { password: _, ...safe } = user;
+    const { password: _, emailNotifications: __, ...safe } = user;
     res.json(safe);
   });
 
   app.patch("/api/auth/settings", requireAuth, async (req, res) => {
     try {
-      const { subscribedServices, fullName, emailNotifications, setupReminderDismissed } = req.body;
+      const { subscribedServices, fullName, setupReminderDismissed } = req.body;
       const updateData: any = {};
       if (subscribedServices !== undefined) updateData.subscribedServices = subscribedServices;
       if (fullName !== undefined) updateData.fullName = fullName?.trim();
-      if (emailNotifications !== undefined) updateData.emailNotifications = emailNotifications;
       if (setupReminderDismissed !== undefined) updateData.setupReminderDismissed = setupReminderDismissed;
       const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
-      const { password: _, ...safe } = updated;
+      const { password: _, emailNotifications: __, ...safe } = updated;
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -706,7 +705,7 @@ export async function registerRoutes(
 
       const updated = await storage.updateUser(req.session.userId!, { notificationPrefs: next });
       if (!updated) return res.status(404).json({ message: "User not found" });
-      const { password: _, ...safe } = updated;
+      const { password: _, emailNotifications: __, ...safe } = updated;
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -719,7 +718,7 @@ export async function registerRoutes(
       if (!target) return res.status(404).json({ message: "User not found" });
       const updated = await storage.updateUser(req.params.id, { notificationPrefs: {} });
       if (!updated) return res.status(404).json({ message: "User not found" });
-      const { password: _, ...safe } = updated;
+      const { password: _, emailNotifications: __, ...safe } = updated;
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1256,7 +1255,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         message: `Ticket transferred from ${admin.fullName}: ${ticket.subject}`,
       });
 
-      if (targetAdmin.email && targetAdmin.emailNotifications !== false) {
+      if (targetAdmin.email && customerWantsEmail(targetAdmin, "ticket_transferred")) {
         sendTemplatedEmail(targetAdmin.email, "admin_ticket_transfer", {
           from_admin_name: admin.fullName,
           transfer_reason: reason,
@@ -1442,7 +1441,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const customer = await storage.getUser(ticket.customerId);
       if (!customer) return res.status(404).json({ message: "Customer not found" });
-      const { password: _, ...safeCustomer } = customer;
+      const { password: _, emailNotifications: __, ...safeCustomer } = customer;
       res.json({
         customer: {
           id: safeCustomer.id,
@@ -1632,7 +1631,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (existing) return res.status(400).json({ message: "Username already taken" });
       const hashed = await hashPassword(password);
       const user = await storage.createUser({ username, password: hashed, email, fullName, role: role || "customer", theme: "light" });
-      const { password: _, ...safe } = user;
+      const { password: _, emailNotifications: __, ...safe } = user;
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1641,12 +1640,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/admin/users/:id", requirePermission("users.view", "users.manage"), async (req, res) => {
     try {
-      const data = { ...req.body };
+      const { emailNotifications: _ignoredEmailNotifications, ...data } = req.body ?? {};
       if (data.username) data.username = data.username.trim();
       if (data.fullName) data.fullName = data.fullName.trim();
       const updated = await storage.updateUser(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "User not found" });
-      const { password: _, ...safe } = updated;
+      const { password: _, emailNotifications: __, ...safe } = updated;
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

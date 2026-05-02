@@ -259,7 +259,7 @@ export const ticketTransfers = pgTable("ticket_transfers", {
 });
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({ id: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, emailNotifications: true });
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
 export const insertServiceAlertSchema = createInsertSchema(serviceAlerts).omit({ id: true, createdAt: true, resolvedAt: true });
 export const insertAlertUpdateSchema = createInsertSchema(alertUpdates).omit({ id: true, createdAt: true });

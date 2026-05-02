@@ -94,7 +94,6 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
   const [editUsername, setEditUsername] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState("");
-  const [editEmailNotifications, setEditEmailNotifications] = useState(true);
   const [editSubscribedServices, setEditSubscribedServices] = useState<string[]>([]);
   const [newUserIds, setNewUserIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -205,7 +204,6 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
     setEditUsername(u.username);
     setEditEmail(u.email);
     setEditRole(u.role);
-    setEditEmailNotifications(u.emailNotifications !== false);
     setEditSubscribedServices(u.subscribedServices || []);
   };
 
@@ -218,7 +216,6 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
         username: editUsername,
         email: editEmail,
         role: editRole,
-        emailNotifications: editEmailNotifications,
         subscribedServices: editSubscribedServices,
       },
     });
