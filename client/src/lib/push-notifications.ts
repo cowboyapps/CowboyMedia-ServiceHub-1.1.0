@@ -44,49 +44,77 @@ async function getVapidKey(): Promise<string | null> {
   return null;
 }
 
-export async function subscribeToPush(): Promise<boolean> {
+// In-flight lock so concurrent callers (e.g. AuthenticatedLayout's silent
+// sync running at the same time the user clicks "Enable" in Settings) share
+// one underlying pushManager.subscribe call instead of racing it.
+let subscribeInFlight: Promise<boolean> | null = null;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
+async function doSubscribe(promptPermission: boolean): Promise<boolean> {
   try {
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      console.warn("Notification permission not granted");
+    if (promptPermission) {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        console.warn("Notification permission not granted");
+        return false;
+      }
+    } else if (Notification.permission !== "granted") {
       return false;
     }
 
     const registration = await navigator.serviceWorker.ready;
-    
-    // Check for existing subscription first
+
     let subscription = await registration.pushManager.getSubscription();
-    
+
     if (!subscription) {
       const vapidKey = await getVapidKey();
       if (!vapidKey) {
         console.error("No VAPID key available");
         return false;
       }
-
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      });
+      subscription = await withTimeout(
+        registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        }),
+        15000,
+        "pushManager.subscribe",
+      );
       console.log("New push subscription created");
     } else {
       console.log("Existing push subscription found, re-registering with server");
     }
 
     const subJson = subscription.toJSON();
-    await apiRequest("POST", "/api/push/subscribe", {
-      endpoint: subJson.endpoint,
-      keys: {
-        p256dh: subJson.keys?.p256dh,
-        auth: subJson.keys?.auth,
-      },
-    });
-
+    if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return false;
+    await withTimeout(
+      apiRequest("POST", "/api/push/subscribe", {
+        endpoint: subJson.endpoint,
+        keys: { p256dh: subJson.keys.p256dh, auth: subJson.keys.auth },
+      }),
+      10000,
+      "POST /api/push/subscribe",
+    );
     return true;
   } catch (e) {
     console.error("Push subscription failed:", e);
     return false;
   }
+}
+
+export async function subscribeToPush(): Promise<boolean> {
+  if (subscribeInFlight) return subscribeInFlight;
+  subscribeInFlight = doSubscribe(true).finally(() => { subscribeInFlight = null; });
+  return subscribeInFlight;
 }
 
 export async function unsubscribeFromPush(): Promise<boolean> {
@@ -134,47 +162,22 @@ export async function syncPushSubscription(): Promise<void> {
     if (Notification.permission !== "granted") return;
 
     const registration = await navigator.serviceWorker.ready;
-    let subscription = await registration.pushManager.getSubscription();
 
     if (typeof localStorage !== "undefined" && !localStorage.getItem(PUSH_RESYNC_KEY)) {
-      if (subscription) {
-        try {
-          const oldEndpoint = subscription.endpoint;
-          await subscription.unsubscribe();
-          try {
-            await apiRequest("POST", "/api/push/unsubscribe", { endpoint: oldEndpoint });
-          } catch {}
-        } catch {}
-        subscription = null;
+      const existing = await registration.pushManager.getSubscription();
+      if (existing) {
+        const oldEndpoint = existing.endpoint;
+        try { await existing.unsubscribe(); } catch {}
+        try { await apiRequest("POST", "/api/push/unsubscribe", { endpoint: oldEndpoint }); } catch {}
       }
-      try {
-        localStorage.setItem(PUSH_RESYNC_KEY, "1");
-      } catch {}
+      try { localStorage.setItem(PUSH_RESYNC_KEY, "1"); } catch {}
     }
 
-    if (!subscription) {
-      const vapidKey = await getVapidKey();
-      if (!vapidKey) return;
-      try {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        });
-      } catch (e) {
-        console.warn("[Push sync] silent resubscribe failed:", e);
-        return;
-      }
-    }
-
-    const subJson = subscription.toJSON();
-    if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return;
-    await apiRequest("POST", "/api/push/subscribe", {
-      endpoint: subJson.endpoint,
-      keys: {
-        p256dh: subJson.keys.p256dh,
-        auth: subJson.keys.auth,
-      },
-    });
+    // Share the single in-flight subscribe promise with any concurrent caller
+    // (e.g. user clicking "Enable" in Settings at the same time).
+    if (subscribeInFlight) { await subscribeInFlight; return; }
+    subscribeInFlight = doSubscribe(false).finally(() => { subscribeInFlight = null; });
+    await subscribeInFlight;
   } catch (e) {
     console.warn("[Push sync] failed:", e);
   }
