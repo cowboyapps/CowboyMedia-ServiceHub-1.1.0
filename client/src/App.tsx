@@ -745,11 +745,15 @@ function TicketTransferPopup() {
 
 type ActiveAnnouncement = Announcement & { alreadySeen: boolean };
 
-// Per-user, per-app-open suppression set. Lives in module state so it
-// naturally resets on a true new app open (full page load, PWA relaunch,
-// reload) and persists across in-app navigation and tab refocus events
-// within the same session.
+// Per-user suppression set for the current "app open". Lives in module state
+// so it persists across in-app navigation but resets on a true new app open
+// (full reload, PWA cold start, or warm resume after >5 min in background).
 const shownThisAppOpen = new Map<string, Set<string>>();
+
+// Threshold (ms) for treating a visibility resume as a fresh "app open"
+// rather than a brief tab/window refocus. 5 minutes is long enough to ignore
+// quick app switches but short enough that "open it the next morning" works.
+const APP_RESUME_THRESHOLD_MS = 5 * 60 * 1000;
 
 function AnnouncementPopup() {
   const { user } = useAuth();
@@ -757,7 +761,8 @@ function AnnouncementPopup() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<ActiveAnnouncement | null>(null);
 
-  // Single lightweight check on app open — no refetch on focus/visibility.
+  // Lightweight check on app open / login. Refetch only when we explicitly
+  // invalidate (warm-resume below) — never on every tab focus.
   const { data } = useQuery<ActiveAnnouncement | null>({
     queryKey: ["/api/announcements/active"],
     enabled: !!user && user.role === "customer",
@@ -772,6 +777,29 @@ function AnnouncementPopup() {
     setOpen(false);
     setCurrent(null);
   }, [user?.id]);
+
+  // Warm-resume detector: when the PWA/tab becomes visible after being
+  // hidden for longer than APP_RESUME_THRESHOLD_MS, treat it as a fresh
+  // app open — clear suppression for this user and refetch.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (!user || user.role !== "customer") return;
+    let hiddenAt: number | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (document.visibilityState !== "visible") return;
+      const hiddenFor = hiddenAt == null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (hiddenFor < APP_RESUME_THRESHOLD_MS) return;
+      shownThisAppOpen.delete(user.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/announcements/active"] });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     if (!user || user.role !== "customer") return;
