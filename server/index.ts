@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { seed } from "./seed";
 import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
 import { storage } from "./storage";
+import { userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 
@@ -186,6 +187,16 @@ app.use((req, res, next) => {
         const hasServices = (user.subscribedServices?.length ?? 0) > 0;
 
         if (hasPush && hasServices) {
+          await storage.updateUser(user.id, { setupReminderEmailSent: true });
+          continue;
+        }
+
+        const wantsReminder = userWantsChannel(
+          user.notificationPrefs as NotificationPrefs | null | undefined,
+          "setup_reminder",
+          "email",
+        );
+        if (!wantsReminder) {
           await storage.updateUser(user.id, { setupReminderEmailSent: true });
           continue;
         }

@@ -1,0 +1,181 @@
+import { useMemo } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Bell, Mail, RotateCcw } from "lucide-react";
+import {
+  NOTIFICATION_CATEGORIES,
+  NOTIFICATION_GROUPS,
+  userWantsChannel,
+  countEnabledChannels,
+  type NotificationChannel,
+  type NotificationPrefs,
+} from "@shared/notification-categories";
+
+interface NotificationPreferencesDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  prefs: NotificationPrefs | null | undefined;
+}
+
+export function NotificationPreferencesDialog({ open, onOpenChange, prefs }: NotificationPreferencesDialogProps) {
+  const { toast } = useToast();
+
+  const grouped = useMemo(() => {
+    return NOTIFICATION_GROUPS.map((group) => ({
+      group,
+      categories: NOTIFICATION_CATEGORIES.filter((c) => c.group === group),
+    }));
+  }, []);
+
+  const pushSummary = countEnabledChannels(prefs, "push");
+  const emailSummary = countEnabledChannels(prefs, "email");
+
+  const toggleMutation = useMutation({
+    mutationFn: async (vars: { categoryKey: string; channel: NotificationChannel; enabled: boolean }) => {
+      await apiRequest("PATCH", "/api/auth/notification-prefs", vars);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const enableAllMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", "/api/auth/notification-prefs", { prefs: {} });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "All notifications enabled" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to reset", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const disableAllMutation = useMutation({
+    mutationFn: async () => {
+      const allOff: NotificationPrefs = {};
+      for (const cat of NOTIFICATION_CATEGORIES) {
+        allOff[cat.key] = {};
+        for (const ch of cat.channels) allOff[cat.key][ch] = false;
+      }
+      await apiRequest("PATCH", "/api/auth/notification-prefs", { prefs: allOff });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "All notifications disabled" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[85vh] flex flex-col p-0" data-testid="dialog-notification-prefs">
+        <DialogHeader className="px-6 pt-6 pb-3">
+          <DialogTitle data-testid="text-notif-prefs-title">Notification preferences</DialogTitle>
+          <DialogDescription>
+            Choose which notifications you want to receive — push, email, or both — for each event.
+          </DialogDescription>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <Badge variant="secondary" className="gap-1" data-testid="badge-push-summary">
+              <Bell className="w-3 h-3" /> Push {pushSummary.enabled}/{pushSummary.total}
+            </Badge>
+            <Badge variant="secondary" className="gap-1" data-testid="badge-email-summary">
+              <Mail className="w-3 h-3" /> Email {emailSummary.enabled}/{emailSummary.total}
+            </Badge>
+            <div className="flex-1" />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => enableAllMutation.mutate()}
+              disabled={enableAllMutation.isPending}
+              data-testid="button-enable-all-notifs"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Enable all
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => disableAllMutation.mutate()}
+              disabled={disableAllMutation.isPending}
+              data-testid="button-disable-all-notifs"
+            >
+              Disable all
+            </Button>
+          </div>
+        </DialogHeader>
+
+        <ScrollArea className="flex-1 px-6 pb-6">
+          <div className="space-y-5">
+            {grouped.map(({ group, categories }) => (
+              <div key={group} className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" data-testid={`heading-group-${group}`}>
+                  {group}
+                </h3>
+                <div className="border rounded-md divide-y">
+                  {categories.map((cat) => {
+                    const pushEnabled = userWantsChannel(prefs, cat.key, "push");
+                    const emailEnabled = userWantsChannel(prefs, cat.key, "email");
+                    const supportsPush = cat.channels.includes("push");
+                    const supportsEmail = cat.channels.includes("email");
+                    return (
+                      <div key={cat.key} className="flex items-start gap-3 px-3 py-3" data-testid={`row-notif-${cat.key}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{cat.label}</p>
+                          <p className="text-xs text-muted-foreground">{cat.description}</p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          {supportsPush ? (
+                            <label className="flex items-center gap-1.5 cursor-pointer" title="Push notification">
+                              <Bell className="w-3.5 h-3.5 text-muted-foreground" />
+                              <Switch
+                                checked={pushEnabled}
+                                onCheckedChange={(checked) =>
+                                  toggleMutation.mutate({ categoryKey: cat.key, channel: "push", enabled: checked })
+                                }
+                                disabled={toggleMutation.isPending}
+                                data-testid={`switch-push-${cat.key}`}
+                              />
+                            </label>
+                          ) : (
+                            <span className="w-[64px]" />
+                          )}
+                          {supportsEmail ? (
+                            <label className="flex items-center gap-1.5 cursor-pointer" title="Email notification">
+                              <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                              <Switch
+                                checked={emailEnabled}
+                                onCheckedChange={(checked) =>
+                                  toggleMutation.mutate({ categoryKey: cat.key, channel: "email", enabled: checked })
+                                }
+                                disabled={toggleMutation.isPending}
+                                data-testid={`switch-email-${cat.key}`}
+                              />
+                            </label>
+                          ) : (
+                            <span className="w-[64px]" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}

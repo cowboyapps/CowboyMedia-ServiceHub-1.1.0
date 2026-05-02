@@ -30,6 +30,7 @@ import { Download, ImagePlus, X as XIcon } from "lucide-react";
 import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement } from "@shared/schema";
 import { RichTextEditor, stripHtml } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
+import { countEnabledChannels, type NotificationPrefs } from "@shared/notification-categories";
 
 const createServiceSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -173,6 +174,19 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       setDetailUser(null);
       toast({ title: "User updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const resetPrefsMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/users/${id}/reset-notification-prefs`);
+      return (await res.json()) as User;
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setDetailUser((prev) => (prev && prev.id === updated.id ? updated : prev));
+      toast({ title: "Notification preferences reset" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -350,22 +364,41 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                 </div>
               )}
 
-              <div className="flex items-center justify-between border rounded-md px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium">Email Notifications</p>
-                  <p className="text-xs text-muted-foreground">Receive email notifications for alerts, tickets, and updates</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={editEmailNotifications}
-                  onClick={() => setEditEmailNotifications(!editEmailNotifications)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${editEmailNotifications ? 'bg-primary' : 'bg-input'}`}
-                  data-testid="switch-email-notifications"
-                >
-                  <span className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${editEmailNotifications ? 'translate-x-5' : 'translate-x-0'}`} />
-                </button>
-              </div>
+              {detailUser.role === "customer" && (() => {
+                const prefs = (detailUser as any).notificationPrefs as NotificationPrefs | null | undefined;
+                const p = countEnabledChannels(prefs, "push");
+                const e = countEnabledChannels(prefs, "email");
+                return (
+                  <div className="border rounded-md px-3 py-2 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">Notification preferences</p>
+                        <p className="text-xs text-muted-foreground">
+                          The customer chooses which events trigger push and email notifications.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={resetPrefsMutation.isPending}
+                        onClick={() => resetPrefsMutation.mutate(detailUser.id)}
+                        data-testid="button-reset-notif-prefs"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to defaults
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="gap-1" data-testid="badge-detail-push-prefs">
+                        <Bell className="w-3 h-3" /> Push {p.enabled}/{p.total}
+                      </Badge>
+                      <Badge variant="outline" className="gap-1" data-testid="badge-detail-email-prefs">
+                        <Mail className="w-3 h-3" /> Email {e.enabled}/{e.total}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="text-sm font-medium mb-2 block">Subscribed Services</label>
@@ -581,13 +614,25 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{u.email}</p>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
-                    <span title={pushStatus?.[u.id] ? "Push ON" : "Push OFF"} data-testid={`icon-push-${u.id}`}>
+                  <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                    <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
                       {pushStatus?.[u.id] ? <Bell className="w-3.5 h-3.5 text-green-500" /> : <BellOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
                     </span>
-                    <span title={u.emailNotifications !== false ? "Email ON" : "Email OFF"} data-testid={`icon-email-${u.id}`}>
-                      {u.emailNotifications !== false ? <Mail className="w-3.5 h-3.5 text-green-500" /> : <MailX className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                    </span>
+                    {u.role === "customer" && (() => {
+                      const prefs = (u as any).notificationPrefs as NotificationPrefs | null | undefined;
+                      const p = countEnabledChannels(prefs, "push");
+                      const e = countEnabledChannels(prefs, "email");
+                      return (
+                        <>
+                          <Badge variant="outline" className="h-5 px-1 text-[10px] gap-0.5" title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
+                            <Bell className="w-2.5 h-2.5" />{p.enabled}/{p.total}
+                          </Badge>
+                          <Badge variant="outline" className="h-5 px-1 text-[10px] gap-0.5" title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
+                            <Mail className="w-2.5 h-2.5" />{e.enabled}/{e.total}
+                          </Badge>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 mt-2 pt-2 border-t" onClick={(e) => e.stopPropagation()}>
@@ -651,13 +696,25 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span title={pushStatus?.[u.id] ? "Push ON" : "Push OFF"} data-testid={`icon-push-${u.id}`}>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
                         {pushStatus?.[u.id] ? <Bell className="w-4 h-4 text-green-500" /> : <BellOff className="w-4 h-4 text-muted-foreground/40" />}
                       </span>
-                      <span title={u.emailNotifications !== false ? "Email ON" : "Email OFF"} data-testid={`icon-email-${u.id}`}>
-                        {u.emailNotifications !== false ? <Mail className="w-4 h-4 text-green-500" /> : <MailX className="w-4 h-4 text-muted-foreground/40" />}
-                      </span>
+                      {u.role === "customer" && (() => {
+                        const prefs = (u as any).notificationPrefs as NotificationPrefs | null | undefined;
+                        const p = countEnabledChannels(prefs, "push");
+                        const e = countEnabledChannels(prefs, "email");
+                        return (
+                          <>
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1" title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
+                              <Bell className="w-3 h-3" />{p.enabled}/{p.total}
+                            </Badge>
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1" title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
+                              <Mail className="w-3 h-3" />{e.enabled}/{e.total}
+                            </Badge>
+                          </>
+                        );
+                      })()}
                     </div>
                   </TableCell>
                   <TableCell className="text-right">

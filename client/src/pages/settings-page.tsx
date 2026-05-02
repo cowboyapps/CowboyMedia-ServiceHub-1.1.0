@@ -14,8 +14,10 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink } from "lucide-react";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal } from "lucide-react";
 import type { Service } from "@shared/schema";
+import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
+import { countEnabledChannels, type NotificationPrefs } from "@shared/notification-categories";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -26,6 +28,7 @@ export default function SettingsPage() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [prefsDialogOpen, setPrefsDialogOpen] = useState(false);
 
   const { data: services, isLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -36,19 +39,6 @@ export default function SettingsPage() {
   const [selectedServices, setSelectedServices] = useState<string[]>(
     user?.subscribedServices || []
   );
-
-  const emailNotifMutation = useMutation({
-    mutationFn: async (emailNotifications: boolean) => {
-      await apiRequest("PATCH", "/api/auth/settings", { emailNotifications });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Email notification preference saved" });
-    },
-    onError: (e: Error) => {
-      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
-    },
-  });
 
   const fullNameMutation = useMutation({
     mutationFn: async (newFullName: string) => {
@@ -283,7 +273,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium">Enable Push Notifications</p>
-                <p className="text-xs text-muted-foreground">Receive alerts for subscribed services and ticket updates</p>
+                <p className="text-xs text-muted-foreground">Master switch for push notifications on this device</p>
               </div>
               <Switch
                 checked={pushEnabled}
@@ -293,20 +283,37 @@ export default function SettingsPage() {
               />
             </div>
           )}
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Receive Important Email Alerts</p>
-              <p className="text-xs text-muted-foreground">Get email notifications for ticket updates, service alerts, and messages</p>
-            </div>
-            <Switch
-              checked={user?.emailNotifications !== false}
-              onCheckedChange={(checked) => emailNotifMutation.mutate(checked)}
-              disabled={emailNotifMutation.isPending}
-              data-testid="switch-email-notifications"
-            />
-          </div>
+          {(() => {
+            const prefs = (user as any)?.notificationPrefs as NotificationPrefs | null | undefined;
+            const pushSummary = countEnabledChannels(prefs, "push");
+            const emailSummary = countEnabledChannels(prefs, "email");
+            return (
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Notification preferences</p>
+                  <p className="text-xs text-muted-foreground">
+                    Push {pushSummary.enabled}/{pushSummary.total} · Email {emailSummary.enabled}/{emailSummary.total}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPrefsDialogOpen(true)}
+                  data-testid="button-open-notif-prefs"
+                >
+                  <SlidersHorizontal className="w-4 h-4 mr-1.5" /> Manage
+                </Button>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
+
+      <NotificationPreferencesDialog
+        open={prefsDialogOpen}
+        onOpenChange={setPrefsDialogOpen}
+        prefs={(user as any)?.notificationPrefs as NotificationPrefs | null | undefined}
+      />
 
       <Card>
         <CardHeader className="pb-3">

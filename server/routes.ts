@@ -21,6 +21,20 @@ import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
+import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, type NotificationPrefs } from "@shared/notification-categories";
+import type { User } from "@shared/schema";
+
+function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
+  if (!user) return false;
+  if (user.role !== "customer") return true;
+  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push");
+}
+
+function customerWantsEmail(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
+  if (!user) return false;
+  if (user.role !== "customer") return true;
+  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "email");
+}
 
 const sanitizeNewsContent = (html: string): string =>
   sanitizeHtml(html, {
@@ -650,6 +664,68 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/auth/notification-prefs", requireAuth, async (req, res) => {
+    try {
+      const me = await storage.getUser(req.session.userId!);
+      if (!me) return res.status(404).json({ message: "User not found" });
+      const current = (me.notificationPrefs ?? {}) as NotificationPrefs;
+      let next: NotificationPrefs;
+
+      if (req.body && typeof req.body === "object" && req.body.prefs && typeof req.body.prefs === "object") {
+        const incoming = req.body.prefs as NotificationPrefs;
+        const sanitized: NotificationPrefs = {};
+        for (const key of Object.keys(incoming)) {
+          if (!NOTIFICATION_CATEGORY_KEYS.includes(key)) continue;
+          const entry = incoming[key];
+          if (!entry || typeof entry !== "object") continue;
+          const cat = NOTIFICATION_CATEGORIES.find((c) => c.key === key);
+          if (!cat) continue;
+          const cleaned: { push?: boolean; email?: boolean } = {};
+          if (typeof entry.push === "boolean" && cat.channels.includes("push")) cleaned.push = entry.push;
+          if (typeof entry.email === "boolean" && cat.channels.includes("email")) cleaned.email = entry.email;
+          if (Object.keys(cleaned).length > 0) sanitized[key] = cleaned;
+        }
+        next = sanitized;
+      } else {
+        const { categoryKey, channel, enabled } = req.body || {};
+        if (typeof categoryKey !== "string" || !NOTIFICATION_CATEGORY_KEYS.includes(categoryKey)) {
+          return res.status(400).json({ message: "Invalid category" });
+        }
+        if (channel !== "push" && channel !== "email") {
+          return res.status(400).json({ message: "Invalid channel" });
+        }
+        if (typeof enabled !== "boolean") {
+          return res.status(400).json({ message: "Invalid enabled value" });
+        }
+        const cat = NOTIFICATION_CATEGORIES.find((c) => c.key === categoryKey);
+        if (!cat || !cat.channels.includes(channel)) {
+          return res.status(400).json({ message: "Channel not supported for this category" });
+        }
+        next = { ...current, [categoryKey]: { ...(current[categoryKey] || {}), [channel]: enabled } };
+      }
+
+      const updated = await storage.updateUser(req.session.userId!, { notificationPrefs: next } as any);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      const { password: _, ...safe } = updated;
+      res.json(safe);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/reset-notification-prefs", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const updated = await storage.updateUser(req.params.id, { notificationPrefs: {} } as any);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      const { password: _, ...safe } = updated;
+      res.json(safe);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // Public API routes
   app.get("/api/services", requireAuth, async (_req, res) => {
     const result = await storage.getAllServices();
@@ -814,19 +890,21 @@ export async function registerRoutes(
         });
         broadcast({ type: "ticket_message", ticketId: ticket.id, message: autoMessage });
 
-        sendPushToUser(req.session.userId!, {
-          title: "New Ticket Reply",
-          body: `Reply on: ${ticket.subject}`,
-          url: `/tickets/${ticket.id}`,
-          tag: `ticket-${ticket.id}`,
-        }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+        if (customerWantsPush(customer, "ticket_received")) {
+          sendPushToUser(req.session.userId!, {
+            title: "Ticket received",
+            body: `We received: ${ticket.subject}`,
+            url: `/tickets/${ticket.id}`,
+            tag: `ticket-${ticket.id}`,
+          }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+        }
         storage.createTicketNotification({
           userId: req.session.userId!,
           ticketId: ticket.id,
           type: "ticket_reply",
           message: `New reply on: ${ticket.subject}`,
         });
-        if (customer?.email && customer.emailNotifications !== false) {
+        if (customer?.email && customerWantsEmail(customer, "ticket_received")) {
           sendTemplatedEmail(customer.email, "customer_ticket_received", {
             ticket_subject: ticket.subject,
             customer_name: customer.fullName,
@@ -987,7 +1065,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }
         }
 
-        if (customer?.email && customer.emailNotifications !== false) {
+        if (customer?.email && customerWantsEmail(customer, "ticket_closed")) {
           try {
             sendTemplatedEmail(customer.email, "ticket_transcript", {
               ticket_subject: ticket.subject,
@@ -1071,12 +1149,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         ? `Your ticket has been transferred to ${admin.fullName}: ${ticket.subject}`
         : `${admin.fullName} is now handling your ticket: ${ticket.subject}`;
 
-      sendPushToUser(ticket.customerId, {
-        title: pushTitle,
-        body: pushBody,
-        url: `/tickets/${ticket.id}`,
-        tag: `ticket-${ticket.id}`,
-      }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+      const customer = await storage.getUser(ticket.customerId);
+      const claimCategory = isTransfer ? "ticket_transferred" : "ticket_claimed";
+      if (customerWantsPush(customer, claimCategory)) {
+        sendPushToUser(ticket.customerId, {
+          title: pushTitle,
+          body: pushBody,
+          url: `/tickets/${ticket.id}`,
+          tag: `ticket-${ticket.id}`,
+        }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+      }
       storage.createTicketNotification({
         userId: ticket.customerId,
         ticketId: ticket.id,
@@ -1086,8 +1168,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           : `${admin.fullName} claimed your ticket: ${ticket.subject}`,
       });
 
-      const customer = await storage.getUser(ticket.customerId);
-      if (customer?.email && customer.emailNotifications !== false) {
+      if (customer?.email && customerWantsEmail(customer, claimCategory)) {
         const emailTemplate = isTransfer ? "customer_ticket_transferred" : "customer_ticket_claimed";
         sendTemplatedEmail(customer.email, emailTemplate, {
           admin_name: admin.fullName,
@@ -1446,12 +1527,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       broadcast({ type: "ticket_message", ticketId: req.params.id, message });
       if (isAdmin) {
         const customerViewingTicket = isUserViewingTicket(ticket.customerId, ticket.id);
-        sendPushToUser(ticket.customerId, {
-          title: "New Ticket Reply",
-          body: `Reply on: ${ticket.subject}`,
-          url: `/tickets/${ticket.id}`,
-          tag: `ticket-${ticket.id}`,
-        }, customerViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+        const customer = await storage.getUser(ticket.customerId);
+        if (customerWantsPush(customer, "ticket_reply")) {
+          sendPushToUser(ticket.customerId, {
+            title: "New Ticket Reply",
+            body: `Reply on: ${ticket.subject}`,
+            url: `/tickets/${ticket.id}`,
+            tag: `ticket-${ticket.id}`,
+          }, customerViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+        }
         if (!customerViewingTicket) {
           storage.createTicketNotification({
             userId: ticket.customerId,
@@ -1460,8 +1544,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             message: `New reply on: ${ticket.subject}`,
           });
         }
-        const customer = await storage.getUser(ticket.customerId);
-        if (customer?.email && customer.emailNotifications !== false && !isUserViewingTicket(ticket.customerId, ticket.id)) {
+        if (customer?.email && customerWantsEmail(customer, "ticket_reply") && !isUserViewingTicket(ticket.customerId, ticket.id)) {
           if (shouldSendTicketEmail(ticket.customerId, ticket.id)) {
             recordTicketEmailSent(ticket.customerId, ticket.id);
             sendTemplatedEmail(customer.email, "customer_ticket_reply", {
@@ -1614,13 +1697,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(existing.id));
         const subIds = subscribedCustomers.map(u => u.id);
         for (const u of subscribedCustomers) {
-          sendPushToUser(u.id, {
-            title: "Service Status Update",
-            body: `${updated.name}: ${updated.status}`,
-            url: "/services",
-            tag: `service-${updated.id}`,
-          }, { type: "service_status", referenceType: "service", referenceId: updated.id });
-          if (u.email && u.emailNotifications !== false) {
+          if (customerWantsPush(u, "service_status")) {
+            sendPushToUser(u.id, {
+              title: "Service Status Update",
+              body: `${updated.name}: ${updated.status}`,
+              url: "/services",
+              tag: `service-${updated.id}`,
+            }, { type: "service_status", referenceType: "service", referenceId: updated.id });
+          }
+          if (u.email && customerWantsEmail(u, "service_status")) {
             sendTemplatedEmail(u.email, "customer_service_status", {
               service_name: updated.name,
               service_status: updated.status,
@@ -1665,7 +1750,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
       console.log(`[Alert Create] Alert ${alert.id} — sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
       for (const u of subscribers) {
-        if (parsedSendPush) {
+        if (parsedSendPush && customerWantsPush(u, "service_alert")) {
           await sendPushToUser(u.id, {
             title: `${serviceName}: ${impactLabel}`,
             body: alert.title,
@@ -1673,7 +1758,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             tag: `alert-${alert.id}`,
           }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: alert.id } : undefined);
         }
-        if (parsedSendEmail && u.email && u.emailNotifications !== false) {
+        if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert")) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceName}: ${impactLabel}`,
             alert_description: `${alert.title}\n\n${alert.description}`,
@@ -1761,7 +1846,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
         console.log(`[Alert Update] Alert ${req.params.id} — status=${updateData.status}, sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
         for (const u of subscribers) {
-          if (parsedSendPush || isResolved) {
+          if ((parsedSendPush || isResolved) && customerWantsPush(u, "service_alert")) {
             await sendPushToUser(u.id, {
               title: pushTitle,
               body: updateData.message,
@@ -1769,7 +1854,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               tag: `alert-${req.params.id}`,
             }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
           }
-          if ((parsedSendEmail || isResolved) && u.email && u.emailNotifications !== false) {
+          if ((parsedSendEmail || isResolved) && u.email && customerWantsEmail(u, "service_alert")) {
             sendTemplatedEmail(u.email, "customer_service_alert", {
               alert_title: emailTitle,
               alert_description: updateData.message,
@@ -1833,13 +1918,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const subscribers = allUsers.filter(u => u.subscribedServices?.includes(updated.serviceId) && u.id !== req.session.userId);
       console.log(`[Alert Resolve] Alert ${req.params.id} — ${subscribers.length} subscriber(s) to notify`);
       for (const u of subscribers) {
-        await sendPushToUser(u.id, {
-          title: `${serviceName}: Resolved — Now Operational`,
-          body: `${updated.title} has been resolved. Service is back to operational.`,
-          url: `/alerts/${req.params.id}`,
-          tag: `alert-${req.params.id}`,
-        }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
-        if (u.email && u.emailNotifications !== false) {
+        if (customerWantsPush(u, "service_alert")) {
+          await sendPushToUser(u.id, {
+            title: `${serviceName}: Resolved — Now Operational`,
+            body: `${updated.title} has been resolved. Service is back to operational.`,
+            url: `/alerts/${req.params.id}`,
+            tag: `alert-${req.params.id}`,
+          }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
+        }
+        if (u.email && customerWantsEmail(u, "service_alert")) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceName}: Issue Resolved — Service Restored`,
             alert_description: `${updated.title} has been resolved. Service is back to operational.`,
@@ -1902,13 +1989,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const allUsers = await storage.getAllUsers();
       const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(serviceId));
       for (const u of subscribedCustomers) {
-        sendPushToUser(u.id, {
-          title: `Service Update: ${serviceName}`,
-          body: title,
-          url: "/service-updates",
-          tag: `service-update-${update.id}`,
-        }, { type: "service_update", referenceType: "service_update", referenceId: update.id });
-        if (u.email && u.emailNotifications !== false) {
+        if (customerWantsPush(u, "service_update")) {
+          sendPushToUser(u.id, {
+            title: `Service Update: ${serviceName}`,
+            body: title,
+            url: "/service-updates",
+            tag: `service-update-${update.id}`,
+          }, { type: "service_update", referenceType: "service_update", referenceId: update.id });
+        }
+        if (u.email && customerWantsEmail(u, "service_update")) {
           sendTemplatedEmail(u.email, "customer_service_update", {
             service_name: serviceName,
             update_title: title,
@@ -1974,14 +2063,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       broadcast({ type: "new_news", story });
       const allUsers = await storage.getAllUsers();
       for (const u of allUsers.filter(u => u.role === "customer")) {
-        sendPushToUser(u.id, {
-          title: "New News Story",
-          body: story.title,
-          url: `/news/${story.id}`,
-          tag: `news-${story.id}`,
-        }, { type: "news", referenceType: "news", referenceId: story.id });
+        if (customerWantsPush(u, "news")) {
+          sendPushToUser(u.id, {
+            title: "New News Story",
+            body: story.title,
+            url: `/news/${story.id}`,
+            tag: `news-${story.id}`,
+          }, { type: "news", referenceType: "news", referenceId: story.id });
+        }
       }
-      const customerEmails = allUsers.filter(u => u.role === "customer" && u.email && u.emailNotifications !== false).map(u => u.email);
+      const customerEmails = allUsers.filter(u => u.role === "customer" && u.email && customerWantsEmail(u, "news")).map(u => u.email);
       if (customerEmails.length > 0) {
         const plainContent = sanitizeHtml(story.content, { allowedTags: [], allowedAttributes: {} }).trim();
         const emailPreview = plainContent.length > 500 ? plainContent.substring(0, 500) + "..." : plainContent;
@@ -2077,14 +2168,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       broadcast({ type: "private_message", recipientId, messageId: message.id, subject: message.subject });
 
-      sendPushToUser(recipientId, {
-        title: "New Private Message",
-        body: `${sender?.fullName}: ${subject}`,
-        url: "/messages",
-        tag: `pm-${message.id}`,
-      });
+      if (customerWantsPush(recipient, "private_message")) {
+        sendPushToUser(recipientId, {
+          title: "New Private Message",
+          body: `${sender?.fullName}: ${subject}`,
+          url: "/messages",
+          tag: `pm-${message.id}`,
+        });
+      }
 
-      if (recipient.email && recipient.emailNotifications !== false && sender) {
+      if (recipient.email && customerWantsEmail(recipient, "private_message") && sender) {
         sendTemplatedEmail(recipient.email, "customer_private_message", {
           sender_name: sender.fullName,
           message_subject: subject,
@@ -2147,14 +2240,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const sender = await storage.getUser(req.session.userId!);
       broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
 
-      sendPushToUser(customerId, {
-        title: `Message from ${sender?.fullName || "Support"}`,
-        body: `${subject}: ${body.substring(0, 100)}`,
-        url: `/messages/${thread.id}`,
-        tag: `thread-${thread.id}`,
-      }, { type: "message", referenceType: "message_thread", referenceId: thread.id });
+      if (customerWantsPush(customer, "thread_message")) {
+        sendPushToUser(customerId, {
+          title: `Message from ${sender?.fullName || "Support"}`,
+          body: `${subject}: ${body.substring(0, 100)}`,
+          url: `/messages/${thread.id}`,
+          tag: `thread-${thread.id}`,
+        }, { type: "message", referenceType: "message_thread", referenceId: thread.id });
+      }
 
-      if (customer.email && customer.emailNotifications !== false && sender) {
+      if (customer.email && customerWantsEmail(customer, "thread_message") && sender) {
         sendTemplatedEmail(customer.email, "customer_thread_message", {
           sender_name: sender.fullName,
           thread_subject: subject,
@@ -2273,16 +2368,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
 
       const shouldCreateNotif = !isRecipientViewing;
-      sendPushToUser(recipientId, {
-        title: `${sender?.fullName || "User"}`,
-        body: body.trim().substring(0, 100),
-        url: `/messages/${thread.id}`,
-        tag: `thread-${thread.id}`,
-      }, shouldCreateNotif ? { type: "message", referenceType: "message_thread", referenceId: thread.id } : undefined);
+      const recipientUser = await storage.getUser(recipientId);
+      if (customerWantsPush(recipientUser, "thread_message")) {
+        sendPushToUser(recipientId, {
+          title: `${sender?.fullName || "User"}`,
+          body: body.trim().substring(0, 100),
+          url: `/messages/${thread.id}`,
+          tag: `thread-${thread.id}`,
+        }, shouldCreateNotif ? { type: "message", referenceType: "message_thread", referenceId: thread.id } : undefined);
+      }
 
       if (!isRecipientViewing) {
-        const recipient = await storage.getUser(recipientId);
-        if (recipient?.email && recipient.emailNotifications !== false && sender) {
+        const recipient = recipientUser;
+        if (recipient?.email && customerWantsEmail(recipient, "thread_message") && sender) {
           const templateKey = isAdminSending ? "customer_thread_message" : "admin_thread_message";
           sendTemplatedEmail(recipient.email, templateKey, {
             sender_name: sender.fullName,
@@ -2440,7 +2538,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       };
       const typeLabel = typeLabels[type] || type;
 
-      if (user.email && user.emailNotifications !== false) {
+      if (user.email && customerWantsEmail(user, "report_received")) {
         sendTemplatedEmail(user.email, "customer_report_received", {
           type_label: typeLabel,
           service_name: service?.name || "N/A",
@@ -2507,12 +2605,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const typeLabel = typeLabelsMap[existing.type] || existing.type;
         const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
-        sendPushToUser(existing.customerId, {
-          title: `${typeLabel} Updated`,
-          body: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been marked as ${statusLabel}`,
-          url: "/report-request",
-          tag: `report-${existing.id}`,
-        }, { type: "report_update", referenceType: "report_request", referenceId: existing.id });
+        const customer = await storage.getUser(existing.customerId);
+        if (customerWantsPush(customer, "report_update")) {
+          sendPushToUser(existing.customerId, {
+            title: `${typeLabel} Updated`,
+            body: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been marked as ${statusLabel}`,
+            url: "/report-request",
+            tag: `report-${existing.id}`,
+          }, { type: "report_update", referenceType: "report_request", referenceId: existing.id });
+        }
 
         storage.createReportNotification({
           userId: existing.customerId,
@@ -2520,8 +2621,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           message: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been updated to ${statusLabel}`,
         });
 
-        const customer = await storage.getUser(existing.customerId);
-        if (customer?.email && customer.emailNotifications !== false) {
+        if (customer?.email && customerWantsEmail(customer, "report_update")) {
           const notesRaw = adminNotes || updated.adminNotes || "";
           const notesBlock = notesRaw ? `<blockquote>${escapeHtml(notesRaw).replace(/\n/g, "<br/>")}</blockquote>` : "";
           sendTemplatedEmail(customer.email, "customer_report_update", {
