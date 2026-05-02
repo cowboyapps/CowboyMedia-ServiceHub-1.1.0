@@ -18,6 +18,16 @@ import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLin
 import type { Service } from "@shared/schema";
 import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
 import { countEnabledChannels, type NotificationPrefs } from "@shared/notification-categories";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -29,6 +39,8 @@ export default function SettingsPage() {
   const [pushLoading, setPushLoading] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [prefsDialogOpen, setPrefsDialogOpen] = useState(false);
+  const [pushPromptOpen, setPushPromptOpen] = useState(false);
+  const [enablingPushFromPrompt, setEnablingPushFromPrompt] = useState(false);
 
   const { data: services, isLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -85,6 +97,41 @@ export default function SettingsPage() {
       toast({ title: "Error toggling notifications", variant: "destructive" });
     }
     setPushLoading(false);
+  };
+
+  const handleOpenPrefs = () => {
+    if (pushSupported && !pushEnabled) {
+      setPushPromptOpen(true);
+      return;
+    }
+    setPrefsDialogOpen(true);
+  };
+
+  const handleEnablePushAndOpen = async () => {
+    setEnablingPushFromPrompt(true);
+    try {
+      const success = await subscribeToPush();
+      if (success) {
+        setPushEnabled(true);
+        toast({ title: "Push notifications enabled" });
+      } else {
+        toast({
+          title: "Could not enable notifications",
+          description: "Please allow notifications in your browser settings",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({ title: "Error enabling notifications", variant: "destructive" });
+    }
+    setEnablingPushFromPrompt(false);
+    setPushPromptOpen(false);
+    setPrefsDialogOpen(true);
+  };
+
+  const handleSkipPushAndOpen = () => {
+    setPushPromptOpen(false);
+    setPrefsDialogOpen(true);
   };
 
   const handleInstallApp = async () => {
@@ -298,7 +345,7 @@ export default function SettingsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPrefsDialogOpen(true)}
+                  onClick={handleOpenPrefs}
                   data-testid="button-open-notif-prefs"
                 >
                   <SlidersHorizontal className="w-4 h-4 mr-1.5" /> Manage
@@ -315,6 +362,36 @@ export default function SettingsPage() {
         prefs={user?.notificationPrefs}
         pushAvailable={pushSupported && pushEnabled}
       />
+
+      <AlertDialog open={pushPromptOpen} onOpenChange={setPushPromptOpen}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-push-prompt">
+          <AlertDialogHeader>
+            <AlertDialogTitle data-testid="text-push-prompt-title">Enable push notifications?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Push notifications aren't on yet for this device. Turn them on now to get instant alerts, or continue without push to manage email-only preferences.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel
+              onClick={handleSkipPushAndOpen}
+              disabled={enablingPushFromPrompt}
+              data-testid="button-push-prompt-skip"
+            >
+              No, continue
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleEnablePushAndOpen();
+              }}
+              disabled={enablingPushFromPrompt}
+              data-testid="button-push-prompt-enable"
+            >
+              {enablingPushFromPrompt ? "Enabling..." : "Yes, enable push"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader className="pb-3">
