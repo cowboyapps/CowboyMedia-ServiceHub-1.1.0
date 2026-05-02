@@ -205,7 +205,7 @@ export function BottomNav() {
                 <LogOut className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
-            <p className="text-[10px] text-muted-foreground/60 text-center mt-3" data-testid="text-sheet-version">Version 2.0</p>
+            <p className="text-[10px] text-muted-foreground/60 text-center mt-3" data-testid="text-sheet-version">Version 3.1.0</p>
           </div>
         </SheetContent>
       </Sheet>
