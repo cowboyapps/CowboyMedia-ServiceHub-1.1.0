@@ -6,6 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,6 +62,7 @@ function formatDateSeparator(date: Date): string {
 }
 
 function UsernameSetupDialog({ open, onComplete }: { open: boolean; onComplete: (username: string, notifPref: string) => void }) {
+  const isMobile = useIsMobile();
   const [username, setUsername] = useState("");
   const [notifPref, setNotifPref] = useState("mentions");
   const [checking, setChecking] = useState(false);
@@ -118,12 +122,8 @@ function UsernameSetupDialog({ open, onComplete }: { open: boolean; onComplete: 
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
-        <DialogHeader>
-          <DialogTitle data-testid="text-username-dialog-title">Set Up Community Chat</DialogTitle>
-        </DialogHeader>
+  const body = (
+    <>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="chat-username">Anonymous Username</Label>
@@ -181,11 +181,43 @@ function UsernameSetupDialog({ open, onComplete }: { open: boolean; onComplete: 
             </RadioGroup>
           </div>
         </div>
-        <DialogFooter>
-          <Button onClick={handleSubmit} disabled={saving || checking || !!error || username.trim().length < 2} data-testid="button-save-username">
+        <div className="pt-2">
+          <Button className="w-full" onClick={handleSubmit} disabled={saving || checking || !!error || username.trim().length < 2} data-testid="button-save-username">
             {saving ? "Saving..." : "Start Chatting"}
           </Button>
-        </DialogFooter>
+        </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={() => {}}>
+        <SheetContent
+          side="bottom"
+          className="h-[92vh] p-0 flex flex-col rounded-t-2xl"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          data-testid="dialog-username-setup"
+        >
+          <div className="flex justify-center pt-2 pb-1">
+            <div className="w-10 h-1.5 rounded-full bg-muted-foreground/30" />
+          </div>
+          <SheetHeader className="px-4 pb-3 text-left">
+            <SheetTitle data-testid="text-username-dialog-title">Set Up Community Chat</SheetTitle>
+          </SheetHeader>
+          <ScrollArea className="flex-1 px-4 pb-6">{body}</ScrollArea>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={() => {}}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()} data-testid="dialog-username-setup">
+        <DialogHeader>
+          <DialogTitle data-testid="text-username-dialog-title">Set Up Community Chat</DialogTitle>
+        </DialogHeader>
+        {body}
       </DialogContent>
     </Dialog>
   );
@@ -273,12 +305,12 @@ function EmojiPicker({ onSelect, onClose, alignRight }: { onSelect: (emoji: stri
   }, [onClose]);
 
   return (
-    <div ref={ref} className={`absolute bottom-full mb-1 ${alignRight ? "right-0" : "left-0"} bg-popover border rounded-lg shadow-lg p-1 grid grid-cols-4 gap-0.5 z-50 w-[144px]`} data-testid="emoji-picker">
+    <div ref={ref} className={`absolute bottom-full mb-1 ${alignRight ? "right-0" : "left-0"} bg-popover border rounded-lg shadow-lg p-1.5 grid grid-cols-4 gap-1 z-50 w-[200px]`} data-testid="emoji-picker">
       {EMOJI_OPTIONS.map((emoji) => (
         <button
           key={emoji}
           onClick={() => { onSelect(emoji); onClose(); }}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-muted transition-colors text-base"
+          className="w-11 h-11 flex items-center justify-center rounded hover:bg-muted active:bg-muted/80 transition-colors text-xl"
           data-testid={`button-emoji-${emoji}`}
         >
           {emoji}
@@ -298,7 +330,7 @@ function ReactionBadges({ reactions, userId, onToggle }: { reactions: ReactionGr
           <button
             key={r.emoji}
             onClick={() => onToggle(r.emoji)}
-            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs border transition-colors ${isMine ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted border-border hover:bg-muted/80"}`}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 min-h-[28px] rounded-full text-xs border transition-colors ${isMine ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted border-border hover:bg-muted/80 active:bg-muted/60"}`}
             data-testid={`reaction-badge-${r.emoji}`}
           >
             <span>{r.emoji}</span>

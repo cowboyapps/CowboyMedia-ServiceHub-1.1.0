@@ -59,7 +59,7 @@ export default function DownloadsPage() {
               <CardContent className="p-3">
                 <div className="flex items-center gap-3">
                   {dl.imageUrl ? (
-                    <img src={dl.imageUrl} alt={dl.title} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
+                    <img src={dl.imageUrl} alt={dl.title} loading="lazy" decoding="async" width={56} height={56} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
                   ) : (
                     <div className="w-14 h-14 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Download className="w-6 h-6 text-primary" />
@@ -83,7 +83,7 @@ export default function DownloadsPage() {
               <DialogHeader>
                 <div className="flex items-center gap-3">
                   {selectedDownload.imageUrl ? (
-                    <img src={selectedDownload.imageUrl} alt={selectedDownload.title} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
+                    <img src={selectedDownload.imageUrl} alt={selectedDownload.title} loading="lazy" decoding="async" width={56} height={56} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
                   ) : (
                     <div className="w-14 h-14 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Download className="w-6 h-6 text-primary" />

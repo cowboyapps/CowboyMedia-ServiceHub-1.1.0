@@ -30,6 +30,27 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "wouter"],
+          "vendor-query": ["@tanstack/react-query"],
+          "vendor-tiptap": [
+            "@tiptap/react",
+            "@tiptap/starter-kit",
+            "@tiptap/extension-image",
+            "@tiptap/extension-placeholder",
+            "@tiptap/extension-text-align",
+            "@tiptap/extension-text-style",
+            "@tiptap/extension-color",
+            "@tiptap/extension-underline",
+          ],
+          "vendor-charts": ["recharts"],
+          "vendor-icons": ["lucide-react", "react-icons"],
+          "vendor-date": ["date-fns", "date-fns-tz"],
+        },
+      },
+    },
   },
   server: {
     fs: {

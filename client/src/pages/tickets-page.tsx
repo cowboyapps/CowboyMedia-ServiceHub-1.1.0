@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -91,6 +94,7 @@ export default function TicketsPage() {
   const { user, isAdmin } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const isMobile = useIsMobile();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [warnOpen, setWarnOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -255,12 +259,8 @@ export default function TicketsPage() {
             </AlertDialogContent>
           </AlertDialog>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Open a Support Ticket</DialogTitle>
-                <DialogDescription className="sr-only">Fill out the form to submit a support ticket</DialogDescription>
-              </DialogHeader>
+          {(() => {
+            const ticketForm = (
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
                   <FormField
@@ -372,8 +372,35 @@ export default function TicketsPage() {
                   </Button>
                 </form>
               </Form>
-            </DialogContent>
-          </Dialog>
+            );
+            if (isMobile) {
+              return (
+                <Sheet open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <SheetContent side="bottom" className="h-[92vh] p-0 flex flex-col rounded-t-2xl" data-testid="dialog-new-ticket">
+                    <div className="flex justify-center pt-2 pb-1">
+                      <div className="w-10 h-1.5 rounded-full bg-muted-foreground/30" />
+                    </div>
+                    <SheetHeader className="px-4 pb-3 text-left">
+                      <SheetTitle>Open a Support Ticket</SheetTitle>
+                      <SheetDescription className="sr-only">Fill out the form to submit a support ticket</SheetDescription>
+                    </SheetHeader>
+                    <ScrollArea className="flex-1 px-4 pb-6">{ticketForm}</ScrollArea>
+                  </SheetContent>
+                </Sheet>
+              );
+            }
+            return (
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-new-ticket">
+                  <DialogHeader>
+                    <DialogTitle>Open a Support Ticket</DialogTitle>
+                    <DialogDescription className="sr-only">Fill out the form to submit a support ticket</DialogDescription>
+                  </DialogHeader>
+                  {ticketForm}
+                </DialogContent>
+              </Dialog>
+            );
+          })()}
           </>
         )}
       </div>

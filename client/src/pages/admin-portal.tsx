@@ -1662,7 +1662,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
               <CardContent className="flex items-start justify-between gap-3 p-4">
                 <div className="flex items-start gap-3">
                   {story.imageUrl && (
-                    <img src={story.imageUrl} alt="" className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
+                    <img src={story.imageUrl} alt="" loading="lazy" decoding="async" width={64} height={48} className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
                   )}
                   <div className="space-y-0.5">
                     <h4 className="font-semibold text-sm">{story.title}</h4>
@@ -3322,7 +3322,7 @@ function DownloadsTab({ canManage = true }: { canManage?: boolean }) {
               <CardContent className="p-3">
                 <div className="flex items-start gap-3">
                   {dl.imageUrl ? (
-                    <img src={dl.imageUrl} alt={dl.title} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
+                    <img src={dl.imageUrl} alt={dl.title} loading="lazy" decoding="async" width={56} height={56} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
                   ) : (
                     <div className="w-14 h-14 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Download className="w-6 h-6 text-primary" />
