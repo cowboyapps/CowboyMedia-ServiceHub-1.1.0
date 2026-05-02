@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Bell, Mail, RotateCcw } from "lucide-react";
@@ -21,9 +22,10 @@ interface NotificationPreferencesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   prefs: NotificationPrefs | null | undefined;
+  pushAvailable: boolean;
 }
 
-export function NotificationPreferencesDialog({ open, onOpenChange, prefs }: NotificationPreferencesDialogProps) {
+export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushAvailable }: NotificationPreferencesDialogProps) {
   const { toast } = useToast();
 
   const grouped = useMemo(() => {
@@ -48,34 +50,16 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs }: Not
     },
   });
 
-  const enableAllMutation = useMutation({
+  const resetMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("PATCH", "/api/auth/notification-prefs", { prefs: {} });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "All notifications enabled" });
+      toast({ title: "Notification preferences reset to defaults" });
     },
     onError: (e: Error) => {
       toast({ title: "Failed to reset", description: e.message, variant: "destructive" });
-    },
-  });
-
-  const disableAllMutation = useMutation({
-    mutationFn: async () => {
-      const allOff: NotificationPrefs = {};
-      for (const cat of NOTIFICATION_CATEGORIES) {
-        allOff[cat.key] = {};
-        for (const ch of cat.channels) allOff[cat.key][ch] = false;
-      }
-      await apiRequest("PATCH", "/api/auth/notification-prefs", { prefs: allOff });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "All notifications disabled" });
-    },
-    onError: (e: Error) => {
-      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
     },
   });
 
@@ -97,83 +81,92 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs }: Not
             <div className="flex-1" />
             <Button
               size="sm"
-              variant="outline"
-              onClick={() => enableAllMutation.mutate()}
-              disabled={enableAllMutation.isPending}
-              data-testid="button-enable-all-notifs"
+              variant="ghost"
+              className="text-xs"
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending}
+              data-testid="button-reset-notif-prefs-self"
             >
-              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Enable all
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => disableAllMutation.mutate()}
-              disabled={disableAllMutation.isPending}
-              data-testid="button-disable-all-notifs"
-            >
-              Disable all
+              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to defaults
             </Button>
           </div>
+          {!pushAvailable && (
+            <p className="text-xs text-muted-foreground pt-1" data-testid="text-push-unavailable-hint">
+              Turn on push notifications above to use the push column.
+            </p>
+          )}
         </DialogHeader>
 
         <ScrollArea className="flex-1 px-6 pb-6">
-          <div className="space-y-5">
-            {grouped.map(({ group, categories }) => (
-              <div key={group} className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" data-testid={`heading-group-${group}`}>
-                  {group}
-                </h3>
-                <div className="border rounded-md divide-y">
-                  {categories.map((cat) => {
-                    const pushEnabled = userWantsChannel(prefs, cat.key, "push");
-                    const emailEnabled = userWantsChannel(prefs, cat.key, "email");
-                    const supportsPush = cat.channels.includes("push");
-                    const supportsEmail = cat.channels.includes("email");
-                    return (
-                      <div key={cat.key} className="flex items-start gap-3 px-3 py-3" data-testid={`row-notif-${cat.key}`}>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">{cat.label}</p>
-                          <p className="text-xs text-muted-foreground">{cat.description}</p>
+          <TooltipProvider delayDuration={150}>
+            <div className="space-y-5">
+              {grouped.map(({ group, categories }) => (
+                <div key={group} className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" data-testid={`heading-group-${group}`}>
+                    {group}
+                  </h3>
+                  <div className="border rounded-md divide-y">
+                    {categories.map((cat) => {
+                      const pushEnabled = userWantsChannel(prefs, cat.key, "push");
+                      const emailEnabled = userWantsChannel(prefs, cat.key, "email");
+                      const supportsPush = cat.channels.includes("push");
+                      const supportsEmail = cat.channels.includes("email");
+                      const pushDisabled = !pushAvailable || toggleMutation.isPending;
+                      return (
+                        <div key={cat.key} className="flex items-start gap-3 px-3 py-3" data-testid={`row-notif-${cat.key}`}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{cat.label}</p>
+                            <p className="text-xs text-muted-foreground">{cat.description}</p>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            {supportsPush ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <label className={`flex items-center gap-1.5 ${pushAvailable ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}>
+                                    <Bell className="w-3.5 h-3.5 text-muted-foreground" />
+                                    <Switch
+                                      checked={pushAvailable && pushEnabled}
+                                      onCheckedChange={(checked) =>
+                                        toggleMutation.mutate({ categoryKey: cat.key, channel: "push", enabled: checked })
+                                      }
+                                      disabled={pushDisabled}
+                                      data-testid={`switch-push-${cat.key}`}
+                                    />
+                                  </label>
+                                </TooltipTrigger>
+                                {!pushAvailable && (
+                                  <TooltipContent side="top">
+                                    Enable push notifications above to use this
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            ) : (
+                              <span className="w-[64px]" />
+                            )}
+                            {supportsEmail ? (
+                              <label className="flex items-center gap-1.5 cursor-pointer" title="Email notification">
+                                <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                                <Switch
+                                  checked={emailEnabled}
+                                  onCheckedChange={(checked) =>
+                                    toggleMutation.mutate({ categoryKey: cat.key, channel: "email", enabled: checked })
+                                  }
+                                  disabled={toggleMutation.isPending}
+                                  data-testid={`switch-email-${cat.key}`}
+                                />
+                              </label>
+                            ) : (
+                              <span className="w-[64px]" />
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          {supportsPush ? (
-                            <label className="flex items-center gap-1.5 cursor-pointer" title="Push notification">
-                              <Bell className="w-3.5 h-3.5 text-muted-foreground" />
-                              <Switch
-                                checked={pushEnabled}
-                                onCheckedChange={(checked) =>
-                                  toggleMutation.mutate({ categoryKey: cat.key, channel: "push", enabled: checked })
-                                }
-                                disabled={toggleMutation.isPending}
-                                data-testid={`switch-push-${cat.key}`}
-                              />
-                            </label>
-                          ) : (
-                            <span className="w-[64px]" />
-                          )}
-                          {supportsEmail ? (
-                            <label className="flex items-center gap-1.5 cursor-pointer" title="Email notification">
-                              <Mail className="w-3.5 h-3.5 text-muted-foreground" />
-                              <Switch
-                                checked={emailEnabled}
-                                onCheckedChange={(checked) =>
-                                  toggleMutation.mutate({ categoryKey: cat.key, channel: "email", enabled: checked })
-                                }
-                                disabled={toggleMutation.isPending}
-                                data-testid={`switch-email-${cat.key}`}
-                              />
-                            </label>
-                          ) : (
-                            <span className="w-[64px]" />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </TooltipProvider>
         </ScrollArea>
       </DialogContent>
     </Dialog>

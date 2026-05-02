@@ -5,7 +5,7 @@ import { createServer } from "http";
 import { seed } from "./seed";
 import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
 import { storage } from "./storage";
-import { userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
+import { userWantsChannel } from "@shared/notification-categories";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 
@@ -192,7 +192,7 @@ app.use((req, res, next) => {
         }
 
         const wantsReminder = userWantsChannel(
-          user.notificationPrefs as NotificationPrefs | null | undefined,
+          user.notificationPrefs,
           "setup_reminder",
           "email",
         );

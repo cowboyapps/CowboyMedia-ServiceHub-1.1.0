@@ -22,7 +22,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus } from "lucide-react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
@@ -30,7 +30,14 @@ import { Download, ImagePlus, X as XIcon } from "lucide-react";
 import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement } from "@shared/schema";
 import { RichTextEditor, stripHtml } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
-import { countEnabledChannels, type NotificationPrefs } from "@shared/notification-categories";
+import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledChannels, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
+
+function pillColorClass(enabled: number, total: number): string {
+  if (total === 0) return "bg-muted text-muted-foreground border-transparent";
+  if (enabled === 0) return "bg-muted text-muted-foreground border-transparent";
+  if (enabled === total) return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+  return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+}
 
 const createServiceSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -82,6 +89,7 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [detailUser, setDetailUser] = useState<User | null>(null);
+  const [notifPrefsExpanded, setNotifPrefsExpanded] = useState(false);
   const [editFullName, setEditFullName] = useState("");
   const [editUsername, setEditUsername] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -365,37 +373,82 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
               )}
 
               {detailUser.role === "customer" && (() => {
-                const prefs = (detailUser as any).notificationPrefs as NotificationPrefs | null | undefined;
+                const prefs: NotificationPrefs | null | undefined = detailUser.notificationPrefs;
                 const p = countEnabledChannels(prefs, "push");
                 const e = countEnabledChannels(prefs, "email");
                 return (
-                  <div className="border rounded-md px-3 py-2 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
+                  <div className="border rounded-md">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
                       <div className="min-w-0">
                         <p className="text-sm font-medium">Notification preferences</p>
                         <p className="text-xs text-muted-foreground">
-                          The customer chooses which events trigger push and email notifications.
+                          Read-only view of the customer's per-category choices.
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={resetPrefsMutation.isPending}
-                        onClick={() => resetPrefsMutation.mutate(detailUser.id)}
-                        data-testid="button-reset-notif-prefs"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to defaults
-                      </Button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid="badge-detail-push-prefs">
+                          <Bell className="w-3 h-3" />Push {p.enabled}/{p.total}
+                        </Badge>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid="badge-detail-email-prefs">
+                          <Mail className="w-3 h-3" />Email {e.enabled}/{e.total}
+                        </Badge>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={resetPrefsMutation.isPending}
+                          onClick={() => resetPrefsMutation.mutate(detailUser.id)}
+                          data-testid="button-reset-notif-prefs"
+                        >
+                          <RotateCcw className="w-3 h-3 mr-1" /> Reset
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="gap-1" data-testid="badge-detail-push-prefs">
-                        <Bell className="w-3 h-3" /> Push {p.enabled}/{p.total}
-                      </Badge>
-                      <Badge variant="outline" className="gap-1" data-testid="badge-detail-email-prefs">
-                        <Mail className="w-3 h-3" /> Email {e.enabled}/{e.total}
-                      </Badge>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotifPrefsExpanded((v) => !v)}
+                      className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                      data-testid="button-toggle-notif-prefs-grid"
+                    >
+                      <span>{notifPrefsExpanded ? "Hide" : "Show"} per-category breakdown</span>
+                      {notifPrefsExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    </button>
+                    {notifPrefsExpanded && (
+                      <div className="px-3 py-2 border-t space-y-3" data-testid="grid-notif-prefs">
+                        {NOTIFICATION_GROUPS.map((group) => {
+                          const cats = NOTIFICATION_CATEGORIES.filter((c) => c.group === group);
+                          return (
+                            <div key={group} className="space-y-1">
+                              <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">{group}</p>
+                              <div className="space-y-0.5">
+                                {cats.map((cat) => {
+                                  const supportsPush = cat.channels.includes("push");
+                                  const supportsEmail = cat.channels.includes("email");
+                                  const pushOn = supportsPush && userWantsChannel(prefs, cat.key, "push");
+                                  const emailOn = supportsEmail && userWantsChannel(prefs, cat.key, "email");
+                                  return (
+                                    <div key={cat.key} className="flex items-center gap-2 text-xs" data-testid={`grid-row-${cat.key}`}>
+                                      <span className="flex-1 min-w-0 truncate">{cat.label}</span>
+                                      <span className="w-12 flex items-center justify-center" title={supportsPush ? (pushOn ? "Push enabled" : "Push disabled") : "Push not applicable"}>
+                                        {supportsPush ? (
+                                          pushOn ? <Check className="w-3.5 h-3.5 text-green-500" data-testid={`grid-push-on-${cat.key}`} /> : <Minus className="w-3.5 h-3.5 text-muted-foreground/50" data-testid={`grid-push-off-${cat.key}`} />
+                                        ) : <span className="text-muted-foreground/30">—</span>}
+                                      </span>
+                                      <span className="w-12 flex items-center justify-center" title={supportsEmail ? (emailOn ? "Email enabled" : "Email disabled") : "Email not applicable"}>
+                                        {supportsEmail ? (
+                                          emailOn ? <Check className="w-3.5 h-3.5 text-green-500" data-testid={`grid-email-on-${cat.key}`} /> : <Minus className="w-3.5 h-3.5 text-muted-foreground/50" data-testid={`grid-email-off-${cat.key}`} />
+                                        ) : <span className="text-muted-foreground/30">—</span>}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -614,21 +667,21 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{u.email}</p>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                  <div className="flex items-center gap-1 shrink-0 pt-0.5 flex-wrap justify-end">
                     <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
                       {pushStatus?.[u.id] ? <Bell className="w-3.5 h-3.5 text-green-500" /> : <BellOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
                     </span>
                     {u.role === "customer" && (() => {
-                      const prefs = (u as any).notificationPrefs as NotificationPrefs | null | undefined;
+                      const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
                       const p = countEnabledChannels(prefs, "push");
                       const e = countEnabledChannels(prefs, "email");
                       return (
                         <>
-                          <Badge variant="outline" className="h-5 px-1 text-[10px] gap-0.5" title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
-                            <Bell className="w-2.5 h-2.5" />{p.enabled}/{p.total}
+                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
+                            <Bell className="w-2.5 h-2.5" />Push {p.enabled}/{p.total}
                           </Badge>
-                          <Badge variant="outline" className="h-5 px-1 text-[10px] gap-0.5" title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
-                            <Mail className="w-2.5 h-2.5" />{e.enabled}/{e.total}
+                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
+                            <Mail className="w-2.5 h-2.5" />Email {e.enabled}/{e.total}
                           </Badge>
                         </>
                       );
@@ -701,16 +754,16 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                         {pushStatus?.[u.id] ? <Bell className="w-4 h-4 text-green-500" /> : <BellOff className="w-4 h-4 text-muted-foreground/40" />}
                       </span>
                       {u.role === "customer" && (() => {
-                        const prefs = (u as any).notificationPrefs as NotificationPrefs | null | undefined;
+                        const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
                         const p = countEnabledChannels(prefs, "push");
                         const e = countEnabledChannels(prefs, "email");
                         return (
                           <>
-                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1" title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
-                              <Bell className="w-3 h-3" />{p.enabled}/{p.total}
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Push: ${p.enabled} of ${p.total} categories enabled`} data-testid={`badge-push-prefs-${u.id}`}>
+                              <Bell className="w-3 h-3" />Push {p.enabled}/{p.total}
                             </Badge>
-                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1" title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
-                              <Mail className="w-3 h-3" />{e.enabled}/{e.total}
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Email: ${e.enabled} of ${e.total} categories enabled`} data-testid={`badge-email-prefs-${u.id}`}>
+                              <Mail className="w-3 h-3" />Email {e.enabled}/{e.total}
                             </Badge>
                           </>
                         );

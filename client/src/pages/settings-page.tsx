@@ -284,7 +284,7 @@ export default function SettingsPage() {
             </div>
           )}
           {(() => {
-            const prefs = (user as any)?.notificationPrefs as NotificationPrefs | null | undefined;
+            const prefs: NotificationPrefs | null | undefined = user?.notificationPrefs;
             const pushSummary = countEnabledChannels(prefs, "push");
             const emailSummary = countEnabledChannels(prefs, "email");
             return (
@@ -312,7 +312,8 @@ export default function SettingsPage() {
       <NotificationPreferencesDialog
         open={prefsDialogOpen}
         onOpenChange={setPrefsDialogOpen}
-        prefs={(user as any)?.notificationPrefs as NotificationPrefs | null | undefined}
+        prefs={user?.notificationPrefs}
+        pushAvailable={pushSupported && pushEnabled}
       />
 
       <Card>

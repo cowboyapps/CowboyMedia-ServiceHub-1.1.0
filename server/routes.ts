@@ -668,7 +668,7 @@ export async function registerRoutes(
     try {
       const me = await storage.getUser(req.session.userId!);
       if (!me) return res.status(404).json({ message: "User not found" });
-      const current = (me.notificationPrefs ?? {}) as NotificationPrefs;
+      const current: NotificationPrefs = me.notificationPrefs ?? {};
       let next: NotificationPrefs;
 
       if (req.body && typeof req.body === "object" && req.body.prefs && typeof req.body.prefs === "object") {
@@ -704,7 +704,7 @@ export async function registerRoutes(
         next = { ...current, [categoryKey]: { ...(current[categoryKey] || {}), [channel]: enabled } };
       }
 
-      const updated = await storage.updateUser(req.session.userId!, { notificationPrefs: next } as any);
+      const updated = await storage.updateUser(req.session.userId!, { notificationPrefs: next });
       if (!updated) return res.status(404).json({ message: "User not found" });
       const { password: _, ...safe } = updated;
       res.json(safe);
@@ -717,7 +717,7 @@ export async function registerRoutes(
     try {
       const target = await storage.getUser(req.params.id);
       if (!target) return res.status(404).json({ message: "User not found" });
-      const updated = await storage.updateUser(req.params.id, { notificationPrefs: {} } as any);
+      const updated = await storage.updateUser(req.params.id, { notificationPrefs: {} });
       if (!updated) return res.status(404).json({ message: "User not found" });
       const { password: _, ...safe } = updated;
       res.json(safe);
