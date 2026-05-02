@@ -434,7 +434,7 @@ export default function SettingsPage() {
       </Card>
 
       <p className="text-center text-xs text-muted-foreground mt-6 mb-1" data-testid="text-app-version">
-        Version 3.1.0
+        Version 3.2
       </p>
       <p className="text-center text-xs text-muted-foreground mb-2" data-testid="text-developed-by">
         Developed by CowboyApps
