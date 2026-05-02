@@ -32,22 +32,11 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "vendor-react": ["react", "react-dom", "wouter"],
-          "vendor-query": ["@tanstack/react-query"],
-          "vendor-tiptap": [
-            "@tiptap/react",
-            "@tiptap/starter-kit",
-            "@tiptap/extension-image",
-            "@tiptap/extension-placeholder",
-            "@tiptap/extension-text-align",
-            "@tiptap/extension-text-style",
-            "@tiptap/extension-color",
-            "@tiptap/extension-underline",
-          ],
-          "vendor-charts": ["recharts"],
-          "vendor-icons": ["lucide-react", "react-icons"],
-          "vendor-date": ["date-fns", "date-fns-tz"],
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("/recharts/")) return "vendor-charts";
+          if (id.includes("/@tiptap/") || id.includes("/prosemirror-")) return "vendor-tiptap";
+          return undefined;
         },
       },
     },

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
@@ -41,7 +41,7 @@ import NewsDetail from "@/pages/news-detail";
 import TicketsPage from "@/pages/tickets-page";
 import TicketDetail from "@/pages/ticket-detail";
 import SettingsPage from "@/pages/settings-page";
-import AdminPortal from "@/pages/admin-portal";
+const AdminPortal = lazy(() => import("@/pages/admin-portal"));
 import MessagesPage from "@/pages/messages-page";
 import ReportRequestPage from "@/pages/report-request-page";
 import ServiceUpdatesPage from "@/pages/service-updates-page";
@@ -103,7 +103,11 @@ function AppRouter() {
         <Route path="/report-request" component={ReportRequestPage} />
         <Route path="/downloads" component={DownloadsPage} />
         <Route path="/community" component={CommunityChatPage} />
-        <Route path="/admin" component={AdminPortal} />
+        <Route path="/admin">
+          <Suspense fallback={<div className="p-6 space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>}>
+            <AdminPortal />
+          </Suspense>
+        </Route>
         <Route component={NotFound} />
       </Switch>
     </PageTransition>
