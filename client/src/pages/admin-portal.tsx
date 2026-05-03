@@ -31,7 +31,7 @@ import { Download, ImagePlus, X as XIcon } from "lucide-react";
 import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement } from "@shared/schema";
 import { RichTextEditor, stripHtml } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
-import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledChannels, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
+import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 
 function pillColorClass(enabled: number, total: number): string {
   if (total === 0) return "bg-muted text-muted-foreground border-transparent";
@@ -366,8 +366,8 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
 
               {detailUser.role === "customer" && (() => {
                 const prefs: NotificationPrefs | null | undefined = detailUser.notificationPrefs;
-                const p = countEnabledChannels(prefs, "push");
-                const e = countEnabledChannels(prefs, "email");
+                const p = countEnabledGroups(prefs, "push");
+                const e = countEnabledGroups(prefs, "email");
                 return (
                   <div className="border rounded-md">
                     <div className="flex flex-col gap-2 px-3 py-3 border-b sm:flex-row sm:items-center sm:justify-between">
@@ -378,11 +378,11 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push categories. This is only delivered if their device is also subscribed (see Push Notifications above).`} data-testid="badge-detail-push-prefs">
-                          <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total}
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups. This is only delivered if their device is also subscribed (see Push Notifications above).`} data-testid="badge-detail-push-prefs">
+                          <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total} groups
                         </Badge>
-                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email categories.`} data-testid="badge-detail-email-prefs">
-                          <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total}
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups.`} data-testid="badge-detail-email-prefs">
+                          <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total} groups
                         </Badge>
                         <Button
                           type="button"
@@ -694,15 +694,15 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                     </span>
                     {u.role === "customer" && (() => {
                       const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
-                      const p = countEnabledChannels(prefs, "push");
-                      const e = countEnabledChannels(prefs, "email");
+                      const p = countEnabledGroups(prefs, "push");
+                      const e = countEnabledGroups(prefs, "email");
                       return (
                         <>
-                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push categories (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
-                            <Bell className="w-2.5 h-2.5" />Push prefs {p.enabled}/{p.total}
+                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
+                            <Bell className="w-2.5 h-2.5" />Push prefs {p.enabled}/{p.total} groups
                           </Badge>
-                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email categories`} data-testid={`badge-email-prefs-${u.id}`}>
-                            <Mail className="w-2.5 h-2.5" />Email prefs {e.enabled}/{e.total}
+                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
+                            <Mail className="w-2.5 h-2.5" />Email prefs {e.enabled}/{e.total} groups
                           </Badge>
                         </>
                       );
@@ -776,15 +776,15 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                       </span>
                       {u.role === "customer" && (() => {
                         const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
-                        const p = countEnabledChannels(prefs, "push");
-                        const e = countEnabledChannels(prefs, "email");
+                        const p = countEnabledGroups(prefs, "push");
+                        const e = countEnabledGroups(prefs, "email");
                         return (
                           <>
-                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push categories (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
-                              <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total}
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
+                              <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total} groups
                             </Badge>
-                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email categories`} data-testid={`badge-email-prefs-${u.id}`}>
-                              <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total}
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
+                              <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total} groups
                             </Badge>
                           </>
                         );
