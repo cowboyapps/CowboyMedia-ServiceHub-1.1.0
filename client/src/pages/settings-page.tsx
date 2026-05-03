@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal } from "lucide-react";
 import type { Service } from "@shared/schema";
 import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
-import { countEnabledChannels, type NotificationPrefs } from "@shared/notification-categories";
+import { countEnabledGroups, type NotificationPrefs } from "@shared/notification-categories";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -332,14 +332,14 @@ export default function SettingsPage() {
           )}
           {(() => {
             const prefs: NotificationPrefs | null | undefined = user?.notificationPrefs;
-            const pushSummary = countEnabledChannels(prefs, "push");
-            const emailSummary = countEnabledChannels(prefs, "email");
+            const pushSummary = countEnabledGroups(prefs, "push");
+            const emailSummary = countEnabledGroups(prefs, "email");
             return (
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Notification preferences</p>
                   <p className="text-xs text-muted-foreground">
-                    Push {pushSummary.enabled}/{pushSummary.total} · Email {emailSummary.enabled}/{emailSummary.total}
+                    Push {pushSummary.enabled}/{pushSummary.total} groups · Email {emailSummary.enabled}/{emailSummary.total} groups
                   </p>
                 </div>
                 <Button

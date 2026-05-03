@@ -158,3 +158,116 @@ export function countEnabledChannels(
   }
   return { enabled, total: eligible.length };
 }
+
+export type GroupChannelState = "on" | "off" | "mixed" | "n/a";
+
+export function getCategoriesForGroup(group: string): NotificationCategory[] {
+  return NOTIFICATION_CATEGORIES.filter((c) => c.group === group);
+}
+
+export function getGroupChannelState(
+  prefs: NotificationPrefs | null | undefined,
+  group: string,
+  channel: NotificationChannel,
+): GroupChannelState {
+  const eligible = getCategoriesForGroup(group).filter((c) => c.channels.includes(channel));
+  if (eligible.length === 0) return "n/a";
+  let onCount = 0;
+  for (const cat of eligible) {
+    if (userWantsChannel(prefs, cat.key, channel)) onCount++;
+  }
+  if (onCount === eligible.length) return "on";
+  if (onCount === 0) return "off";
+  return "mixed";
+}
+
+export function applyGroupChannelToggle(
+  prefs: NotificationPrefs | null | undefined,
+  group: string,
+  channel: NotificationChannel,
+  enabled: boolean,
+): NotificationPrefs {
+  const next: NotificationPrefs = { ...(prefs ?? {}) };
+  for (const cat of getCategoriesForGroup(group)) {
+    if (!cat.channels.includes(channel)) continue;
+    next[cat.key] = { ...(next[cat.key] ?? {}), [channel]: enabled };
+  }
+  return next;
+}
+
+export function countEnabledGroups(
+  prefs: NotificationPrefs | null | undefined,
+  channel: NotificationChannel,
+): { enabled: number; total: number } {
+  let enabled = 0;
+  let total = 0;
+  for (const group of NOTIFICATION_GROUPS) {
+    const state = getGroupChannelState(prefs, group, channel);
+    if (state === "n/a") continue;
+    total++;
+    if (state === "on") enabled++;
+  }
+  return { enabled, total };
+}
+
+export interface NotificationPreset {
+  key: string;
+  label: string;
+  description: string;
+  /** Groups that should be ON for the given channel under this preset. */
+  groups: Record<NotificationChannel, string[]>;
+}
+
+const IMPORTANT_GROUPS = ["Tickets", "Messages", "Service status"];
+const ALL_GROUPS = NOTIFICATION_GROUPS.slice();
+
+export const NOTIFICATION_PRESETS: NotificationPreset[] = [
+  {
+    key: "everything",
+    label: "Everything",
+    description: "All notifications on (default).",
+    groups: { push: ALL_GROUPS, email: ALL_GROUPS },
+  },
+  {
+    key: "important",
+    label: "Important only",
+    description: "Tickets, messages, and service status only.",
+    groups: { push: IMPORTANT_GROUPS, email: IMPORTANT_GROUPS },
+  },
+  {
+    key: "email_only",
+    label: "Email only",
+    description: "Email notifications on, no push.",
+    groups: { push: [], email: ALL_GROUPS },
+  },
+];
+
+export function buildPresetPrefs(preset: NotificationPreset): NotificationPrefs {
+  const next: NotificationPrefs = {};
+  for (const cat of NOTIFICATION_CATEGORIES) {
+    const wantPush = cat.channels.includes("push") && preset.groups.push.includes(cat.group);
+    const wantEmail = cat.channels.includes("email") && preset.groups.email.includes(cat.group);
+    const entry: NotificationCategoryPref = {};
+    if (cat.channels.includes("push")) entry.push = wantPush;
+    if (cat.channels.includes("email")) entry.email = wantEmail;
+    next[cat.key] = entry;
+  }
+  return next;
+}
+
+/** Returns the matching preset key, or null when the user's prefs are custom. */
+export function matchPreset(prefs: NotificationPrefs | null | undefined): string | null {
+  for (const preset of NOTIFICATION_PRESETS) {
+    let matches = true;
+    for (const cat of NOTIFICATION_CATEGORIES) {
+      for (const channel of cat.channels) {
+        const want = preset.groups[channel].includes(cat.group);
+        const has = userWantsChannel(prefs, cat.key, channel);
+        if (want !== has) { matches = false; break; }
+      }
+      if (!matches) break;
+    }
+    if (matches) return preset.key;
+  }
+  return null;
+}
