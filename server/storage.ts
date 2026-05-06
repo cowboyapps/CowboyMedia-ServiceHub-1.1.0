@@ -208,6 +208,7 @@ export interface IStorage {
 
   getMonitorIncidents(monitorId: string): Promise<MonitorIncident[]>;
   getOpenIncident(monitorId: string): Promise<MonitorIncident | undefined>;
+  getOpenIncidents(monitorId: string): Promise<MonitorIncident[]>;
   createMonitorIncident(data: InsertMonitorIncident): Promise<MonitorIncident>;
   updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined>;
   getMonitorsByService(serviceId: string): Promise<UrlMonitor[]>;
@@ -1034,6 +1035,10 @@ export class DatabaseStorage implements IStorage {
   async getOpenIncident(monitorId: string): Promise<MonitorIncident | undefined> {
     const [inc] = await db.select().from(monitorIncidents).where(and(eq(monitorIncidents.monitorId, monitorId), isNull(monitorIncidents.resolvedAt)));
     return inc;
+  }
+
+  async getOpenIncidents(monitorId: string): Promise<MonitorIncident[]> {
+    return db.select().from(monitorIncidents).where(and(eq(monitorIncidents.monitorId, monitorId), isNull(monitorIncidents.resolvedAt))).orderBy(desc(monitorIncidents.startedAt));
   }
 
   async createMonitorIncident(data: InsertMonitorIncident): Promise<MonitorIncident> {

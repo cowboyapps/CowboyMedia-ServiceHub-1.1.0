@@ -5129,22 +5129,33 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     });
 
     if (newStatus === "down" && prevStatus !== "down") {
-      const incident = await storage.createMonitorIncident({
-        monitorId: monitor.id,
-        startedAt: now,
-        failureReason,
-        notifiedDown: false,
-        notifiedUp: false,
-      });
-      await notifyAdminsMonitorDown(monitor, failureReason);
-      await storage.updateMonitorIncident(incident.id, { notifiedDown: true });
+      // Guard against creating duplicate open incidents (e.g. if a previous
+      // check raced with this one and already opened one).
+      const existingOpen = await storage.getOpenIncident(monitor.id);
+      if (!existingOpen) {
+        const incident = await storage.createMonitorIncident({
+          monitorId: monitor.id,
+          startedAt: now,
+          failureReason,
+          notifiedDown: false,
+          notifiedUp: false,
+        });
+        await notifyAdminsMonitorDown(monitor, failureReason);
+        await storage.updateMonitorIncident(incident.id, { notifiedDown: true });
+      }
     }
 
-    if (newStatus === "up" && prevStatus === "down") {
-      const openIncident = await storage.getOpenIncident(monitor.id);
-      if (openIncident) {
+    // Auto-resolve ANY open incidents whenever the monitor is currently up.
+    // This is more forgiving than only resolving on the down→up transition:
+    // it cleans up stale incidents left behind by races, server restarts, or
+    // status drift, so the UI never shows "Ongoing" while green.
+    if (isUp) {
+      const openIncidents = await storage.getOpenIncidents(monitor.id);
+      for (const openIncident of openIncidents) {
         const downtimeSeconds = Math.round((now.getTime() - new Date(openIncident.startedAt).getTime()) / 1000);
-        await notifyAdminsMonitorUp(monitor, downtimeSeconds);
+        if (!openIncident.notifiedUp && prevStatus === "down") {
+          await notifyAdminsMonitorUp(monitor, downtimeSeconds);
+        }
         await storage.updateMonitorIncident(openIncident.id, {
           resolvedAt: now,
           durationSeconds: downtimeSeconds,
