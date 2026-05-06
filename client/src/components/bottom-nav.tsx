@@ -80,7 +80,7 @@ export function BottomNav() {
     { title: "Community Chat", url: "/community", icon: Users, badge: 0 },
     { title: "Report/Request", url: "/report-request", icon: FileText, badge: unreadReportCount },
     { title: "Downloads", url: "/downloads", icon: Download, badge: 0 },
-    { title: "Knowledge", url: "/knowledge", icon: BookOpen, badge: 0 },
+    { title: "Knowledge Base", url: "/knowledge", icon: BookOpen, badge: 0 },
     { title: "Settings", url: "/settings", icon: Settings, badge: 0 },
   ];
 

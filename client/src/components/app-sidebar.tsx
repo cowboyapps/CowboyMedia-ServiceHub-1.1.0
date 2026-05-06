@@ -90,7 +90,7 @@ export function AppSidebar() {
     { title: "Community Chat", url: "/community", icon: Users },
     { title: "Report/Request", url: "/report-request", icon: FileText },
     { title: "Downloads", url: "/downloads", icon: Download },
-    { title: "Knowledge", url: "/knowledge", icon: BookOpen },
+    { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
     { title: "Settings", url: "/settings", icon: SettingsIcon },
   ];
 
