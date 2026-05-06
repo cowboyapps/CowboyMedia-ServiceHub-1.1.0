@@ -90,7 +90,7 @@ async function notifyServiceSubscribers(
     const tplKey = event === "resolved" ? "subscriber_resolved" : "subscriber_incident";
     for (const sub of subs) {
       if (!sub.events?.includes(event)) continue;
-      const unsubscribeLink = `${baseUrl}/api/public/services/unfollow?token=${encodeURIComponent(sub.unsubscribeToken)}`;
+      const unsubscribeLink = `${baseUrl}/api/public/unsubscribe?token=${encodeURIComponent(sub.unsubscribeToken)}`;
       sendTemplatedEmail(
         sub.email,
         tplKey,
@@ -654,6 +654,7 @@ export async function registerRoutes(
             id: s.id,
             name: s.name,
             status: s.status,
+            category: s.category || "Other",
             hasMonitor,
             uptime30d: uptime.uptime30d,
             dailyBuckets: uptime.dailyBuckets,
@@ -678,12 +679,55 @@ export async function registerRoutes(
 
   app.post("/api/public/subscribe", async (req, res) => {
     try {
+      const ip = req.ip || "unknown";
+      if (!checkSubscribeRateLimit(ip)) {
+        return res.status(429).json({ message: "Too many subscription attempts. Please try again in a minute." });
+      }
       const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({ message: "A valid email is required" });
       }
-      const existing = await storage.getPublicStatusSubscriberByEmail(email);
       const baseUrl = getBaseUrl(req);
+
+      // Per-service follow if serviceId provided
+      if (typeof req.body?.serviceId === "string" && req.body.serviceId) {
+        const eventsParse = z.array(z.enum(["status", "incident", "resolved"])).min(1).safeParse(req.body.events);
+        if (!eventsParse.success) return res.status(400).json({ message: "events must include at least one of status/incident/resolved" });
+        const events = eventsParse.data;
+        const service = await storage.getService(req.body.serviceId);
+        if (!service) return res.status(404).json({ message: "Service not found" });
+        const existing = await storage.findServiceSubscriber(email, service.id);
+        let subscriber;
+        if (existing) {
+          if (existing.confirmedAt) {
+            return res.json({ message: "Already subscribed", confirmed: true });
+          }
+          await storage.updateServiceSubscriberEvents(existing.id, events);
+          subscriber = { ...existing, events };
+        } else {
+          const token = crypto.randomBytes(24).toString("hex");
+          subscriber = await storage.createServiceSubscriber({
+            email,
+            serviceId: service.id,
+            events,
+            unsubscribeToken: token,
+          });
+        }
+        const eventLabels: Record<string, string> = {
+          status: "service status changes",
+          incident: "new incidents",
+          resolved: "incident resolutions",
+        };
+        sendTemplatedEmail(email, "subscribe_confirm", {
+          service_name: service.name,
+          events_summary: events.map((e) => eventLabels[e]).join(", "),
+          confirm_link: `${baseUrl}/api/public/subscribe/confirm?token=${encodeURIComponent(subscriber.unsubscribeToken)}`,
+        }).catch(() => {});
+        return res.json({ message: "Confirmation email sent. Please check your inbox to complete the subscription." });
+      }
+
+      // Global postmortem subscribe (Task #56)
+      const existing = await storage.getPublicStatusSubscriberByEmail(email);
       if (existing) {
         const link = `${baseUrl}/api/public/unsubscribe?token=${existing.unsubscribeToken}`;
         sendEmail(email, "You're already subscribed to status updates", `<p>You are already subscribed to CowboyMedia status updates.</p><p>To unsubscribe at any time, visit <a href="${link}">${link}</a>.</p>`).catch(() => {});
@@ -699,10 +743,37 @@ export async function registerRoutes(
     }
   });
 
+  const subscribeHtmlPage = (title: string, message: string, ok: boolean) => `<!doctype html>
+<html><head><meta charset="utf-8"><title>${title}</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b1220;color:#e5e7eb;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{max-width:480px;width:100%;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;text-align:center}.icon{font-size:48px;margin-bottom:16px}h1{margin:0 0 12px;font-size:22px}p{margin:0 0 24px;color:#9ca3af;line-height:1.5}a{display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;font-weight:600}</style>
+</head><body><div class="card"><div class="icon">${ok ? "✓" : "ⓘ"}</div><h1>${title}</h1><p>${message}</p><a href="/status">Back to status page</a></div></body></html>`;
+
+  app.get("/api/public/subscribe/confirm", async (req, res) => {
+    const token = (req.query.token as string) || "";
+    if (!token) return res.status(400).type("html").send(subscribeHtmlPage("Invalid link", "Missing confirmation token.", false));
+    const sub = await storage.getServiceSubscriberByToken(token);
+    if (!sub) return res.status(404).type("html").send(subscribeHtmlPage("Link not found", "This confirmation link is no longer valid.", false));
+    if (!sub.confirmedAt) {
+      await storage.confirmServiceSubscriber(sub.id);
+    }
+    const service = await storage.getService(sub.serviceId);
+    res.type("html").send(subscribeHtmlPage("Subscription confirmed", `You're now following <strong>${escapeHtml(service?.name || "this service")}</strong>. We'll email you when something changes.`, true));
+  });
+
   app.get("/api/public/unsubscribe", async (req, res) => {
     try {
       const token = typeof req.query.token === "string" ? req.query.token : "";
       if (!token) return res.status(400).send("Missing token");
+
+      // Per-service follow token first
+      const serviceSub = await storage.getServiceSubscriberByToken(token);
+      if (serviceSub) {
+        const service = await storage.getService(serviceSub.serviceId);
+        await storage.deleteServiceSubscriber(serviceSub.id);
+        return res.type("html").send(subscribeHtmlPage("Unsubscribed", `You won't receive any more updates for <strong>${escapeHtml(service?.name || "this service")}</strong>.`, true));
+      }
+
+      // Fall back to global postmortem subscriber
       const removed = await storage.deletePublicStatusSubscriberByToken(token);
       res.set("Content-Type", "text/html");
       res.send(`<!doctype html><html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto;"><h2>${removed ? "Unsubscribed" : "Not found"}</h2><p>${removed ? "You've been unsubscribed from CowboyMedia status updates." : "That unsubscribe link is no longer valid."}</p></body></html>`);
@@ -4174,95 +4245,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     res.json(incidents);
   });
 
-  // ---- Per-Service Follow (Task #55) ----
+  // ---- Per-Service uptime (Task #55) ----
   const { computeUptime: computeUptimeFn } = await import("./uptime");
-
-  const publicFollowSchema = z.object({
-    email: z.string().email().max(254),
-    serviceId: z.string().min(1),
-    events: z.array(z.enum(["status", "incident", "resolved"])).min(1),
-  });
-
-  app.post("/api/public/services/follow", async (req, res) => {
-    try {
-      const ip = req.ip || "unknown";
-      if (!checkSubscribeRateLimit(ip)) {
-        return res.status(429).json({ message: "Too many subscription attempts. Please try again in a minute." });
-      }
-      const parsed = publicFollowSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
-      const { email, serviceId, events } = parsed.data;
-      const service = await storage.getService(serviceId);
-      if (!service) return res.status(404).json({ message: "Service not found" });
-
-      const normalizedEmail = email.trim().toLowerCase();
-      const existing = await storage.findServiceSubscriber(normalizedEmail, serviceId);
-      let subscriber;
-      if (existing) {
-        if (existing.confirmedAt) {
-          return res.json({ message: "Already subscribed", confirmed: true });
-        }
-        await storage.updateServiceSubscriberEvents(existing.id, events);
-        subscriber = { ...existing, events };
-      } else {
-        const token = crypto.randomBytes(24).toString("hex");
-        subscriber = await storage.createServiceSubscriber({
-          email: normalizedEmail,
-          serviceId,
-          events,
-          unsubscribeToken: token,
-        });
-      }
-
-      const eventLabels: Record<string, string> = {
-        status: "service status changes",
-        incident: "new incidents",
-        resolved: "incident resolutions",
-      };
-      const baseUrl = getBaseUrl(req);
-      sendTemplatedEmail(
-        normalizedEmail,
-        "subscribe_confirm",
-        {
-          service_name: service.name,
-          events_summary: events.map((e) => eventLabels[e]).join(", "),
-          confirm_link: `${baseUrl}/api/public/services/follow/confirm?token=${encodeURIComponent(subscriber.unsubscribeToken)}`,
-        },
-      ).catch(() => {});
-
-      res.json({ message: "Confirmation email sent. Please check your inbox to complete the subscription." });
-    } catch (e: any) {
-      console.error("[/api/public/services/follow]", e);
-      res.status(500).json({ message: "Failed to subscribe" });
-    }
-  });
-
-  const followHtmlPage = (title: string, message: string, ok: boolean) => `<!doctype html>
-<html><head><meta charset="utf-8"><title>${title}</title><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b1220;color:#e5e7eb;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{max-width:480px;width:100%;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;text-align:center}.icon{font-size:48px;margin-bottom:16px}h1{margin:0 0 12px;font-size:22px}p{margin:0 0 24px;color:#9ca3af;line-height:1.5}a{display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;font-weight:600}</style>
-</head><body><div class="card"><div class="icon">${ok ? "✓" : "ⓘ"}</div><h1>${title}</h1><p>${message}</p><a href="/status">Back to status page</a></div></body></html>`;
-
-  app.get("/api/public/services/follow/confirm", async (req, res) => {
-    const token = (req.query.token as string) || "";
-    if (!token) return res.status(400).type("html").send(followHtmlPage("Invalid link", "Missing confirmation token.", false));
-    const sub = await storage.getServiceSubscriberByToken(token);
-    if (!sub) return res.status(404).type("html").send(followHtmlPage("Link not found", "This confirmation link is no longer valid.", false));
-    if (!sub.confirmedAt) {
-      await storage.confirmServiceSubscriber(sub.id);
-    }
-    const service = await storage.getService(sub.serviceId);
-    res.type("html").send(followHtmlPage("Subscription confirmed", `You're now following <strong>${escapeHtml(service?.name || "this service")}</strong>. We'll email you when something changes.`, true));
-  });
-
-  app.get("/api/public/services/unfollow", async (req, res) => {
-    const token = (req.query.token as string) || "";
-    if (!token) return res.status(400).type("html").send(followHtmlPage("Invalid link", "Missing unsubscribe token.", false));
-    const sub = await storage.getServiceSubscriberByToken(token);
-    if (!sub) return res.type("html").send(followHtmlPage("Already unsubscribed", "This subscription is no longer active.", true));
-    const service = await storage.getService(sub.serviceId);
-    await storage.deleteServiceSubscriber(sub.id);
-    res.type("html").send(followHtmlPage("Unsubscribed", `You won't receive any more updates for <strong>${escapeHtml(service?.name || "this service")}</strong>.`, true));
-  });
 
   // Public per-service uptime
   app.get("/api/public/services/:id/uptime", async (req, res) => {

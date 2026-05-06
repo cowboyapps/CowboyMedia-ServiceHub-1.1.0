@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
-import { CheckCircle2, AlertTriangle, FileText, ChevronDown, ChevronUp, Bell } from "lucide-react";
+import { CheckCircle2, AlertTriangle, FileText, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck } from "lucide-react";
 
 type PublicAlert = {
   id: string;
@@ -25,13 +25,16 @@ type PublicAlert = {
   postmortemPublishedAt: string | null;
 };
 
+type DailyBucket = { date: string; status: "up" | "partial" | "down" | "unknown"; downtimeSeconds?: number };
+
 type PublicService = {
   id: string;
   name: string;
   status: string;
+  category?: string;
   hasMonitor?: boolean;
   uptime30d?: number | null;
-  dailyBuckets?: { date: string; state: "up" | "partial" | "down" | "unknown" }[];
+  dailyBuckets?: DailyBucket[];
 };
 
 type PublicStatusResponse = {
@@ -48,14 +51,14 @@ function bucketColor(state: string): string {
   }
 }
 
-function Sparkline({ buckets }: { buckets: { date: string; state: string }[] }) {
+function Sparkline({ buckets }: { buckets: DailyBucket[] }) {
   return (
     <div className="flex gap-[2px] h-6 items-end" data-testid="sparkline-uptime">
       {buckets.map((b, i) => (
         <div
           key={i}
-          title={`${b.date}: ${b.state}`}
-          className={`flex-1 min-w-[2px] h-full rounded-sm ${bucketColor(b.state)}`}
+          title={`${b.date}: ${b.status}`}
+          className={`flex-1 min-w-[2px] h-full rounded-sm ${bucketColor(b.status)}`}
         />
       ))}
     </div>
@@ -69,7 +72,7 @@ function FollowDialog({ service, open, onOpenChange }: { service: PublicService;
 
   const followMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/public/services/follow", {
+      const res = await apiRequest("POST", "/api/public/subscribe", {
         email: email.trim(),
         serviceId: service.id,
         events,
@@ -151,11 +154,52 @@ function statusColor(status: string): string {
   }
 }
 
+type Banner = { tone: "ok" | "warn" | "bad"; title: string; icon: typeof ShieldCheck };
+
+function computeBanner(services: PublicService[]): Banner {
+  if (services.some((s) => s.status === "outage")) {
+    return { tone: "bad", title: "Major outage", icon: AlertCircle };
+  }
+  if (services.some((s) => s.status === "degraded" || s.status === "maintenance")) {
+    return { tone: "warn", title: "Some systems degraded", icon: AlertTriangle };
+  }
+  return { tone: "ok", title: "All systems operational", icon: ShieldCheck };
+}
+
+const bannerStyles: Record<Banner["tone"], string> = {
+  ok: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-900 dark:text-emerald-100",
+  warn: "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-100",
+  bad: "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-900 dark:text-red-100",
+};
+
+const FOURTEEN_DAYS_MS = 14 * 86400000;
+
 export default function PublicStatusPage() {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [followService, setFollowService] = useState<PublicService | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  useEffect(() => {
+    const prevTitle = document.title;
+    document.title = "Service Status — CowboyMedia";
+    let metaDesc = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
+    const prevDesc = metaDesc?.getAttribute("content") || null;
+    if (!metaDesc) {
+      metaDesc = document.createElement("meta");
+      metaDesc.name = "description";
+      document.head.appendChild(metaDesc);
+    }
+    metaDesc.setAttribute("content", "Live service status, 30-day uptime, and incident history for CowboyMedia. Subscribe to per-service email updates.");
+    return () => {
+      document.title = prevTitle;
+      if (metaDesc) {
+        if (prevDesc !== null) metaDesc.setAttribute("content", prevDesc);
+        else metaDesc.remove();
+      }
+    };
+  }, []);
 
   const { data, isLoading } = useQuery<PublicStatusResponse>({
     queryKey: ["/api/public/status"],
@@ -177,15 +221,87 @@ export default function PublicStatusPage() {
   });
 
   const toggle = (id: string) => {
-    setExpanded(prev => {
+    setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  const resolvedWithPostmortem = (data?.alerts || []).filter(a => a.status === "resolved" && a.postmortemHtml && a.postmortemPublishedAt);
-  const recent = (data?.alerts || []).slice(0, 15);
+  const services = data?.services || [];
+  const alerts = data?.alerts || [];
+  const banner = useMemo(() => computeBanner(services), [services]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, PublicService[]>();
+    for (const s of services) {
+      const key = s.category || "Other";
+      const arr = map.get(key) || [];
+      arr.push(s);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [services]);
+
+  const now = Date.now();
+  const currentIncidents = alerts.filter((a) => a.status !== "resolved");
+  const recentHistory = alerts.filter((a) => {
+    if (a.status !== "resolved") return false;
+    const t = a.resolvedAt ? new Date(a.resolvedAt).getTime() : a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    return now - t <= FOURTEEN_DAYS_MS;
+  });
+
+  const renderIncident = (a: PublicAlert) => {
+    const hasPostmortem = !!(a.postmortemHtml && a.postmortemPublishedAt);
+    const isOpen = expanded.has(a.id);
+    return (
+      <li key={a.id} className="border rounded-lg p-4" data-testid={`item-incident-${a.id}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              {a.status === "resolved" ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              )}
+              <span className="font-medium">{a.title}</span>
+            </div>
+            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+              <span>{a.serviceName}</span>
+              <span className="capitalize">{a.severity}</span>
+              <span className="capitalize">{a.status}</span>
+              {a.createdAt && <span>Started {format(new Date(a.createdAt), "PPp")}</span>}
+              {a.resolvedAt && <span>Resolved {format(new Date(a.resolvedAt), "PPp")}</span>}
+            </div>
+          </div>
+          {hasPostmortem && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => toggle(a.id)}
+              data-testid={`button-postmortem-${a.id}`}
+            >
+              <FileText className="h-3.5 w-3.5 mr-1" />
+              Postmortem
+              {isOpen ? <ChevronUp className="h-3.5 w-3.5 ml-1" /> : <ChevronDown className="h-3.5 w-3.5 ml-1" />}
+            </Button>
+          )}
+        </div>
+        {hasPostmortem && isOpen && (
+          <div
+            className="prose prose-sm dark:prose-invert max-w-none mt-4 pt-4 border-t"
+            data-testid={`text-postmortem-${a.id}`}
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(a.postmortemHtml!, PURIFY_CONFIG),
+            }}
+          />
+        )}
+      </li>
+    );
+  };
+
+  const BannerIcon = banner.icon;
 
   return (
     <div className="min-h-dvh bg-background">
@@ -197,119 +313,114 @@ export default function PublicStatusPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-        <Card>
-          <CardHeader><CardTitle>Current status</CardTitle></CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : (
-              <ul className="divide-y">
-                {(data?.services || []).map(s => (
-                  <li key={s.id} className="py-3 space-y-2" data-testid={`row-service-${s.id}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{s.name}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-2 text-sm">
-                          <span className={`inline-block w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
-                          <span className="capitalize">{s.status}</span>
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setFollowService(s)}
-                          data-testid={`button-follow-${s.id}`}
-                        >
-                          <Bell className="h-3.5 w-3.5 mr-1" />
-                          Follow
-                        </Button>
-                      </div>
-                    </div>
-                    {s.hasMonitor && s.dailyBuckets && s.dailyBuckets.length > 0 && (
-                      <div className="space-y-1">
-                        <Sparkline buckets={s.dailyBuckets} />
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>90 days</span>
-                          {typeof s.uptime30d === "number" && (
-                            <span data-testid={`text-uptime-${s.id}`}>{s.uptime30d.toFixed(2)}% uptime · 30d</span>
-                          )}
+        <div
+          className={`flex items-center gap-3 rounded-lg border p-4 ${bannerStyles[banner.tone]}`}
+          data-testid={`banner-overall-${banner.tone}`}
+        >
+          <BannerIcon className="h-5 w-5 shrink-0" />
+          <span className="font-semibold" data-testid="text-banner-title">{banner.title}</span>
+        </div>
+
+        {isLoading ? (
+          <Card>
+            <CardHeader><CardTitle>Current status</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
+          </Card>
+        ) : (
+          grouped.map(([category, list]) => (
+            <Card key={category} data-testid={`group-category-${category}`}>
+              <CardHeader>
+                <CardTitle className="text-base">{category}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="divide-y">
+                  {list.map((s) => (
+                    <li key={s.id} className="py-3 space-y-2" data-testid={`row-service-${s.id}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">{s.name}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="flex items-center gap-2 text-sm">
+                            <span className={`inline-block w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
+                            <span className="capitalize">{s.status}</span>
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setFollowService(s)}
+                            data-testid={`button-follow-${s.id}`}
+                          >
+                            <Bell className="h-3.5 w-3.5 mr-1" />
+                            Follow
+                          </Button>
                         </div>
                       </div>
-                    )}
-                  </li>
-                ))}
-                {(data?.services || []).length === 0 && (
-                  <li className="py-4 text-sm text-muted-foreground">No services configured.</li>
-                )}
-              </ul>
+                      {s.hasMonitor && s.dailyBuckets && s.dailyBuckets.length > 0 ? (
+                        <div className="space-y-1">
+                          <Sparkline buckets={s.dailyBuckets} />
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>90 days</span>
+                            <span data-testid={`text-uptime-${s.id}`}>
+                              {typeof s.uptime30d === "number" ? `${s.uptime30d.toFixed(2)}% uptime · 30d` : "— uptime · 30d"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>No uptime monitor</span>
+                          <span data-testid={`text-uptime-${s.id}`}>— uptime · 30d</span>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ))
+        )}
+
+        {!isLoading && services.length === 0 && (
+          <Card><CardContent className="py-6 text-sm text-muted-foreground">No services configured.</CardContent></Card>
+        )}
+
+        <Card>
+          <CardHeader><CardTitle>Current incidents</CardTitle></CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : currentIncidents.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-current-incidents">No incidents in progress.</p>
+            ) : (
+              <ul className="space-y-4">{currentIncidents.map(renderIncident)}</ul>
             )}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Recent incidents</CardTitle></CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-32 w-full" />
-            ) : recent.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recent incidents.</p>
-            ) : (
-              <ul className="space-y-4">
-                {recent.map(a => {
-                  const hasPostmortem = !!(a.postmortemHtml && a.postmortemPublishedAt);
-                  const isOpen = expanded.has(a.id);
-                  return (
-                    <li key={a.id} className="border rounded-lg p-4" data-testid={`item-incident-${a.id}`}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            {a.status === "resolved" ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                            ) : (
-                              <AlertTriangle className="h-4 w-4 text-amber-500" />
-                            )}
-                            <span className="font-medium">{a.title}</span>
-                          </div>
-                          <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
-                            <span>{a.serviceName}</span>
-                            <span className="capitalize">{a.severity}</span>
-                            <span className="capitalize">{a.status}</span>
-                            {a.createdAt && <span>{format(new Date(a.createdAt), "PPp")}</span>}
-                          </div>
-                        </div>
-                        {hasPostmortem && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => toggle(a.id)}
-                            data-testid={`button-postmortem-${a.id}`}
-                          >
-                            <FileText className="h-3.5 w-3.5 mr-1" />
-                            Postmortem
-                            {isOpen ? <ChevronUp className="h-3.5 w-3.5 ml-1" /> : <ChevronDown className="h-3.5 w-3.5 ml-1" />}
-                          </Button>
-                        )}
-                      </div>
-                      {hasPostmortem && isOpen && (
-                        <div
-                          className="prose prose-sm dark:prose-invert max-w-none mt-4 pt-4 border-t"
-                          data-testid={`text-postmortem-${a.id}`}
-                          dangerouslySetInnerHTML={{
-                            __html: DOMPurify.sanitize(a.postmortemHtml!, PURIFY_CONFIG),
-                          }}
-                        />
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {!isLoading && resolvedWithPostmortem.length === 0 && recent.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-3">Postmortems will appear here once published.</p>
-            )}
-          </CardContent>
+          <CardHeader>
+            <button
+              type="button"
+              className="flex items-center justify-between w-full text-left"
+              onClick={() => setHistoryOpen((v) => !v)}
+              data-testid="button-toggle-history"
+            >
+              <CardTitle>Recent history (last 14 days)</CardTitle>
+              {historyOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </CardHeader>
+          {historyOpen && (
+            <CardContent>
+              {isLoading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : recentHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No incidents resolved in the last 14 days.</p>
+              ) : (
+                <ul className="space-y-4">{recentHistory.map(renderIncident)}</ul>
+              )}
+            </CardContent>
+          )}
         </Card>
 
         <Card>
@@ -317,7 +428,7 @@ export default function PublicStatusPage() {
           <CardContent>
             <form
               className="flex flex-col sm:flex-row gap-2"
-              onSubmit={e => {
+              onSubmit={(e) => {
                 e.preventDefault();
                 if (email.trim()) subscribeMutation.mutate(email.trim());
               }}
@@ -327,14 +438,14 @@ export default function PublicStatusPage() {
                 required
                 placeholder="you@example.com"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
                 data-testid="input-subscribe-email"
               />
               <Button type="submit" disabled={subscribeMutation.isPending} data-testid="button-subscribe">
                 {subscribeMutation.isPending ? "Subscribing…" : "Subscribe"}
               </Button>
             </form>
-            <p className="text-xs text-muted-foreground mt-2">Get an email when we publish an incident postmortem. Unsubscribe anytime.</p>
+            <p className="text-xs text-muted-foreground mt-2">Get an email when we publish an incident postmortem. Unsubscribe anytime, or use the per-service "Follow" button above for targeted updates.</p>
           </CardContent>
         </Card>
       </main>
