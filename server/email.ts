@@ -457,8 +457,8 @@ export const DEFAULT_EMAIL_TEMPLATES = [
 <p>You'll be notified about: {events_summary}</p>
 <p><a href="{confirm_link}" style="display:inline-block;padding:12px 24px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Confirm subscription</a></p>
 <p style="word-break:break-all;color:#6b7280;font-size:13px;">Or paste this link into your browser: {confirm_link}</p>
-<p style="color:#6b7280;font-size:13px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">If you didn't request this, you can ignore this email — no subscription will be created.</p>`,
-    availableVariables: ["service_name", "events_summary", "confirm_link"],
+<p style="color:#6b7280;font-size:13px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">If you didn't request this, you can ignore this email — no subscription will be created. You can also <a href="{unsubscribe_link}">unsubscribe in one click</a>.</p>`,
+    availableVariables: ["service_name", "events_summary", "confirm_link", "unsubscribe_link"],
     description: "Sent to a public status-page visitor to confirm they want to follow a service by email",
   },
   {

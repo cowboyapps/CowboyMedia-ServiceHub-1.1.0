@@ -646,6 +646,13 @@ export async function registerRoutes(
       );
       const sortedAlerts = [...alerts].sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0)).slice(0, 30);
       const serviceMap = new Map(services.map(s => [s.id, s.name]));
+      const updatesByAlert = new Map<string, Date>();
+      await Promise.all(
+        sortedAlerts.map(async (a) => {
+          const ups = await storage.getAlertUpdates(a.id);
+          if (ups.length > 0) updatesByAlert.set(a.id, ups[0].createdAt);
+        })
+      );
       res.json({
         services: services.map(s => {
           const hasMonitor = (monitorsByService.get(s.id) || []).length > 0;
@@ -668,6 +675,7 @@ export async function registerRoutes(
           serviceName: serviceMap.get(a.serviceId) || "Service",
           createdAt: a.createdAt,
           resolvedAt: a.resolvedAt,
+          lastUpdateAt: updatesByAlert.get(a.id) || a.resolvedAt || a.createdAt,
           postmortemHtml: a.postmortemHtml,
           postmortemPublishedAt: a.postmortemPublishedAt,
         })),
@@ -722,6 +730,7 @@ export async function registerRoutes(
           service_name: service.name,
           events_summary: events.map((e) => eventLabels[e]).join(", "),
           confirm_link: `${baseUrl}/api/public/subscribe/confirm?token=${encodeURIComponent(subscriber.unsubscribeToken)}`,
+          unsubscribe_link: `${baseUrl}/api/public/unsubscribe?token=${encodeURIComponent(subscriber.unsubscribeToken)}`,
         }).catch(() => {});
         return res.json({ message: "Confirmation email sent. Please check your inbox to complete the subscription." });
       }

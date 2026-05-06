@@ -21,6 +21,7 @@ type PublicAlert = {
   serviceName: string;
   createdAt: string | null;
   resolvedAt: string | null;
+  lastUpdateAt: string | null;
   postmortemHtml: string | null;
   postmortemPublishedAt: string | null;
 };
@@ -272,6 +273,9 @@ export default function PublicStatusPage() {
               <span className="capitalize">{a.severity}</span>
               <span className="capitalize">{a.status}</span>
               {a.createdAt && <span>Started {format(new Date(a.createdAt), "PPp")}</span>}
+              {a.lastUpdateAt && a.status !== "resolved" && (
+                <span data-testid={`text-last-update-${a.id}`}>Last update {format(new Date(a.lastUpdateAt), "PPp")}</span>
+              )}
               {a.resolvedAt && <span>Resolved {format(new Date(a.resolvedAt), "PPp")}</span>}
             </div>
           </div>
