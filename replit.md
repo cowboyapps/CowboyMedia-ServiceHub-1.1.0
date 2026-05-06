@@ -5,8 +5,9 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 ## Run & Operate
 
 - **Run Dev Server**: `npm run dev`
-- **Build**: `npm run build`
+- **Build**: `npm run build` (runs `npm test` first via `prebuild`)
 - **Typecheck**: `npm run typecheck`
+- **Test**: `npm test` (runs all `*.test.ts` under `test/`, `shared/`, `server/` via `tsx --test`)
 - **Codegen**: `npm run codegen`
 - **DB Push**: `drizzle-kit push:pg`
 - **Environment Variables**:

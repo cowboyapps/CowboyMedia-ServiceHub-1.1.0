@@ -9,13 +9,14 @@ import {
   type NotificationPrefs,
 } from "../shared/notification-categories";
 
-test("default = on for every category and channel when prefs is empty", () => {
+test("default = on for every category and channel when prefs is empty (except defaultOff)", () => {
   for (const cat of NOTIFICATION_CATEGORIES) {
     for (const channel of cat.channels) {
+      const expected = !cat.defaultOff;
       assert.equal(
         userWantsChannel({}, cat.key, channel),
-        true,
-        `${cat.key}.${channel} should default to true`,
+        expected,
+        `${cat.key}.${channel} should default to ${expected}`,
       );
     }
   }
@@ -54,21 +55,30 @@ test("returns false for unknown categories", () => {
 test("countEnabledChannels totals match category contract", () => {
   const pushTotal = NOTIFICATION_CATEGORIES.filter((c) => c.channels.includes("push")).length;
   const emailTotal = NOTIFICATION_CATEGORIES.filter((c) => c.channels.includes("email")).length;
+  const pushDefaultOff = NOTIFICATION_CATEGORIES.filter(
+    (c) => c.channels.includes("push") && c.defaultOff,
+  ).length;
+  const emailDefaultOff = NOTIFICATION_CATEGORIES.filter(
+    (c) => c.channels.includes("email") && c.defaultOff,
+  ).length;
   const allOn = countEnabledChannels({}, "push");
   const allOnEmail = countEnabledChannels({}, "email");
   assert.equal(allOn.total, pushTotal);
-  assert.equal(allOn.enabled, pushTotal);
+  assert.equal(allOn.enabled, pushTotal - pushDefaultOff);
   assert.equal(allOnEmail.total, emailTotal);
-  assert.equal(allOnEmail.enabled, emailTotal);
+  assert.equal(allOnEmail.enabled, emailTotal - emailDefaultOff);
 });
 
 test("countEnabledChannels reflects partial disables", () => {
+  const pushDefaultOff = NOTIFICATION_CATEGORIES.filter(
+    (c) => c.channels.includes("push") && c.defaultOff,
+  ).length;
   const prefs: NotificationPrefs = {
     ticket_reply: { push: false },
     ticket_received: { push: false },
   };
   const push = countEnabledChannels(prefs, "push");
-  assert.equal(push.enabled, push.total - 2);
+  assert.equal(push.enabled, push.total - 2 - pushDefaultOff);
 });
 
 test("simulated migration: legacy emailNotifications=false maps to all-email-off", () => {
@@ -81,7 +91,14 @@ test("simulated migration: legacy emailNotifications=false maps to all-email-off
   const email = countEnabledChannels(migrated, "email");
   assert.equal(email.enabled, 0);
   const push = countEnabledChannels(migrated, "push");
-  assert.equal(push.enabled, push.total, "push prefs untouched by legacy migration");
+  const pushDefaultOff = NOTIFICATION_CATEGORIES.filter(
+    (c) => c.channels.includes("push") && c.defaultOff,
+  ).length;
+  assert.equal(
+    push.enabled,
+    push.total - pushDefaultOff,
+    "push prefs untouched by legacy migration",
+  );
 });
 
 test("category keys are unique", () => {
