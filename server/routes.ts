@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server, ServerResponse } from "http";
 import { storage } from "./storage";
+import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
@@ -637,14 +638,25 @@ export async function registerRoutes(
         arr.push(m);
         monitorsByService.set(m.serviceId, arr);
       }
-      const incidentsByService = new Map<string, any[]>();
+      const incidentsByService = new Map<string, MonitorIncident[]>();
       await Promise.all(
         Array.from(monitorsByService.entries()).map(async ([sid, mons]) => {
           const incArrays = await Promise.all(mons.map((m) => storage.getMonitorIncidents(m.id)));
           incidentsByService.set(sid, incArrays.flat());
         })
       );
-      const sortedAlerts = [...alerts].sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0)).slice(0, 30);
+      // Include ALL unresolved alerts plus any alerts touched in the last 14 days,
+      // so the public page never hides an active incident behind a wall of recently
+      // resolved ones.
+      const FOURTEEN_DAYS = 14 * 86400000;
+      const cutoff = Date.now() - FOURTEEN_DAYS;
+      const sortedAlerts = [...alerts]
+        .filter((a) => {
+          if (a.status !== "resolved") return true;
+          const t = a.resolvedAt?.getTime?.() || a.createdAt?.getTime?.() || 0;
+          return t >= cutoff;
+        })
+        .sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0));
       const serviceMap = new Map(services.map(s => [s.id, s.name]));
       const updatesByAlert = new Map<string, Date>();
       await Promise.all(

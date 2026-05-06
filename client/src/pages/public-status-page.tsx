@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { CheckCircle2, AlertTriangle, FileText, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck } from "lucide-react";
 
@@ -176,8 +176,6 @@ const bannerStyles: Record<Banner["tone"], string> = {
 const FOURTEEN_DAYS_MS = 14 * 86400000;
 
 export default function PublicStatusPage() {
-  const { toast } = useToast();
-  const [email, setEmail] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [followService, setFollowService] = useState<PublicService | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -204,21 +202,6 @@ export default function PublicStatusPage() {
 
   const { data, isLoading } = useQuery<PublicStatusResponse>({
     queryKey: ["/api/public/status"],
-  });
-
-  const subscribeMutation = useMutation({
-    mutationFn: async (emailValue: string) => {
-      const res = await apiRequest("POST", "/api/public/subscribe", { email: emailValue });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Subscribed", description: "Check your inbox to confirm." });
-      setEmail("");
-      queryClient.invalidateQueries({ queryKey: ["/api/public/status"] });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Subscribe failed", description: err.message, variant: "destructive" });
-    },
   });
 
   const toggle = (id: string) => {
@@ -427,31 +410,6 @@ export default function PublicStatusPage() {
           )}
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Subscribe to postmortem updates</CardTitle></CardHeader>
-          <CardContent>
-            <form
-              className="flex flex-col sm:flex-row gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (email.trim()) subscribeMutation.mutate(email.trim());
-              }}
-            >
-              <Input
-                type="email"
-                required
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                data-testid="input-subscribe-email"
-              />
-              <Button type="submit" disabled={subscribeMutation.isPending} data-testid="button-subscribe">
-                {subscribeMutation.isPending ? "Subscribing…" : "Subscribe"}
-              </Button>
-            </form>
-            <p className="text-xs text-muted-foreground mt-2">Get an email when we publish an incident postmortem. Unsubscribe anytime, or use the per-service "Follow" button above for targeted updates.</p>
-          </CardContent>
-        </Card>
       </main>
 
       {followService && (
