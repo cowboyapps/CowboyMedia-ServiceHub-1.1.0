@@ -12,16 +12,18 @@ import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Bell, Mail, RotateCcw, BellOff, ChevronDown } from "lucide-react";
 import type { User } from "@shared/schema";
+import { useAuth } from "@/lib/auth";
 import {
-  NOTIFICATION_CATEGORIES,
-  NOTIFICATION_GROUPS,
   NOTIFICATION_PRESETS,
+  getCategoriesForRole,
   userWantsChannel,
   countEnabledGroups,
   getGroupChannelState,
   applyGroupChannelToggle,
   buildPresetPrefs,
   matchPreset,
+  type AppRole,
+  type NotificationCategory,
   type NotificationChannel,
   type NotificationPrefs,
 } from "@shared/notification-categories";
@@ -49,18 +51,23 @@ function applyToggle(
 export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushAvailable }: NotificationPreferencesDialogProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  const grouped = useMemo(() => {
-    return NOTIFICATION_GROUPS.map((group) => ({
-      group,
-      categories: NOTIFICATION_CATEGORIES.filter((c) => c.group === group),
-    }));
-  }, []);
+  const role: AppRole = (user?.role as AppRole) || "customer";
+  const visibleCategories = useMemo(() => getCategoriesForRole(role), [role]);
 
-  const pushSummary = countEnabledGroups(prefs, "push");
-  const emailSummary = countEnabledGroups(prefs, "email");
-  const currentPreset = matchPreset(prefs);
+  const grouped = useMemo(() => {
+    const groups = Array.from(new Set(visibleCategories.map((c) => c.group)));
+    return groups.map((group) => ({
+      group,
+      categories: visibleCategories.filter((c) => c.group === group),
+    }));
+  }, [visibleCategories]);
+
+  const pushSummary = countEnabledGroups(prefs, "push", visibleCategories);
+  const emailSummary = countEnabledGroups(prefs, "email", visibleCategories);
+  const currentPreset = matchPreset(prefs, visibleCategories);
 
   const setPrefsMutation = useMutation({
     mutationFn: async (next: NotificationPrefs) => {
@@ -137,14 +144,14 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
       toast({ title: "Enable push notifications first", description: "Turn on the master push switch in Settings to use per-category push toggles." });
       return;
     }
-    const next = applyGroupChannelToggle(prefs, group, channel, enabled);
+    const next = applyGroupChannelToggle(prefs, group, channel, enabled, visibleCategories);
     setPrefsMutation.mutate(next);
   };
 
   const handlePreset = (presetKey: string) => {
     const preset = NOTIFICATION_PRESETS.find((p) => p.key === presetKey);
     if (!preset) return;
-    const next = buildPresetPrefs(preset);
+    const next = buildPresetPrefs(preset, visibleCategories);
     setPrefsMutation.mutate(next, {
       onSuccess: () => toast({ title: `Preset applied: ${preset.label}` }),
     });
@@ -217,7 +224,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     </div>
   );
 
-  const renderCategoryRow = (cat: typeof NOTIFICATION_CATEGORIES[number]) => {
+  const renderCategoryRow = (cat: NotificationCategory) => {
     const pushEnabled = userWantsChannel(prefs, cat.key, "push");
     const emailEnabled = userWantsChannel(prefs, cat.key, "email");
     const supportsPush = cat.channels.includes("push");
@@ -285,9 +292,9 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     );
   };
 
-  const renderGroupCard = (group: string, categories: typeof NOTIFICATION_CATEGORIES) => {
-    const pushState = getGroupChannelState(prefs, group, "push");
-    const emailState = getGroupChannelState(prefs, group, "email");
+  const renderGroupCard = (group: string, categories: NotificationCategory[]) => {
+    const pushState = getGroupChannelState(prefs, group, "push", visibleCategories);
+    const emailState = getGroupChannelState(prefs, group, "email", visibleCategories);
     const isExpanded = !!expanded[group];
     const isMixed = pushState === "mixed" || emailState === "mixed";
 

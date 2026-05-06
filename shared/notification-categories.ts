@@ -1,4 +1,5 @@
 export type NotificationChannel = "push" | "email";
+export type NotificationRole = "customer" | "admin";
 
 export interface NotificationCategoryPref {
   push?: boolean;
@@ -13,9 +14,16 @@ export interface NotificationCategory {
   description: string;
   group: string;
   channels: NotificationChannel[];
+  /** Roles that may see/use this category. Defaults to ["customer"]. */
+  roles?: NotificationRole[];
+  /** If true, only master_admin can enable this (admin-only). */
+  requiresMasterAdmin?: boolean;
+  /** When the user has not set an explicit value, the default is OFF. */
+  defaultOff?: boolean;
 }
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
+  // ---- Customer categories ----
   {
     key: "ticket_reply",
     label: "Replies on your tickets",
@@ -114,6 +122,58 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     group: "Reminders",
     channels: ["email"],
   },
+
+  // ---- Admin categories (push-only) ----
+  {
+    key: "admin_new_ticket",
+    label: "New ticket",
+    description: "When a customer opens a new support ticket assigned to your role",
+    group: "Admin tickets",
+    channels: ["push"],
+    roles: ["admin"],
+  },
+  {
+    key: "admin_ticket_reply_mine",
+    label: "Reply on my ticket",
+    description: "When a customer replies on a ticket you've claimed",
+    group: "Admin tickets",
+    channels: ["push"],
+    roles: ["admin"],
+  },
+  {
+    key: "admin_ticket_reply_any",
+    label: "Reply on any open ticket",
+    description: "Replies on any open ticket (master admin only). Off by default.",
+    group: "Admin tickets",
+    channels: ["push"],
+    roles: ["admin"],
+    requiresMasterAdmin: true,
+    defaultOff: true,
+  },
+  {
+    key: "admin_monitor_down",
+    label: "Service down (monitor)",
+    description: "When a URL monitor goes down or recovers",
+    group: "Admin monitoring",
+    channels: ["push"],
+    roles: ["admin"],
+  },
+  {
+    key: "admin_chat_message",
+    label: "Admin chat message",
+    description: "When another admin sends you a message in admin chat",
+    group: "Admin chat",
+    channels: ["push"],
+    roles: ["admin"],
+  },
+  {
+    key: "admin_broadcast",
+    label: "Broadcast received",
+    description: "Urgent admin broadcast pushes sent to your account",
+    group: "Admin broadcasts",
+    channels: ["push"],
+    roles: ["admin"],
+  },
 ];
 
 export const NOTIFICATION_GROUPS = Array.from(
@@ -134,6 +194,11 @@ export function getNotificationCategory(key: string): NotificationCategory | und
   return CATEGORY_BY_KEY[key];
 }
 
+/** Returns the default channel value for a category when the user has no explicit pref. */
+function defaultChannelValue(cat: NotificationCategory): boolean {
+  return !cat.defaultOff;
+}
+
 export function userWantsChannel(
   prefs: NotificationPrefs | null | undefined,
   categoryKey: string,
@@ -141,17 +206,35 @@ export function userWantsChannel(
 ): boolean {
   const cat = getNotificationCategory(categoryKey);
   if (!cat || !cat.channels.includes(channel)) return false;
-  if (!prefs) return true;
-  const entry = prefs[categoryKey];
-  if (!entry) return true;
+  const entry = prefs ? prefs[categoryKey] : undefined;
+  if (!entry || typeof entry[channel] !== "boolean") return defaultChannelValue(cat);
   return entry[channel] !== false;
+}
+
+export type AppRole = "customer" | "admin" | "master_admin";
+
+export function isCategoryVisibleToRole(cat: NotificationCategory, role: AppRole): boolean {
+  const allowed = cat.roles ?? ["customer"];
+  const base: NotificationRole = role === "customer" ? "customer" : "admin";
+  if (!allowed.includes(base)) return false;
+  if (cat.requiresMasterAdmin && role !== "master_admin") return false;
+  return true;
+}
+
+export function getCategoriesForRole(role: AppRole): NotificationCategory[] {
+  return NOTIFICATION_CATEGORIES.filter((c) => isCategoryVisibleToRole(c, role));
+}
+
+export function getGroupsForRole(role: AppRole): string[] {
+  return Array.from(new Set(getCategoriesForRole(role).map((c) => c.group)));
 }
 
 export function countEnabledChannels(
   prefs: NotificationPrefs | null | undefined,
   channel: NotificationChannel,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
 ): { enabled: number; total: number } {
-  const eligible = NOTIFICATION_CATEGORIES.filter((c) => c.channels.includes(channel));
+  const eligible = categories.filter((c) => c.channels.includes(channel));
   let enabled = 0;
   for (const cat of eligible) {
     if (userWantsChannel(prefs, cat.key, channel)) enabled++;
@@ -161,16 +244,20 @@ export function countEnabledChannels(
 
 export type GroupChannelState = "on" | "off" | "mixed" | "n/a";
 
-export function getCategoriesForGroup(group: string): NotificationCategory[] {
-  return NOTIFICATION_CATEGORIES.filter((c) => c.group === group);
+export function getCategoriesForGroup(
+  group: string,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
+): NotificationCategory[] {
+  return categories.filter((c) => c.group === group);
 }
 
 export function getGroupChannelState(
   prefs: NotificationPrefs | null | undefined,
   group: string,
   channel: NotificationChannel,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
 ): GroupChannelState {
-  const eligible = getCategoriesForGroup(group).filter((c) => c.channels.includes(channel));
+  const eligible = getCategoriesForGroup(group, categories).filter((c) => c.channels.includes(channel));
   if (eligible.length === 0) return "n/a";
   let onCount = 0;
   for (const cat of eligible) {
@@ -186,9 +273,10 @@ export function applyGroupChannelToggle(
   group: string,
   channel: NotificationChannel,
   enabled: boolean,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
 ): NotificationPrefs {
   const next: NotificationPrefs = { ...(prefs ?? {}) };
-  for (const cat of getCategoriesForGroup(group)) {
+  for (const cat of getCategoriesForGroup(group, categories)) {
     if (!cat.channels.includes(channel)) continue;
     next[cat.key] = { ...(next[cat.key] ?? {}), [channel]: enabled };
   }
@@ -198,11 +286,13 @@ export function applyGroupChannelToggle(
 export function countEnabledGroups(
   prefs: NotificationPrefs | null | undefined,
   channel: NotificationChannel,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
 ): { enabled: number; total: number } {
+  const groups = Array.from(new Set(categories.map((c) => c.group)));
   let enabled = 0;
   let total = 0;
-  for (const group of NOTIFICATION_GROUPS) {
-    const state = getGroupChannelState(prefs, group, channel);
+  for (const group of groups) {
+    const state = getGroupChannelState(prefs, group, channel, categories);
     if (state === "n/a") continue;
     total++;
     if (state === "on") enabled++;
@@ -214,19 +304,18 @@ export interface NotificationPreset {
   key: string;
   label: string;
   description: string;
-  /** Groups that should be ON for the given channel under this preset. */
-  groups: Record<NotificationChannel, string[]>;
+  /** Group-name predicate per channel. Use "*" to mean all groups. */
+  groups: Record<NotificationChannel, string[] | "*">;
 }
 
-const IMPORTANT_GROUPS = ["Tickets", "Messages", "Service status"];
-const ALL_GROUPS = NOTIFICATION_GROUPS.slice();
+const IMPORTANT_GROUPS = ["Tickets", "Messages", "Service status", "Admin tickets", "Admin chat", "Admin monitoring", "Admin broadcasts"];
 
 export const NOTIFICATION_PRESETS: NotificationPreset[] = [
   {
     key: "everything",
     label: "Everything",
     description: "All notifications on (default).",
-    groups: { push: ALL_GROUPS, email: ALL_GROUPS },
+    groups: { push: "*", email: "*" },
   },
   {
     key: "important",
@@ -238,30 +327,44 @@ export const NOTIFICATION_PRESETS: NotificationPreset[] = [
     key: "email_only",
     label: "Email only",
     description: "Email notifications on, no push.",
-    groups: { push: [], email: ALL_GROUPS },
+    groups: { push: [], email: "*" },
   },
 ];
 
-export function buildPresetPrefs(preset: NotificationPreset): NotificationPrefs {
+function presetIncludes(
+  preset: NotificationPreset,
+  channel: NotificationChannel,
+  group: string,
+): boolean {
+  const set = preset.groups[channel];
+  if (set === "*") return true;
+  return set.includes(group);
+}
+
+export function buildPresetPrefs(
+  preset: NotificationPreset,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
+): NotificationPrefs {
   const next: NotificationPrefs = {};
-  for (const cat of NOTIFICATION_CATEGORIES) {
-    const wantPush = cat.channels.includes("push") && preset.groups.push.includes(cat.group);
-    const wantEmail = cat.channels.includes("email") && preset.groups.email.includes(cat.group);
+  for (const cat of categories) {
     const entry: NotificationCategoryPref = {};
-    if (cat.channels.includes("push")) entry.push = wantPush;
-    if (cat.channels.includes("email")) entry.email = wantEmail;
+    if (cat.channels.includes("push")) entry.push = presetIncludes(preset, "push", cat.group);
+    if (cat.channels.includes("email")) entry.email = presetIncludes(preset, "email", cat.group);
     next[cat.key] = entry;
   }
   return next;
 }
 
 /** Returns the matching preset key, or null when the user's prefs are custom. */
-export function matchPreset(prefs: NotificationPrefs | null | undefined): string | null {
+export function matchPreset(
+  prefs: NotificationPrefs | null | undefined,
+  categories: NotificationCategory[] = NOTIFICATION_CATEGORIES,
+): string | null {
   for (const preset of NOTIFICATION_PRESETS) {
     let matches = true;
-    for (const cat of NOTIFICATION_CATEGORIES) {
+    for (const cat of categories) {
       for (const channel of cat.channels) {
-        const want = preset.groups[channel].includes(cat.group);
+        const want = presetIncludes(preset, channel, cat.group);
         const has = userWantsChannel(prefs, cat.key, channel);
         if (want !== has) { matches = false; break; }
       }

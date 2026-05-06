@@ -3655,12 +3655,22 @@ function LogsTab() {
   );
 }
 
-function MonitoringTab({ canManage }: { canManage: boolean }) {
+function MonitoringTab({ canManage, initialMonitorId }: { canManage: boolean; initialMonitorId?: string | null }) {
   const { toast } = useToast();
   const { data: monitors = [], isLoading } = useQuery<UrlMonitor[]>({ queryKey: ["/api/admin/monitors"], refetchInterval: 15000 });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<UrlMonitor | null>(null);
   const [selectedMonitor, setSelectedMonitor] = useState<UrlMonitor | null>(null);
+  const initialMonitorAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialMonitorAppliedRef.current) return;
+    if (!initialMonitorId) return;
+    const found = monitors.find(m => m.id === initialMonitorId);
+    if (found) {
+      setSelectedMonitor(found);
+      initialMonitorAppliedRef.current = true;
+    }
+  }, [initialMonitorId, monitors]);
 
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -4107,7 +4117,7 @@ const ALL_PERMISSIONS = [
   { category: "Knowledge Base", perms: ["knowledge_base"] },
 ];
 
-function AdminManagementTab() {
+function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | null } = {}) {
   const { toast } = useToast();
   const { data: roles = [] } = useQuery<AdminRole[]>({ queryKey: ["/api/admin/roles"] });
   const { data: categories = [] } = useQuery<TicketCategory[]>({ queryKey: ["/api/ticket-categories"] });
@@ -4266,7 +4276,7 @@ function AdminManagementTab() {
   };
 
   return (
-    <Tabs defaultValue="roles" className="space-y-4">
+    <Tabs defaultValue={initialInnerTab || "roles"} className="space-y-4">
       <TabsList data-testid="tabs-admin-management">
         <TabsTrigger value="roles" data-testid="tab-roles">Roles</TabsTrigger>
         <TabsTrigger value="categories" data-testid="tab-categories">Ticket Categories</TabsTrigger>
@@ -4581,11 +4591,11 @@ interface ChatThread {
   lastMessage: ChatMessage | null;
 }
 
-function AdminChatTab() {
+function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) {
   const { user, isMasterAdmin } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId ?? null);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [chatParticipantIds, setChatParticipantIds] = useState<string[]>([]);
   const [chatThreadName, setChatThreadName] = useState("");
@@ -6241,6 +6251,34 @@ export default function AdminPortal() {
   const { isAdmin, isMasterAdmin, hasPermission } = useAuth();
   const [, navigate] = useLocation();
 
+  const initialParams = useMemo(() => {
+    const empty = { tab: null, chat: null, monitor: null, ticket: null, section: null } as {
+      tab: string | null; chat: string | null; monitor: string | null; ticket: string | null; section: string | null;
+    };
+    if (typeof window === "undefined") return empty;
+    const sp = new URLSearchParams(window.location.search);
+    return {
+      tab: sp.get("tab"),
+      chat: sp.get("chat"),
+      monitor: sp.get("monitor"),
+      ticket: sp.get("ticket"),
+      section: sp.get("section"),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (initialParams.ticket) {
+      navigate(`/tickets/${initialParams.ticket}`);
+      return;
+    }
+    if (initialParams.tab || initialParams.chat || initialParams.monitor || initialParams.section) {
+      if (typeof window !== "undefined" && window.history?.replaceState) {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { data: contentCounts } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
     refetchInterval: 15000,
@@ -6268,7 +6306,11 @@ export default function AdminPortal() {
     );
   }
 
-  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<string | null>(() => {
+    const t = initialParams.tab;
+    if (!t || t === "support-tickets") return null;
+    return t;
+  });
 
   const allSections = [
     { key: "users", label: "Users", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
@@ -6317,15 +6359,15 @@ export default function AdminPortal() {
       case "reports-requests": return <ReportsRequestsTab canManage={canManageSection("reports-requests")} />;
       case "email-templates": return <EmailTemplatesTab canManage={canManageSection("email-templates")} />;
       case "downloads": return <DownloadsTab canManage={canManageSection("downloads")} />;
-      case "admin-chat": return <AdminChatTab />;
+      case "admin-chat": return <AdminChatTab initialThreadId={initialParams.chat} />;
       case "chat-admin": return <ChatAdminTab />;
-      case "monitoring": return <MonitoringTab canManage={canManageSection("monitoring")} />;
+      case "monitoring": return <MonitoringTab canManage={canManageSection("monitoring")} initialMonitorId={initialParams.monitor} />;
       case "logs": return <LogsTab />;
       case "telegram": return <TelegramTab />;
       case "business-hours": return <BusinessHoursTab />;
       case "announcements": return <AnnouncementsTab />;
       case "knowledge-base": return <KnowledgeBaseTab />;
-      case "admin-management": return isMasterAdmin ? <AdminManagementTab /> : null;
+      case "admin-management": return isMasterAdmin ? <AdminManagementTab initialInnerTab={initialParams.section} /> : null;
       default: return null;
     }
   };

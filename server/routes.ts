@@ -22,7 +22,7 @@ import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCr
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { insertKbCategorySchema, updateKbCategorySchema, insertKbArticleSchema, updateKbArticleSchema } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
-import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, type NotificationPrefs } from "@shared/notification-categories";
+import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import type { User } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { getOpenAIClient } from "./openai-client";
@@ -38,6 +38,15 @@ function customerWantsEmail(user: Pick<User, "role" | "notificationPrefs"> | nul
   if (!user) return false;
   if (user.role !== "customer") return true;
   return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "email");
+}
+
+function adminWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
+  if (!user) return false;
+  if (user.role !== "admin" && user.role !== "master_admin") return false;
+  const cat = getNotificationCategory(categoryKey);
+  if (!cat) return false;
+  if (!isCategoryVisibleToRole(cat, user.role as AppRole)) return false;
+  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push");
 }
 
 const sanitizeNewsContent = (html: string): string =>
@@ -737,19 +746,24 @@ export async function registerRoutes(
       const current: NotificationPrefs = me.notificationPrefs ?? {};
       let next: NotificationPrefs;
 
+      const role = (me.role || "customer") as AppRole;
+
       if (req.body && typeof req.body === "object" && req.body.prefs && typeof req.body.prefs === "object") {
         const incoming = req.body.prefs as NotificationPrefs;
-        const sanitized: NotificationPrefs = {};
+        // Start from current so prefs for categories not visible to this role are preserved.
+        const sanitized: NotificationPrefs = { ...current };
         for (const key of Object.keys(incoming)) {
           if (!NOTIFICATION_CATEGORY_KEYS.includes(key)) continue;
           const entry = incoming[key];
           if (!entry || typeof entry !== "object") continue;
           const cat = NOTIFICATION_CATEGORIES.find((c) => c.key === key);
           if (!cat) continue;
+          if (!isCategoryVisibleToRole(cat, role)) continue;
           const cleaned: { push?: boolean; email?: boolean } = {};
           if (typeof entry.push === "boolean" && cat.channels.includes("push")) cleaned.push = entry.push;
           if (typeof entry.email === "boolean" && cat.channels.includes("email")) cleaned.email = entry.email;
           if (Object.keys(cleaned).length > 0) sanitized[key] = cleaned;
+          else delete sanitized[key];
         }
         next = sanitized;
       } else {
@@ -766,6 +780,9 @@ export async function registerRoutes(
         const cat = NOTIFICATION_CATEGORIES.find((c) => c.key === categoryKey);
         if (!cat || !cat.channels.includes(channel)) {
           return res.status(400).json({ message: "Channel not supported for this category" });
+        }
+        if (!isCategoryVisibleToRole(cat, role)) {
+          return res.status(403).json({ message: "Category not available for your role" });
         }
         next = { ...current, [categoryKey]: { ...(current[categoryKey] || {}), [channel]: enabled } };
       }
@@ -975,12 +992,14 @@ export async function registerRoutes(
         }
       }
       for (const admin of admins) {
-        sendPushToUser(admin.id, {
-          title: "New Support Ticket",
-          body: `${customer?.fullName}: ${ticket.subject}`,
-          url: `/tickets/${ticket.id}`,
-          tag: `ticket-${ticket.id}`,
-        }, { type: "new_ticket", referenceType: "ticket", referenceId: ticket.id });
+        if (adminWantsPush(admin, "admin_new_ticket")) {
+          sendPushToUser(admin.id, {
+            title: "New Support Ticket",
+            body: `${customer?.fullName}: ${ticket.subject}`,
+            url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
+            tag: `ticket-${ticket.id}`,
+          }, { type: "new_ticket", referenceType: "ticket", referenceId: ticket.id });
+        }
         storage.createTicketNotification({
           userId: admin.id,
           ticketId: ticket.id,
@@ -1708,12 +1727,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
         for (const admin of admins) {
           const adminViewingTicket = isUserViewingTicket(admin.id, ticket.id);
-          sendPushToUser(admin.id, {
-            title: "New Ticket Message",
-            body: `${user.fullName}: ${ticket.subject}`,
-            url: `/tickets/${ticket.id}`,
-            tag: `ticket-${ticket.id}`,
-          }, adminViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+          const isAssignee = !!ticket.claimedBy && ticket.claimedBy === admin.id;
+          const wantsMine = isAssignee && adminWantsPush(admin, "admin_ticket_reply_mine");
+          const wantsAny = adminWantsPush(admin, "admin_ticket_reply_any");
+          if (wantsMine || wantsAny) {
+            sendPushToUser(admin.id, {
+              title: "New Ticket Message",
+              body: `${user.fullName}: ${ticket.subject}`,
+              url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
+              tag: `ticket-${ticket.id}`,
+            }, adminViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+          }
           if (!adminViewingTicket) {
             storage.createTicketNotification({
               userId: admin.id,
@@ -3096,12 +3120,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       broadcast({ type: "broadcast_alert", broadcastId: broadcastMsg.id, title, message, recipientIds: userIds });
       let sent = 0;
       for (const userId of userIds) {
+        const recipient = await storage.getUser(userId);
+        const isAdminRecipient = recipient?.role === "admin" || recipient?.role === "master_admin";
+        if (isAdminRecipient && !adminWantsPush(recipient, "admin_broadcast")) continue;
+        const url = isAdminRecipient ? "/admin?tab=admin-management&section=broadcast" : "/";
         const subs = await storage.getPushSubscriptionsByUser(userId);
         for (const sub of subs) {
           try {
             await webpush.sendNotification(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-              JSON.stringify({ title: "Urgent Admin Alert", body: message, url: "/" })
+              JSON.stringify({ title: "Urgent Admin Alert", body: message, url })
             );
             sent++;
           } catch (err: any) {
@@ -3321,12 +3349,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const messagePreview = (req.body.message || "").substring(0, 100) || (req.file ? "Sent an attachment" : "New message");
       for (const p of otherParticipants) {
         if (!isUserViewingAdminChat(p.userId, req.params.id)) {
-          sendPushToUser(p.userId, {
-            title: `Admin Chat - ${threadLabel}`,
-            body: `${user.fullName}: ${messagePreview}`,
-            url: "/admin",
-            tag: `admin-chat-${req.params.id}`,
-          });
+          const recipient = await storage.getUser(p.userId);
+          if (adminWantsPush(recipient, "admin_chat_message")) {
+            sendPushToUser(p.userId, {
+              title: `Admin Chat - ${threadLabel}`,
+              body: `${user.fullName}: ${messagePreview}`,
+              url: `/admin?tab=admin-chat&chat=${req.params.id}`,
+              tag: `admin-chat-${req.params.id}`,
+            });
+          }
         }
       }
 
@@ -5071,10 +5102,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     const failureTime = format(new Date(), "MMM d, yyyy h:mm a");
 
     for (const admin of admins) {
+      if (!adminWantsPush(admin, "admin_monitor_down")) continue;
       sendPushToUser(admin.id, {
         title: `⚠️ ${monitor.name} is DOWN`,
         body: reason,
-        url: "/admin",
+        url: `/admin?tab=monitoring&monitor=${monitor.id}`,
         tag: `monitor-${monitor.id}-down`,
       }, { type: "monitor_down", referenceType: "url_monitor", referenceId: monitor.id });
     }
@@ -5116,10 +5148,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     const downtimeDuration = parts.join(" ");
 
     for (const admin of admins) {
+      if (!adminWantsPush(admin, "admin_monitor_down")) continue;
       sendPushToUser(admin.id, {
         title: `✅ ${monitor.name} is back UP`,
         body: `Recovered after ${downtimeDuration}`,
-        url: "/admin",
+        url: `/admin?tab=monitoring&monitor=${monitor.id}`,
         tag: `monitor-${monitor.id}-up`,
       }, { type: "monitor_up", referenceType: "url_monitor", referenceId: monitor.id });
     }

@@ -18,7 +18,7 @@ import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLin
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
 import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
-import { countEnabledGroups, type NotificationPrefs } from "@shared/notification-categories";
+import { countEnabledGroups, getCategoriesForRole, type AppRole, type NotificationPrefs } from "@shared/notification-categories";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -339,8 +339,9 @@ export default function SettingsPage() {
           )}
           {(() => {
             const prefs: NotificationPrefs | null | undefined = user?.notificationPrefs;
-            const pushSummary = countEnabledGroups(prefs, "push");
-            const emailSummary = countEnabledGroups(prefs, "email");
+            const visible = getCategoriesForRole((user?.role as AppRole) || "customer");
+            const pushSummary = countEnabledGroups(prefs, "push", visible);
+            const emailSummary = countEnabledGroups(prefs, "email", visible);
             return (
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
