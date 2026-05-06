@@ -599,6 +599,76 @@ export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
 export const updateAnnouncementSchema = insertAnnouncementSchema.partial();
 export type UpdateAnnouncement = z.infer<typeof updateAnnouncementSchema>;
 
+// Knowledge Base
+export const kbCategories = pgTable("kb_categories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const kbArticles = pgTable("kb_articles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  categoryId: varchar("category_id").notNull(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  bodyHtml: text("body_html").notNull(),
+  tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+  published: boolean("published").notNull().default(true),
+  viewCount: integer("view_count").notNull().default(0),
+  helpfulCount: integer("helpful_count").notNull().default(0),
+  unhelpfulCount: integer("unhelpful_count").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+  authorId: varchar("author_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const insertKbCategorySchema = createInsertSchema(kbCategories).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  slug: z.string().min(1).max(120).regex(SLUG_RE, "Lowercase letters, numbers, and single hyphens only"),
+  name: z.string().min(1, "Name is required").max(120),
+  description: z.string().max(500).nullable().optional(),
+  sortOrder: z.number().int().default(0),
+});
+export type InsertKbCategory = z.infer<typeof insertKbCategorySchema>;
+export type KbCategory = typeof kbCategories.$inferSelect;
+export const updateKbCategorySchema = insertKbCategorySchema.partial();
+export type UpdateKbCategory = z.infer<typeof updateKbCategorySchema>;
+
+export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  viewCount: true,
+  helpfulCount: true,
+  unhelpfulCount: true,
+  authorId: true,
+}).extend({
+  slug: z.string().min(1).max(160).regex(SLUG_RE, "Lowercase letters, numbers, and single hyphens only"),
+  title: z.string().min(1, "Title is required").max(200),
+  summary: z.string().max(500).nullable().optional(),
+  bodyHtml: z.string().min(1, "Body is required").refine(
+    (val) => val.replace(/<[^>]*>/g, "").trim().length > 0,
+    "Body is required"
+  ),
+  tags: z.array(z.string().min(1).max(40)).max(20).default([]),
+  published: z.boolean().default(true),
+  sortOrder: z.number().int().default(0),
+  categoryId: z.string().min(1, "Category is required"),
+});
+export type InsertKbArticle = z.infer<typeof insertKbArticleSchema>;
+export type KbArticle = typeof kbArticles.$inferSelect;
+export const updateKbArticleSchema = insertKbArticleSchema.partial();
+export type UpdateKbArticle = z.infer<typeof updateKbArticleSchema>;
+
 // Login schema
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),

@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users } from "lucide-react";
+import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen } from "lucide-react";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 
 const categoryMap: Record<string, string> = {
@@ -90,6 +90,7 @@ export function AppSidebar() {
     { title: "Community Chat", url: "/community", icon: Users },
     { title: "Report/Request", url: "/report-request", icon: FileText },
     { title: "Downloads", url: "/downloads", icon: Download },
+    { title: "Knowledge", url: "/knowledge", icon: BookOpen },
     { title: "Settings", url: "/settings", icon: SettingsIcon },
   ];
 

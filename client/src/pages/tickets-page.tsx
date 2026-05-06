@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useDebounce } from "@/hooks/use-debounce";
+import type { KbArticle } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/auth";
@@ -88,6 +90,38 @@ function formatNextOpen(iso: string | null, tz: string): string {
   if (dateInTz === todayInTz) return `today at ${time}`;
   if (dateInTz === tomorrowInTz) return `tomorrow at ${time}`;
   return `${formatInTimeZone(d, safeTz, "EEEE")} at ${time}`;
+}
+
+function SubjectKbSuggestions({ subject }: { subject: string }) {
+  const debounced = useDebounce(subject.trim(), 300);
+  const enabled = debounced.length >= 3;
+  const { data: results = [] } = useQuery<KbArticle[]>({
+    queryKey: ["/api/kb/articles", { search: debounced, limit: 3 }],
+    enabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/kb/articles?search=${encodeURIComponent(debounced)}&limit=3`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  if (!enabled || results.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-md border bg-muted/30 p-2 space-y-1" data-testid="kb-subject-suggestions">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Suggested articles</p>
+      {results.slice(0, 3).map((a) => (
+        <a
+          key={a.id}
+          href={`/knowledge/${a.slug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block text-sm px-2 py-1 rounded hover:bg-accent/60 truncate"
+          data-testid={`link-kb-suggestion-${a.id}`}
+        >
+          {a.title}
+        </a>
+      ))}
+    </div>
+  );
 }
 
 export default function TicketsPage() {
@@ -272,6 +306,7 @@ export default function TicketsPage() {
                         <FormControl>
                           <Input placeholder="Brief description of the issue" data-testid="input-ticket-subject" {...field} />
                         </FormControl>
+                        <SubjectKbSuggestions subject={field.value || ""} />
                         <FormMessage />
                       </FormItem>
                     )}

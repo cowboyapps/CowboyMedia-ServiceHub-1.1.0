@@ -23,12 +23,13 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen } from "lucide-react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
-import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement } from "@shared/schema";
+import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
+import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
@@ -4103,6 +4104,7 @@ const ALL_PERMISSIONS = [
   { category: "Logs", perms: ["logs.view"] },
   { category: "URL Monitoring", perms: ["monitoring.view", "monitoring.manage"] },
   { category: "Announcements", perms: ["announcements"] },
+  { category: "Knowledge Base", perms: ["knowledge_base"] },
 ];
 
 function AdminManagementTab() {
@@ -5109,6 +5111,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "monitoring": "monitoring.view",
   "chat-admin": "admin_chat",
   "announcements": "announcements",
+  "knowledge-base": "knowledge_base",
 };
 
 const TILE_MANAGE_MAP: Record<string, string> = {
@@ -5124,9 +5127,393 @@ const TILE_MANAGE_MAP: Record<string, string> = {
   "downloads": "downloads.manage",
   "monitoring": "monitoring.manage",
   "announcements": "announcements",
+  "knowledge-base": "knowledge_base",
 };
 
 const NO_LINK_VALUE = "__none__";
+
+function KnowledgeBaseTab() {
+  const { toast } = useToast();
+  const [tab, setTab] = useState<"articles" | "categories">("articles");
+
+  // Categories state
+  const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [editingCat, setEditingCat] = useState<KbCategory | null>(null);
+  const [catName, setCatName] = useState("");
+  const [catSlug, setCatSlug] = useState("");
+  const [catDescription, setCatDescription] = useState("");
+  const [catSortOrder, setCatSortOrder] = useState(0);
+
+  // Articles state
+  const [artDialogOpen, setArtDialogOpen] = useState(false);
+  const [editingArt, setEditingArt] = useState<KbArticle | null>(null);
+  const [artTitle, setArtTitle] = useState("");
+  const [artSlug, setArtSlug] = useState("");
+  const [artSlugTouched, setArtSlugTouched] = useState(false);
+  const [artCategoryId, setArtCategoryId] = useState("");
+  const [artSummary, setArtSummary] = useState("");
+  const [artBodyHtml, setArtBodyHtml] = useState("");
+  const [artTags, setArtTags] = useState("");
+  const [artPublished, setArtPublished] = useState(true);
+  const [artSortOrder, setArtSortOrder] = useState(0);
+
+  const { data: categories = [], isLoading: catsLoading } = useQuery<KbCategory[]>({ queryKey: ["/api/admin/kb/categories"] });
+  const { data: articles = [], isLoading: artsLoading } = useQuery<KbArticle[]>({ queryKey: ["/api/admin/kb/articles"] });
+
+  const resetCat = () => {
+    setEditingCat(null);
+    setCatName("");
+    setCatSlug("");
+    setCatDescription("");
+    setCatSortOrder(0);
+  };
+  const resetArt = () => {
+    setEditingArt(null);
+    setArtTitle("");
+    setArtSlug("");
+    setArtSlugTouched(false);
+    setArtCategoryId("");
+    setArtSummary("");
+    setArtBodyHtml("");
+    setArtTags("");
+    setArtPublished(true);
+    setArtSortOrder(0);
+  };
+
+  const openCreateCat = () => { resetCat(); setCatDialogOpen(true); };
+  const openEditCat = (c: KbCategory) => {
+    setEditingCat(c);
+    setCatName(c.name);
+    setCatSlug(c.slug);
+    setCatDescription(c.description ?? "");
+    setCatSortOrder(c.sortOrder);
+    setCatDialogOpen(true);
+  };
+  const openCreateArt = () => {
+    resetArt();
+    if (categories.length > 0) setArtCategoryId(categories[0].id);
+    setArtDialogOpen(true);
+  };
+  const openEditArt = (a: KbArticle) => {
+    setEditingArt(a);
+    setArtTitle(a.title);
+    setArtSlug(a.slug);
+    setArtSlugTouched(true);
+    setArtCategoryId(a.categoryId);
+    setArtSummary(a.summary ?? "");
+    setArtBodyHtml(a.bodyHtml);
+    setArtTags(a.tags.join(", "));
+    setArtPublished(a.published);
+    setArtSortOrder(a.sortOrder);
+    setArtDialogOpen(true);
+  };
+
+  const catPayload = () => ({
+    name: catName.trim(),
+    slug: (catSlug.trim() || slugify(catName)).toLowerCase(),
+    description: catDescription.trim() || null,
+    sortOrder: Number(catSortOrder) || 0,
+  });
+  const artPayload = () => ({
+    title: artTitle.trim(),
+    slug: (artSlug.trim() || slugify(artTitle)).toLowerCase(),
+    categoryId: artCategoryId,
+    summary: artSummary.trim() || null,
+    bodyHtml: artBodyHtml,
+    tags: artTags.split(",").map(t => t.trim()).filter(Boolean),
+    published: artPublished,
+    sortOrder: Number(artSortOrder) || 0,
+  });
+
+  const createCatMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/admin/kb/categories", catPayload())).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/categories"] });
+      setCatDialogOpen(false); resetCat();
+      toast({ title: "Category created" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const updateCatMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCat) return;
+      return (await apiRequest("PATCH", `/api/admin/kb/categories/${editingCat.id}`, catPayload())).json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/categories"] });
+      setCatDialogOpen(false); resetCat();
+      toast({ title: "Category updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const deleteCatMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/admin/kb/categories/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
+      toast({ title: "Category deleted" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const createArtMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/admin/kb/articles", artPayload())).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
+      setArtDialogOpen(false); resetArt();
+      toast({ title: "Article created" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const updateArtMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingArt) return;
+      return (await apiRequest("PATCH", `/api/admin/kb/articles/${editingArt.id}`, artPayload())).json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
+      setArtDialogOpen(false); resetArt();
+      toast({ title: "Article updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const deleteArtMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/admin/kb/articles/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
+      toast({ title: "Article deleted" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Knowledge Base</h2>
+      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "articles" | "categories")}>
+        <TabsList>
+          <TabsTrigger value="articles" data-testid="tab-kb-articles">Articles</TabsTrigger>
+          <TabsTrigger value="categories" data-testid="tab-kb-categories">Categories</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="articles" className="space-y-3 mt-4">
+          <div className="flex justify-end">
+            <Button onClick={openCreateArt} disabled={categories.length === 0} data-testid="button-create-kb-article">
+              <Plus className="w-4 h-4 mr-1" /> New Article
+            </Button>
+          </div>
+          {categories.length === 0 && (
+            <p className="text-xs text-muted-foreground">Create a category first.</p>
+          )}
+          {artsLoading ? (
+            <Skeleton className="h-24" />
+          ) : articles.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No articles yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {articles.map((a) => {
+                const cat = categories.find((c) => c.id === a.categoryId);
+                return (
+                  <Card key={a.id} data-testid={`card-admin-kb-article-${a.id}`}>
+                    <CardContent className="p-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-sm">{a.title}</p>
+                          {!a.published && <Badge variant="outline" className="text-[10px]">Draft</Badge>}
+                          {cat && <Badge variant="secondary" className="text-[10px]">{cat.name}</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">/{a.slug} · {a.viewCount} views · 👍 {a.helpfulCount} 👎 {a.unhelpfulCount}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => openEditArt(a)} data-testid={`button-edit-kb-article-${a.id}`}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="ghost" data-testid={`button-delete-kb-article-${a.id}`}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete article?</AlertDialogTitle>
+                              <AlertDialogDescription>This will permanently delete "{a.title}".</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteArtMutation.mutate(a.id)}>Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="categories" className="space-y-3 mt-4">
+          <div className="flex justify-end">
+            <Button onClick={openCreateCat} data-testid="button-create-kb-category">
+              <Plus className="w-4 h-4 mr-1" /> New Category
+            </Button>
+          </div>
+          {catsLoading ? (
+            <Skeleton className="h-24" />
+          ) : categories.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No categories yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {categories.map((c) => (
+                <Card key={c.id} data-testid={`card-admin-kb-category-${c.id}`}>
+                  <CardContent className="p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm">{c.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">/{c.slug}{c.description ? ` · ${c.description}` : ""}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => openEditCat(c)} data-testid={`button-edit-kb-category-${c.id}`}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="ghost" data-testid={`button-delete-kb-category-${c.id}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete category?</AlertDialogTitle>
+                            <AlertDialogDescription>This will permanently delete "{c.name}" and all of its articles.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteCatMutation.mutate(c.id)}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* Category dialog */}
+      <Dialog open={catDialogOpen} onOpenChange={(open) => { setCatDialogOpen(open); if (!open) resetCat(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingCat ? "Edit Category" : "New Category"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Name</Label>
+              <Input value={catName} onChange={(e) => { setCatName(e.target.value); if (!editingCat) setCatSlug(slugify(e.target.value)); }} data-testid="input-kb-category-name" />
+            </div>
+            <div>
+              <Label>Slug</Label>
+              <Input value={catSlug} onChange={(e) => setCatSlug(e.target.value)} data-testid="input-kb-category-slug" />
+            </div>
+            <div>
+              <Label>Description (optional)</Label>
+              <Textarea value={catDescription} onChange={(e) => setCatDescription(e.target.value)} data-testid="input-kb-category-description" />
+            </div>
+            <div>
+              <Label>Sort order</Label>
+              <Input type="number" value={catSortOrder} onChange={(e) => setCatSortOrder(parseInt(e.target.value, 10) || 0)} data-testid="input-kb-category-sort" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCatDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => editingCat ? updateCatMutation.mutate() : createCatMutation.mutate()}
+                disabled={!catName.trim() || createCatMutation.isPending || updateCatMutation.isPending}
+                data-testid="button-save-kb-category"
+              >
+                {editingCat ? "Save" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Article dialog */}
+      <Dialog open={artDialogOpen} onOpenChange={(open) => { setArtDialogOpen(open); if (!open) resetArt(); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingArt ? "Edit Article" : "New Article"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Title</Label>
+              <Input
+                value={artTitle}
+                onChange={(e) => { setArtTitle(e.target.value); if (!artSlugTouched) setArtSlug(slugify(e.target.value)); }}
+                data-testid="input-kb-article-title"
+              />
+            </div>
+            <div>
+              <Label>Slug</Label>
+              <Input value={artSlug} onChange={(e) => { setArtSlug(e.target.value); setArtSlugTouched(true); }} data-testid="input-kb-article-slug" />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Select value={artCategoryId} onValueChange={setArtCategoryId}>
+                <SelectTrigger data-testid="select-kb-article-category"><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Summary (optional)</Label>
+              <Textarea value={artSummary} onChange={(e) => setArtSummary(e.target.value)} data-testid="input-kb-article-summary" />
+            </div>
+            <div>
+              <Label>Body</Label>
+              <RichTextEditor value={artBodyHtml} onChange={setArtBodyHtml} testIdPrefix="kb-article" />
+            </div>
+            <div>
+              <Label>Tags (comma-separated)</Label>
+              <Input value={artTags} onChange={(e) => setArtTags(e.target.value)} data-testid="input-kb-article-tags" />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <Switch checked={artPublished} onCheckedChange={setArtPublished} data-testid="switch-kb-article-published" />
+                <Label>Published</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs">Sort order</Label>
+                <Input type="number" className="w-20" value={artSortOrder} onChange={(e) => setArtSortOrder(parseInt(e.target.value, 10) || 0)} data-testid="input-kb-article-sort" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setArtDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => editingArt ? updateArtMutation.mutate() : createArtMutation.mutate()}
+                disabled={!artTitle.trim() || !artCategoryId || !artBodyHtml.trim() || createArtMutation.isPending || updateArtMutation.isPending}
+                data-testid="button-save-kb-article"
+              >
+                {editingArt ? "Save" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 function AnnouncementsTab() {
   const { toast } = useToast();
@@ -5862,6 +6249,7 @@ export default function AdminPortal() {
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10" },
+    { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
   ];
 
@@ -5896,6 +6284,7 @@ export default function AdminPortal() {
       case "telegram": return <TelegramTab />;
       case "business-hours": return <BusinessHoursTab />;
       case "announcements": return <AnnouncementsTab />;
+      case "knowledge-base": return <KnowledgeBaseTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab /> : null;
       default: return null;
     }

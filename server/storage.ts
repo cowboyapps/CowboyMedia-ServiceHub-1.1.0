@@ -41,7 +41,9 @@ import {
   type UpdateAnnouncement,
   type ServiceSubscriber,
   type InsertServiceSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers,
+  type KbCategory, type InsertKbCategory, type UpdateKbCategory,
+  type KbArticle, type InsertKbArticle, type UpdateKbArticle,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray } from "drizzle-orm";
@@ -255,6 +257,22 @@ export interface IStorage {
   deleteAnnouncement(id: string): Promise<void>;
   hasUserSeenAnnouncement(announcementId: string, userId: string): Promise<boolean>;
   markAnnouncementSeen(announcementId: string, userId: string): Promise<void>;
+
+  listKbCategories(): Promise<KbCategory[]>;
+  getKbCategory(id: string): Promise<KbCategory | undefined>;
+  createKbCategory(data: InsertKbCategory): Promise<KbCategory>;
+  updateKbCategory(id: string, data: UpdateKbCategory): Promise<KbCategory | undefined>;
+  deleteKbCategory(id: string): Promise<void>;
+
+  listKbArticles(opts?: { publishedOnly?: boolean; categoryId?: string }): Promise<KbArticle[]>;
+  getKbArticleById(id: string): Promise<KbArticle | undefined>;
+  getKbArticleBySlug(slug: string): Promise<KbArticle | undefined>;
+  createKbArticle(data: InsertKbArticle & { authorId: string | null }): Promise<KbArticle>;
+  updateKbArticle(id: string, data: UpdateKbArticle): Promise<KbArticle | undefined>;
+  deleteKbArticle(id: string): Promise<void>;
+  incrementKbArticleViewCount(id: string): Promise<void>;
+  recordKbArticleHelpful(id: string, helpful: boolean): Promise<KbArticle | undefined>;
+  searchKbArticles(query: string, opts?: { limit?: number; publishedOnly?: boolean }): Promise<KbArticle[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1318,6 +1336,127 @@ export class DatabaseStorage implements IStorage {
       VALUES (${announcementId}, ${userId})
       ON CONFLICT (announcement_id, user_id) DO NOTHING
     `);
+  }
+
+  async listKbCategories(): Promise<KbCategory[]> {
+    return db.select().from(kbCategories).orderBy(kbCategories.sortOrder, kbCategories.name);
+  }
+
+  async getKbCategory(id: string): Promise<KbCategory | undefined> {
+    const [row] = await db.select().from(kbCategories).where(eq(kbCategories.id, id));
+    return row;
+  }
+
+  async createKbCategory(data: InsertKbCategory): Promise<KbCategory> {
+    const [created] = await db.insert(kbCategories).values({
+      slug: data.slug,
+      name: data.name,
+      description: data.description ?? null,
+      sortOrder: data.sortOrder ?? 0,
+    }).returning();
+    return created;
+  }
+
+  async updateKbCategory(id: string, data: UpdateKbCategory): Promise<KbCategory | undefined> {
+    const patch: Partial<typeof kbCategories.$inferInsert> = {};
+    if (data.slug !== undefined) patch.slug = data.slug;
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.description !== undefined) patch.description = data.description ?? null;
+    if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
+    if (Object.keys(patch).length === 0) return this.getKbCategory(id);
+    const [updated] = await db.update(kbCategories).set(patch).where(eq(kbCategories.id, id)).returning();
+    return updated;
+  }
+
+  async deleteKbCategory(id: string): Promise<void> {
+    await db.delete(kbArticles).where(eq(kbArticles.categoryId, id));
+    await db.delete(kbCategories).where(eq(kbCategories.id, id));
+  }
+
+  async listKbArticles(opts: { publishedOnly?: boolean; categoryId?: string } = {}): Promise<KbArticle[]> {
+    const conditions = [] as any[];
+    if (opts.publishedOnly) conditions.push(eq(kbArticles.published, true));
+    if (opts.categoryId) conditions.push(eq(kbArticles.categoryId, opts.categoryId));
+    const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
+    const q = db.select().from(kbArticles);
+    const rows = where ? await q.where(where).orderBy(kbArticles.sortOrder, desc(kbArticles.createdAt)) : await q.orderBy(kbArticles.sortOrder, desc(kbArticles.createdAt));
+    return rows;
+  }
+
+  async getKbArticleById(id: string): Promise<KbArticle | undefined> {
+    const [row] = await db.select().from(kbArticles).where(eq(kbArticles.id, id));
+    return row;
+  }
+
+  async getKbArticleBySlug(slug: string): Promise<KbArticle | undefined> {
+    const [row] = await db.select().from(kbArticles).where(eq(kbArticles.slug, slug));
+    return row;
+  }
+
+  async createKbArticle(data: InsertKbArticle & { authorId: string | null }): Promise<KbArticle> {
+    const [created] = await db.insert(kbArticles).values({
+      categoryId: data.categoryId,
+      slug: data.slug,
+      title: data.title,
+      summary: data.summary ?? null,
+      bodyHtml: data.bodyHtml,
+      tags: data.tags ?? [],
+      published: data.published ?? true,
+      sortOrder: data.sortOrder ?? 0,
+      authorId: data.authorId,
+    }).returning();
+    return created;
+  }
+
+  async updateKbArticle(id: string, data: UpdateKbArticle): Promise<KbArticle | undefined> {
+    const patch: Partial<typeof kbArticles.$inferInsert> = {};
+    if (data.categoryId !== undefined) patch.categoryId = data.categoryId;
+    if (data.slug !== undefined) patch.slug = data.slug;
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.summary !== undefined) patch.summary = data.summary ?? null;
+    if (data.bodyHtml !== undefined) patch.bodyHtml = data.bodyHtml;
+    if (data.tags !== undefined) patch.tags = data.tags;
+    if (data.published !== undefined) patch.published = data.published;
+    if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
+    if (Object.keys(patch).length === 0) return this.getKbArticleById(id);
+    const [updated] = await db.update(kbArticles).set(patch).where(eq(kbArticles.id, id)).returning();
+    return updated;
+  }
+
+  async deleteKbArticle(id: string): Promise<void> {
+    await db.delete(kbArticles).where(eq(kbArticles.id, id));
+  }
+
+  async incrementKbArticleViewCount(id: string): Promise<void> {
+    await db.execute(sql`UPDATE kb_articles SET view_count = view_count + 1 WHERE id = ${id}`);
+  }
+
+  async recordKbArticleHelpful(id: string, helpful: boolean): Promise<KbArticle | undefined> {
+    if (helpful) {
+      await db.execute(sql`UPDATE kb_articles SET helpful_count = helpful_count + 1 WHERE id = ${id}`);
+    } else {
+      await db.execute(sql`UPDATE kb_articles SET unhelpful_count = unhelpful_count + 1 WHERE id = ${id}`);
+    }
+    return this.getKbArticleById(id);
+  }
+
+  async searchKbArticles(query: string, opts: { limit?: number; publishedOnly?: boolean } = {}): Promise<KbArticle[]> {
+    const limit = opts.limit ?? 20;
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    const publishedFilter = opts.publishedOnly ? sql`AND published = TRUE` : sql``;
+    const result = await db.execute<KbArticle>(sql`
+      SELECT id, category_id AS "categoryId", slug, title, summary, body_html AS "bodyHtml",
+             tags, published, view_count AS "viewCount", helpful_count AS "helpfulCount",
+             unhelpful_count AS "unhelpfulCount", sort_order AS "sortOrder",
+             author_id AS "authorId", created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM kb_articles
+      WHERE search_vector @@ plainto_tsquery('english', ${trimmed})
+      ${publishedFilter}
+      ORDER BY ts_rank(search_vector, plainto_tsquery('english', ${trimmed})) DESC, created_at DESC
+      LIMIT ${limit}
+    `);
+    return (result as any).rows ?? (result as any);
   }
 }
 

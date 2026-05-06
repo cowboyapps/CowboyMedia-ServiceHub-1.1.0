@@ -52,6 +52,7 @@ import ForgotPasswordPage from "@/pages/forgot-password-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
 import CommunityChatPage from "@/pages/community-chat-page";
 import StatusPage from "@/pages/status-page";
+import KnowledgePage from "@/pages/knowledge-page";
 
 function getRouteDepth(path: string): number {
   if (path === "/") return 0;
@@ -105,6 +106,8 @@ function AppRouter() {
         <Route path="/report-request" component={ReportRequestPage} />
         <Route path="/downloads" component={DownloadsPage} />
         <Route path="/community" component={CommunityChatPage} />
+        <Route path="/knowledge" component={KnowledgePage} />
+        <Route path="/knowledge/:slug" component={KnowledgePage} />
         <Route path="/admin">
           <Suspense fallback={<div className="p-6 space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>}>
             <AdminPortal />

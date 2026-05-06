@@ -20,6 +20,7 @@ import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
+import { insertKbCategorySchema, updateKbCategorySchema, insertKbArticleSchema, updateKbArticleSchema } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, type NotificationPrefs } from "@shared/notification-categories";
 import type { User } from "@shared/schema";
@@ -4769,6 +4770,201 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!u || u.role !== "customer") return res.status(403).json({ message: "Forbidden" });
       await storage.markAnnouncementSeen(req.params.id, req.session.userId);
       res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ===== Knowledge Base =====
+  app.get("/api/kb/categories", requireAuth, async (_req, res) => {
+    try {
+      const list = await storage.listKbCategories();
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/kb/articles", requireAuth, async (req, res) => {
+    try {
+      const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+      const categoryId = typeof req.query.categoryId === "string" && req.query.categoryId ? req.query.categoryId : undefined;
+      const u = await storage.getUser(req.session.userId!);
+      const isStaff = u?.role === "admin" || u?.role === "master_admin";
+      const publishedOnly = !isStaff;
+      if (search) {
+        const limit = Math.min(parseInt(String(req.query.limit ?? "20"), 10) || 20, 50);
+        const rows = await storage.searchKbArticles(search, { limit, publishedOnly });
+        const filtered = categoryId ? rows.filter(r => r.categoryId === categoryId) : rows;
+        return res.json(filtered);
+      }
+      const list = await storage.listKbArticles({ publishedOnly, categoryId });
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/kb/articles/:slug", requireAuth, async (req, res) => {
+    try {
+      const article = await storage.getKbArticleBySlug(req.params.slug);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      const u = await storage.getUser(req.session.userId!);
+      const isStaff = u?.role === "admin" || u?.role === "master_admin";
+      if (!article.published && !isStaff) return res.status(404).json({ message: "Article not found" });
+      if (!isStaff) {
+        storage.incrementKbArticleViewCount(article.id).catch(() => {});
+      }
+      res.json(article);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/kb/articles/:slug/helpful", requireAuth, async (req, res) => {
+    try {
+      const article = await storage.getKbArticleBySlug(req.params.slug);
+      if (!article || !article.published) return res.status(404).json({ message: "Article not found" });
+      const helpful = req.body?.helpful === true || req.body?.helpful === "true";
+      const updated = await storage.recordKbArticleHelpful(article.id, helpful);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/kb/categories", requirePermission("knowledge_base", "knowledge_base"), async (_req, res) => {
+    try {
+      res.json(await storage.listKbCategories());
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/kb/categories", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const parsed = insertKbCategorySchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Invalid category", errors: parsed.error.flatten() });
+      const created = await storage.createKbCategory(parsed.data);
+      logActivity("system", "kb_category_created", {
+        actorId: req.session.userId!,
+        targetId: created.id,
+        targetType: "kb_category",
+        summary: `KB category created: ${created.name}`,
+      });
+      res.json(created);
+    } catch (e: any) {
+      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/kb/categories/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const parsed = updateKbCategorySchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Invalid category", errors: parsed.error.flatten() });
+      const updated = await storage.updateKbCategory(req.params.id, parsed.data);
+      if (!updated) return res.status(404).json({ message: "Category not found" });
+      logActivity("system", "kb_category_updated", {
+        actorId: req.session.userId!,
+        targetId: updated.id,
+        targetType: "kb_category",
+        summary: `KB category updated: ${updated.name}`,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/kb/categories/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const existing = await storage.getKbCategory(req.params.id);
+      await storage.deleteKbCategory(req.params.id);
+      logActivity("system", "kb_category_deleted", {
+        actorId: req.session.userId!,
+        targetId: req.params.id,
+        targetType: "kb_category",
+        summary: `KB category deleted: ${existing?.name || req.params.id}`,
+      });
+      res.json({ message: "Category deleted" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/kb/articles", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const categoryId = typeof req.query.categoryId === "string" && req.query.categoryId ? req.query.categoryId : undefined;
+      res.json(await storage.listKbArticles({ categoryId }));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/kb/articles", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const parsed = insertKbArticleSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Invalid article", errors: parsed.error.flatten() });
+      const data = parsed.data;
+      const cat = await storage.getKbCategory(data.categoryId);
+      if (!cat) return res.status(400).json({ message: "Category not found" });
+      const created = await storage.createKbArticle({
+        ...data,
+        bodyHtml: sanitizeNewsContent(data.bodyHtml),
+        authorId: req.session.userId!,
+      });
+      logActivity("system", "kb_article_created", {
+        actorId: req.session.userId!,
+        targetId: created.id,
+        targetType: "kb_article",
+        summary: `KB article created: ${created.title}`,
+      });
+      res.json(created);
+    } catch (e: any) {
+      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/kb/articles/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const parsed = updateKbArticleSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Invalid article", errors: parsed.error.flatten() });
+      const data = parsed.data;
+      if (data.categoryId !== undefined) {
+        const cat = await storage.getKbCategory(data.categoryId);
+        if (!cat) return res.status(400).json({ message: "Category not found" });
+      }
+      const patch = { ...data };
+      if (patch.bodyHtml !== undefined) patch.bodyHtml = sanitizeNewsContent(patch.bodyHtml);
+      const updated = await storage.updateKbArticle(req.params.id, patch);
+      if (!updated) return res.status(404).json({ message: "Article not found" });
+      logActivity("system", "kb_article_updated", {
+        actorId: req.session.userId!,
+        targetId: updated.id,
+        targetType: "kb_article",
+        summary: `KB article updated: ${updated.title}`,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/kb/articles/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
+    try {
+      const existing = await storage.getKbArticleById(req.params.id);
+      await storage.deleteKbArticle(req.params.id);
+      logActivity("system", "kb_article_deleted", {
+        actorId: req.session.userId!,
+        targetId: req.params.id,
+        targetType: "kb_article",
+        summary: `KB article deleted: ${existing?.title || req.params.id}`,
+      });
+      res.json({ message: "Article deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
