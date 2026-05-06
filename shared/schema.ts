@@ -652,6 +652,40 @@ export const createTicketCategorySchema = z.object({
 });
 export type CreateTicketCategoryData = z.infer<typeof createTicketCategorySchema>;
 
+export const ADMIN_PERMISSION_KEYS = [
+  "users.view", "users.manage",
+  "services.view", "services.manage",
+  "alerts.view", "alerts.manage",
+  "news.view", "news.manage",
+  "messages.view", "messages.manage",
+  "quick_responses.view", "quick_responses.manage",
+  "service_updates.view", "service_updates.manage",
+  "reports.view", "reports.manage",
+  "email_templates.view", "email_templates.manage",
+  "downloads.view", "downloads.manage",
+  "support_tickets",
+  "admin_chat",
+  "logs.view",
+  "monitoring.view", "monitoring.manage",
+  "announcements",
+  "knowledge_base",
+] as const;
+export type AdminPermissionKey = typeof ADMIN_PERMISSION_KEYS[number];
+
+const adminPermissionKeySchema = z.enum(ADMIN_PERMISSION_KEYS as unknown as [string, ...string[]]);
+
+export const createAdminRoleSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  permissions: z.array(adminPermissionKeySchema).max(ADMIN_PERMISSION_KEYS.length).optional(),
+});
+export type CreateAdminRoleData = z.infer<typeof createAdminRoleSchema>;
+
+export const updateAdminRoleSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  permissions: z.array(adminPermissionKeySchema).max(ADMIN_PERMISSION_KEYS.length).optional(),
+});
+export type UpdateAdminRoleData = z.infer<typeof updateAdminRoleSchema>;
+
 export const publicStatusSubscribers = pgTable("public_status_subscribers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),

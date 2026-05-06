@@ -13,6 +13,7 @@ import { createTelegramSettingsHandlers } from "./telegram-settings";
 import { createDiscordSettingsHandlers } from "./discord-settings";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
+import { createAdminRoleHandlers } from "./admin-roles";
 import { z } from "zod";
 import { eq, isNotNull, isNull, and, notInArray } from "drizzle-orm";
 import multer from "multer";
@@ -3344,26 +3345,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/roles", requireMasterAdmin, async (req, res) => {
-    try {
-      const { name, permissions } = req.body;
-      const role = await storage.createAdminRole({ name, permissions: permissions || [] });
-      res.json(role);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/roles/:id", requireMasterAdmin, async (req, res) => {
-    try {
-      const { name, permissions } = req.body;
-      const updated = await storage.updateAdminRole(req.params.id, { name, permissions });
-      if (!updated) return res.status(404).json({ message: "Role not found" });
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  const adminRoleHandlers = createAdminRoleHandlers({ storage });
+  app.post("/api/admin/roles", requireMasterAdmin, adminRoleHandlers.postAdmin);
+  app.patch("/api/admin/roles/:id", requireMasterAdmin, adminRoleHandlers.patchAdmin);
 
   app.delete("/api/admin/roles/:id", requireMasterAdmin, async (req, res) => {
     try {
