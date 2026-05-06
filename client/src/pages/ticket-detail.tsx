@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -161,6 +162,45 @@ export default function TicketDetail() {
   const { data: quickResponses } = useQuery<QuickResponse[]>({
     queryKey: ["/api/quick-responses"],
     enabled: isAdmin,
+  });
+
+  type Suggestion = { id: string; title: string; message: string };
+  const { data: suggestions } = useQuery<Suggestion[]>({
+    queryKey: ["/api/tickets", params.id, "suggestions"],
+    enabled: isAdmin && !!params.id,
+  });
+
+  const { data: aiStatus } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/ai-draft/status"],
+    enabled: isAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const applySuggestion = (text: string) => {
+    if (message.trim() && !window.confirm("Replace your current draft with this response?")) return;
+    setMessage(text);
+    requestAnimationFrame(() => {
+      const el = messageInputRef.current;
+      if (el) {
+        el.focus();
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, 120) + "px";
+      }
+    });
+  };
+
+  const aiDraftMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/tickets/${params.id}/ai-draft`);
+      return (await res.json()) as { draft: string; remaining: number };
+    },
+    onSuccess: (data) => {
+      applySuggestion(data.draft);
+      toast({ title: "AI draft ready", description: "Edit before sending." });
+    },
+    onError: (err: any) => {
+      toast({ title: "AI draft failed", description: err?.message || "Try again later.", variant: "destructive" });
+    },
   });
 
   type PreviousTicket = {
@@ -1078,6 +1118,52 @@ export default function TicketDetail() {
 
           {ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id) && (
             <div className="p-2 sm:p-3 border-t">
+              {isAdmin && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
+                <div className="flex flex-wrap items-center gap-1.5 mb-2" data-testid="row-suggestions">
+                  {suggestions && suggestions.length > 0 && (
+                    <span className="text-xs text-muted-foreground mr-1">Suggested:</span>
+                  )}
+                  <TooltipProvider delayDuration={300}>
+                    {suggestions?.map((s) => (
+                      <Tooltip key={s.id}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 px-2 text-xs rounded-full"
+                            onClick={() => applySuggestion(s.message)}
+                            data-testid={`chip-suggestion-${s.id}`}
+                          >
+                            {s.title}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs whitespace-pre-wrap text-xs">
+                          {s.message}
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </TooltipProvider>
+                  {aiStatus?.enabled && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs rounded-full ml-auto"
+                      onClick={() => aiDraftMutation.mutate()}
+                      disabled={aiDraftMutation.isPending}
+                      data-testid="button-ai-suggest"
+                    >
+                      {aiDraftMutation.isPending ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 mr-1" />
+                      )}
+                      AI suggest
+                    </Button>
+                  )}
+                </div>
+              )}
               {imageFile && (
                 <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md">
                   {imageFile.type.startsWith("video/") ? <Film className="w-4 h-4 flex-shrink-0" /> :

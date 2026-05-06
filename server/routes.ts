@@ -23,6 +23,8 @@ import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnounce
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, type NotificationPrefs } from "@shared/notification-categories";
 import type { User } from "@shared/schema";
+import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
+import { getOpenAIClient } from "./openai-client";
 
 function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
@@ -2558,6 +2560,95 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.json(responses);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/tickets/:id/suggestions", requireAdmin, async (req, res) => {
+    try {
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const [allQrs, msgs] = await Promise.all([
+        storage.getAllQuickResponses(),
+        storage.getTicketMessages(req.params.id),
+      ]);
+      const lastCustomer = [...msgs].reverse().find((m) => m.senderId === ticket.customerId);
+      const top = suggestQuickResponses(ticket, lastCustomer?.message ?? null, allQrs, 3);
+      res.json(top.map((qr) => ({ id: qr.id, title: qr.title, message: qr.message })));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/ai-draft/status", requireAdmin, async (_req, res) => {
+    res.json({ enabled: isAiDraftEnabled() });
+  });
+
+  app.post("/api/tickets/:id/ai-draft", requireAdmin, async (req, res) => {
+    try {
+      if (!isAiDraftEnabled()) {
+        return res.status(503).json({ message: "AI suggestions are not configured." });
+      }
+      const adminId = req.session.userId!;
+      const limit = checkAiDraftRateLimit(adminId);
+      if (!limit.allowed) {
+        return res.status(429).json({
+          message: "AI draft rate limit reached. Try again later.",
+          resetAt: limit.resetAt,
+        });
+      }
+
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+      const [allQrs, msgs, customer] = await Promise.all([
+        storage.getAllQuickResponses(),
+        storage.getTicketMessages(req.params.id),
+        storage.getUser(ticket.customerId),
+      ]);
+
+      const lastCustomer = [...msgs].reverse().find((m) => m.senderId === ticket.customerId);
+      const hints = suggestQuickResponses(ticket, lastCustomer?.message ?? null, allQrs, 3);
+
+      const recent = msgs.slice(-6);
+      const senderCache = new Map<string, string>();
+      const recentMessages = await Promise.all(recent.map(async (m) => {
+        let name = senderCache.get(m.senderId);
+        if (!name) {
+          const u = await storage.getUser(m.senderId);
+          name = u?.fullName || "User";
+          senderCache.set(m.senderId, name);
+        }
+        const role: "customer" | "admin" = m.senderId === ticket.customerId ? "customer" : "admin";
+        return { role, sender: name, message: m.message };
+      }));
+
+      const { system, user: userPrompt } = buildAiPrompt({
+        ticket,
+        customerName: customer?.fullName || "the customer",
+        recentMessages,
+        hints,
+      });
+
+      const client = getOpenAIClient();
+      if (!client) return res.status(503).json({ message: "AI client unavailable." });
+
+      const completion = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.6,
+        max_tokens: 320,
+      });
+
+      const draft = completion.choices[0]?.message?.content?.trim() || "";
+      if (!draft) return res.status(502).json({ message: "AI returned an empty response." });
+
+      res.json({ draft, remaining: limit.remaining });
+    } catch (e: any) {
+      console.error("AI draft error:", e);
+      res.status(500).json({ message: e?.message || "Failed to generate AI draft" });
     }
   });
 

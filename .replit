@@ -47,7 +47,7 @@ VAPID_PUBLIC_KEY = "BNfZ_OAaS0yfD5vru7huE8kEzAJ981p3RBI05jq53cHz78KUQUoaJ9n4H_dl
 VITE_VAPID_PUBLIC_KEY = "BNfZ_OAaS0yfD5vru7huE8kEzAJ981p3RBI05jq53cHz78KUQUoaJ9n4H_dlqQkMBbwuSIvoXlf9uHcXcwKGuKg"
 
 [agent]
-integrations = ["sendgrid:1.0.0"]
+integrations = ["sendgrid:1.0.0", "javascript_openai_ai_integrations:2.0.0"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
