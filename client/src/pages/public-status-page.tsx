@@ -54,12 +54,12 @@ function bucketColor(state: string): string {
 
 function Sparkline({ buckets }: { buckets: DailyBucket[] }) {
   return (
-    <div className="flex gap-[2px] h-6 items-end" data-testid="sparkline-uptime">
+    <div className="flex gap-[2px] h-6 items-end w-full overflow-hidden" data-testid="sparkline-uptime">
       {buckets.map((b, i) => (
         <div
           key={i}
           title={`${b.date}: ${b.status}`}
-          className={`flex-1 min-w-[2px] h-full rounded-sm ${bucketColor(b.status)}`}
+          className={`flex-1 min-w-0 h-full rounded-sm ${bucketColor(b.status)}`}
         />
       ))}
     </div>

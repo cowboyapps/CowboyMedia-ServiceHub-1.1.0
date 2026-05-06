@@ -39,11 +39,11 @@ function UptimeBlock({ serviceId }: { serviceId: string }) {
           </div>
           <span className="text-xs text-muted-foreground">Last 90 days</span>
         </div>
-        <div className="flex items-end gap-[2px] h-8">
+        <div className="flex items-end gap-[2px] h-8 w-full overflow-hidden">
           {data.dailyBuckets.map((b) => (
             <div
               key={b.date}
-              className={`flex-1 min-w-[2px] rounded-sm ${colors[b.status]}`}
+              className={`flex-1 min-w-0 rounded-sm ${colors[b.status]}`}
               style={{ height: "100%" }}
               title={`${b.date} — ${b.status}${b.downtimeSeconds > 0 ? ` (${Math.round(b.downtimeSeconds / 60)}m down)` : ""}`}
             />
