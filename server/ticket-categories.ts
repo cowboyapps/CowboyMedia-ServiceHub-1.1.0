@@ -1,12 +1,16 @@
 import type { Request, Response } from "express";
 import "express-session";
 import {
+  createTicketCategorySchema,
   updateTicketCategorySchema,
+  type CreateTicketCategoryData,
+  type InsertTicketCategory,
   type TicketCategory,
   type UpdateTicketCategoryData,
 } from "@shared/schema";
 
 export interface TicketCategoryStorage {
+  createTicketCategory(cat: InsertTicketCategory): Promise<TicketCategory>;
   updateTicketCategory(
     id: string,
     data: Partial<TicketCategory>,
@@ -31,8 +35,32 @@ export function buildTicketCategoryPatch(data: UpdateTicketCategoryData): Partia
   return patch;
 }
 
+export function buildTicketCategoryInsert(data: CreateTicketCategoryData): InsertTicketCategory {
+  return {
+    name: data.name,
+    description: data.description ?? null,
+    assignedRoleIds: data.assignedRoleIds ?? [],
+    firstResponseTargetMinutes: data.firstResponseTargetMinutes ?? null,
+    resolutionTargetMinutes: data.resolutionTargetMinutes ?? null,
+  };
+}
+
 export function createTicketCategoryHandlers(deps: TicketCategoryDeps) {
   const { storage } = deps;
+
+  async function postAdmin(req: Request, res: Response) {
+    try {
+      const parsed = createTicketCategorySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid category", errors: parsed.error.flatten() });
+      }
+      const insert = buildTicketCategoryInsert(parsed.data);
+      const created = await storage.createTicketCategory(insert);
+      res.json(created);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
 
   async function patchAdmin(req: Request, res: Response) {
     try {
@@ -49,5 +77,5 @@ export function createTicketCategoryHandlers(deps: TicketCategoryDeps) {
     }
   }
 
-  return { patchAdmin };
+  return { postAdmin, patchAdmin };
 }

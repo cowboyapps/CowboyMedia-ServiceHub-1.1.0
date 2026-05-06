@@ -3383,31 +3383,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  function parseSlaTarget(raw: unknown): number | null | undefined {
-    if (raw === undefined) return undefined;
-    if (raw === null || raw === "") return null;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.floor(n);
-  }
-
-  app.post("/api/admin/ticket-categories", requireMasterAdmin, async (req, res) => {
-    try {
-      const { name, description, assignedRoleIds, firstResponseTargetMinutes, resolutionTargetMinutes } = req.body;
-      const cat = await storage.createTicketCategory({
-        name,
-        description,
-        assignedRoleIds: assignedRoleIds || [],
-        firstResponseTargetMinutes: parseSlaTarget(firstResponseTargetMinutes) ?? null,
-        resolutionTargetMinutes: parseSlaTarget(resolutionTargetMinutes) ?? null,
-      });
-      res.json(cat);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
   const ticketCategoryHandlers = createTicketCategoryHandlers({ storage });
+  app.post("/api/admin/ticket-categories", requireMasterAdmin, ticketCategoryHandlers.postAdmin);
   app.patch("/api/admin/ticket-categories/:id", requireMasterAdmin, ticketCategoryHandlers.patchAdmin);
 
   app.delete("/api/admin/ticket-categories/:id", requireMasterAdmin, async (req, res) => {

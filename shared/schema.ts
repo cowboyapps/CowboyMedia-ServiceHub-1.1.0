@@ -643,6 +643,15 @@ export const updateTicketCategorySchema = z.object({
 });
 export type UpdateTicketCategoryData = z.infer<typeof updateTicketCategorySchema>;
 
+export const createTicketCategorySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.union([z.string().max(2000), z.null()]).optional(),
+  assignedRoleIds: z.array(z.string().min(1).max(64)).max(64).optional(),
+  firstResponseTargetMinutes: slaTargetSchema.optional(),
+  resolutionTargetMinutes: slaTargetSchema.optional(),
+});
+export type CreateTicketCategoryData = z.infer<typeof createTicketCategorySchema>;
+
 export const publicStatusSubscribers = pgTable("public_status_subscribers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),

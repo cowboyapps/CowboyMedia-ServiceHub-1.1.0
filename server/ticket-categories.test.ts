@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildTicketCategoryInsert,
   buildTicketCategoryPatch,
   createTicketCategoryHandlers,
   type TicketCategoryStorage,
 } from "./ticket-categories";
 import {
+  createTicketCategorySchema,
   updateTicketCategorySchema,
+  type InsertTicketCategory,
   type TicketCategory,
 } from "../shared/schema";
 
@@ -154,8 +157,23 @@ function mockRes(): MockRes {
 
 function mockStorage(opts: { found?: TicketCategory | null } = {}) {
   const found = opts.found === undefined ? SAMPLE : opts.found;
-  const state = { updateCalls: [] as { id: string; data: Partial<TicketCategory> }[] };
+  const state = {
+    updateCalls: [] as { id: string; data: Partial<TicketCategory> }[],
+    createCalls: [] as InsertTicketCategory[],
+  };
   const storage: TicketCategoryStorage = {
+    async createTicketCategory(cat) {
+      state.createCalls.push(cat);
+      return {
+        id: "new-id",
+        createdAt: new Date("2025-02-02T00:00:00Z"),
+        name: cat.name,
+        description: cat.description ?? null,
+        assignedRoleIds: cat.assignedRoleIds ?? [],
+        firstResponseTargetMinutes: cat.firstResponseTargetMinutes ?? null,
+        resolutionTargetMinutes: cat.resolutionTargetMinutes ?? null,
+      };
+    },
     async updateTicketCategory(id, data) {
       state.updateCalls.push({ id, data });
       if (!found) return undefined;
@@ -263,6 +281,249 @@ test("PATCH ticket-categories: 500 when storage throws", async () => {
   const handlers = createTicketCategoryHandlers({ storage });
   const res = mockRes();
   await handlers.patchAdmin(makeReq({ name: "X" }), res);
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.message, "db down");
+});
+
+// ---------- Create schema ----------
+
+test("createTicketCategorySchema: requires name", () => {
+  assert.equal(createTicketCategorySchema.safeParse({}).success, false);
+  assert.equal(createTicketCategorySchema.safeParse({ name: "" }).success, false);
+  assert.equal(createTicketCategorySchema.safeParse({ name: "   " }).success, false);
+  assert.equal(
+    createTicketCategorySchema.safeParse({ name: "x".repeat(121) }).success,
+    false,
+  );
+});
+
+test("createTicketCategorySchema: accepts a minimal payload", () => {
+  const r = createTicketCategorySchema.safeParse({ name: "Billing" });
+  assert.equal(r.success, true);
+});
+
+test("createTicketCategorySchema: accepts a complete payload and trims name", () => {
+  const r = createTicketCategorySchema.safeParse({
+    name: "  Support  ",
+    description: "general",
+    assignedRoleIds: ["a", "b"],
+    firstResponseTargetMinutes: 30,
+    resolutionTargetMinutes: 240,
+  });
+  assert.equal(r.success, true);
+  if (r.success) assert.equal(r.data.name, "Support");
+});
+
+test("createTicketCategorySchema: parses numeric-string SLA into integer", () => {
+  const r = createTicketCategorySchema.safeParse({
+    name: "X",
+    firstResponseTargetMinutes: "45",
+  });
+  assert.equal(r.success, true);
+  if (r.success) assert.equal(r.data.firstResponseTargetMinutes, 45);
+});
+
+test("createTicketCategorySchema: normalizes empty/null SLA to null", () => {
+  const a = createTicketCategorySchema.safeParse({ name: "X", firstResponseTargetMinutes: "" });
+  const b = createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: null });
+  assert.equal(a.success, true);
+  assert.equal(b.success, true);
+  if (a.success) assert.equal(a.data.firstResponseTargetMinutes, null);
+  if (b.success) assert.equal(b.data.resolutionTargetMinutes, null);
+});
+
+test("createTicketCategorySchema: rejects non-numeric / non-positive SLA", () => {
+  for (const bad of ["abc", "-5", "10m", "1e3"]) {
+    const r = createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: bad });
+    assert.equal(r.success, false, `value "${bad}" should be rejected`);
+  }
+  assert.equal(
+    createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: 0 }).success,
+    false,
+  );
+  assert.equal(
+    createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: -1 }).success,
+    false,
+  );
+});
+
+test("createTicketCategorySchema: rejects oversize SLA targets", () => {
+  assert.equal(
+    createTicketCategorySchema.safeParse({
+      name: "X",
+      resolutionTargetMinutes: 60 * 24 * 365 + 1,
+    }).success,
+    false,
+  );
+  assert.equal(
+    createTicketCategorySchema.safeParse({
+      name: "X",
+      firstResponseTargetMinutes: "999999999",
+    }).success,
+    false,
+  );
+});
+
+test("createTicketCategorySchema: rejects oversize description and assignedRoleIds", () => {
+  assert.equal(
+    createTicketCategorySchema.safeParse({ name: "X", description: "x".repeat(2001) }).success,
+    false,
+  );
+  assert.equal(
+    createTicketCategorySchema.safeParse({ name: "X", assignedRoleIds: Array(65).fill("r") }).success,
+    false,
+  );
+});
+
+// ---------- Insert builder ----------
+
+test("buildTicketCategoryInsert: fills defaults for omitted fields", () => {
+  assert.deepEqual(buildTicketCategoryInsert({ name: "X" }), {
+    name: "X",
+    description: null,
+    assignedRoleIds: [],
+    firstResponseTargetMinutes: null,
+    resolutionTargetMinutes: null,
+  });
+});
+
+test("buildTicketCategoryInsert: passes through provided fields", () => {
+  assert.deepEqual(
+    buildTicketCategoryInsert({
+      name: "X",
+      description: "d",
+      assignedRoleIds: ["r"],
+      firstResponseTargetMinutes: 10,
+      resolutionTargetMinutes: 20,
+    }),
+    {
+      name: "X",
+      description: "d",
+      assignedRoleIds: ["r"],
+      firstResponseTargetMinutes: 10,
+      resolutionTargetMinutes: 20,
+    },
+  );
+});
+
+// ---------- POST handler ----------
+
+test("POST ticket-categories: 400 when name is missing", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(makeReq({ description: "no name" }), res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.message, "Invalid category");
+  assert.equal(state.createCalls.length, 0);
+});
+
+test("POST ticket-categories: 400 when name is blank", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(makeReq({ name: "   " }), res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.createCalls.length, 0);
+});
+
+test("POST ticket-categories: 400 on schema-invalid SLA", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(
+    makeReq({ name: "X", firstResponseTargetMinutes: "abc" }),
+    res,
+  );
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.createCalls.length, 0);
+});
+
+test("POST ticket-categories: 400 on negative SLA", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(
+    makeReq({ name: "X", resolutionTargetMinutes: -5 }),
+    res,
+  );
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.createCalls.length, 0);
+});
+
+test("POST ticket-categories: 400 on oversize description", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(
+    makeReq({ name: "X", description: "x".repeat(2001) }),
+    res,
+  );
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.createCalls.length, 0);
+});
+
+test("POST ticket-categories: 400 on oversize name", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(makeReq({ name: "x".repeat(121) }), res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.createCalls.length, 0);
+});
+
+test("POST ticket-categories: persists a valid payload with defaults", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(makeReq({ name: "  Billing  " }), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.createCalls.length, 1);
+  assert.deepEqual(state.createCalls[0], {
+    name: "Billing",
+    description: null,
+    assignedRoleIds: [],
+    firstResponseTargetMinutes: null,
+    resolutionTargetMinutes: null,
+  });
+  assert.equal(res.body.id, "new-id");
+  assert.equal(res.body.name, "Billing");
+});
+
+test("POST ticket-categories: parses numeric-string SLA into integer minutes", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(
+    makeReq({
+      name: "Support",
+      firstResponseTargetMinutes: "45",
+      resolutionTargetMinutes: "240",
+    }),
+    res,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.createCalls[0].firstResponseTargetMinutes, 45);
+  assert.equal(state.createCalls[0].resolutionTargetMinutes, 240);
+});
+
+test("POST ticket-categories: strips unknown fields", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(makeReq({ name: "X", evil: "y" } as any), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal((state.createCalls[0] as any).evil, undefined);
+});
+
+test("POST ticket-categories: 500 when storage throws", async () => {
+  const storage: TicketCategoryStorage = {
+    async createTicketCategory() { throw new Error("db down"); },
+    async updateTicketCategory() { return undefined; },
+  };
+  const handlers = createTicketCategoryHandlers({ storage });
+  const res = mockRes();
+  await handlers.postAdmin(makeReq({ name: "X" }), res);
   assert.equal(res.statusCode, 500);
   assert.equal(res.body.message, "db down");
 });
