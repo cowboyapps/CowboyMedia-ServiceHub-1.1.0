@@ -194,6 +194,10 @@ function SetupReminderDialog() {
     if (user.setupReminderDismissed) return;
     if (sessionStorage.getItem("setupReminderShown") === "true") return;
     if (sessionStorage.getItem("showWelcome") === "true") return;
+    // Wait for the onboarding tour to finish before showing the setup reminder.
+    // Otherwise the Radix Dialog's focus trap blocks tour interactions (pressing
+    // Start does nothing) and the two popups stack on top of each other.
+    if (user.role === "customer" && !user.onboardingTourCompletedAt) return;
 
     const checkSetup = async () => {
       const { isSubscribedToPush } = await import("@/lib/push-notifications");
