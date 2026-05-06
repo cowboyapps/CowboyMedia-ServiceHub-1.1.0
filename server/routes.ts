@@ -12,6 +12,7 @@ import { createBusinessHoursHandlers } from "./business-hours";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
 import { createDiscordSettingsHandlers } from "./discord-settings";
 import { createTicketCategoryHandlers } from "./ticket-categories";
+import { createKbAdminHandlers } from "./kb-admin";
 import { z } from "zod";
 import { eq, isNotNull, isNull, and, notInArray } from "drizzle-orm";
 import multer from "multer";
@@ -36,7 +37,6 @@ import {
   composeDiscordTest,
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
-import { insertKbCategorySchema, updateKbCategorySchema, insertKbArticleSchema, updateKbArticleSchema } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import type { User } from "@shared/schema";
@@ -4947,42 +4947,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/kb/categories", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
-    try {
-      const parsed = insertKbCategorySchema.safeParse(req.body ?? {});
-      if (!parsed.success) return res.status(400).json({ message: "Invalid category", errors: parsed.error.flatten() });
-      const created = await storage.createKbCategory(parsed.data);
-      logActivity("system", "kb_category_created", {
-        actorId: req.session.userId!,
-        targetId: created.id,
-        targetType: "kb_category",
-        summary: `KB category created: ${created.name}`,
-      });
-      res.json(created);
-    } catch (e: any) {
-      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/kb/categories/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
-    try {
-      const parsed = updateKbCategorySchema.safeParse(req.body ?? {});
-      if (!parsed.success) return res.status(400).json({ message: "Invalid category", errors: parsed.error.flatten() });
-      const updated = await storage.updateKbCategory(req.params.id, parsed.data);
-      if (!updated) return res.status(404).json({ message: "Category not found" });
-      logActivity("system", "kb_category_updated", {
-        actorId: req.session.userId!,
-        targetId: updated.id,
-        targetType: "kb_category",
-        summary: `KB category updated: ${updated.name}`,
-      });
-      res.json(updated);
-    } catch (e: any) {
-      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
-      res.status(500).json({ message: e.message });
-    }
-  });
+  const kbAdminHandlers = createKbAdminHandlers({ storage, logActivity, sanitizeHtml: sanitizeNewsContent });
+  app.post("/api/admin/kb/categories", requirePermission("knowledge_base", "knowledge_base"), kbAdminHandlers.postCategory);
+  app.patch("/api/admin/kb/categories/:id", requirePermission("knowledge_base", "knowledge_base"), kbAdminHandlers.patchCategory);
 
   app.delete("/api/admin/kb/categories/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
     try {
@@ -5009,56 +4976,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/kb/articles", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
-    try {
-      const parsed = insertKbArticleSchema.safeParse(req.body ?? {});
-      if (!parsed.success) return res.status(400).json({ message: "Invalid article", errors: parsed.error.flatten() });
-      const data = parsed.data;
-      const cat = await storage.getKbCategory(data.categoryId);
-      if (!cat) return res.status(400).json({ message: "Category not found" });
-      const created = await storage.createKbArticle({
-        ...data,
-        bodyHtml: sanitizeNewsContent(data.bodyHtml),
-        authorId: req.session.userId!,
-      });
-      logActivity("system", "kb_article_created", {
-        actorId: req.session.userId!,
-        targetId: created.id,
-        targetType: "kb_article",
-        summary: `KB article created: ${created.title}`,
-      });
-      res.json(created);
-    } catch (e: any) {
-      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/kb/articles/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
-    try {
-      const parsed = updateKbArticleSchema.safeParse(req.body ?? {});
-      if (!parsed.success) return res.status(400).json({ message: "Invalid article", errors: parsed.error.flatten() });
-      const data = parsed.data;
-      if (data.categoryId !== undefined) {
-        const cat = await storage.getKbCategory(data.categoryId);
-        if (!cat) return res.status(400).json({ message: "Category not found" });
-      }
-      const patch = { ...data };
-      if (patch.bodyHtml !== undefined) patch.bodyHtml = sanitizeNewsContent(patch.bodyHtml);
-      const updated = await storage.updateKbArticle(req.params.id, patch);
-      if (!updated) return res.status(404).json({ message: "Article not found" });
-      logActivity("system", "kb_article_updated", {
-        actorId: req.session.userId!,
-        targetId: updated.id,
-        targetType: "kb_article",
-        summary: `KB article updated: ${updated.title}`,
-      });
-      res.json(updated);
-    } catch (e: any) {
-      if (String(e?.message || "").includes("duplicate key")) return res.status(409).json({ message: "Slug already in use" });
-      res.status(500).json({ message: e.message });
-    }
-  });
+  app.post("/api/admin/kb/articles", requirePermission("knowledge_base", "knowledge_base"), kbAdminHandlers.postArticle);
+  app.patch("/api/admin/kb/articles/:id", requirePermission("knowledge_base", "knowledge_base"), kbAdminHandlers.patchArticle);
 
   app.delete("/api/admin/kb/articles/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
     try {
