@@ -18,7 +18,7 @@ import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
-import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
+import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeAlertPostmortem, composeServiceUpdate, composeNews } from "./telegram";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { insertKbCategorySchema, updateKbCategorySchema, insertKbArticleSchema, updateKbArticleSchema } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
@@ -607,6 +607,79 @@ export async function registerRoutes(
     req.session.destroy(() => {
       res.json({ message: "Logged out" });
     });
+  });
+
+  function getBaseUrl(req: Request): string {
+    const appBaseUrl = process.env.APP_BASE_URL;
+    const replitDomains = process.env.REPLIT_DOMAINS;
+    if (appBaseUrl) return appBaseUrl.replace(/\/+$/, "");
+    if (replitDomains) return `https://${replitDomains.split(",")[0]}`;
+    const hostHeader = req.get("host");
+    if (hostHeader) {
+      const proto = (req.get("x-forwarded-proto") || (process.env.NODE_ENV === "production" ? "https" : "http")).split(",")[0].trim();
+      return `${proto}://${hostHeader}`;
+    }
+    return "http://localhost:5000";
+  }
+
+  app.get("/api/public/status", async (_req, res) => {
+    try {
+      const services = await storage.getAllServices();
+      const alerts = await storage.getAllAlerts();
+      const sortedAlerts = [...alerts].sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0)).slice(0, 30);
+      const serviceMap = new Map(services.map(s => [s.id, s.name]));
+      res.json({
+        services: services.map(s => ({ id: s.id, name: s.name, status: s.status })),
+        alerts: sortedAlerts.map(a => ({
+          id: a.id,
+          title: a.title,
+          status: a.status,
+          severity: a.severity,
+          serviceName: serviceMap.get(a.serviceId) || "Service",
+          createdAt: a.createdAt,
+          resolvedAt: a.resolvedAt,
+          postmortemHtml: a.postmortemHtml,
+          postmortemPublishedAt: a.postmortemPublishedAt,
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/public/subscribe", async (req, res) => {
+    try {
+      const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: "A valid email is required" });
+      }
+      const existing = await storage.getPublicStatusSubscriberByEmail(email);
+      const baseUrl = getBaseUrl(req);
+      if (existing) {
+        const link = `${baseUrl}/api/public/unsubscribe?token=${existing.unsubscribeToken}`;
+        sendEmail(email, "You're already subscribed to status updates", `<p>You are already subscribed to CowboyMedia status updates.</p><p>To unsubscribe at any time, visit <a href="${link}">${link}</a>.</p>`).catch(() => {});
+        return res.json({ message: "Already subscribed" });
+      }
+      const token = crypto.randomBytes(24).toString("hex");
+      await storage.createPublicStatusSubscriber(email, token);
+      const link = `${baseUrl}/api/public/unsubscribe?token=${token}`;
+      sendEmail(email, "Subscribed to CowboyMedia status updates", `<p>Thanks for subscribing. You'll receive an email whenever we publish an incident postmortem.</p><p>To unsubscribe at any time, visit <a href="${link}">${link}</a>.</p>`).catch(() => {});
+      res.json({ message: "Subscribed" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/public/unsubscribe", async (req, res) => {
+    try {
+      const token = typeof req.query.token === "string" ? req.query.token : "";
+      if (!token) return res.status(400).send("Missing token");
+      const removed = await storage.deletePublicStatusSubscriberByToken(token);
+      res.set("Content-Type", "text/html");
+      res.send(`<!doctype html><html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto;"><h2>${removed ? "Unsubscribed" : "Not found"}</h2><p>${removed ? "You've been unsubscribed from CowboyMedia status updates." : "That unsubscribe link is no longer valid."}</p></body></html>`);
+    } catch (e: any) {
+      res.status(500).send("Error");
+    }
   });
 
   app.post("/api/auth/forgot-password", async (req, res) => {
@@ -2131,6 +2204,84 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         alert_title: updated.title,
         resolve_message: resolveMessage,
       }, getBaseUrl(req));
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/alerts/:id/postmortem", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
+    try {
+      const alert = await storage.getAlert(req.params.id);
+      if (!alert) return res.status(404).json({ message: "Alert not found" });
+      const rawHtml = typeof req.body?.postmortemHtml === "string" ? req.body.postmortemHtml : "";
+      const trimmedPlain = sanitizeHtml(rawHtml, { allowedTags: [], allowedAttributes: {} }).trim();
+      if (!trimmedPlain) return res.status(400).json({ message: "Postmortem body is required" });
+      const sanitized = sanitizeNewsContent(rawHtml);
+      const isFirstPublish = !alert.postmortemPublishedAt;
+      const updated = await storage.updateAlert(req.params.id, {
+        postmortemHtml: sanitized,
+        postmortemAuthorId: req.session.userId!,
+        ...(isFirstPublish ? { postmortemPublishedAt: new Date() } : {}),
+      });
+      if (!updated) return res.status(404).json({ message: "Alert not found" });
+      const service = await storage.getService(updated.serviceId);
+      const serviceName = service?.name || "Service";
+      logActivity("alert", isFirstPublish ? "alert_postmortem_published" : "alert_postmortem_edited", {
+        actorId: req.session.userId!,
+        targetId: req.params.id,
+        targetType: "alert",
+        summary: `Postmortem ${isFirstPublish ? "published" : "edited"}: ${updated.title} (${serviceName})`,
+      });
+      broadcast({ type: "alert_postmortem", alertId: req.params.id });
+      if (isFirstPublish) {
+        const recipientIds = await storage.getAlertNotificationRecipientIds(req.params.id);
+        if (recipientIds.length > 0) {
+          const recipients = await Promise.all(recipientIds.map(id => storage.getUser(id)));
+          for (const u of recipients) {
+            if (!u || u.id === req.session.userId) continue;
+            if (u.email && customerWantsEmail(u, "service_alert")) {
+              sendTemplatedEmail(u.email, "customer_alert_postmortem", {
+                alert_title: updated.title,
+                service_name: serviceName,
+                postmortem_html: sanitized,
+                customer_name: u.fullName,
+              }, u.fullName, new Set(["postmortem_html"]));
+            }
+            if (customerWantsPush(u, "service_alert")) {
+              await sendPushToUser(u.id, {
+                title: `${serviceName}: Postmortem published`,
+                body: updated.title,
+                url: `/alerts/${req.params.id}`,
+                tag: `alert-postmortem-${req.params.id}`,
+              }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
+            }
+          }
+          const customerIds = recipients.filter(u => u && u.role === "customer" && u.id !== req.session.userId).map(u => u!.id);
+          if (customerIds.length > 0) {
+            storage.createContentNotificationBulk(customerIds, "alerts", `${serviceName}: Postmortem — ${updated.title}`, updated.id).catch(() => {});
+          }
+        }
+        fireTelegramMany(composeAlertPostmortem({
+          serviceName,
+          title: updated.title,
+          bodyHtml: sanitized,
+        }), "alert");
+        try {
+          const publicSubs = await storage.getPublicStatusSubscribers();
+          if (publicSubs.length > 0) {
+            const baseUrl = getBaseUrl(req);
+            const subject = `${serviceName}: Postmortem — ${updated.title}`;
+            for (const sub of publicSubs) {
+              const link = `${baseUrl}/api/public/unsubscribe?token=${sub.unsubscribeToken}`;
+              const html = `<h2>${escapeHtml(serviceName)}: ${escapeHtml(updated.title)}</h2>${sanitized}<hr/><p style="font-size:12px;color:#6b7280;">You received this because you subscribed to CowboyMedia status updates. <a href="${link}">Unsubscribe</a>.</p>`;
+              sendEmail(sub.email, subject, html).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.error("Public subscriber postmortem fan-out failed:", err);
+        }
+      }
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

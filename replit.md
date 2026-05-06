@@ -1,53 +1,90 @@
 # ServiceHub - Service Status & Support Platform
 
-## Overview
-ServiceHub is a comprehensive Progressive Web App (PWA) designed to provide a centralized platform for service status monitoring and customer support. It enables customers to track service health, receive real-time alerts, access news updates, and submit support tickets with integrated real-time messaging. For administrators, the platform offers extensive control over users, services, alerts, and news content. The project aims to deliver a native app-like experience through PWA capabilities, ensuring accessibility and engagement across devices. Key capabilities include real-time service status, push notifications, an integrated support ticketing system, and comprehensive admin tools.
+ServiceHub is a PWA for centralized service status monitoring and customer support, offering real-time alerts, news, and ticketing.
 
-## User Preferences
+## Run & Operate
+
+- **Run Dev Server**: `npm run dev`
+- **Build**: `npm run build`
+- **Typecheck**: `npm run typecheck`
+- **Codegen**: `npm run codegen`
+- **DB Push**: `drizzle-kit push:pg`
+- **Environment Variables**:
+    - `DATABASE_URL`
+    - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
+    - `SENDGRID_API_KEY`
+    - `TELEGRAM_BOT_TOKEN` (optional)
+    - `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (optional)
+
+## Stack
+
+- **Frontend**: React, Vite, TailwindCSS, Shadcn UI, Wouter
+- **Backend**: Express.js
+- **Database**: PostgreSQL
+- **ORM**: Drizzle ORM
+- **Validation**: _Populate as you build_
+- **Build Tool**: Vite
+- **Real-time**: WebSockets
+
+## Where things live
+
+- **Frontend Source**: `client/src/`
+- **Backend Source**: `server/src/`
+- **Database Schema**: `db/schema.ts`
+- **Migrations**: `migrations/`
+- **Shared Utilities**: `shared/`
+- **API Routes**: `server/src/routes.ts`
+- **Notification Categories**: `shared/notification-categories.ts`
+- **Knowledge Base Helpers**: `shared/kb.ts`
+- **Announcement Routes Allowlist**: `shared/announcement-routes.ts`
+- **SLA UI Helpers**: `client/src/lib/sla-ui.tsx`
+- **OpenAI Client**: `server/openai-client.ts`
+
+## Architecture decisions
+
+- **PWA First**: Emphasizes native app-like experience with installability, offline support, and push notifications.
+- **Real-time Everything**: WebSockets are used extensively for chat, admin communications, and instant updates.
+- **Role-Based Access**: Granular permissions system for admin users ensures secure access control.
+- **Rich Content Editing**: TipTap editor used for news, knowledge base articles, and postmortems, ensuring rich text formatting.
+- **Optimistic UI Updates**: Implemented in support ticketing for a smoother user experience, particularly with message sending.
+- **Business Hours Logic**: Centralized configuration and server-side calculation for SLAs and customer interactions, accounting for timezones and DST.
+- **AI Integration**: Optional AI features for canned response suggestions and drafting replies, integrated with OpenAI.
+
+## Product
+
+- **Service Status Monitoring**: Real-time service health tracking, alerts, and incident management.
+- **Support Ticketing System**: Category-based tickets, real-time messaging, and admin tools.
+- **Customer Engagement**: News feed, unified notification center, community chat, and downloadable content.
+- **Admin Portal**: Comprehensive tools for user, service, alert, and content management.
+- **PWA Features**: Offline support, push notifications, and app badge management.
+- **Knowledge Base**: Searchable articles with rich text, helpfulness feedback, and suggested articles for new tickets.
+- **SLA Tracking**: Per-category service level agreement targets for first response and resolution times, with business hour considerations.
+- **Incident Postmortems**: Rich-text postmortems for service alerts, with email and push notification fan-out to affected users.
+- **Customer Onboarding Tour**: Interactive tour for first-time customers highlighting key features.
+- **Admin Announcements**: Popup announcements for customers with rich text and optional in-app links.
+
+## User preferences
+
 I prefer detailed explanations.
 I want iterative development.
 Ask before making major changes.
 When the user says "change the version to...", update the version string in `client/src/pages/settings-page.tsx`, `client/src/components/app-sidebar.tsx`, and `client/src/components/bottom-nav.tsx` without further explanation.
 
-## System Architecture
-ServiceHub is built with a modern web stack, emphasizing PWA capabilities and real-time communication, designed for a responsive and engaging user experience across all devices.
+## Gotchas
 
-### UI/UX Decisions
-The frontend uses React with Vite, TailwindCSS, and Shadcn UI for a modern aesthetic, featuring system/light/dark theme modes and mobile-responsive design. Navigation includes a fixed bottom bar for mobile and a sticky header. Page transitions are animated based on route depth. Haptic feedback is integrated for interactive elements. Loading states use content-shaped skeletons, and images are lazy-loaded with shimmer placeholders.
+- **Email Template Protection**: Custom email templates are protected from being overwritten during updates.
+- **Telegram Integration**: Requires `TELEGRAM_BOT_TOKEN` secret; failures are non-blocking.
+- **AI Integrations**: Requires `AI_INTEGRATIONS_OPENAI_BASE_URL` and `AI_INTEGRATIONS_OPENAI_API_KEY` for AI features to be active.
+- **Postmortem Notifications**: "Original notification recipients" for postmortems relies on `user_notifications` table; alerts created before this tracking will not have specific recipients.
 
-### Technical Implementations
-- **Frontend**: React, Vite, TailwindCSS, Shadcn UI, Wouter.
-- **Backend**: Express.js, secured with session-based authentication using scrypt.
-- **Database**: PostgreSQL, managed via Drizzle ORM.
-- **Real-time Communication**: WebSockets for messaging and admin chat.
-- **File Management**: Multer for file uploads, storing data as base64 in PostgreSQL.
-- **PWA Features**: Service Worker and Web App Manifest for installability, offline support, push notifications, and app badge management.
-- **Push Notifications**: Web Push API with VAPID for service alerts and ticket updates.
+## Pointers
 
-### Feature Specifications
-- **Authentication & Authorization**: Local username/password authentication with granular, role-based admin permissions.
-- **Service Monitoring**: Comprehensive service status tracking with automated alerts and consolidated notifications. Includes URL monitoring with various check types, incident tracking, and admin management.
-- **Support Ticketing**: Category-based system with real-time messaging, ticket transfer, typing indicators, and email/push notifications. Includes optimistic message sending and smart auto-scroll.
-- **Admin Communications**: Real-time admin chat with threads, file attachments, and broadcast priority alerts.
-- **Customer Engagement**: News stories with rich text editing (TipTap) supporting bold, italic, underline, text color, alignment, and inline images; customer message center for two-way threaded communication with admins.
-- **Unified Notification Center**: In-app notification system with a bell icon, unread badges, and distinct notification types for various events.
-- **Notification Preferences UI**: Settings → Notification Preferences dialog. Top: 3 quick presets (Everything / Important only / Email only) as a segmented control — selecting one writes the full prefs payload via the bulk `{ prefs }` form of `PATCH /api/auth/notification-prefs`. Below: one collapsible card per group with Push/Email switches. Group switches use on/off/mixed state via `getGroupChannelState`. Helpers live in `shared/notification-categories.ts`. Categories carry `roles?: ("customer"|"admin")[]` (default `["customer"]`), optional `requiresMasterAdmin`, and `defaultOff`. Dialog filters to `getCategoriesForRole(user.role)` so admins see only admin groups, customers see only customer groups. Server PATCH endpoint enforces visibility per role (`isCategoryVisibleToRole`) and preserves prefs for categories not visible to the caller.
-- **Admin Push Notifications**: Push-only admin categories live in `shared/notification-categories.ts` — `admin_new_ticket`, `admin_ticket_reply_mine`, `admin_ticket_reply_any` (master_admin only, defaultOff), `admin_monitor_down`, `admin_chat_message`, `admin_broadcast`. Server fan-out uses `adminWantsPush(user, key)` from `server/routes.ts` to gate every admin push site (new ticket, customer→admin reply uses union semantics: `wantsMine = isAssignee && admin_ticket_reply_mine` OR `wantsAny = admin_ticket_reply_any`, single push per admin), admin chat message, monitor down/up, broadcast push. All admin push URLs deep-link via `/admin?tab=...&...` query params: tickets `tab=support-tickets&ticket=ID`, chat `tab=admin-chat&chat=ID`, monitor `tab=monitoring&monitor=ID`, broadcast `tab=admin-management&section=broadcast`. `AdminPortal` parses `tab/chat/monitor/ticket/section` on mount: `ticket` triggers navigate to `/tickets/{id}`, `tab` initializes `activeSection`, `chat`/`monitor` forward as `initialThreadId`/`initialMonitorId` to `AdminChatTab`/`MonitoringTab`, `section` forwards to `AdminManagementTab` as `initialInnerTab` (selects the inner Tabs default). Params are cleared from URL via `history.replaceState` after read.
-- **User Onboarding**: Setup reminders for push notifications and service configuration.
-- **Password Reset**: Self-service forgot password flow via email.
-- **Admin Activity Logs**: Comprehensive logging of major system events with permission-based viewing.
-- **Downloads**: Admin-managed downloadable content for customers.
-- **Email Template Protection**: Prevents overwriting of customized email templates during updates.
-- **Community Chat**: Single-room community chat with anonymous usernames for customers (admins use real names with badge). Telegram-style emoji reactions (👍❤️😂😮😢🔥🎉👎). Real-time via WebSocket. Route: `/community`.
-- **Business Hours / After-Hours Warning**: Singleton `business_hours` config (enabled, daysOfWeek, startTime/endTime as `HH:MM`, IANA timezone, after-hours message). Public `GET /api/business-hours/status` computes `isOpen` and `nextOpenAt` server-side using `date-fns-tz` (DST-safe, no midnight wrap). Admin UI in admin portal (Clock tile). Customers see an amber AlertDialog when clicking "New Ticket" outside hours and a dismissible sticky banner inside ticket detail (sessionStorage key `sh-bh-banner-dismissed`). Frontend renders `nextOpenAt` in the configured business timezone, not browser local. Migration: `migrations/006_business_hours.sql`.
-- **Smart Canned Response Suggestions (AI)**: Admin ticket composer shows up to 3 suggested quick-response chips computed server-side by keyword overlap (`server/suggestions.ts` `suggestQuickResponses`) against ticket subject/description + last customer message. Clicking a chip fills the textarea (confirms before replacing non-empty drafts); hover tooltip shows the full message. An "AI suggest" button drafts a reply via OpenAI `gpt-4o-mini` using subject + last 6 messages + matched quick responses as hints. Routes: `GET /api/tickets/:id/suggestions`, `POST /api/tickets/:id/ai-draft` (admin-only, in-memory rate-limit 30/hour/admin), `GET /api/ai-draft/status`. AI is gated by Replit AI Integrations env vars `AI_INTEGRATIONS_OPENAI_BASE_URL`/`AI_INTEGRATIONS_OPENAI_API_KEY`; if missing, the AI button is hidden but keyword chips still work. OpenAI client lives in `server/openai-client.ts`.
-- **Customer Onboarding Tour**: First-time customers see a 6-step interactive tour (Welcome → Services → Alerts → Tickets → Messages → Settings) with a spotlight overlay that highlights the matching nav item — sidebar on desktop, bottom-nav on mobile (Messages/Settings step points at the "More" tab on mobile). Tour engine is a custom in-app component (`client/src/components/onboarding-tour.tsx`) — no external library. Esc skips, Enter advances, Arrow keys navigate. Final step has CTAs to enable push notifications and to open the existing notification preferences dialog (via window event `onboarding:open-notif-prefs` consumed by Settings page); Finish navigates to `/settings`. Completion persists via `users.onboardingTourCompletedAt` timestamp through `PATCH /api/auth/onboarding-complete`. A "Replay tour" button lives in Settings → Help and re-fires the tour locally via `replayOnboardingTour()` (window event `onboarding:replay`) without resetting the DB flag. Admins skip the tour entirely. Migration: `migrations/010_onboarding_tour.sql`.
-- **Knowledge Base / FAQ**: Customer `/knowledge` route lists collapsible category cards (`Collapsible` from shadcn) with article links; clicking an article opens `/knowledge/:slug` rendering sanitized HTML (DOMPurify, same allow-list as news + `code`/`pre`), view count, helpful/unhelpful thumbs, and an "Open a ticket" CTA. Top-of-page debounced search hits `GET /api/kb/articles?search=` which uses PostgreSQL FTS via `tsvector` (weighted A=title, B=summary+tags, C=stripped body) + GIN index, ranked by `ts_rank`. Admin tab "Knowledge Base" gated by new `knowledge_base` permission (master_admin auto-passes); manages categories + articles with `RichTextEditor` for body, slug auto-generated from title via `shared/kb.ts#slugify`. Bodies sanitized on save with existing `sanitizeNewsContent`. New-ticket subject input shows up to 3 suggested articles (debounced 300ms, min 3 chars) as `target="_blank"` links to `/knowledge/:slug`. Customers only see `published=true`; staff see drafts. Public routes: `/api/kb/categories`, `/api/kb/articles`, `/api/kb/articles/:slug` (auto-increments view), `/api/kb/articles/:slug/helpful`. Admin CRUD at `/api/admin/kb/categories*` and `/api/admin/kb/articles*`. Migration: `migrations/009_knowledge_base.sql` (includes trigger maintaining `search_vector` and `updated_at`).
-- **Ticket SLA Tracking**: Per-category SLA targets stored on `ticket_categories` (`first_response_target_minutes`, `resolution_target_minutes`, both nullable — null disables that metric). `tickets.first_response_at` is set automatically the first time a non-system admin posts on a ticket (sender role admin/master_admin and not the `cowboymedia-support` system user). SLA computation lives in `server/sla.ts`: `computeTicketSla(ticket, category, businessHours, now)` returns `{ firstResponse, resolution, worstState }`, each metric carrying `state` (`met`/`breached`/`approaching`/`on_track`/`none`), `targetMinutes`, `elapsedMinutes`, `remainingMinutes`, `dueAt`, `completedAt`. Time consumed and `dueAt` are computed in business hours when `business_hours.enabled` is true (uses `date-fns-tz`, DST-safe day-by-day walk via `businessMinutesBetween` + `addBusinessMinutes`); falls back to wall-clock minutes otherwise. `approaching` triggers at ≥80% of target. First-response clock freezes at `closedAt` for tickets closed without a reply. `GET /api/tickets` (admin) and `GET /api/tickets/:id` enrich responses with `sla`. New `GET /api/admin/tickets/sla-summary` (gated by `support_tickets` permission, scoped to admin's accessible categories) returns `{ openCount, awaitingFirstResponse, breached, approaching, onTrack, noTarget, avgFirstResponseMinutes7d, avgResolutionMinutes7d, firstResponseSampleCount7d, resolutionSampleCount7d }`. Admin tickets page shows a snapshot card with counts plus 7-day average first-response and resolution tiles, and supports a "Most at risk" sort (`SLA_RANK` ordering, then least remaining time). Per-ticket detail page shows an SLA panel with both metrics and a hover tooltip with target/due/elapsed. SLA target inputs added to the admin Ticket Categories dialog. Shared client UI helpers in `client/src/lib/sla-ui.tsx` (`SlaPill`, `formatDuration`, `slaStateLabel`, `SLA_RANK`); pill colors: red=breached, amber=approaching, green=on_track, grey=met. Migration: `migrations/011_ticket_sla.sql`.
-- **Admin Announcements Popup**: Admins create rich-text announcements (title, sanitized body via `sanitize-html`, optional in-app link from `ANNOUNCEMENT_ROUTES` allowlist, link label, frequency `once`/`always`, active toggle). Only the newest active announcement is shown to customers as a Dialog with the CowboyMedia logo on app open. `frequency="once"` records dismissal in `announcement_dismissals` (composite PK `announcement_id+user_id`, raw SQL `ON CONFLICT DO NOTHING`); `frequency="always"` is suppressed within a session via a per-user in-memory `Map<userId, Set<announcementId>>`. Customer popup only renders for `role==="customer"`, sanitizes body with DOMPurify on render, navigates via wouter `setLocation`. Admin tab gated by new `announcements` permission (master_admin auto-passes). Routes: admin CRUD at `/api/admin/announcements*`, customer at `/api/announcements/active` and `/api/announcements/:id/dismiss`. Allowed link paths: `/`, `/news`, `/alerts`, `/service-updates`, `/services`, `/tickets`, `/messages`, `/downloads`, `/community`, `/settings`. Migration: `migrations/007_announcements.sql`. Shared route allowlist: `shared/announcement-routes.ts`.
-
-## External Dependencies
-- **Database**: PostgreSQL
-- **Email Service**: SendGrid
-- **Web Push API**: VAPID
-- **Telegram Bot API**: Optional group notifications for service alerts (create/update/resolve), service updates, and news. Configured via admin portal (chat ID + toggle); requires `TELEGRAM_BOT_TOKEN` secret. Fire-and-forget — failures never block core operations.
+- **React Documentation**: `https://react.dev/`
+- **TailwindCSS Documentation**: `https://tailwindcss.com/docs`
+- **Drizzle ORM Documentation**: `https://orm.drizzle.team/docs/overview`
+- **Vite Documentation**: `https://vitejs.dev/guide/`
+- **Wouter Documentation**: `https://docs.wouter.com/`
+- **Shadcn UI Documentation**: `https://ui.shadcn.com/docs`
+- **Web Push API**: `https://developer.mozilla.org/en-US/docs/Web/API/Push_API`
+- **date-fns-tz**: `https://date-fns.org/v2.30.0/docs/timezone`
+- **DOMPurify**: `https://github.com/cure53/DOMPurify`

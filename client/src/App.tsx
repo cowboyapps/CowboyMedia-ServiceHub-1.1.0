@@ -50,6 +50,7 @@ import ServiceDetail from "@/pages/service-detail";
 import DownloadsPage from "@/pages/downloads-page";
 import ForgotPasswordPage from "@/pages/forgot-password-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
+import PublicStatusPage from "@/pages/public-status-page";
 import CommunityChatPage from "@/pages/community-chat-page";
 import StatusPage from "@/pages/status-page";
 import KnowledgePage from "@/pages/knowledge-page";
@@ -965,6 +966,7 @@ function AppContent() {
         <Switch>
           <Route path="/forgot-password" component={ForgotPasswordPage} />
           <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/status" component={PublicStatusPage} />
           <Route>
             <AuthPage />
           </Route>

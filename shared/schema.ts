@@ -41,6 +41,9 @@ export const serviceAlerts = pgTable("service_alerts", {
   status: text("status").notNull().default("investigating"),
   serviceId: varchar("service_id").notNull(),
   imageUrl: text("image_url"),
+  postmortemHtml: text("postmortem_html"),
+  postmortemPublishedAt: timestamp("postmortem_published_at"),
+  postmortemAuthorId: varchar("postmortem_author_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   resolvedAt: timestamp("resolved_at"),
 });
@@ -557,6 +560,15 @@ export const updateBusinessHoursSchema = z.object({
 });
 
 export type UpdateBusinessHoursData = z.infer<typeof updateBusinessHoursSchema>;
+
+export const publicStatusSubscribers = pgTable("public_status_subscribers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  unsubscribeToken: text("unsubscribe_token").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type PublicStatusSubscriber = typeof publicStatusSubscribers.$inferSelect;
 
 export const announcements = pgTable("announcements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

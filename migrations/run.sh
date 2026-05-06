@@ -14,4 +14,8 @@ echo "Running migration: 010_onboarding_tour.sql"
 psql "$DATABASE_URL" -f migrations/010_onboarding_tour.sql
 echo "Running migration: 011_ticket_sla.sql"
 psql "$DATABASE_URL" -f migrations/011_ticket_sla.sql
+echo "Running migration: 012_alert_postmortems.sql"
+psql "$DATABASE_URL" -f migrations/012_alert_postmortems.sql
+echo "Running migration: 013_public_status_subscribers.sql"
+psql "$DATABASE_URL" -f migrations/013_public_status_subscribers.sql
 echo "Migration complete."

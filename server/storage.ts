@@ -43,7 +43,8 @@ import {
   type InsertServiceSubscriber,
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles,
+  type PublicStatusSubscriber,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray } from "drizzle-orm";
@@ -71,6 +72,12 @@ export interface IStorage {
   getAlertUpdates(alertId: string): Promise<AlertUpdate[]>;
   createAlertUpdate(update: InsertAlertUpdate): Promise<AlertUpdate>;
   updateAlertUpdate(id: string, data: Partial<{ message: string; imageUrl: string | null }>): Promise<AlertUpdate | undefined>;
+  getAlertNotificationRecipientIds(alertId: string): Promise<string[]>;
+  getPublicStatusSubscribers(): Promise<PublicStatusSubscriber[]>;
+  getPublicStatusSubscriberByEmail(email: string): Promise<PublicStatusSubscriber | undefined>;
+  getPublicStatusSubscriberByToken(token: string): Promise<PublicStatusSubscriber | undefined>;
+  createPublicStatusSubscriber(email: string, unsubscribeToken: string): Promise<PublicStatusSubscriber>;
+  deletePublicStatusSubscriberByToken(token: string): Promise<boolean>;
 
   getAllNews(): Promise<NewsStory[]>;
   getNewsStory(id: string): Promise<NewsStory | undefined>;
@@ -349,6 +356,37 @@ export class DatabaseStorage implements IStorage {
   async deleteAlert(id: string): Promise<void> {
     await db.delete(alertUpdates).where(eq(alertUpdates.alertId, id));
     await db.delete(serviceAlerts).where(eq(serviceAlerts.id, id));
+  }
+
+  async getAlertNotificationRecipientIds(alertId: string): Promise<string[]> {
+    const rows = await db.selectDistinct({ userId: userNotifications.userId })
+      .from(userNotifications)
+      .where(and(eq(userNotifications.referenceType, "alert"), eq(userNotifications.referenceId, alertId)));
+    return rows.map(r => r.userId);
+  }
+
+  async getPublicStatusSubscribers(): Promise<PublicStatusSubscriber[]> {
+    return db.select().from(publicStatusSubscribers).orderBy(desc(publicStatusSubscribers.createdAt));
+  }
+
+  async getPublicStatusSubscriberByEmail(email: string): Promise<PublicStatusSubscriber | undefined> {
+    const [row] = await db.select().from(publicStatusSubscribers).where(eq(publicStatusSubscribers.email, email));
+    return row;
+  }
+
+  async getPublicStatusSubscriberByToken(token: string): Promise<PublicStatusSubscriber | undefined> {
+    const [row] = await db.select().from(publicStatusSubscribers).where(eq(publicStatusSubscribers.unsubscribeToken, token));
+    return row;
+  }
+
+  async createPublicStatusSubscriber(email: string, unsubscribeToken: string): Promise<PublicStatusSubscriber> {
+    const [created] = await db.insert(publicStatusSubscribers).values({ email, unsubscribeToken }).returning();
+    return created;
+  }
+
+  async deletePublicStatusSubscriberByToken(token: string): Promise<boolean> {
+    const result = await db.delete(publicStatusSubscribers).where(eq(publicStatusSubscribers.unsubscribeToken, token)).returning();
+    return result.length > 0;
   }
 
   async getAlertUpdates(alertId: string): Promise<AlertUpdate[]> {

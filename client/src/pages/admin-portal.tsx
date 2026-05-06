@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -1020,6 +1020,9 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [resolveAlertId, setResolveAlertId] = useState<string | null>(null);
   const [resolveMessage, setResolveMessage] = useState("");
   const [resolveImageFile, setResolveImageFile] = useState<File | null>(null);
+  const [postmortemDialogOpen, setPostmortemDialogOpen] = useState(false);
+  const [postmortemAlertId, setPostmortemAlertId] = useState<string | null>(null);
+  const [postmortemDraft, setPostmortemDraft] = useState("");
   const [editUpdateDialogOpen, setEditUpdateDialogOpen] = useState(false);
   const [editingAlertUpdate, setEditingAlertUpdate] = useState<{ alertId: string; update: AlertUpdate } | null>(null);
   const [editUpdateMessage, setEditUpdateMessage] = useState("");
@@ -1114,7 +1117,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       const res = await fetch(`/api/admin/alerts/${id}/resolve`, { method: "PATCH", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to resolve alert");
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       setResolveDialogOpen(false);
@@ -1122,7 +1125,24 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       setResolveMessage("");
       setResolveImageFile(null);
       toast({ title: "Alert resolved" });
+      setPostmortemAlertId(vars.id);
+      setPostmortemDraft("");
+      setPostmortemDialogOpen(true);
     },
+  });
+
+  const postmortemMutation = useMutation({
+    mutationFn: async ({ id, postmortemHtml }: { id: string; postmortemHtml: string }) => {
+      await apiRequest("PATCH", `/api/admin/alerts/${id}/postmortem`, { postmortemHtml });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      setPostmortemDialogOpen(false);
+      setPostmortemAlertId(null);
+      setPostmortemDraft("");
+      toast({ title: "Postmortem published" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const editUpdateMutation = useMutation({
@@ -1388,6 +1408,30 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               {resolveMutation.isPending ? "Resolving..." : "Resolve Alert"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={postmortemDialogOpen} onOpenChange={(open) => { if (!open) { setPostmortemDialogOpen(false); setPostmortemAlertId(null); setPostmortemDraft(""); } }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Publish Postmortem</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Optional. Publishing notifies every customer who was notified about the original incident, plus Telegram (if enabled). You can also add or edit a postmortem later from the alert detail page.
+            </p>
+            <RichTextEditor value={postmortemDraft} onChange={setPostmortemDraft} placeholder="What happened, why, and what changes prevent recurrence..." testIdPrefix="rich-postmortem-admin" />
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => { setPostmortemDialogOpen(false); setPostmortemAlertId(null); setPostmortemDraft(""); }} data-testid="button-skip-postmortem">
+              Skip
+            </Button>
+            <Button
+              onClick={() => postmortemAlertId && postmortemMutation.mutate({ id: postmortemAlertId, postmortemHtml: postmortemDraft })}
+              disabled={postmortemMutation.isPending || !postmortemDraft.replace(/<[^>]*>/g, "").trim()}
+              data-testid="button-publish-postmortem"
+            >
+              {postmortemMutation.isPending ? "Publishing..." : "Publish & Notify"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
