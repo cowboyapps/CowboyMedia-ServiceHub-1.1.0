@@ -62,6 +62,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Incident Postmortems**: Rich-text postmortems for service alerts, with email and push notification fan-out to affected users.
 - **Customer Onboarding Tour**: Interactive tour for first-time customers highlighting key features.
 - **Admin Announcements**: Popup announcements for customers with rich text and optional in-app links.
+- **Public Status Page**: Unauthenticated `/status` page with live service health, 30-day uptime % + 90-day sparkline (when monitor linked), recent incidents, postmortems, and per-service email "Follow" with confirm/unsubscribe via tokenised links.
 
 ## User preferences
 

@@ -215,6 +215,7 @@ export interface IStorage {
   findServiceSubscriber(email: string, serviceId: string): Promise<ServiceSubscriber | undefined>;
   confirmServiceSubscriber(id: string): Promise<ServiceSubscriber | undefined>;
   deleteServiceSubscriber(id: string): Promise<void>;
+  updateServiceSubscriberEvents(id: string, events: string[]): Promise<void>;
   getConfirmedSubscribersForService(serviceId: string): Promise<ServiceSubscriber[]>;
 
   createMessageThread(data: InsertMessageThread): Promise<MessageThread>;
@@ -1067,6 +1068,10 @@ export class DatabaseStorage implements IStorage {
 
   async deleteServiceSubscriber(id: string): Promise<void> {
     await db.delete(serviceSubscribers).where(eq(serviceSubscribers.id, id));
+  }
+
+  async updateServiceSubscriberEvents(id: string, events: string[]): Promise<void> {
+    await db.update(serviceSubscribers).set({ events }).where(eq(serviceSubscribers.id, id));
   }
 
   async getConfirmedSubscribersForService(serviceId: string): Promise<ServiceSubscriber[]> {

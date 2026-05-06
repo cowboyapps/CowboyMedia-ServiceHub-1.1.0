@@ -52,7 +52,6 @@ import ForgotPasswordPage from "@/pages/forgot-password-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
 import PublicStatusPage from "@/pages/public-status-page";
 import CommunityChatPage from "@/pages/community-chat-page";
-import StatusPage from "@/pages/status-page";
 import KnowledgePage from "@/pages/knowledge-page";
 
 function getRouteDepth(path: string): number {
@@ -944,7 +943,7 @@ function AppContent() {
   }, [user]);
 
   if (location === "/status" || location.startsWith("/status/")) {
-    return <StatusPage />;
+    return <PublicStatusPage />;
   }
 
   if (isLoading) {
