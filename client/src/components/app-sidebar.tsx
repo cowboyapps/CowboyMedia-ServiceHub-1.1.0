@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen } from "lucide-react";
+import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink } from "lucide-react";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
 
 const categoryMap: Record<string, string> = {
@@ -96,6 +96,7 @@ export function AppSidebar() {
 
   const adminItems = [
     { title: "Admin Portal", url: "/admin", icon: Shield },
+    { title: "Public Status Page", url: "/status", icon: Globe, external: true },
   ];
 
   return (
@@ -140,18 +141,27 @@ export function AppSidebar() {
               <SidebarMenu>
                 {adminItems.map((item) => {
                   const badge = getBadgeCount(item.title);
+                  const testId = `nav-${item.title.toLowerCase().replace(/\s/g, "-")}`;
                   return (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild isActive={location === item.url || location.startsWith(item.url)}>
-                        <Link href={item.url} onClick={handleNavClick} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
-                          <item.icon className="w-4 h-4" />
-                          <span className="flex-1">{item.title}</span>
-                          {badge > 0 && (
-                            <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-admin-reports">
-                              {badge}
-                            </Badge>
-                          )}
-                        </Link>
+                      <SidebarMenuButton asChild isActive={!item.external && (location === item.url || location.startsWith(item.url))}>
+                        {item.external ? (
+                          <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={handleNavClick} data-testid={testId}>
+                            <item.icon className="w-4 h-4" />
+                            <span className="flex-1">{item.title}</span>
+                            <ExternalLink className="w-3 h-3 opacity-60" />
+                          </a>
+                        ) : (
+                          <Link href={item.url} onClick={handleNavClick} data-testid={testId}>
+                            <item.icon className="w-4 h-4" />
+                            <span className="flex-1">{item.title}</span>
+                            {badge > 0 && (
+                              <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-admin-reports">
+                                {badge}
+                              </Badge>
+                            )}
+                          </Link>
+                        )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
