@@ -717,6 +717,17 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/auth/onboarding-complete", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateUser(req.session.userId!, { onboardingTourCompletedAt: new Date() });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      const { password: _, emailNotifications: __, ...safe } = updated;
+      res.json(safe);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.patch("/api/auth/notification-prefs", requireAuth, async (req, res) => {
     try {
       const me = await storage.getUser(req.session.userId!);

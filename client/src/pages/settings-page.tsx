@@ -14,7 +14,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal } from "lucide-react";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle } from "lucide-react";
+import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
 import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
 import { countEnabledGroups, type NotificationPrefs } from "@shared/notification-categories";
@@ -75,6 +76,12 @@ export default function SettingsPage() {
     };
     window.addEventListener("beforeinstallprompt", handler);
     return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  useEffect(() => {
+    const onOpen = () => setPrefsDialogOpen(true);
+    window.addEventListener(ONBOARDING_OPEN_NOTIF_PREFS_EVENT, onOpen);
+    return () => window.removeEventListener(ONBOARDING_OPEN_NOTIF_PREFS_EVENT, onOpen);
   }, []);
 
   const handlePushToggle = async (checked: boolean) => {
@@ -432,6 +439,33 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {user.role === "customer" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <HelpCircle className="w-4 h-4" />
+              Help
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Replay onboarding tour</p>
+                <p className="text-xs text-muted-foreground">Walk through the app's main sections again.</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => replayOnboardingTour()}
+                data-testid="button-replay-tour"
+              >
+                <PlayCircle className="w-4 h-4 mr-1.5" /> Replay
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <p className="text-center text-xs text-muted-foreground mt-6 mb-1" data-testid="text-app-version">
         Version 3.2

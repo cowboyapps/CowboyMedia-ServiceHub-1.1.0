@@ -22,6 +22,7 @@ export const users = pgTable("users", {
   chatUsername: text("chat_username"),
   chatNotifications: text("chat_notifications").default("mentions"),
   chatBanned: boolean("chat_banned").default(false),
+  onboardingTourCompletedAt: timestamp("onboarding_tour_completed_at"),
 });
 
 export const services = pgTable("services", {

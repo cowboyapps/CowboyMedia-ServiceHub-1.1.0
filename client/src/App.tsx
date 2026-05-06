@@ -25,6 +25,7 @@ import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone,
 import DOMPurify from "dompurify";
 import type { Announcement } from "@shared/schema";
 import { NotificationCenter } from "@/components/notification-center";
+import { OnboardingTour } from "@/components/onboarding-tour";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
 import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
@@ -977,6 +978,7 @@ function AppContent() {
       <SetupReminderDialog />
       <PrivateMessagePopup />
       <AnnouncementPopup />
+      <OnboardingTour />
       <AuthenticatedLayout />
     </>
   );
