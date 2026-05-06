@@ -437,6 +437,44 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the admin when a customer replies to a message thread",
   },
   {
+    templateKey: "subscribe_confirm",
+    name: "Status Page: Confirm Subscription",
+    subject: "Confirm your subscription to {service_name}",
+    body: `<h2>Confirm your subscription</h2>
+<p>You (or someone using this email address) asked to receive status updates for <strong>{service_name}</strong>.</p>
+<p>You'll be notified about: {events_summary}</p>
+<p><a href="{confirm_link}" style="display:inline-block;padding:12px 24px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Confirm subscription</a></p>
+<p style="word-break:break-all;color:#6b7280;font-size:13px;">Or paste this link into your browser: {confirm_link}</p>
+<p style="color:#6b7280;font-size:13px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">If you didn't request this, you can ignore this email — no subscription will be created.</p>`,
+    availableVariables: ["service_name", "events_summary", "confirm_link"],
+    description: "Sent to a public status-page visitor to confirm they want to follow a service by email",
+  },
+  {
+    templateKey: "subscriber_incident",
+    name: "Status Page: New Incident (Subscriber)",
+    subject: "[{service_name}] {impact_label}: {alert_title}",
+    body: `<h2>New incident on {service_name}</h2>
+<p><strong>{alert_title}</strong></p>
+<p><strong>Status:</strong> {impact_label}</p>
+<blockquote>{alert_description}</blockquote>
+<p><a href="{status_link}">View on the status page</a></p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">You're receiving this because you follow {service_name}. <a href="{unsubscribe_link}">Unsubscribe</a></p>`,
+    availableVariables: ["service_name", "alert_title", "alert_description", "impact_label", "status_link", "unsubscribe_link"],
+    description: "Sent to public subscribers when a new incident is opened for a service they follow",
+  },
+  {
+    templateKey: "subscriber_resolved",
+    name: "Status Page: Incident Resolved (Subscriber)",
+    subject: "[{service_name}] Resolved: {alert_title}",
+    body: `<h2>{service_name} is back to operational</h2>
+<p>The incident <strong>{alert_title}</strong> has been resolved.</p>
+<blockquote>{resolve_message}</blockquote>
+<p><a href="{status_link}">View on the status page</a></p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">You're receiving this because you follow {service_name}. <a href="{unsubscribe_link}">Unsubscribe</a></p>`,
+    availableVariables: ["service_name", "alert_title", "resolve_message", "status_link", "unsubscribe_link"],
+    description: "Sent to public subscribers when an incident is resolved for a service they follow",
+  },
+  {
     templateKey: "monitor_down",
     name: "URL Monitor Down",
     subject: "⚠️ Monitor Alert: {monitor_name} is DOWN",

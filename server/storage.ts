@@ -39,10 +39,12 @@ import {
   type Announcement,
   type InsertAnnouncement,
   type UpdateAnnouncement,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals,
+  type ServiceSubscriber,
+  type InsertServiceSubscriber,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, isNull, isNotNull, sql, inArray } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -197,6 +199,14 @@ export interface IStorage {
   getOpenIncident(monitorId: string): Promise<MonitorIncident | undefined>;
   createMonitorIncident(data: InsertMonitorIncident): Promise<MonitorIncident>;
   updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined>;
+  getMonitorsByService(serviceId: string): Promise<UrlMonitor[]>;
+
+  createServiceSubscriber(data: InsertServiceSubscriber): Promise<ServiceSubscriber>;
+  getServiceSubscriberByToken(token: string): Promise<ServiceSubscriber | undefined>;
+  findServiceSubscriber(email: string, serviceId: string): Promise<ServiceSubscriber | undefined>;
+  confirmServiceSubscriber(id: string): Promise<ServiceSubscriber | undefined>;
+  deleteServiceSubscriber(id: string): Promise<void>;
+  getConfirmedSubscribersForService(serviceId: string): Promise<ServiceSubscriber[]>;
 
   createMessageThread(data: InsertMessageThread): Promise<MessageThread>;
   getMessageThread(id: string): Promise<MessageThread | undefined>;
@@ -973,6 +983,38 @@ export class DatabaseStorage implements IStorage {
   async updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined> {
     const [inc] = await db.update(monitorIncidents).set(data).where(eq(monitorIncidents.id, id)).returning();
     return inc;
+  }
+
+  async getMonitorsByService(serviceId: string): Promise<UrlMonitor[]> {
+    return db.select().from(urlMonitors).where(eq(urlMonitors.serviceId, serviceId));
+  }
+
+  async createServiceSubscriber(data: InsertServiceSubscriber): Promise<ServiceSubscriber> {
+    const [s] = await db.insert(serviceSubscribers).values(data).returning();
+    return s;
+  }
+
+  async getServiceSubscriberByToken(token: string): Promise<ServiceSubscriber | undefined> {
+    const [s] = await db.select().from(serviceSubscribers).where(eq(serviceSubscribers.unsubscribeToken, token));
+    return s;
+  }
+
+  async findServiceSubscriber(email: string, serviceId: string): Promise<ServiceSubscriber | undefined> {
+    const [s] = await db.select().from(serviceSubscribers).where(and(eq(serviceSubscribers.email, email), eq(serviceSubscribers.serviceId, serviceId)));
+    return s;
+  }
+
+  async confirmServiceSubscriber(id: string): Promise<ServiceSubscriber | undefined> {
+    const [s] = await db.update(serviceSubscribers).set({ confirmedAt: new Date() }).where(eq(serviceSubscribers.id, id)).returning();
+    return s;
+  }
+
+  async deleteServiceSubscriber(id: string): Promise<void> {
+    await db.delete(serviceSubscribers).where(eq(serviceSubscribers.id, id));
+  }
+
+  async getConfirmedSubscribersForService(serviceId: string): Promise<ServiceSubscriber[]> {
+    return db.select().from(serviceSubscribers).where(and(eq(serviceSubscribers.serviceId, serviceId), isNotNull(serviceSubscribers.confirmedAt)));
   }
 
   async createMessageThread(data: InsertMessageThread): Promise<MessageThread> {

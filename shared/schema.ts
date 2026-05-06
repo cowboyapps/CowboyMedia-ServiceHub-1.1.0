@@ -379,6 +379,7 @@ export const urlMonitors = pgTable("url_monitors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   url: text("url").notNull(),
+  serviceId: varchar("service_id"),
   monitorType: text("monitor_type").notNull().default("url_availability"),
   checkIntervalSeconds: integer("check_interval_seconds").notNull().default(60),
   expectedStatusCode: integer("expected_status_code").notNull().default(200),
@@ -412,6 +413,24 @@ export type UrlMonitor = typeof urlMonitors.$inferSelect;
 export const insertMonitorIncidentSchema = createInsertSchema(monitorIncidents).omit({ id: true });
 export type InsertMonitorIncident = z.infer<typeof insertMonitorIncidentSchema>;
 export type MonitorIncident = typeof monitorIncidents.$inferSelect;
+
+// Public status-page email subscribers (no login required).
+export const serviceSubscribers = pgTable("service_subscribers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").notNull(),
+  email: text("email").notNull(),
+  events: text("events").array().notNull().default(sql`'{}'::text[]`),
+  unsubscribeToken: varchar("unsubscribe_token").notNull().unique(),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertServiceSubscriberSchema = createInsertSchema(serviceSubscribers).omit({ id: true, createdAt: true, confirmedAt: true });
+export type InsertServiceSubscriber = z.infer<typeof insertServiceSubscriberSchema>;
+export type ServiceSubscriber = typeof serviceSubscribers.$inferSelect;
+
+export const SUBSCRIBER_EVENTS = ["status", "incident", "resolved"] as const;
+export type SubscriberEvent = typeof SUBSCRIBER_EVENTS[number];
 
 // Message threads (conversational messaging)
 export const messageThreads = pgTable("message_threads", {

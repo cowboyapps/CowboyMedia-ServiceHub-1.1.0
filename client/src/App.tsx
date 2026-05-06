@@ -50,6 +50,7 @@ import DownloadsPage from "@/pages/downloads-page";
 import ForgotPasswordPage from "@/pages/forgot-password-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
 import CommunityChatPage from "@/pages/community-chat-page";
+import StatusPage from "@/pages/status-page";
 
 function getRouteDepth(path: string): number {
   if (path === "/") return 0;
@@ -890,6 +891,7 @@ function AnnouncementPopup() {
 
 function AppContent() {
   const { user, isLoading, isAdmin } = useAuth();
+  const [location] = useLocation();
 
   useEffect(() => {
     if (!user) return;
@@ -935,6 +937,10 @@ function AppContent() {
       }
     };
   }, [user]);
+
+  if (location === "/status" || location.startsWith("/status/")) {
+    return <StatusPage />;
+  }
 
   if (isLoading) {
     return (

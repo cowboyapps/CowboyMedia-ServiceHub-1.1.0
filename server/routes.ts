@@ -58,6 +58,58 @@ function escapeHtml(str: string): string {
 
 const scryptAsync = promisify(crypto.scrypt);
 
+function getBaseUrl(req: Request): string {
+  const envUrl = process.env.APP_URL || process.env.PUBLIC_URL;
+  if (envUrl) return envUrl.replace(/\/$/, "");
+  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+  const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "";
+  return `${proto}://${host}`;
+}
+
+async function notifyServiceSubscribers(
+  serviceId: string,
+  event: "status" | "incident" | "resolved",
+  vars: { service_name: string; alert_title: string; alert_description?: string; impact_label?: string; resolve_message?: string },
+  baseUrl: string,
+): Promise<void> {
+  try {
+    const subs = await storage.getConfirmedSubscribersForService(serviceId);
+    const tplKey = event === "resolved" ? "subscriber_resolved" : "subscriber_incident";
+    for (const sub of subs) {
+      if (!sub.events?.includes(event)) continue;
+      const unsubscribeLink = `${baseUrl}/api/public/unsubscribe?token=${encodeURIComponent(sub.unsubscribeToken)}`;
+      sendTemplatedEmail(
+        sub.email,
+        tplKey,
+        {
+          service_name: vars.service_name,
+          alert_title: vars.alert_title,
+          alert_description: vars.alert_description || "",
+          impact_label: vars.impact_label || "",
+          resolve_message: vars.resolve_message || "",
+          status_link: `${baseUrl}/status`,
+          unsubscribe_link: unsubscribeLink,
+        },
+      ).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[notifyServiceSubscribers]", e);
+  }
+}
+
+// Per-IP rate limiter for public subscribe endpoint (5 / minute).
+const subscribeRateLimit = new Map<string, number[]>();
+function checkSubscribeRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const max = 5;
+  const arr = (subscribeRateLimit.get(ip) || []).filter((t) => now - t < windowMs);
+  if (arr.length >= max) return false;
+  arr.push(now);
+  subscribeRateLimit.set(ip, arr);
+  return true;
+}
+
 async function sendTemplatedEmail(
   to: string | string[],
   templateKey: string,
@@ -1774,6 +1826,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         title: alert.title,
         description: alert.description,
       }), "alert");
+      notifyServiceSubscribers(alert.serviceId, "incident", {
+        service_name: serviceName,
+        alert_title: alert.title,
+        alert_description: alert.description,
+        impact_label: impactLabel,
+      }, getBaseUrl(req));
       res.json(alert);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1873,6 +1931,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           message: updateData.message,
           impact: hasImpactChange ? serviceImpact : null,
         }), "alert");
+        if (isResolved) {
+          notifyServiceSubscribers(alert.serviceId, "resolved", {
+            service_name: serviceName,
+            alert_title: alert.title,
+            resolve_message: updateData.message,
+          }, getBaseUrl(req));
+        } else if (hasImpactChange) {
+          notifyServiceSubscribers(alert.serviceId, "status", {
+            service_name: serviceName,
+            alert_title: alert.title,
+            alert_description: updateData.message,
+            impact_label: impactLabel || "",
+          }, getBaseUrl(req));
+        }
       }
       res.json(update);
     } catch (e: any) {
@@ -1940,6 +2012,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         title: updated.title,
         resolveMessage,
       }), "alert");
+      notifyServiceSubscribers(updated.serviceId, "resolved", {
+        service_name: serviceName,
+        alert_title: updated.title,
+        resolve_message: resolveMessage,
+      }, getBaseUrl(req));
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3624,6 +3701,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     consecutiveFailuresThreshold: z.number().int().min(1).max(5).optional(),
     emailNotifications: z.boolean().optional(),
     enabled: z.boolean().optional(),
+    serviceId: z.string().nullable().optional(),
   });
 
   app.post("/api/admin/monitors", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
@@ -3685,6 +3763,171 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get("/api/admin/monitors/:id/incidents", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
     const incidents = await storage.getMonitorIncidents(req.params.id);
     res.json(incidents);
+  });
+
+  // ---- Public Status Page ----
+  const { computeUptime } = await import("./uptime");
+
+  app.get("/api/public/status", async (_req, res) => {
+    try {
+      const [services, monitors, allAlerts] = await Promise.all([
+        storage.getAllServices(),
+        storage.getAllUrlMonitors(),
+        storage.getAllAlerts(),
+      ]);
+
+      const monitorsByService = new Map<string, typeof monitors>();
+      for (const m of monitors) {
+        if (!m.serviceId) continue;
+        const arr = monitorsByService.get(m.serviceId) || [];
+        arr.push(m);
+        monitorsByService.set(m.serviceId, arr);
+      }
+
+      const result = [];
+      for (const s of services) {
+        const linkedMonitors = monitorsByService.get(s.id) || [];
+        const allInc: any[] = [];
+        for (const m of linkedMonitors) {
+          const inc = await storage.getMonitorIncidents(m.id);
+          allInc.push(...inc);
+        }
+        const uptime = computeUptime(allInc, linkedMonitors.length > 0);
+        const activeAlerts = allAlerts
+          .filter((a) => a.serviceId === s.id && a.status !== "resolved")
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 3)
+          .map((a) => ({ id: a.id, title: a.title, severity: a.severity, status: a.status, createdAt: a.createdAt }));
+        const recentResolved = allAlerts
+          .filter((a) => a.serviceId === s.id && a.status === "resolved" && a.resolvedAt)
+          .sort((a, b) => new Date(b.resolvedAt!).getTime() - new Date(a.resolvedAt!).getTime())
+          .slice(0, 5)
+          .map((a) => ({ id: a.id, title: a.title, resolvedAt: a.resolvedAt, createdAt: a.createdAt }));
+        result.push({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          status: s.status,
+          category: s.category,
+          uptime30d: uptime.uptime30d,
+          dailyBuckets: uptime.dailyBuckets,
+          hasMonitor: linkedMonitors.length > 0,
+          activeAlerts,
+          recentResolved,
+        });
+      }
+
+      res.set("Cache-Control", "public, max-age=30");
+      res.json({
+        services: result,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      console.error("[/api/public/status]", e);
+      res.status(500).json({ message: "Failed to load status" });
+    }
+  });
+
+  const publicSubscribeSchema = z.object({
+    email: z.string().email().max(254),
+    serviceId: z.string().min(1),
+    events: z.array(z.enum(["status", "incident", "resolved"])).min(1),
+  });
+
+  app.post("/api/public/subscribe", async (req, res) => {
+    try {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      if (!checkSubscribeRateLimit(ip)) {
+        return res.status(429).json({ message: "Too many subscription attempts. Please try again in a minute." });
+      }
+      const parsed = publicSubscribeSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+      const { email, serviceId, events } = parsed.data;
+      const service = await storage.getService(serviceId);
+      if (!service) return res.status(404).json({ message: "Service not found" });
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const existing = await storage.findServiceSubscriber(normalizedEmail, serviceId);
+      let subscriber;
+      if (existing) {
+        if (existing.confirmedAt) {
+          return res.json({ message: "Already subscribed", confirmed: true });
+        }
+        subscriber = existing;
+      } else {
+        const token = crypto.randomBytes(24).toString("hex");
+        subscriber = await storage.createServiceSubscriber({
+          email: normalizedEmail,
+          serviceId,
+          events,
+          unsubscribeToken: token,
+        });
+      }
+
+      const eventLabels: Record<string, string> = {
+        status: "service status changes",
+        incident: "new incidents",
+        resolved: "incident resolutions",
+      };
+      const baseUrl = getBaseUrl(req);
+      sendTemplatedEmail(
+        normalizedEmail,
+        "subscribe_confirm",
+        {
+          service_name: service.name,
+          events_summary: events.map((e) => eventLabels[e]).join(", "),
+          confirm_link: `${baseUrl}/api/public/subscribe/confirm?token=${encodeURIComponent(subscriber.unsubscribeToken)}`,
+        },
+      ).catch(() => {});
+
+      res.json({ message: "Confirmation email sent. Please check your inbox to complete the subscription." });
+    } catch (e: any) {
+      console.error("[/api/public/subscribe]", e);
+      res.status(500).json({ message: "Failed to subscribe" });
+    }
+  });
+
+  const publicHtmlPage = (title: string, message: string, ok: boolean) => `<!doctype html>
+<html><head><meta charset="utf-8"><title>${title}</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b1220;color:#e5e7eb;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}.card{max-width:480px;width:100%;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;text-align:center}.icon{font-size:48px;margin-bottom:16px}h1{margin:0 0 12px;font-size:22px}p{margin:0 0 24px;color:#9ca3af;line-height:1.5}a{display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;font-weight:600}</style>
+</head><body><div class="card"><div class="icon">${ok ? "✓" : "ⓘ"}</div><h1>${title}</h1><p>${message}</p><a href="/status">Back to status page</a></div></body></html>`;
+
+  app.get("/api/public/subscribe/confirm", async (req, res) => {
+    const token = (req.query.token as string) || "";
+    if (!token) return res.status(400).type("html").send(publicHtmlPage("Invalid link", "Missing confirmation token.", false));
+    const sub = await storage.getServiceSubscriberByToken(token);
+    if (!sub) return res.status(404).type("html").send(publicHtmlPage("Link not found", "This confirmation link is no longer valid.", false));
+    if (!sub.confirmedAt) {
+      await storage.confirmServiceSubscriber(sub.id);
+    }
+    const service = await storage.getService(sub.serviceId);
+    res.type("html").send(publicHtmlPage("Subscription confirmed", `You're now following <strong>${escapeHtml(service?.name || "this service")}</strong>. We'll email you when something changes.`, true));
+  });
+
+  app.get("/api/public/unsubscribe", async (req, res) => {
+    const token = (req.query.token as string) || "";
+    if (!token) return res.status(400).type("html").send(publicHtmlPage("Invalid link", "Missing unsubscribe token.", false));
+    const sub = await storage.getServiceSubscriberByToken(token);
+    if (!sub) return res.type("html").send(publicHtmlPage("Already unsubscribed", "This subscription is no longer active.", true));
+    const service = await storage.getService(sub.serviceId);
+    await storage.deleteServiceSubscriber(sub.id);
+    res.type("html").send(publicHtmlPage("Unsubscribed", `You won't receive any more updates for <strong>${escapeHtml(service?.name || "this service")}</strong>.`, true));
+  });
+
+  // Logged-in service uptime block (used by /services/:id detail page)
+  app.get("/api/services/:id/uptime", requireAuth, async (req, res) => {
+    try {
+      const monitors = await storage.getMonitorsByService(req.params.id);
+      const allInc: any[] = [];
+      for (const m of monitors) {
+        const inc = await storage.getMonitorIncidents(m.id);
+        allInc.push(...inc);
+      }
+      const uptime = computeUptime(allInc, monitors.length > 0);
+      res.json({ ...uptime, hasMonitor: monitors.length > 0 });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.get("/api/community-chat/messages", requireAuth, async (req, res) => {

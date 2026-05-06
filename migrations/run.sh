@@ -6,4 +6,6 @@ echo "Running migration: 007_announcements.sql"
 psql "$DATABASE_URL" -f migrations/007_announcements.sql
 echo "Running migration: 008_notification_prefs.sql"
 psql "$DATABASE_URL" -f migrations/008_notification_prefs.sql
+echo "Running migration: 009_status_page.sql"
+psql "$DATABASE_URL" -f migrations/009_status_page.sql
 echo "Migration complete."

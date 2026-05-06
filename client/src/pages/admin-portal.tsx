@@ -3669,6 +3669,9 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
   const [timeout, setTimeout_] = useState("10");
   const [failureThreshold, setFailureThreshold] = useState("3");
   const [emailNotif, setEmailNotif] = useState(true);
+  const [linkedServiceId, setLinkedServiceId] = useState<string>("none");
+
+  const { data: servicesForMonitor = [] } = useQuery<Service[]>({ queryKey: ["/api/services"] });
 
   const resetForm = () => {
     setName("");
@@ -3679,6 +3682,7 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
     setTimeout_("10");
     setFailureThreshold("3");
     setEmailNotif(true);
+    setLinkedServiceId("none");
     setEditing(null);
   };
 
@@ -3692,6 +3696,7 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
     setTimeout_(String(m.timeoutSeconds));
     setFailureThreshold(String(m.consecutiveFailuresThreshold));
     setEmailNotif(m.emailNotifications);
+    setLinkedServiceId(m.serviceId || "none");
     setDialogOpen(true);
   };
 
@@ -3706,6 +3711,7 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
         timeoutSeconds: parseInt(timeout),
         consecutiveFailuresThreshold: parseInt(failureThreshold),
         emailNotifications: emailNotif,
+        serviceId: linkedServiceId === "none" ? null : linkedServiceId,
       };
       if (editing) {
         const res = await fetch(`/api/admin/monitors/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), credentials: "include" });
@@ -3928,6 +3934,19 @@ function MonitoringTab({ canManage }: { canManage: boolean }) {
             <div className="flex items-center gap-2">
               <Switch checked={emailNotif} onCheckedChange={setEmailNotif} data-testid="switch-monitor-email" />
               <Label>Email notifications</Label>
+            </div>
+            <div>
+              <Label>Linked service (for status page uptime)</Label>
+              <Select value={linkedServiceId} onValueChange={setLinkedServiceId}>
+                <SelectTrigger data-testid="select-monitor-service"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— Not linked —</SelectItem>
+                  {servicesForMonitor.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">When linked, this monitor's incidents drive the public status page uptime % and sparkline for the chosen service.</p>
             </div>
             <Button className="w-full" onClick={() => saveMutation.mutate()} disabled={!name || !url || saveMutation.isPending} data-testid="button-save-monitor">
               {saveMutation.isPending ? "Saving..." : editing ? "Update Monitor" : "Create Monitor"}

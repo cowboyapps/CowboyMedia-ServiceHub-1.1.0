@@ -9,6 +9,51 @@ import { format } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
 import type { Service, ServiceAlert } from "@shared/schema";
 
+type DailyStatus = "up" | "partial" | "down" | "unknown";
+
+interface UptimeData {
+  uptime30d: number | null;
+  dailyBuckets: { date: string; status: DailyStatus; downtimeSeconds: number }[];
+  hasMonitor: boolean;
+}
+
+function UptimeBlock({ serviceId }: { serviceId: string }) {
+  const { data, isLoading } = useQuery<UptimeData>({ queryKey: ["/api/services", serviceId, "uptime"] });
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (!data || !data.hasMonitor) return null;
+  const colors: Record<DailyStatus, string> = {
+    up: "bg-emerald-500",
+    partial: "bg-amber-500",
+    down: "bg-red-500",
+    unknown: "bg-muted",
+  };
+  return (
+    <Card data-testid="card-service-uptime">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">30-day uptime</p>
+            <p className="text-2xl font-bold" data-testid="text-service-uptime-30d">
+              {data.uptime30d != null ? `${data.uptime30d.toFixed(2)}%` : "—"}
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground">Last 90 days</span>
+        </div>
+        <div className="flex items-end gap-[2px] h-8">
+          {data.dailyBuckets.map((b) => (
+            <div
+              key={b.date}
+              className={`flex-1 min-w-[2px] rounded-sm ${colors[b.status]}`}
+              style={{ height: "100%" }}
+              title={`${b.date} — ${b.status}${b.downtimeSeconds > 0 ? ` (${Math.round(b.downtimeSeconds / 60)}m down)` : ""}`}
+            />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ServiceStatusIcon({ status }: { status: string }) {
   const isActive = status !== "operational";
   const pulseClass = isActive ? "animate-status-pulse" : "";
@@ -130,6 +175,8 @@ export default function ServiceDetail() {
           </div>
         </CardContent>
       </Card>
+
+      <UptimeBlock serviceId={service.id} />
 
       <div>
         <h2 className="text-lg font-semibold mb-3" data-testid="text-service-alerts-heading">Service Alerts</h2>
