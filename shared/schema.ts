@@ -76,6 +76,7 @@ export const tickets = pgTable("tickets", {
   imageUrl: text("image_url"),
   resolutionNote: text("resolution_note"),
   closedBy: varchar("closed_by"),
+  firstResponseAt: timestamp("first_response_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
 });
@@ -205,6 +206,8 @@ export const ticketCategories = pgTable("ticket_categories", {
   name: text("name").notNull().unique(),
   description: text("description"),
   assignedRoleIds: text("assigned_role_ids").array().default(sql`'{}'::text[]`),
+  firstResponseTargetMinutes: integer("first_response_target_minutes"),
+  resolutionTargetMinutes: integer("resolution_target_minutes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

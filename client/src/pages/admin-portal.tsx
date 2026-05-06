@@ -4124,6 +4124,8 @@ function AdminManagementTab() {
   const [catName, setCatName] = useState("");
   const [catDescription, setCatDescription] = useState("");
   const [catRoleIds, setCatRoleIds] = useState<string[]>([]);
+  const [catFirstResponseTarget, setCatFirstResponseTarget] = useState<string>("");
+  const [catResolutionTarget, setCatResolutionTarget] = useState<string>("");
 
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
@@ -4164,7 +4166,7 @@ function AdminManagementTab() {
   });
 
   const createCatMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string; assignedRoleIds: string[] }) => {
+    mutationFn: async (data: { name: string; description: string; assignedRoleIds: string[]; firstResponseTargetMinutes: number | null; resolutionTargetMinutes: number | null }) => {
       await apiRequest("POST", "/api/admin/ticket-categories", data);
     },
     onSuccess: () => {
@@ -4176,7 +4178,7 @@ function AdminManagementTab() {
   });
 
   const updateCatMutation = useMutation({
-    mutationFn: async ({ id, ...data }: { id: string; name: string; description: string; assignedRoleIds: string[] }) => {
+    mutationFn: async ({ id, ...data }: { id: string; name: string; description: string; assignedRoleIds: string[]; firstResponseTargetMinutes: number | null; resolutionTargetMinutes: number | null }) => {
       await apiRequest("PATCH", `/api/admin/ticket-categories/${id}`, data);
     },
     onSuccess: () => {
@@ -4238,11 +4240,15 @@ function AdminManagementTab() {
       setCatName(cat.name);
       setCatDescription(cat.description || "");
       setCatRoleIds(cat.assignedRoleIds || []);
+      setCatFirstResponseTarget(cat.firstResponseTargetMinutes != null ? String(cat.firstResponseTargetMinutes) : "");
+      setCatResolutionTarget(cat.resolutionTargetMinutes != null ? String(cat.resolutionTargetMinutes) : "");
     } else {
       setEditingCat(null);
       setCatName("");
       setCatDescription("");
       setCatRoleIds([]);
+      setCatFirstResponseTarget("60");
+      setCatResolutionTarget("1440");
     }
     setCatDialogOpen(true);
   };
@@ -4431,11 +4437,45 @@ function AdminManagementTab() {
                   {roles.length === 0 && <p className="text-xs text-muted-foreground">Create admin roles first</p>}
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>First response target (minutes)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={catFirstResponseTarget}
+                    onChange={(e) => setCatFirstResponseTarget(e.target.value)}
+                    placeholder="e.g. 60"
+                    data-testid="input-category-first-response"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Leave blank to disable.</p>
+                </div>
+                <div>
+                  <Label>Resolution target (minutes)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={catResolutionTarget}
+                    onChange={(e) => setCatResolutionTarget(e.target.value)}
+                    placeholder="e.g. 1440"
+                    data-testid="input-category-resolution"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Counted in business hours when configured.</p>
+                </div>
+              </div>
               <Button
                 className="w-full"
                 disabled={!catName || createCatMutation.isPending || updateCatMutation.isPending}
                 onClick={() => {
-                  const data = { name: catName, description: catDescription, assignedRoleIds: catRoleIds };
+                  const fr = catFirstResponseTarget.trim() === "" ? null : Number(catFirstResponseTarget);
+                  const rs = catResolutionTarget.trim() === "" ? null : Number(catResolutionTarget);
+                  const data = {
+                    name: catName,
+                    description: catDescription,
+                    assignedRoleIds: catRoleIds,
+                    firstResponseTargetMinutes: fr != null && Number.isFinite(fr) && fr > 0 ? Math.floor(fr) : null,
+                    resolutionTargetMinutes: rs != null && Number.isFinite(rs) && rs > 0 ? Math.floor(rs) : null,
+                  };
                   if (editingCat) {
                     updateCatMutation.mutate({ id: editingCat.id, ...data });
                   } else {

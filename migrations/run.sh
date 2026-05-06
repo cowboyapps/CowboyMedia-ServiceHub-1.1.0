@@ -12,4 +12,6 @@ echo "Running migration: 009_knowledge_base.sql"
 psql "$DATABASE_URL" -f migrations/009_knowledge_base.sql
 echo "Running migration: 010_onboarding_tour.sql"
 psql "$DATABASE_URL" -f migrations/010_onboarding_tour.sql
+echo "Running migration: 011_ticket_sla.sql"
+psql "$DATABASE_URL" -f migrations/011_ticket_sla.sql
 echo "Migration complete."

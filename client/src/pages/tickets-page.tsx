@@ -33,11 +33,38 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle } from "lucide-react";
+import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, AlertCircle, CheckCircle2 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import type { Ticket as TicketType, Service, TicketCategory } from "@shared/schema";
+import { SlaPill, SLA_RANK, type TicketSla } from "@/lib/sla-ui";
+
+type AdminTicket = TicketType & { sla?: TicketSla; claimedByName?: string | null };
+
+type SlaSummary = {
+  openCount: number;
+  awaitingFirstResponse: number;
+  breached: number;
+  approaching: number;
+  onTrack: number;
+  noTarget: number;
+  avgFirstResponseMinutes7d: number | null;
+  avgResolutionMinutes7d: number | null;
+  firstResponseSampleCount7d: number;
+  resolutionSampleCount7d: number;
+};
+
+function formatAvg(mins: number | null): string {
+  if (mins === null) return "—";
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const remH = h % 24;
+  return remH > 0 ? `${d}d ${remH}h` : `${d}d`;
+}
 
 const createTicketSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
@@ -132,6 +159,7 @@ export default function TicketsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [warnOpen, setWarnOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [adminSort, setAdminSort] = useState<"risk" | "newest">("risk");
 
   const { data: bhStatus } = useQuery<BusinessHoursStatus>({
     queryKey: ["/api/business-hours/status"],
@@ -140,8 +168,14 @@ export default function TicketsPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: tickets, isLoading } = useQuery<TicketType[]>({
+  const { data: tickets, isLoading } = useQuery<AdminTicket[]>({
     queryKey: ["/api/tickets"],
+  });
+
+  const { data: slaSummary } = useQuery<SlaSummary>({
+    queryKey: ["/api/admin/tickets/sla-summary"],
+    enabled: isAdmin,
+    refetchInterval: 60_000,
   });
 
   const { data: services } = useQuery<Service[]>({
@@ -220,10 +254,23 @@ export default function TicketsPage() {
     return () => document.removeEventListener("visibilitychange", onVisChange);
   }, [markTicketsRead]);
 
-  const openTickets = tickets?.filter((t) => t.status === "open") || [];
+  const openTicketsRaw = tickets?.filter((t) => t.status === "open") || [];
   const closedTickets = tickets?.filter((t) => t.status === "closed") || [];
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
   const categoryMap = new Map(categories?.map((c) => [c.id, c.name]) || []);
+
+  const openTickets = isAdmin && adminSort === "risk"
+    ? [...openTicketsRaw].sort((a, b) => {
+        const ra = a.sla ? SLA_RANK[a.sla.worstState] : -1;
+        const rb = b.sla ? SLA_RANK[b.sla.worstState] : -1;
+        if (rb !== ra) return rb - ra;
+        // Among same SLA tier, prefer the one with less remaining time on its active metric.
+        const remA = a.sla?.firstResponse?.remainingMinutes ?? a.sla?.resolution?.remainingMinutes ?? Infinity;
+        const remB = b.sla?.firstResponse?.remainingMinutes ?? b.sla?.resolution?.remainingMinutes ?? Infinity;
+        if (remA !== remB) return remA - remB;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      })
+    : openTicketsRaw;
 
   return (
     <div className="space-y-6">
@@ -440,11 +487,65 @@ export default function TicketsPage() {
         )}
       </div>
 
+      {isAdmin && slaSummary && (slaSummary.openCount > 0 || slaSummary.firstResponseSampleCount7d > 0 || slaSummary.resolutionSampleCount7d > 0) && (
+        <Card data-testid="card-sla-summary">
+          <CardContent className="py-3 px-4 space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Clock className="w-4 h-4 text-muted-foreground" />
+                SLA snapshot
+              </div>
+              <div className="flex items-center gap-2 text-xs flex-wrap">
+                <Badge variant="outline" className="border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 gap-1" data-testid="sla-summary-breached">
+                  <AlertCircle className="w-3 h-3" /> {slaSummary.breached} breached
+                </Badge>
+                <Badge variant="outline" className="border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 gap-1" data-testid="sla-summary-approaching">
+                  <AlertTriangle className="w-3 h-3" /> {slaSummary.approaching} at risk
+                </Badge>
+                <Badge variant="outline" className="border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-200 gap-1" data-testid="sla-summary-on-track">
+                  <CheckCircle2 className="w-3 h-3" /> {slaSummary.onTrack} on track
+                </Badge>
+                {slaSummary.awaitingFirstResponse > 0 && (
+                  <Badge variant="secondary" className="gap-1" data-testid="sla-summary-awaiting">
+                    {slaSummary.awaitingFirstResponse} awaiting first reply
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t">
+              <div data-testid="sla-avg-first-response">
+                <div className="text-xs text-muted-foreground">Avg first response (7d)</div>
+                <div className="text-lg font-semibold">{formatAvg(slaSummary.avgFirstResponseMinutes7d)}</div>
+                <div className="text-xs text-muted-foreground">{slaSummary.firstResponseSampleCount7d} ticket{slaSummary.firstResponseSampleCount7d === 1 ? "" : "s"}</div>
+              </div>
+              <div data-testid="sla-avg-resolution">
+                <div className="text-xs text-muted-foreground">Avg resolution (7d)</div>
+                <div className="text-lg font-semibold">{formatAvg(slaSummary.avgResolutionMinutes7d)}</div>
+                <div className="text-xs text-muted-foreground">{slaSummary.resolutionSampleCount7d} ticket{slaSummary.resolutionSampleCount7d === 1 ? "" : "s"}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Tabs defaultValue="open">
-        <TabsList>
-          <TabsTrigger value="open" data-testid="tab-open-tickets">Open ({openTickets.length})</TabsTrigger>
-          <TabsTrigger value="closed" data-testid="tab-closed-tickets">Closed ({closedTickets.length})</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <TabsList>
+            <TabsTrigger value="open" data-testid="tab-open-tickets">Open ({openTickets.length})</TabsTrigger>
+            <TabsTrigger value="closed" data-testid="tab-closed-tickets">Closed ({closedTickets.length})</TabsTrigger>
+          </TabsList>
+          {isAdmin && (
+            <Select value={adminSort} onValueChange={(v) => setAdminSort(v as "risk" | "newest")}>
+              <SelectTrigger className="w-[180px]" data-testid="select-tickets-sort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="risk">Most at risk</SelectItem>
+                <SelectItem value="newest">Newest first</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
 
         <TabsContent value="open" className="mt-4 space-y-3">
           {isLoading ? (
@@ -492,6 +593,9 @@ export default function TicketsPage() {
                             <Badge variant="outline" className="text-xs" data-testid={`badge-claimed-${ticket.id}`}>
                               {ticket.claimedBy === user?.id ? "Claimed by you" : `Claimed by ${(ticket as any).claimedByName || "admin"}`}
                             </Badge>
+                          )}
+                          {isAdmin && ticket.sla && (
+                            <SlaPill sla={ticket.sla} status={ticket.status} compact testId={`sla-pill-${ticket.id}`} />
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
