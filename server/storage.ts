@@ -34,6 +34,8 @@ import {
   type CommunityReaction, type InsertCommunityReaction,
   type ChatWordFilter,
   type TelegramSettings,
+  discordSettings,
+  type DiscordSettings,
   type BusinessHours,
   type UpdateBusinessHoursData,
   type Announcement,
@@ -254,6 +256,8 @@ export interface IStorage {
 
   getTelegramSettings(): Promise<TelegramSettings | undefined>;
   updateTelegramSettings(data: { chatId?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<TelegramSettings>;
+  getDiscordSettings(): Promise<DiscordSettings | undefined>;
+  updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
   getBusinessHours(): Promise<BusinessHours>;
   updateBusinessHours(data: UpdateBusinessHoursData): Promise<BusinessHours>;
 
@@ -1287,6 +1291,24 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(telegramSettings).set(patch).where(eq(telegramSettings.id, "singleton")).returning();
     if (updated) return updated;
     const [created] = await db.insert(telegramSettings).values({ id: "singleton", ...patch }).returning();
+    return created;
+  }
+
+  async getDiscordSettings(): Promise<DiscordSettings | undefined> {
+    const [row] = await db.select().from(discordSettings).where(eq(discordSettings.id, "singleton"));
+    return row;
+  }
+
+  async updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings> {
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    if (data.webhookUrl !== undefined) patch.webhookUrl = data.webhookUrl;
+    if (data.enabled !== undefined) patch.enabled = data.enabled;
+    if (data.sendAlerts !== undefined) patch.sendAlerts = data.sendAlerts;
+    if (data.sendServiceUpdates !== undefined) patch.sendServiceUpdates = data.sendServiceUpdates;
+    if (data.sendNews !== undefined) patch.sendNews = data.sendNews;
+    const [updated] = await db.update(discordSettings).set(patch).where(eq(discordSettings.id, "singleton")).returning();
+    if (updated) return updated;
+    const [created] = await db.insert(discordSettings).values({ id: "singleton", ...patch }).returning();
     return created;
   }
 

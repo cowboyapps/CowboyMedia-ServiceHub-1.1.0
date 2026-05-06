@@ -49,6 +49,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Optimistic UI Updates**: Implemented in support ticketing for a smoother user experience, particularly with message sending.
 - **Business Hours Logic**: Centralized configuration and server-side calculation for SLAs and customer interactions, accounting for timezones and DST.
 - **AI Integration**: Optional AI features for canned response suggestions and drafting replies, integrated with OpenAI.
+- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers.
 
 ## Product
 
@@ -75,6 +76,7 @@ When the user says "change the version to...", update the version string in `cli
 
 - **Email Template Protection**: Custom email templates are protected from being overwritten during updates.
 - **Telegram Integration**: Requires `TELEGRAM_BOT_TOKEN` secret; failures are non-blocking.
+- **Discord Integration**: Webhook URL stored in DB (no env var); set via Admin Portal → Discord. Failures are non-blocking and never block customer notifications.
 - **AI Integrations**: Requires `AI_INTEGRATIONS_OPENAI_BASE_URL` and `AI_INTEGRATIONS_OPENAI_API_KEY` for AI features to be active.
 - **Postmortem Notifications**: "Original notification recipients" for postmortems relies on `user_notifications` table; alerts created before this tracking will not have specific recipients.
 

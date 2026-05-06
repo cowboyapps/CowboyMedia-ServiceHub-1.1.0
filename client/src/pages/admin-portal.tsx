@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash } from "lucide-react";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
@@ -5876,6 +5876,181 @@ function AnnouncementsTab() {
   );
 }
 
+function DiscordTab() {
+  const { toast } = useToast();
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookDirty, setWebhookDirty] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [sendAlerts, setSendAlerts] = useState(true);
+  const [sendServiceUpdates, setSendServiceUpdates] = useState(true);
+  const [sendNews, setSendNews] = useState(true);
+  const [testing, setTesting] = useState(false);
+
+  const { data: settings, isLoading } = useQuery<{ webhookUrlMasked: string; hasWebhook: boolean; enabled: boolean; sendAlerts: boolean; sendServiceUpdates: boolean; sendNews: boolean }>({
+    queryKey: ["/api/admin/discord-settings"],
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setWebhookUrl(settings.webhookUrlMasked || "");
+      setWebhookDirty(false);
+      setEnabled(!!settings.enabled);
+      setSendAlerts(settings.sendAlerts !== false);
+      setSendServiceUpdates(settings.sendServiceUpdates !== false);
+      setSendNews(settings.sendNews !== false);
+    }
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: { webhookUrl?: string; enabled: boolean; sendAlerts: boolean; sendServiceUpdates: boolean; sendNews: boolean }) => {
+      const res = await apiRequest("PATCH", "/api/admin/discord-settings", data);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to save settings");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/discord-settings"] });
+      toast({ title: "Discord settings saved" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const handleSave = () => {
+    const payload: { webhookUrl?: string; enabled: boolean; sendAlerts: boolean; sendServiceUpdates: boolean; sendNews: boolean } = {
+      enabled,
+      sendAlerts,
+      sendServiceUpdates,
+      sendNews,
+    };
+    if (webhookDirty) payload.webhookUrl = webhookUrl.trim();
+    saveMutation.mutate(payload);
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/admin/discord-settings/test", { method: "POST", credentials: "include" });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        toast({ title: "Test message sent", description: "Check your Discord channel." });
+      } else {
+        toast({ title: "Test failed", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Test failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full" /></div>;
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Hash className="w-5 h-5" /> Discord Notifications</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="discord-webhook-url">Webhook URL</Label>
+            <Input
+              id="discord-webhook-url"
+              type="text"
+              placeholder="https://discord.com/api/webhooks/..."
+              value={webhookUrl}
+              onChange={(e) => { setWebhookUrl(e.target.value); setWebhookDirty(true); }}
+              data-testid="input-discord-webhook-url"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              In Discord, go to <strong>Server Settings → Integrations → Webhooks → New Webhook</strong>, choose a channel, then copy the webhook URL. Leave blank to remove. The saved URL is masked for security.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Enable Discord notifications</p>
+              <p className="text-xs text-muted-foreground">
+                When enabled, alerts, service updates, and news are posted to the configured channel.
+              </p>
+            </div>
+            <Switch
+              checked={enabled}
+              onCheckedChange={setEnabled}
+              data-testid="switch-discord-enabled"
+            />
+          </div>
+
+          <div className="rounded-md border p-3 space-y-3">
+            <p className="text-sm font-medium">Send these event types</p>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="discord-send-alerts"
+                checked={sendAlerts}
+                onCheckedChange={(v) => setSendAlerts(!!v)}
+                data-testid="checkbox-discord-send-alerts"
+              />
+              <Label htmlFor="discord-send-alerts" className="text-sm font-normal cursor-pointer">
+                Service alerts (created, updated, resolved)
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="discord-send-service-updates"
+                checked={sendServiceUpdates}
+                onCheckedChange={(v) => setSendServiceUpdates(!!v)}
+                data-testid="checkbox-discord-send-service-updates"
+              />
+              <Label htmlFor="discord-send-service-updates" className="text-sm font-normal cursor-pointer">
+                Service updates
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="discord-send-news"
+                checked={sendNews}
+                onCheckedChange={(v) => setSendNews(!!v)}
+                data-testid="checkbox-discord-send-news"
+              />
+              <Label htmlFor="discord-send-news" className="text-sm font-normal cursor-pointer">
+                News stories
+              </Label>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              data-testid="button-save-discord"
+            >
+              {saveMutation.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleTest}
+              disabled={testing || !settings?.hasWebhook}
+              data-testid="button-test-discord"
+            >
+              {testing ? "Sending..." : "Send Test Message"}
+            </Button>
+          </div>
+
+          <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground">What gets sent:</p>
+            <p>🚨 Service alerts (created / updated / resolved) — with service name and impact</p>
+            <p>📢 Service updates — with service name</p>
+            <p>📰 News stories and 📝 postmortems — title and preview, split across messages if longer than 2000 characters</p>
+            <p className="mt-2">If Discord fails or is disabled, your app notifications still send normally.</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function TelegramTab() {
   const { toast } = useToast();
   const [chatId, setChatId] = useState("");
@@ -6373,6 +6548,7 @@ export default function AdminPortal() {
     { key: "monitoring", label: "URL Monitoring", icon: Globe, color: "text-lime-500", bg: "bg-lime-500/10" },
     { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10" },
+    { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10" },
     { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10" },
@@ -6408,6 +6584,7 @@ export default function AdminPortal() {
       case "monitoring": return <MonitoringTab canManage={canManageSection("monitoring")} initialMonitorId={initialParams.monitor} />;
       case "logs": return <LogsTab />;
       case "telegram": return <TelegramTab />;
+      case "discord": return <DiscordTab />;
       case "business-hours": return <BusinessHoursTab />;
       case "announcements": return <AnnouncementsTab />;
       case "knowledge-base": return <KnowledgeBaseTab />;

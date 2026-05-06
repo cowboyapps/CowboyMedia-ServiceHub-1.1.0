@@ -20,6 +20,17 @@ import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } fr
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeAlertPostmortem, composeServiceUpdate, composeNews } from "./telegram";
+import {
+  fireDiscord,
+  fireDiscordMany,
+  sendDiscordTestMessage,
+  composeAlertCreated as composeDiscordAlertCreated,
+  composeAlertUpdate as composeDiscordAlertUpdate,
+  composeAlertResolved as composeDiscordAlertResolved,
+  composeAlertPostmortem as composeDiscordAlertPostmortem,
+  composeServiceUpdate as composeDiscordServiceUpdate,
+  composeNews as composeDiscordNews,
+} from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { insertKbCategorySchema, updateKbCategorySchema, insertKbArticleSchema, updateKbArticleSchema } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
@@ -2127,6 +2138,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const subIds = subscribers.map(u => u.id);
       storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: ${impactLabel} — ${alert.title}`, alert.id).catch(() => {});
+      fireDiscord(composeDiscordAlertCreated({
+        serviceName,
+        impact,
+        severity: alert.severity,
+        title: alert.title,
+        description: alert.description,
+      }), "alert");
       fireTelegram(composeAlertCreated({
         serviceName,
         impact,
@@ -2232,6 +2250,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           ? `${serviceName}: Resolved — ${alert.title}`
           : `${serviceName} Update: ${alert.title}`;
         storage.createContentNotificationBulk(subIds, "alerts", notifMsg, alert.id).catch(() => {});
+        fireDiscord(composeDiscordAlertUpdate({
+          serviceName,
+          title: alert.title,
+          status: updateData.status,
+          message: updateData.message,
+          impact: hasImpactChange ? serviceImpact : null,
+        }), "alert");
         fireTelegram(composeAlertUpdate({
           serviceName,
           title: alert.title,
@@ -2315,6 +2340,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const subIds = subscribers.map(u => u.id);
       storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: Resolved — ${updated.title}`, updated.id).catch(() => {});
+      fireDiscord(composeDiscordAlertResolved({
+        serviceName,
+        title: updated.title,
+        resolveMessage,
+      }), "alert");
       fireTelegram(composeAlertResolved({
         serviceName,
         title: updated.title,
@@ -2383,6 +2413,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             storage.createContentNotificationBulk(customerIds, "alerts", `${serviceName}: Postmortem — ${updated.title}`, updated.id).catch(() => {});
           }
         }
+        fireDiscordMany(composeDiscordAlertPostmortem({
+          serviceName,
+          title: updated.title,
+          bodyHtml: sanitized,
+        }), "alert");
         fireTelegramMany(composeAlertPostmortem({
           serviceName,
           title: updated.title,
@@ -2470,6 +2505,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const subIds = subscribedCustomers.map(u => u.id);
       storage.createContentNotificationBulk(subIds, "service-updates", title, update.id).catch(() => {});
+      fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description }), "service_update");
       fireTelegram(composeServiceUpdate({ serviceName, title, description }), "service_update");
       res.json(update);
     } catch (e: any) {
@@ -2545,6 +2581,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const customerIds = allUsers.filter(u => u.role === "customer").map(u => u.id);
       storage.createContentNotificationBulk(customerIds, "news", story.title, story.id).catch(() => {});
+      fireDiscordMany(composeDiscordNews({ title: story.title, content: story.content || "" }), "news");
       fireTelegramMany(composeNews({ title: story.title, content: story.content || "" }), "news");
       res.json(story);
     } catch (e: any) {
@@ -4766,6 +4803,86 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // Bypass the enabled flag so admins can verify connectivity before turning it on
       const result = await sendTelegramTestMessage(
         `✅ <b>Test message from ServiceHub</b>\n<i>If you can see this, Telegram notifications are wired up correctly.</i>`
+      );
+      if (!result.ok) return res.status(400).json(result);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Discord settings (admin only)
+  function maskWebhook(url: string | null | undefined): string {
+    if (!url) return "";
+    // Show only the host + last 4 chars of the token segment
+    try {
+      const u = new URL(url);
+      const parts = u.pathname.split("/").filter(Boolean);
+      const last = parts[parts.length - 1] || "";
+      const tail = last.length > 4 ? last.slice(-4) : last;
+      return `${u.origin}/…/${tail ? "••••" + tail : "••••"}`;
+    } catch {
+      return "••••" + url.slice(-4);
+    }
+  }
+
+  app.get("/api/admin/discord-settings", requireAdmin, async (_req, res) => {
+    try {
+      const settings = await storage.getDiscordSettings();
+      res.json({
+        webhookUrlMasked: maskWebhook(settings?.webhookUrl),
+        hasWebhook: !!settings?.webhookUrl,
+        enabled: !!settings?.enabled,
+        sendAlerts: settings?.sendAlerts ?? true,
+        sendServiceUpdates: settings?.sendServiceUpdates ?? true,
+        sendNews: settings?.sendNews ?? true,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/discord-settings", requireAdmin, async (req, res) => {
+    try {
+      const { webhookUrl, enabled, sendAlerts, sendServiceUpdates, sendNews } = req.body ?? {};
+      const patch: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean } = {};
+      if (webhookUrl !== undefined) {
+        if (webhookUrl === null || webhookUrl === "") {
+          patch.webhookUrl = null;
+        } else if (typeof webhookUrl === "string") {
+          const trimmed = webhookUrl.trim();
+          if (trimmed && !/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\//i.test(trimmed)) {
+            return res.status(400).json({ message: "Webhook URL must start with https://discord.com/api/webhooks/" });
+          }
+          patch.webhookUrl = trimmed || null;
+        }
+      }
+      if (enabled !== undefined) patch.enabled = !!enabled;
+      if (sendAlerts !== undefined) patch.sendAlerts = !!sendAlerts;
+      if (sendServiceUpdates !== undefined) patch.sendServiceUpdates = !!sendServiceUpdates;
+      if (sendNews !== undefined) patch.sendNews = !!sendNews;
+      const updated = await storage.updateDiscordSettings(patch);
+      logActivity("system", "discord_settings_updated", {
+        actorId: req.session.userId!,
+        summary: `Discord notifications ${updated.enabled ? "enabled" : "disabled"}${updated.webhookUrl ? " (webhook configured)" : ""}`,
+      });
+      res.json({
+        webhookUrlMasked: maskWebhook(updated.webhookUrl),
+        hasWebhook: !!updated.webhookUrl,
+        enabled: !!updated.enabled,
+        sendAlerts: updated.sendAlerts,
+        sendServiceUpdates: updated.sendServiceUpdates,
+        sendNews: updated.sendNews,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/discord-settings/test", requireAdmin, async (_req, res) => {
+    try {
+      const result = await sendDiscordTestMessage(
+        `✅ **Test message from ServiceHub**\n_If you can see this, Discord notifications are wired up correctly._`
       );
       if (!result.ok) return res.status(400).json(result);
       res.json({ ok: true });

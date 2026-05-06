@@ -18,4 +18,6 @@ echo "Running migration: 012_alert_postmortems.sql"
 psql "$DATABASE_URL" -f migrations/012_alert_postmortems.sql
 echo "Running migration: 013_public_status_subscribers.sql"
 psql "$DATABASE_URL" -f migrations/013_public_status_subscribers.sql
+echo "Running migration: 014_discord_settings.sql"
+psql "$DATABASE_URL" -f migrations/014_discord_settings.sql
 echo "Migration complete."

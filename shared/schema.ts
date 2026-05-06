@@ -533,6 +533,19 @@ export const telegramSettings = pgTable("telegram_settings", {
 
 export type TelegramSettings = typeof telegramSettings.$inferSelect;
 
+// Discord settings (singleton row)
+export const discordSettings = pgTable("discord_settings", {
+  id: varchar("id").primaryKey().default("singleton"),
+  webhookUrl: text("webhook_url"),
+  enabled: boolean("enabled").notNull().default(false),
+  sendAlerts: boolean("send_alerts").notNull().default(true),
+  sendServiceUpdates: boolean("send_service_updates").notNull().default(true),
+  sendNews: boolean("send_news").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type DiscordSettings = typeof discordSettings.$inferSelect;
+
 export const businessHours = pgTable("business_hours", {
   id: varchar("id").primaryKey().default("singleton"),
   enabled: boolean("enabled").notNull().default(false),
