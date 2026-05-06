@@ -15,6 +15,7 @@ export interface AdminRoleStorage {
     id: string,
     data: Partial<AdminRole>,
   ): Promise<AdminRole | undefined>;
+  deleteAdminRole(id: string): Promise<void>;
 }
 
 export interface AdminRoleDeps {
@@ -67,5 +68,18 @@ export function createAdminRoleHandlers(deps: AdminRoleDeps) {
     }
   }
 
-  return { postAdmin, patchAdmin };
+  async function deleteAdmin(req: Request, res: Response) {
+    try {
+      const id = req.params.id == null ? "" : String(req.params.id).trim();
+      if (!id) {
+        return res.status(400).json({ message: "Missing role id" });
+      }
+      await storage.deleteAdminRole(id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+
+  return { postAdmin, patchAdmin, deleteAdmin };
 }

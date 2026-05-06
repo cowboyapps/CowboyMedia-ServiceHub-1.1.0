@@ -149,6 +149,7 @@ function mockStorage(opts: { found?: AdminRole | null } = {}) {
   const state = {
     createCalls: [] as InsertAdminRole[],
     updateCalls: [] as { id: string; data: Partial<AdminRole> }[],
+    deleteCalls: [] as string[],
   };
   const storage: AdminRoleStorage = {
     async createAdminRole(role) {
@@ -164,6 +165,9 @@ function mockStorage(opts: { found?: AdminRole | null } = {}) {
       state.updateCalls.push({ id, data });
       if (!found) return undefined;
       return { ...found, ...data };
+    },
+    async deleteAdminRole(id) {
+      state.deleteCalls.push(id);
     },
   };
   return { storage, state };
@@ -246,6 +250,7 @@ test("POST admin-roles: 500 when storage throws", async () => {
   const storage: AdminRoleStorage = {
     async createAdminRole() { throw new Error("db down"); },
     async updateAdminRole() { return undefined; },
+    async deleteAdminRole() {},
   };
   const handlers = createAdminRoleHandlers({ storage });
   const res = mockRes();
@@ -323,10 +328,76 @@ test("PATCH admin-roles: 500 when storage throws", async () => {
   const storage: AdminRoleStorage = {
     async createAdminRole() { throw new Error("nope"); },
     async updateAdminRole() { throw new Error("db down"); },
+    async deleteAdminRole() {},
   };
   const handlers = createAdminRoleHandlers({ storage });
   const res = mockRes();
   await handlers.patchAdmin(makeReq({ name: "X" }), res);
   assert.equal(res.statusCode, 500);
   assert.equal(res.body.message, "db down");
+});
+
+// ---------- DELETE handler ----------
+
+test("DELETE admin-roles: success returns { success: true } and forwards id", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createAdminRoleHandlers({ storage });
+  const res = mockRes();
+  await handlers.deleteAdmin(makeReq({}, "role-42"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { success: true });
+  assert.deepEqual(state.deleteCalls, ["role-42"]);
+});
+
+test("DELETE admin-roles: coerces non-string id param to string", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createAdminRoleHandlers({ storage });
+  const res = mockRes();
+  const req: any = { body: {}, params: { id: 7 }, session: { userId: "admin-1" } };
+  await handlers.deleteAdmin(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(state.deleteCalls, ["7"]);
+});
+
+test("DELETE admin-roles: idempotent when storage no-ops on missing role", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createAdminRoleHandlers({ storage });
+  const res = mockRes();
+  await handlers.deleteAdmin(makeReq({}, "missing"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { success: true });
+  assert.deepEqual(state.deleteCalls, ["missing"]);
+});
+
+test("DELETE admin-roles: 400 when id param is missing", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createAdminRoleHandlers({ storage });
+  const res = mockRes();
+  const req: any = { body: {}, params: {}, session: { userId: "admin-1" } };
+  await handlers.deleteAdmin(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.message, "Missing role id");
+  assert.equal(state.deleteCalls.length, 0);
+});
+
+test("DELETE admin-roles: 400 when id param is whitespace", async () => {
+  const { storage, state } = mockStorage();
+  const handlers = createAdminRoleHandlers({ storage });
+  const res = mockRes();
+  await handlers.deleteAdmin(makeReq({}, "   "), res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.deleteCalls.length, 0);
+});
+
+test("DELETE admin-roles: 500 when storage throws", async () => {
+  const storage: AdminRoleStorage = {
+    async createAdminRole() { throw new Error("nope"); },
+    async updateAdminRole() { return undefined; },
+    async deleteAdminRole() { throw new Error("role still assigned"); },
+  };
+  const handlers = createAdminRoleHandlers({ storage });
+  const res = mockRes();
+  await handlers.deleteAdmin(makeReq({}, "role-1"), res);
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.message, "role still assigned");
 });

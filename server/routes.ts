@@ -3349,14 +3349,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/admin/roles", requireMasterAdmin, adminRoleHandlers.postAdmin);
   app.patch("/api/admin/roles/:id", requireMasterAdmin, adminRoleHandlers.patchAdmin);
 
-  app.delete("/api/admin/roles/:id", requireMasterAdmin, async (req, res) => {
-    try {
-      await storage.deleteAdminRole(req.params.id);
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  app.delete("/api/admin/roles/:id", requireMasterAdmin, adminRoleHandlers.deleteAdmin);
 
   app.get("/api/ticket-categories", requireAuth, async (_req, res) => {
     try {
