@@ -7,7 +7,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Activity, AlertTriangle, BellRing, MessageSquare, Mail, Settings as SettingsIcon, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Activity, AlertTriangle, BellRing, BookOpen, Download, MessageSquare, Settings as SettingsIcon, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { isPushSupported, isSubscribedToPush, subscribeToPush } from "@/lib/push-notifications";
 
 const REPLAY_EVENT = "onboarding:replay";
@@ -64,11 +64,19 @@ const STEPS: TourStep[] = [
     mobileSelector: '[data-testid="link-bottom-nav-tickets"]',
   },
   {
-    key: "messages",
-    title: "Messages",
-    body: "Direct conversations with admins live here. On mobile, find them under the More menu.",
-    icon: Mail,
-    desktopSelector: '[data-testid="nav-messages"]',
+    key: "knowledge",
+    title: "Knowledge Base",
+    body: "Browse our knowledge base for answers to common questions before opening a ticket — you'll often find what you need in seconds.",
+    icon: BookOpen,
+    desktopSelector: '[data-testid="nav-knowledge-base"]',
+    mobileSelector: '[data-testid="button-bottom-nav-more"]',
+  },
+  {
+    key: "downloads",
+    title: "Downloads",
+    body: "Grab commonly used files, installers, and resources from the Downloads page anytime.",
+    icon: Download,
+    desktopSelector: '[data-testid="nav-downloads"]',
     mobileSelector: '[data-testid="button-bottom-nav-more"]',
   },
   {
