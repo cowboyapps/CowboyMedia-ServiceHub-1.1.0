@@ -9,6 +9,9 @@ import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications } from "@shared/schema";
 import { createBusinessHoursHandlers } from "./business-hours";
+import { createTelegramSettingsHandlers } from "./telegram-settings";
+import { createDiscordSettingsHandlers } from "./discord-settings";
+import { createTicketCategoryHandlers } from "./ticket-categories";
 import { z } from "zod";
 import { eq, isNotNull, isNull, and, notInArray } from "drizzle-orm";
 import multer from "multer";
@@ -3404,21 +3407,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.patch("/api/admin/ticket-categories/:id", requireMasterAdmin, async (req, res) => {
-    try {
-      const { name, description, assignedRoleIds, firstResponseTargetMinutes, resolutionTargetMinutes } = req.body;
-      const data: any = { name, description, assignedRoleIds };
-      const fr = parseSlaTarget(firstResponseTargetMinutes);
-      if (fr !== undefined) data.firstResponseTargetMinutes = fr;
-      const rs = parseSlaTarget(resolutionTargetMinutes);
-      if (rs !== undefined) data.resolutionTargetMinutes = rs;
-      const updated = await storage.updateTicketCategory(req.params.id, data);
-      if (!updated) return res.status(404).json({ message: "Category not found" });
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  const ticketCategoryHandlers = createTicketCategoryHandlers({ storage });
+  app.patch("/api/admin/ticket-categories/:id", requireMasterAdmin, ticketCategoryHandlers.patchAdmin);
 
   app.delete("/api/admin/ticket-categories/:id", requireMasterAdmin, async (req, res) => {
     try {
@@ -4768,48 +4758,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   // Telegram settings (admin only)
-  app.get("/api/admin/telegram-settings", requireAdmin, async (_req, res) => {
-    try {
-      const settings = await storage.getTelegramSettings();
-      res.json({
-        chatId: settings?.chatId ?? "",
-        enabled: !!settings?.enabled,
-        sendAlerts: settings?.sendAlerts ?? true,
-        sendServiceUpdates: settings?.sendServiceUpdates ?? true,
-        sendNews: settings?.sendNews ?? true,
-        hasToken: !!process.env.TELEGRAM_BOT_TOKEN,
-      });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/telegram-settings", requireAdmin, async (req, res) => {
-    try {
-      const { chatId, enabled, sendAlerts, sendServiceUpdates, sendNews } = req.body ?? {};
-      const patch: { chatId?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean } = {};
-      if (chatId !== undefined) patch.chatId = typeof chatId === "string" ? chatId.trim() || null : null;
-      if (enabled !== undefined) patch.enabled = !!enabled;
-      if (sendAlerts !== undefined) patch.sendAlerts = !!sendAlerts;
-      if (sendServiceUpdates !== undefined) patch.sendServiceUpdates = !!sendServiceUpdates;
-      if (sendNews !== undefined) patch.sendNews = !!sendNews;
-      const updated = await storage.updateTelegramSettings(patch);
-      logActivity("system", "telegram_settings_updated", {
-        actorId: req.session.userId!,
-        summary: `Telegram notifications ${updated.enabled ? "enabled" : "disabled"}${updated.chatId ? ` (chat ${updated.chatId})` : ""}`,
-      });
-      res.json({
-        chatId: updated.chatId ?? "",
-        enabled: !!updated.enabled,
-        sendAlerts: updated.sendAlerts,
-        sendServiceUpdates: updated.sendServiceUpdates,
-        sendNews: updated.sendNews,
-        hasToken: !!process.env.TELEGRAM_BOT_TOKEN,
-      });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  const telegramSettingsHandlers = createTelegramSettingsHandlers({ storage, logActivity });
+  app.get("/api/admin/telegram-settings", requireAdmin, telegramSettingsHandlers.getAdmin);
+  app.patch("/api/admin/telegram-settings", requireAdmin, telegramSettingsHandlers.patchAdmin);
 
   app.post("/api/admin/telegram-settings/test", requireAdmin, async (_req, res) => {
     try {
@@ -4825,72 +4776,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   // Discord settings (admin only)
-  function maskWebhook(url: string | null | undefined): string {
-    if (!url) return "";
-    // Show only the host + last 4 chars of the token segment
-    try {
-      const u = new URL(url);
-      const parts = u.pathname.split("/").filter(Boolean);
-      const last = parts[parts.length - 1] || "";
-      const tail = last.length > 4 ? last.slice(-4) : last;
-      return `${u.origin}/…/${tail ? "••••" + tail : "••••"}`;
-    } catch {
-      return "••••" + url.slice(-4);
-    }
-  }
-
-  app.get("/api/admin/discord-settings", requireAdmin, async (_req, res) => {
-    try {
-      const settings = await storage.getDiscordSettings();
-      res.json({
-        webhookUrlMasked: maskWebhook(settings?.webhookUrl),
-        hasWebhook: !!settings?.webhookUrl,
-        enabled: !!settings?.enabled,
-        sendAlerts: settings?.sendAlerts ?? true,
-        sendServiceUpdates: settings?.sendServiceUpdates ?? true,
-        sendNews: settings?.sendNews ?? true,
-      });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/discord-settings", requireAdmin, async (req, res) => {
-    try {
-      const { webhookUrl, enabled, sendAlerts, sendServiceUpdates, sendNews } = req.body ?? {};
-      const patch: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean } = {};
-      if (webhookUrl !== undefined) {
-        if (webhookUrl === null || webhookUrl === "") {
-          patch.webhookUrl = null;
-        } else if (typeof webhookUrl === "string") {
-          const trimmed = webhookUrl.trim();
-          if (trimmed && !/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\//i.test(trimmed)) {
-            return res.status(400).json({ message: "Webhook URL must start with https://discord.com/api/webhooks/" });
-          }
-          patch.webhookUrl = trimmed || null;
-        }
-      }
-      if (enabled !== undefined) patch.enabled = !!enabled;
-      if (sendAlerts !== undefined) patch.sendAlerts = !!sendAlerts;
-      if (sendServiceUpdates !== undefined) patch.sendServiceUpdates = !!sendServiceUpdates;
-      if (sendNews !== undefined) patch.sendNews = !!sendNews;
-      const updated = await storage.updateDiscordSettings(patch);
-      logActivity("system", "discord_settings_updated", {
-        actorId: req.session.userId!,
-        summary: `Discord notifications ${updated.enabled ? "enabled" : "disabled"}${updated.webhookUrl ? " (webhook configured)" : ""}`,
-      });
-      res.json({
-        webhookUrlMasked: maskWebhook(updated.webhookUrl),
-        hasWebhook: !!updated.webhookUrl,
-        enabled: !!updated.enabled,
-        sendAlerts: updated.sendAlerts,
-        sendServiceUpdates: updated.sendServiceUpdates,
-        sendNews: updated.sendNews,
-      });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  const discordSettingsHandlers = createDiscordSettingsHandlers({ storage, logActivity });
+  app.get("/api/admin/discord-settings", requireAdmin, discordSettingsHandlers.getAdmin);
+  app.patch("/api/admin/discord-settings", requireAdmin, discordSettingsHandlers.patchAdmin);
 
   app.post("/api/admin/discord-settings/test", requireAdmin, async (_req, res) => {
     try {

@@ -575,6 +575,74 @@ export const updateBusinessHoursSchema = z.object({
 
 export type UpdateBusinessHoursData = z.infer<typeof updateBusinessHoursSchema>;
 
+// Telegram settings (admin PATCH)
+export const updateTelegramSettingsSchema = z.object({
+  chatId: z.union([z.string().max(128), z.null()]).optional(),
+  enabled: z.boolean().optional(),
+  sendAlerts: z.boolean().optional(),
+  sendServiceUpdates: z.boolean().optional(),
+  sendNews: z.boolean().optional(),
+});
+export type UpdateTelegramSettingsData = z.infer<typeof updateTelegramSettingsSchema>;
+
+// Discord settings (admin PATCH)
+const DISCORD_WEBHOOK_RE = /^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\//i;
+export const updateDiscordSettingsSchema = z.object({
+  webhookUrl: z
+    .union([
+      z.literal(""),
+      z.null(),
+      z
+        .string()
+        .max(512)
+        .refine((s) => s.trim() === "" || DISCORD_WEBHOOK_RE.test(s.trim()), {
+          message: "Webhook URL must start with https://discord.com/api/webhooks/",
+        }),
+    ])
+    .optional(),
+  enabled: z.boolean().optional(),
+  sendAlerts: z.boolean().optional(),
+  sendServiceUpdates: z.boolean().optional(),
+  sendNews: z.boolean().optional(),
+});
+export type UpdateDiscordSettingsData = z.infer<typeof updateDiscordSettingsSchema>;
+
+// Ticket category SLA / metadata (admin PATCH)
+const slaTargetSchema = z
+  .union([
+    z.null(),
+    z.literal(""),
+    z.number().int().positive().max(60 * 24 * 365),
+    z
+      .string()
+      .max(16)
+      .regex(/^\d+(\.\d+)?$/, "Must be a positive number"),
+  ])
+  .transform((v, ctx): number | null => {
+    if (v === null || v === "") return null;
+    if (typeof v === "number") return Math.floor(v);
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Must be a positive number" });
+      return z.NEVER;
+    }
+    const floored = Math.floor(n);
+    if (floored > 60 * 24 * 365) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "SLA target too large" });
+      return z.NEVER;
+    }
+    return floored;
+  });
+
+export const updateTicketCategorySchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.union([z.string().max(2000), z.null()]).optional(),
+  assignedRoleIds: z.array(z.string().min(1).max(64)).max(64).optional(),
+  firstResponseTargetMinutes: slaTargetSchema.optional(),
+  resolutionTargetMinutes: slaTargetSchema.optional(),
+});
+export type UpdateTicketCategoryData = z.infer<typeof updateTicketCategorySchema>;
+
 export const publicStatusSubscribers = pgTable("public_status_subscribers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),
