@@ -46,6 +46,7 @@ const createServiceSchema = z.object({
   description: z.string().optional(),
   category: z.string().optional(),
   status: z.string().default("operational"),
+  discordWebhookUrl: z.string().trim().url("Must be a valid URL").or(z.literal("")).optional(),
 });
 
 const createAlertSchema = z.object({
@@ -854,7 +855,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
 
   const form = useForm({
     resolver: zodResolver(createServiceSchema),
-    defaultValues: { name: "", description: "", category: "", status: "operational" },
+    defaultValues: { name: "", description: "", category: "", status: "operational", discordWebhookUrl: "" },
   });
 
   const createMutation = useMutation({
@@ -887,7 +888,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
 
   const openEdit = (s: Service) => {
     setEditId(s.id);
-    form.reset({ name: s.name, description: s.description || "", category: s.category || "", status: s.status });
+    form.reset({ name: s.name, description: s.description || "", category: s.category || "", status: s.status, discordWebhookUrl: s.discordWebhookUrl || "" });
     setDialogOpen(true);
   };
 
@@ -924,6 +925,21 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
                       </SelectContent>
                     </Select>
                   <FormMessage /></FormItem>
+                )} />
+                <FormField control={form.control} name="discordWebhookUrl" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Discord Webhook URL (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        data-testid="input-service-discord-webhook"
+                        placeholder="https://discord.com/api/webhooks/..."
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">If set, Discord posts for this service (alerts, updates, postmortems, service updates) go here. Otherwise the global webhook is used.</p>
+                    <FormMessage />
+                  </FormItem>
                 )} />
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-service">
                   {createMutation.isPending ? "Saving..." : editId ? "Update Service" : "Add Service"}

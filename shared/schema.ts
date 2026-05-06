@@ -31,6 +31,7 @@ export const services = pgTable("services", {
   description: text("description"),
   status: text("status").notNull().default("operational"),
   category: text("category"),
+  discordWebhookUrl: text("discord_webhook_url"),
 });
 
 export const serviceAlerts = pgTable("service_alerts", {

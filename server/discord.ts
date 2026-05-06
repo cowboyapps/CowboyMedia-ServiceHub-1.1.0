@@ -97,14 +97,15 @@ async function postToDiscord(webhookUrl: string, payload: DiscordPayload): Promi
 
 export type DiscordCategory = "alert" | "service_update" | "news";
 
-export async function sendDiscordMessage(payload: DiscordPayload, category?: DiscordCategory): Promise<{ ok: boolean; error?: string }> {
+export async function sendDiscordMessage(payload: DiscordPayload, category?: DiscordCategory, overrideWebhookUrl?: string | null): Promise<{ ok: boolean; error?: string }> {
   const settings = await storage.getDiscordSettings();
   if (!settings || !settings.enabled) return { ok: false, error: "Discord notifications disabled" };
-  if (!settings.webhookUrl) return { ok: false, error: "No webhook URL configured" };
   if (category === "alert" && settings.sendAlerts === false) return { ok: false, error: "Alerts disabled for Discord" };
   if (category === "service_update" && settings.sendServiceUpdates === false) return { ok: false, error: "Service updates disabled for Discord" };
   if (category === "news" && settings.sendNews === false) return { ok: false, error: "News disabled for Discord" };
-  return postToDiscord(settings.webhookUrl, payload);
+  const webhookUrl = (overrideWebhookUrl && overrideWebhookUrl.trim()) || settings.webhookUrl;
+  if (!webhookUrl) return { ok: false, error: "No webhook URL configured" };
+  return postToDiscord(webhookUrl, payload);
 }
 
 export async function sendDiscordTestMessage(payload: DiscordPayload): Promise<{ ok: boolean; error?: string }> {
@@ -113,14 +114,14 @@ export async function sendDiscordTestMessage(payload: DiscordPayload): Promise<{
   return postToDiscord(settings.webhookUrl, payload);
 }
 
-export function fireDiscord(payload: DiscordPayload, category?: DiscordCategory): void {
-  sendDiscordMessage(payload, category).catch((e) => console.error("[Discord] fire error:", e));
+export function fireDiscord(payload: DiscordPayload, category?: DiscordCategory, overrideWebhookUrl?: string | null): void {
+  sendDiscordMessage(payload, category, overrideWebhookUrl).catch((e) => console.error("[Discord] fire error:", e));
 }
 
-export function fireDiscordMany(payloads: DiscordPayload[], category?: DiscordCategory): void {
+export function fireDiscordMany(payloads: DiscordPayload[], category?: DiscordCategory, overrideWebhookUrl?: string | null): void {
   (async () => {
     for (const p of payloads) {
-      const r = await sendDiscordMessage(p, category);
+      const r = await sendDiscordMessage(p, category, overrideWebhookUrl);
       if (!r.ok) break;
     }
   })().catch((e) => console.error("[Discord] fire-many error:", e));

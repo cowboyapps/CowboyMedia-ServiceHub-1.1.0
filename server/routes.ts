@@ -1016,9 +1016,13 @@ export async function registerRoutes(
   });
 
   // Public API routes
-  app.get("/api/services", requireAuth, async (_req, res) => {
+  app.get("/api/services", requireAuth, async (req, res) => {
     const result = await storage.getAllServices();
-    res.json(result);
+    const user = await storage.getUser(req.session.userId!);
+    const isAdmin = user?.role === "admin" || user?.role === "master_admin";
+    if (isAdmin) return res.json(result);
+    const sanitized = result.map(({ discordWebhookUrl: _omit, ...rest }) => rest);
+    res.json(sanitized);
   });
 
   app.get("/api/alerts", requireAuth, async (_req, res) => {
@@ -2147,7 +2151,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         description: alert.description,
         alertId: alert.id,
         baseUrl: getBaseUrl(req),
-      }), "alert");
+      }), "alert", service?.discordWebhookUrl);
       fireTelegram(composeAlertCreated({
         serviceName,
         impact,
@@ -2261,7 +2265,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           impact: hasImpactChange ? serviceImpact : null,
           alertId: alert.id,
           baseUrl: getBaseUrl(req),
-        }), "alert");
+        }), "alert", service?.discordWebhookUrl);
         fireTelegram(composeAlertUpdate({
           serviceName,
           title: alert.title,
@@ -2351,7 +2355,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         resolveMessage,
         alertId: updated.id,
         baseUrl: getBaseUrl(req),
-      }), "alert");
+      }), "alert", service?.discordWebhookUrl);
       fireTelegram(composeAlertResolved({
         serviceName,
         title: updated.title,
@@ -2426,7 +2430,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           bodyHtml: sanitized,
           alertId: updated.id,
           baseUrl: getBaseUrl(req),
-        }), "alert");
+        }), "alert", service?.discordWebhookUrl);
         fireTelegramMany(composeAlertPostmortem({
           serviceName,
           title: updated.title,
@@ -2514,7 +2518,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const subIds = subscribedCustomers.map(u => u.id);
       storage.createContentNotificationBulk(subIds, "service-updates", title, update.id).catch(() => {});
-      fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description, baseUrl: getBaseUrl(req) }), "service_update");
+      fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description, baseUrl: getBaseUrl(req) }), "service_update", service?.discordWebhookUrl);
       fireTelegram(composeServiceUpdate({ serviceName, title, description }), "service_update");
       res.json(update);
     } catch (e: any) {

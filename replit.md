@@ -49,7 +49,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Optimistic UI Updates**: Implemented in support ticketing for a smoother user experience, particularly with message sending.
 - **Business Hours Logic**: Centralized configuration and server-side calculation for SLAs and customer interactions, accounting for timezones and DST.
 - **AI Integration**: Optional AI features for canned response suggestions and drafting replies, integrated with OpenAI.
-- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers.
+- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers. Discord supports per-service webhook overrides (services.discord_webhook_url) for alert / alert update / resolve / postmortem / service update fan-outs; news still uses the global webhook.
 
 ## Product
 
