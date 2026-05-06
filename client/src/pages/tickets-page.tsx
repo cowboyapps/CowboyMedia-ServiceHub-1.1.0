@@ -33,7 +33,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, AlertCircle, CheckCircle2, BookOpen } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -158,6 +158,7 @@ export default function TicketsPage() {
   const isMobile = useIsMobile();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [warnOpen, setWarnOpen] = useState(false);
+  const [kbHintOpen, setKbHintOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [adminSort, setAdminSort] = useState<"risk" | "newest">("risk");
 
@@ -300,11 +301,51 @@ export default function TicketsPage() {
               } catch {
                 // If the status fetch fails, fail open and let the user submit.
               }
-              setDialogOpen(true);
+              setKbHintOpen(true);
             }}
           >
             <Plus className="w-4 h-4 mr-1" /> New Ticket
           </Button>
+
+          <AlertDialog open={kbHintOpen} onOpenChange={setKbHintOpen}>
+            <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-kb-hint">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-primary" />
+                  Check the Knowledge Base first?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="space-y-2">
+                  <span className="block">
+                    Before opening a support ticket, you may find a faster answer in our knowledge base. Many common questions are already documented there.
+                  </span>
+                  <span className="block">
+                    Otherwise, feel free to continue and our team will get back to you.
+                  </span>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction
+                  onClick={() => {
+                    setKbHintOpen(false);
+                    setLocation("/knowledge");
+                  }}
+                  data-testid="button-kb-hint-browse"
+                >
+                  <BookOpen className="w-4 h-4 mr-1.5" />
+                  Browse Knowledge Base
+                </AlertDialogAction>
+                <AlertDialogCancel
+                  onClick={() => {
+                    setKbHintOpen(false);
+                    setDialogOpen(true);
+                  }}
+                  data-testid="button-kb-hint-continue"
+                >
+                  Continue
+                </AlertDialogCancel>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <AlertDialog open={warnOpen} onOpenChange={setWarnOpen}>
             <AlertDialogContent
@@ -330,7 +371,7 @@ export default function TicketsPage() {
                 <AlertDialogAction
                   onClick={() => {
                     setWarnOpen(false);
-                    setDialogOpen(true);
+                    setKbHintOpen(true);
                   }}
                   data-testid="button-after-hours-continue"
                 >

@@ -185,7 +185,7 @@ export function AppSidebar() {
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground/60 text-center" data-testid="text-sidebar-version">Version 4.0</p>
+        <p className="text-[10px] text-muted-foreground/60 text-center" data-testid="text-sidebar-version">Version 4.3</p>
       </SidebarFooter>
     </Sidebar>
   );
