@@ -30,6 +30,7 @@ import {
   composeAlertPostmortem as composeDiscordAlertPostmortem,
   composeServiceUpdate as composeDiscordServiceUpdate,
   composeNews as composeDiscordNews,
+  composeDiscordTest,
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { insertKbCategorySchema, updateKbCategorySchema, insertKbArticleSchema, updateKbArticleSchema } from "@shared/schema";
@@ -2144,6 +2145,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         severity: alert.severity,
         title: alert.title,
         description: alert.description,
+        alertId: alert.id,
+        baseUrl: getBaseUrl(req),
       }), "alert");
       fireTelegram(composeAlertCreated({
         serviceName,
@@ -2256,6 +2259,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           status: updateData.status,
           message: updateData.message,
           impact: hasImpactChange ? serviceImpact : null,
+          alertId: alert.id,
+          baseUrl: getBaseUrl(req),
         }), "alert");
         fireTelegram(composeAlertUpdate({
           serviceName,
@@ -2344,6 +2349,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         serviceName,
         title: updated.title,
         resolveMessage,
+        alertId: updated.id,
+        baseUrl: getBaseUrl(req),
       }), "alert");
       fireTelegram(composeAlertResolved({
         serviceName,
@@ -2417,6 +2424,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           serviceName,
           title: updated.title,
           bodyHtml: sanitized,
+          alertId: updated.id,
+          baseUrl: getBaseUrl(req),
         }), "alert");
         fireTelegramMany(composeAlertPostmortem({
           serviceName,
@@ -2505,7 +2514,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const subIds = subscribedCustomers.map(u => u.id);
       storage.createContentNotificationBulk(subIds, "service-updates", title, update.id).catch(() => {});
-      fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description }), "service_update");
+      fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description, baseUrl: getBaseUrl(req) }), "service_update");
       fireTelegram(composeServiceUpdate({ serviceName, title, description }), "service_update");
       res.json(update);
     } catch (e: any) {
@@ -2581,7 +2590,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const customerIds = allUsers.filter(u => u.role === "customer").map(u => u.id);
       storage.createContentNotificationBulk(customerIds, "news", story.title, story.id).catch(() => {});
-      fireDiscordMany(composeDiscordNews({ title: story.title, content: story.content || "" }), "news");
+      fireDiscordMany(composeDiscordNews({ title: story.title, content: story.content || "", newsId: story.id, baseUrl: getBaseUrl(req) }), "news");
       fireTelegramMany(composeNews({ title: story.title, content: story.content || "" }), "news");
       res.json(story);
     } catch (e: any) {
@@ -4881,9 +4890,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/admin/discord-settings/test", requireAdmin, async (_req, res) => {
     try {
-      const result = await sendDiscordTestMessage(
-        `✅ **Test message from ServiceHub**\n_If you can see this, Discord notifications are wired up correctly._`
-      );
+      const result = await sendDiscordTestMessage(composeDiscordTest());
       if (!result.ok) return res.status(400).json(result);
       res.json({ ok: true });
     } catch (e: any) {

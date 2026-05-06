@@ -17,19 +17,18 @@ function stripHtmlPreserveBreaks(html: string): string {
 }
 
 function escapeMd(text: string): string {
-  // Escape Discord markdown control chars so user content doesn't break formatting
   return String(text ?? "").replace(/([\\*_`~|>])/g, "\\$1");
 }
 
-function truncate(text: string, max = 800): string {
+function truncate(text: string, max: number): string {
   const t = text ?? "";
-  return t.length > max ? t.substring(0, max) + "..." : t;
+  return t.length > max ? t.substring(0, max - 1) + "…" : t;
 }
 
-const DISCORD_MAX_LEN = 2000;
-// Hard caps for header fields so a pathological title/service-name can't blow past 2000 on its own.
+const DISCORD_MAX_BODY_LEN = 2000;
 const MAX_TITLE_LEN = 240;
 const MAX_SERVICE_NAME_LEN = 120;
+const MAX_FIELD_VALUE = 1024;
 
 function clampTitle(s: string): string {
   return truncate(String(s ?? ""), MAX_TITLE_LEN);
@@ -39,19 +38,47 @@ function clampServiceName(s: string): string {
   return truncate(String(s ?? ""), MAX_SERVICE_NAME_LEN);
 }
 
-async function postToDiscord(webhookUrl: string, content: string): Promise<{ ok: boolean; error?: string }> {
+function safeUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  const s = String(u).trim();
+  if (!/^https?:\/\//i.test(s)) return undefined;
+  return s;
+}
+
+const COLOR = {
+  outage: 0xED4245,
+  degraded: 0xFAA61A,
+  maintenance: 0x5865F2,
+  operational: 0x57F287,
+  resolved: 0x57F287,
+  investigating: 0xED4245,
+  identified: 0xFAA61A,
+  monitoring: 0x5865F2,
+  news: 0x3B82F6,
+  service_update: 0x5865F2,
+  postmortem: 0x6B7280,
+  info: 0x57F287,
+} as const;
+
+export type DiscordEmbed = {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  fields?: { name: string; value: string; inline?: boolean }[];
+  footer?: { text: string };
+  timestamp?: string;
+};
+
+export type DiscordPayload = { embeds: DiscordEmbed[] };
+
+async function postToDiscord(webhookUrl: string, payload: DiscordPayload): Promise<{ ok: boolean; error?: string }> {
   try {
-    // Final safety net: Discord rejects any single webhook message > 2000 chars.
-    // Per-composer chunking handles long bodies; this guards against pathological
-    // titles / service names that would otherwise blow past the limit on their own.
-    const safeContent = content.length > DISCORD_MAX_LEN
-      ? content.slice(0, DISCORD_MAX_LEN - 1) + "…"
-      : content;
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        content: safeContent,
+        ...payload,
         allowed_mentions: { parse: [] },
       }),
     });
@@ -70,33 +97,43 @@ async function postToDiscord(webhookUrl: string, content: string): Promise<{ ok:
 
 export type DiscordCategory = "alert" | "service_update" | "news";
 
-export async function sendDiscordMessage(text: string, category?: DiscordCategory): Promise<{ ok: boolean; error?: string }> {
+export async function sendDiscordMessage(payload: DiscordPayload, category?: DiscordCategory): Promise<{ ok: boolean; error?: string }> {
   const settings = await storage.getDiscordSettings();
   if (!settings || !settings.enabled) return { ok: false, error: "Discord notifications disabled" };
   if (!settings.webhookUrl) return { ok: false, error: "No webhook URL configured" };
   if (category === "alert" && settings.sendAlerts === false) return { ok: false, error: "Alerts disabled for Discord" };
   if (category === "service_update" && settings.sendServiceUpdates === false) return { ok: false, error: "Service updates disabled for Discord" };
   if (category === "news" && settings.sendNews === false) return { ok: false, error: "News disabled for Discord" };
-  return postToDiscord(settings.webhookUrl, text);
+  return postToDiscord(settings.webhookUrl, payload);
 }
 
-export async function sendDiscordTestMessage(text: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendDiscordTestMessage(payload: DiscordPayload): Promise<{ ok: boolean; error?: string }> {
   const settings = await storage.getDiscordSettings();
   if (!settings?.webhookUrl) return { ok: false, error: "No webhook URL configured" };
-  return postToDiscord(settings.webhookUrl, text);
+  return postToDiscord(settings.webhookUrl, payload);
 }
 
-export function fireDiscord(text: string, category?: DiscordCategory): void {
-  sendDiscordMessage(text, category).catch((e) => console.error("[Discord] fire error:", e));
+export function fireDiscord(payload: DiscordPayload, category?: DiscordCategory): void {
+  sendDiscordMessage(payload, category).catch((e) => console.error("[Discord] fire error:", e));
 }
 
-export function fireDiscordMany(texts: string[], category?: DiscordCategory): void {
+export function fireDiscordMany(payloads: DiscordPayload[], category?: DiscordCategory): void {
   (async () => {
-    for (const t of texts) {
-      const r = await sendDiscordMessage(t, category);
+    for (const p of payloads) {
+      const r = await sendDiscordMessage(p, category);
       if (!r.ok) break;
     }
   })().catch((e) => console.error("[Discord] fire-many error:", e));
+}
+
+export function composeDiscordTest(): DiscordPayload {
+  return {
+    embeds: [{
+      title: "✅ Test message from ServiceHub",
+      description: "If you can see this, Discord notifications are wired up correctly.",
+      color: COLOR.info,
+    }],
+  };
 }
 
 const impactEmoji: Record<string, string> = {
@@ -120,23 +157,57 @@ const statusLabels: Record<string, string> = {
   resolved: "Resolved",
 };
 
+function impactColor(impact?: string | null, fallback: number = COLOR.info): number {
+  if (!impact) return fallback;
+  return (COLOR as Record<string, number>)[impact] ?? fallback;
+}
+
+function clampDescription(s: string): string {
+  return truncate(s, DISCORD_MAX_BODY_LEN);
+}
+
+function alertUrl(baseUrl: string | undefined, alertId: string | undefined): string | undefined {
+  if (!baseUrl || !alertId) return undefined;
+  return safeUrl(`${baseUrl.replace(/\/$/, "")}/alerts/${encodeURIComponent(alertId)}`);
+}
+
+function newsUrl(baseUrl: string | undefined, newsId: string | undefined): string | undefined {
+  if (!baseUrl || !newsId) return undefined;
+  return safeUrl(`${baseUrl.replace(/\/$/, "")}/news/${encodeURIComponent(newsId)}`);
+}
+
+function serviceUpdatesUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return undefined;
+  return safeUrl(`${baseUrl.replace(/\/$/, "")}/service-updates`);
+}
+
 export function composeAlertCreated(opts: {
   serviceName: string;
   impact: string;
   severity?: string;
   title: string;
   description: string;
-}): string {
+  alertId?: string;
+  baseUrl?: string;
+}): DiscordPayload {
   const emoji = impactEmoji[opts.impact] || "🚨";
   const impactLabel = impactLabels[opts.impact] || opts.impact;
-  return [
-    `🚨 **SERVICE ALERT — ${escapeMd(clampServiceName(opts.serviceName))}**`,
-    `${emoji} **Impact:** ${escapeMd(impactLabel)}`,
-    opts.severity ? `**Severity:** ${escapeMd(opts.severity)}` : "",
-    ``,
-    `**${escapeMd(clampTitle(opts.title))}**`,
-    `_${escapeMd(truncate(opts.description))}_`,
-  ].filter(Boolean).join("\n");
+  const fields: DiscordEmbed["fields"] = [
+    { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+    { name: "Impact", value: `${emoji} ${impactLabel}`, inline: true },
+  ];
+  if (opts.severity) fields.push({ name: "Severity", value: truncate(opts.severity, MAX_FIELD_VALUE), inline: true });
+  return {
+    embeds: [{
+      title: truncate(`🚨 Service Alert — ${clampTitle(opts.title)}`, 256),
+      description: clampDescription(opts.description || ""),
+      url: alertUrl(opts.baseUrl, opts.alertId),
+      color: impactColor(opts.impact, COLOR.outage),
+      fields,
+      footer: { text: clampServiceName(opts.serviceName) },
+      timestamp: new Date().toISOString(),
+    }],
+  };
 }
 
 export function composeAlertUpdate(opts: {
@@ -145,47 +216,67 @@ export function composeAlertUpdate(opts: {
   status: string;
   message: string;
   impact?: string | null;
-}): string {
+  alertId?: string;
+  baseUrl?: string;
+}): DiscordPayload {
+  const isResolved = opts.status === "resolved";
   const statusLabel = statusLabels[opts.status] || opts.status;
-  const header = opts.status === "resolved"
-    ? `✅ **SERVICE ALERT RESOLVED — ${escapeMd(clampServiceName(opts.serviceName))}**`
-    : `🔄 **SERVICE ALERT UPDATE — ${escapeMd(clampServiceName(opts.serviceName))}**`;
-  const lines = [
-    header,
-    `**Status:** ${escapeMd(statusLabel)}`,
+  const headerEmoji = isResolved ? "✅" : "🔄";
+  const headerLabel = isResolved ? "Service Alert Resolved" : "Service Alert Update";
+  const fields: DiscordEmbed["fields"] = [
+    { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+    { name: "Status", value: statusLabel, inline: true },
   ];
-  if (opts.impact && opts.impact !== "no_change" && opts.status !== "resolved") {
-    lines.push(`**Impact:** ${escapeMd(impactLabels[opts.impact] || opts.impact)}`);
+  if (opts.impact && opts.impact !== "no_change" && !isResolved) {
+    fields.push({ name: "Impact", value: `${impactEmoji[opts.impact] || ""} ${impactLabels[opts.impact] || opts.impact}`.trim(), inline: true });
   }
-  lines.push("");
-  lines.push(`**${escapeMd(clampTitle(opts.title))}**`);
-  lines.push(`_${escapeMd(truncate(opts.message))}_`);
-  return lines.join("\n");
+  const color = isResolved
+    ? COLOR.resolved
+    : (opts.impact && opts.impact !== "no_change" ? impactColor(opts.impact, COLOR.investigating) : (COLOR as Record<string, number>)[opts.status] ?? COLOR.investigating);
+  return {
+    embeds: [{
+      title: truncate(`${headerEmoji} ${headerLabel} — ${clampTitle(opts.title)}`, 256),
+      description: clampDescription(opts.message || ""),
+      url: alertUrl(opts.baseUrl, opts.alertId),
+      color,
+      fields,
+      footer: { text: clampServiceName(opts.serviceName) },
+      timestamp: new Date().toISOString(),
+    }],
+  };
 }
 
 export function composeAlertResolved(opts: {
   serviceName: string;
   title: string;
   resolveMessage: string;
-}): string {
-  return [
-    `✅ **SERVICE ALERT RESOLVED — ${escapeMd(clampServiceName(opts.serviceName))}**`,
-    ``,
-    `**${escapeMd(clampTitle(opts.title))}**`,
-    `_${escapeMd(truncate(opts.resolveMessage))}_`,
-  ].join("\n");
+  alertId?: string;
+  baseUrl?: string;
+}): DiscordPayload {
+  return {
+    embeds: [{
+      title: truncate(`✅ Service Alert Resolved — ${clampTitle(opts.title)}`, 256),
+      description: clampDescription(opts.resolveMessage || ""),
+      url: alertUrl(opts.baseUrl, opts.alertId),
+      color: COLOR.resolved,
+      fields: [
+        { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+        { name: "Status", value: "Resolved", inline: true },
+      ],
+      footer: { text: clampServiceName(opts.serviceName) },
+      timestamp: new Date().toISOString(),
+    }],
+  };
 }
 
-function splitForDiscord(body: string, headerLen: number): string[] {
-  const firstBudget = DISCORD_MAX_LEN - headerLen - 8;
-  const restBudget = DISCORD_MAX_LEN - 64;
+function splitDescription(body: string, max: number = DISCORD_MAX_BODY_LEN): string[] {
+  if (body.length <= max) return body.length > 0 ? [body] : [""];
   const chunks: string[] = [];
   let remaining = body;
-  let budget = firstBudget;
-  while (remaining.length > budget) {
-    const slice = remaining.slice(0, budget);
+  while (remaining.length > max) {
+    const slice = remaining.slice(0, max);
     let cut = slice.lastIndexOf("\n\n");
-    if (cut < budget * 0.5) {
+    if (cut < max * 0.5) {
       const sentenceCut = Math.max(
         slice.lastIndexOf(". "),
         slice.lastIndexOf("! "),
@@ -194,16 +285,15 @@ function splitForDiscord(body: string, headerLen: number): string[] {
         slice.lastIndexOf("!\n"),
         slice.lastIndexOf("?\n"),
       );
-      if (sentenceCut >= budget * 0.5) cut = sentenceCut + 1;
+      if (sentenceCut >= max * 0.5) cut = sentenceCut + 1;
     }
-    if (cut < budget * 0.5) {
+    if (cut < max * 0.5) {
       const wsCut = slice.lastIndexOf(" ");
       if (wsCut > 0) cut = wsCut;
     }
-    if (cut <= 0) cut = budget;
+    if (cut <= 0) cut = max;
     chunks.push(remaining.slice(0, cut).trimEnd());
     remaining = remaining.slice(cut).trimStart();
-    budget = restBudget;
   }
   if (remaining.length > 0) chunks.push(remaining);
   return chunks;
@@ -213,47 +303,71 @@ export function composeAlertPostmortem(opts: {
   serviceName: string;
   title: string;
   bodyHtml: string;
-}): string[] {
+  alertId?: string;
+  baseUrl?: string;
+}): DiscordPayload[] {
   const plain = stripHtmlPreserveBreaks(opts.bodyHtml);
-  const escapedTitle = escapeMd(clampTitle(opts.title));
-  const escapedService = escapeMd(clampServiceName(opts.serviceName));
-  const firstHeader = `📝 **POSTMORTEM — ${escapedService}**\n\n**${escapedTitle}**\n`;
-  const contHeader = `📝 **POSTMORTEM (continued)**\n\n`;
-  const escaped = escapeMd(plain);
-  const firstHeaderLen = firstHeader.length + 2; // _ wrapper
-  const bodyChunks = splitForDiscord(escaped, firstHeaderLen);
-  if (bodyChunks.length === 0) return [`${firstHeader}_ _`];
-  return bodyChunks.map((chunk, i) =>
-    i === 0 ? `${firstHeader}_${chunk}_` : `${contHeader}_${chunk}_`
-  );
+  const chunks = splitDescription(plain);
+  const url = alertUrl(opts.baseUrl, opts.alertId);
+  return chunks.map((chunk, i) => ({
+    embeds: [{
+      title: truncate(
+        i === 0
+          ? `📝 Postmortem — ${clampTitle(opts.title)}`
+          : `📝 Postmortem (continued) — ${clampTitle(opts.title)}`,
+        256,
+      ),
+      description: chunk || "—",
+      url,
+      color: COLOR.postmortem,
+      fields: i === 0 ? [{ name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true }] : undefined,
+      footer: { text: clampServiceName(opts.serviceName) },
+      ...(i === 0 ? { timestamp: new Date().toISOString() } : {}),
+    }],
+  }));
 }
 
 export function composeServiceUpdate(opts: {
   serviceName: string;
   title: string;
   description: string;
-}): string {
-  return [
-    `📢 **SERVICE UPDATE — ${escapeMd(clampServiceName(opts.serviceName))}**`,
-    ``,
-    `**${escapeMd(clampTitle(opts.title))}**`,
-    `_${escapeMd(truncate(opts.description))}_`,
-  ].join("\n");
+  baseUrl?: string;
+}): DiscordPayload {
+  return {
+    embeds: [{
+      title: truncate(`📢 Service Update — ${clampTitle(opts.title)}`, 256),
+      description: clampDescription(opts.description || ""),
+      url: serviceUpdatesUrl(opts.baseUrl),
+      color: COLOR.service_update,
+      fields: [
+        { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+      ],
+      footer: { text: clampServiceName(opts.serviceName) },
+      timestamp: new Date().toISOString(),
+    }],
+  };
 }
 
 export function composeNews(opts: {
   title: string;
   content: string;
-}): string[] {
+  newsId?: string;
+  baseUrl?: string;
+}): DiscordPayload[] {
   const plain = stripHtmlPreserveBreaks(opts.content);
-  const escapedTitle = escapeMd(clampTitle(opts.title));
-  const firstHeader = `📰 **NEWS**\n\n**${escapedTitle}**\n`;
-  const contHeader = `📰 **NEWS (continued)**\n\n`;
-  const escaped = escapeMd(plain);
-  const firstHeaderLen = firstHeader.length + 2;
-  const bodyChunks = splitForDiscord(escaped, firstHeaderLen);
-  if (bodyChunks.length === 0) return [`${firstHeader}_ _`];
-  return bodyChunks.map((chunk, i) =>
-    i === 0 ? `${firstHeader}_${chunk}_` : `${contHeader}_${chunk}_`
-  );
+  const chunks = splitDescription(plain);
+  const url = newsUrl(opts.baseUrl, opts.newsId);
+  return chunks.map((chunk, i) => ({
+    embeds: [{
+      title: truncate(
+        i === 0 ? `📰 ${clampTitle(opts.title)}` : `📰 ${clampTitle(opts.title)} (continued)`,
+        256,
+      ),
+      description: chunk || "—",
+      url,
+      color: COLOR.news,
+      footer: { text: "News" },
+      ...(i === 0 ? { timestamp: new Date().toISOString() } : {}),
+    }],
+  }));
 }
