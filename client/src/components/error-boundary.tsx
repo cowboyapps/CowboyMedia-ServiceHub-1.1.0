@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { recoverFromStaleDeploy } from "@/lib/stale-deploy";
 
 interface Props {
   children: ReactNode;
@@ -22,19 +23,11 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   private handleReload = async () => {
-    try {
-      if ("serviceWorker" in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)));
-      }
-    } catch {
-      // Best-effort recovery — fall through to reload regardless.
-    }
-    window.location.reload();
+    await recoverFromStaleDeploy({
+      serviceWorker: "serviceWorker" in navigator ? navigator.serviceWorker : undefined,
+      caches: "caches" in window ? caches : undefined,
+      reload: () => window.location.reload(),
+    });
   };
 
   render() {

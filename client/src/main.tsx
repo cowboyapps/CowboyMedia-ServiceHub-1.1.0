@@ -4,6 +4,7 @@ import "./index.css";
 import { registerServiceWorker } from "./lib/push-notifications";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
+import { createStaleDeployReloadHandler } from "./lib/stale-deploy";
 
 const AUTO_RELOAD_DELAY_MS = 1800;
 const DEFERRED_RELOAD_DELAY_MS = 30000;
@@ -80,16 +81,13 @@ if ("serviceWorker" in navigator) {
   // Auto-recover from stale-deploy white-screen: the service worker tells us
   // when it can't satisfy a request for a hashed JS/CSS bundle (deploy
   // mismatch). Surface a brief toast so the user understands why the page
-  // is about to reload, and defer the reload if they're mid-input.
-  let reloadingForStaleDeploy = false;
-  navigator.serviceWorker.addEventListener("message", (event) => {
-    const data = event.data;
-    if (!data || typeof data !== "object") return;
-    if (data.type === "SW_RELOAD_REQUIRED" && !reloadingForStaleDeploy) {
-      reloadingForStaleDeploy = true;
-      showReloadNotice();
-    }
-  });
+  // is about to reload, and defer the reload if they're mid-input. The
+  // shared handler guarantees we only fire the notice once even if the SW
+  // posts the message multiple times.
+  navigator.serviceWorker.addEventListener(
+    "message",
+    createStaleDeployReloadHandler({ reload: showReloadNotice }),
+  );
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
