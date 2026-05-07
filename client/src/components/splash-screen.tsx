@@ -1,52 +1,78 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
+
+const MIN_VISIBLE_MS = 800;
+const HARD_TIMEOUT_MS = 5000;
+const FADE_MS = 400;
 
 export function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [fadeOut, setFadeOut] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [videoReady, setVideoReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const minTimeElapsedRef = useRef(false);
   const videoEndedRef = useRef(false);
+  const completedRef = useRef(false);
+
+  const beginFadeOut = useCallback(() => {
+    setFadeOut((prev) => prev || true);
+  }, []);
 
   const tryFinish = useCallback(() => {
-    if (minTimeElapsedRef.current && videoEndedRef.current && !fadeOut) {
-      setFadeOut(true);
+    if (minTimeElapsedRef.current && videoEndedRef.current) {
+      beginFadeOut();
     }
-  }, [fadeOut]);
+  }, [beginFadeOut]);
 
   useEffect(() => {
     const minTimer = setTimeout(() => {
       minTimeElapsedRef.current = true;
       tryFinish();
-    }, 2000);
-    const fallback = setTimeout(() => {
-      if (!fadeOut) setFadeOut(true);
-    }, 15000);
+    }, MIN_VISIBLE_MS);
+
+    // Hard fallback: never let the splash trap the user. Even if the video
+    // never reports `ended`, `error`, or `canplay`, force-complete after this.
+    const hardFallback = setTimeout(() => {
+      videoEndedRef.current = true;
+      minTimeElapsedRef.current = true;
+      beginFadeOut();
+    }, HARD_TIMEOUT_MS);
+
+    // Defensive top-level safety net: ensure onComplete fires even if the
+    // fade-out CSS transition / state update gets stuck for any reason.
+    const ultimateSafety = setTimeout(() => {
+      if (!completedRef.current) {
+        completedRef.current = true;
+        onComplete();
+      }
+    }, HARD_TIMEOUT_MS + FADE_MS + 500);
+
     return () => {
       clearTimeout(minTimer);
-      clearTimeout(fallback);
+      clearTimeout(hardFallback);
+      clearTimeout(ultimateSafety);
     };
-  }, [tryFinish, fadeOut]);
+  }, [tryFinish, beginFadeOut, onComplete]);
 
   useEffect(() => {
-    if (fadeOut) {
-      const timer = setTimeout(onComplete, 600);
-      return () => clearTimeout(timer);
-    }
+    if (!fadeOut) return;
+    const timer = setTimeout(() => {
+      if (!completedRef.current) {
+        completedRef.current = true;
+        onComplete();
+      }
+    }, FADE_MS);
+    return () => clearTimeout(timer);
   }, [fadeOut, onComplete]);
 
   const handleVideoEnd = () => {
     videoEndedRef.current = true;
     tryFinish();
-    if (minTimeElapsedRef.current) {
-      setFadeOut(true);
-    }
   };
 
   const handleVideoError = () => {
+    // Video failed to load — treat as ended so we don't block on it.
     videoEndedRef.current = true;
-    setTimeout(() => {
-      if (!fadeOut) setFadeOut(true);
-    }, 2000);
+    tryFinish();
   };
 
   return (
@@ -54,16 +80,25 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
       className={`fixed inset-0 z-[100] flex items-center justify-center bg-black transition-opacity duration-500 ${fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"}`}
       data-testid="splash-screen"
     >
+      {/* Always-visible logo so the user has something to look at even if
+          the splash video fails to decode/load on this device. */}
+      <img
+        src={logoImg}
+        alt="CowboyMedia"
+        className={`absolute max-w-[40%] max-h-[40%] object-contain transition-opacity duration-300 ${videoReady ? "opacity-0" : "opacity-100"}`}
+        data-testid="splash-logo-fallback"
+      />
       <video
         ref={videoRef}
         src="/splash.mp4"
         autoPlay
         muted
         playsInline
+        preload="auto"
         onCanPlay={() => setVideoReady(true)}
         onEnded={handleVideoEnd}
         onError={handleVideoError}
-        className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${videoReady ? "opacity-100" : "opacity-0"}`}
+        className={`relative max-w-full max-h-full object-contain transition-opacity duration-300 ${videoReady ? "opacity-100" : "opacity-0"}`}
         data-testid="splash-video"
       />
     </div>

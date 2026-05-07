@@ -1,72 +1,172 @@
-const CACHE_NAME = 'servicehub-v11';
-const STATIC_ASSETS = [
+const CACHE_VERSION = 'v12';
+const SHELL_CACHE = `servicehub-shell-${CACHE_VERSION}`;
+const ASSETS_CACHE = `servicehub-assets-${CACHE_VERSION}`;
+const API_CACHE = `servicehub-api-${CACHE_VERSION}`;
+const STATIC_PRECACHE = [
   '/',
   '/manifest.json',
   '/splash.mp4',
+  '/favicon.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
 ];
+
+const NAV_TIMEOUT_MS = 2500;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(SHELL_CACHE).then((cache) =>
+      Promise.all(
+        STATIC_PRECACHE.map((url) =>
+          cache.add(url).catch(() => {})
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
+  const allowed = new Set([SHELL_CACHE, ASSETS_CACHE, API_CACHE]);
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== CACHE_NAME + '-api').map((k) => caches.delete(k)))
-    )
+      Promise.all(keys.filter((k) => !allowed.has(k)).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  
-  const url = event.request.url;
-  if (url.includes('/ws')) return;
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
-  if (url.includes('/api/')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response.ok && event.request.method === 'GET') {
-            const clone = response.clone();
-            caches.open(CACHE_NAME + '-api').then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => {
-          if (event.request.method === 'GET') {
-            return caches.match(event.request).then((cached) => {
-              if (cached) return cached;
-              return new Response(JSON.stringify({ error: 'offline' }), {
-                status: 503,
-                headers: { 'Content-Type': 'application/json' },
-              });
-            });
-          }
-          return new Response(JSON.stringify({ error: 'offline', message: 'You are offline. Please try again when connected.' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        })
-    );
+function isHashedAsset(url) {
+  if (!url.pathname.startsWith('/assets/')) return false;
+  return /-[A-Za-z0-9_-]{6,}\.(?:js|css|woff2?|ttf|otf|png|jpg|jpeg|gif|svg|webp|ico|mp4|webm)(?:\?.*)?$/.test(url.pathname);
+}
+
+function isNavigationRequest(request) {
+  if (request.mode === 'navigate') return true;
+  if (request.method !== 'GET') return false;
+  const accept = request.headers.get('accept') || '';
+  return accept.includes('text/html');
+}
+
+async function notifyClientsToReload(reason) {
+  try {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      client.postMessage({ type: 'SW_RELOAD_REQUIRED', reason });
+    }
+  } catch {}
+}
+
+async function handleNavigation(request) {
+  try {
+    const fresh = await Promise.race([
+      fetch(request),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('nav-timeout')), NAV_TIMEOUT_MS)
+      ),
+    ]);
+    if (fresh && fresh.ok) {
+      const clone = fresh.clone();
+      caches.open(SHELL_CACHE).then((cache) => cache.put('/', clone)).catch(() => {});
+      return fresh;
+    }
+    if (fresh) return fresh;
+  } catch {
+    // network failed or timed out — fall through to cached shell
+  }
+  const cached = (await caches.match(request)) || (await caches.match('/'));
+  if (cached) return cached;
+  return new Response(
+    '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:system-ui;padding:2rem;text-align:center"><h1>Offline</h1><p>Please reconnect and try again.</p></body>',
+    { status: 503, headers: { 'Content-Type': 'text/html' } }
+  );
+}
+
+async function handleHashedAsset(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const clone = response.clone();
+      caches.open(ASSETS_CACHE).then((cache) => cache.put(request, clone)).catch(() => {});
+      return response;
+    }
+    if (response.status === 404) {
+      // Hashed asset missing → deploy mismatch. Tell clients to reload to pick up the new shell.
+      notifyClientsToReload('asset-404');
+    }
+    return response;
+  } catch {
+    notifyClientsToReload('asset-network-error');
+    return new Response('', { status: 504, statusText: 'Asset unavailable' });
+  }
+}
+
+async function handleApi(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const clone = response.clone();
+      caches.open(API_CACHE).then((cache) => cache.put(request, clone)).catch(() => {});
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return new Response(JSON.stringify({ error: 'offline' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+async function handleOther(request) {
+  try {
+    const response = await fetch(request);
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return new Response('', { status: 504 });
+  }
+}
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
     return;
   }
-  
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.status === 200 && event.request.url.startsWith(self.location.origin)) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+
+  if (url.pathname.includes('/ws')) return;
+  if (url.origin !== self.location.origin) return;
+
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(handleApi(request));
+    return;
+  }
+
+  if (isNavigationRequest(request)) {
+    event.respondWith(handleNavigation(request));
+    return;
+  }
+
+  if (isHashedAsset(url)) {
+    event.respondWith(handleHashedAsset(request));
+    return;
+  }
+
+  event.respondWith(handleOther(request));
 });
 
 self.addEventListener('push', (event) => {
