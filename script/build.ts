@@ -1,6 +1,7 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { rm, readFile, writeFile } from "fs/promises";
+import { randomBytes } from "crypto";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -37,6 +38,20 @@ async function buildAll() {
 
   console.log("building client...");
   await viteBuild();
+
+  // Stamp the service worker with a unique build id so its cache version
+  // automatically rotates on every deploy. This avoids stale-shell white
+  // screens after a release.
+  const buildId = `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+  const swPath = "dist/public/sw.js";
+  try {
+    const swSrc = await readFile(swPath, "utf-8");
+    const swStamped = swSrc.split("__BUILD_ID__").join(buildId);
+    await writeFile(swPath, swStamped, "utf-8");
+    console.log(`stamped service worker with build id: ${buildId}`);
+  } catch (err) {
+    console.warn(`could not stamp service worker (${swPath}):`, err);
+  }
 
   console.log("building server...");
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));

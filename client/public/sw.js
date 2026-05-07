@@ -1,4 +1,7 @@
-const CACHE_VERSION = 'v12';
+// __BUILD_ID__ is replaced at build time by script/build.ts with a unique
+// per-deploy id so the cache version automatically rotates on every deploy.
+// In dev (no replacement), it falls back to a stable string.
+const CACHE_VERSION = '__BUILD_ID__'.startsWith('__') ? 'dev' : '__BUILD_ID__';
 const SHELL_CACHE = `servicehub-shell-${CACHE_VERSION}`;
 const ASSETS_CACHE = `servicehub-assets-${CACHE_VERSION}`;
 const API_CACHE = `servicehub-api-${CACHE_VERSION}`;
