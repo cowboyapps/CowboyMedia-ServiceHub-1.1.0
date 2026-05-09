@@ -4,7 +4,9 @@ import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_KEYS,
   countEnabledChannels,
+  getCategoriesForRole,
   getNotificationCategory,
+  isCategoryVisibleToRole,
   userWantsChannel,
   type NotificationPrefs,
 } from "../shared/notification-categories";
@@ -104,4 +106,57 @@ test("simulated migration: legacy emailNotifications=false maps to all-email-off
 test("category keys are unique", () => {
   const set = new Set(NOTIFICATION_CATEGORY_KEYS);
   assert.equal(set.size, NOTIFICATION_CATEGORY_KEYS.length);
+});
+
+test("isCategoryVisibleToRole: customer categories visible to every role", () => {
+  const customerCat = getNotificationCategory("ticket_reply")!;
+  assert.equal(isCategoryVisibleToRole(customerCat, "customer"), true);
+  assert.equal(isCategoryVisibleToRole(customerCat, "admin"), true);
+  assert.equal(isCategoryVisibleToRole(customerCat, "master_admin"), true);
+});
+
+test("isCategoryVisibleToRole: admin categories hidden from customers", () => {
+  const adminCat = getNotificationCategory("admin_new_ticket")!;
+  assert.equal(isCategoryVisibleToRole(adminCat, "customer"), false);
+  assert.equal(isCategoryVisibleToRole(adminCat, "admin"), true);
+  assert.equal(isCategoryVisibleToRole(adminCat, "master_admin"), true);
+});
+
+test("isCategoryVisibleToRole: master-admin-only categories restricted", () => {
+  const masterCat = getNotificationCategory("admin_ticket_reply_any")!;
+  assert.equal(isCategoryVisibleToRole(masterCat, "customer"), false);
+  assert.equal(isCategoryVisibleToRole(masterCat, "admin"), false);
+  assert.equal(isCategoryVisibleToRole(masterCat, "master_admin"), true);
+});
+
+test("getCategoriesForRole: admin sees both customer and admin categories", () => {
+  const adminCats = getCategoriesForRole("admin");
+  const keys = adminCats.map((c) => c.key);
+  // Customer categories present
+  assert.ok(keys.includes("ticket_reply"), "admin should see ticket_reply");
+  assert.ok(keys.includes("news"), "admin should see news");
+  assert.ok(keys.includes("service_alert"), "admin should see service_alert");
+  // Admin categories present
+  assert.ok(keys.includes("admin_new_ticket"), "admin should see admin_new_ticket");
+  assert.ok(keys.includes("admin_chat_message"), "admin should see admin_chat_message");
+  // Master-admin-only NOT present
+  assert.ok(!keys.includes("admin_ticket_reply_any"), "admin should NOT see master-only category");
+  // At least one email-eligible category visible
+  assert.ok(adminCats.some((c) => c.channels.includes("email")), "admin should have email-eligible categories");
+});
+
+test("getCategoriesForRole: customer never sees admin categories", () => {
+  const customerCats = getCategoriesForRole("customer");
+  const keys = customerCats.map((c) => c.key);
+  assert.ok(!keys.includes("admin_new_ticket"));
+  assert.ok(!keys.includes("admin_chat_message"));
+  assert.ok(!keys.includes("admin_broadcast"));
+  assert.ok(keys.includes("ticket_reply"));
+});
+
+test("admin with email pref off is not surfaced as wanting email for that category", () => {
+  // Mirrors server-side gating: customerWantsEmail now respects prefs for admins too.
+  const prefs: NotificationPrefs = { news: { email: false } };
+  assert.equal(userWantsChannel(prefs, "news", "email"), false);
+  assert.equal(userWantsChannel(prefs, "news", "push"), true);
 });

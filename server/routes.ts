@@ -46,13 +46,11 @@ import { getOpenAIClient } from "./openai-client";
 
 function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
-  if (user.role !== "customer") return true;
   return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push");
 }
 
 function customerWantsEmail(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
-  if (user.role !== "customer") return true;
   return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "email");
 }
 

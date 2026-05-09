@@ -215,8 +215,15 @@ export type AppRole = "customer" | "admin" | "master_admin";
 
 export function isCategoryVisibleToRole(cat: NotificationCategory, role: AppRole): boolean {
   const allowed = cat.roles ?? ["customer"];
-  const base: NotificationRole = role === "customer" ? "customer" : "admin";
-  if (!allowed.includes(base)) return false;
+  // Customer categories are visible to every role — admins are also users who
+  // file tickets, follow services, and receive news. Admin-only categories
+  // remain restricted to admin / master_admin.
+  if (allowed.includes("customer")) {
+    if (cat.requiresMasterAdmin && role !== "master_admin") return false;
+    return true;
+  }
+  // Admin-only category: only admin and master_admin may see it.
+  if (role === "customer") return false;
   if (cat.requiresMasterAdmin && role !== "master_admin") return false;
   return true;
 }

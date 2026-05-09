@@ -325,8 +325,11 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
           </CollapsibleTrigger>
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             {pushState !== "n/a" ? (
-              <label className="flex items-center gap-1.5 cursor-pointer" data-testid={`tile-group-push-${group}`}>
-                <Bell className={`w-3.5 h-3.5 ${pushState === "mixed" ? "text-amber-500" : "text-muted-foreground"}`} />
+              <label className="flex flex-col items-center gap-0.5 cursor-pointer" data-testid={`tile-group-push-${group}`}>
+                <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <Bell className={`w-3 h-3 ${pushState === "mixed" ? "text-amber-500" : ""}`} />
+                  Push
+                </span>
                 <Switch
                   checked={pushAvailable && pushState === "on"}
                   onCheckedChange={(checked) => handleGroupToggle(group, "push", checked)}
@@ -336,11 +339,19 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
                 />
               </label>
             ) : (
-              <span className="opacity-30"><Bell className="w-3.5 h-3.5" /></span>
+              <div className="flex flex-col items-center gap-0.5 opacity-30">
+                <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide">
+                  <Bell className="w-3 h-3" /> Push
+                </span>
+                <span className="text-[10px]">—</span>
+              </div>
             )}
             {emailState !== "n/a" ? (
-              <label className="flex items-center gap-1.5 cursor-pointer" data-testid={`tile-group-email-${group}`}>
-                <Mail className={`w-3.5 h-3.5 ${emailState === "mixed" ? "text-amber-500" : "text-muted-foreground"}`} />
+              <label className="flex flex-col items-center gap-0.5 cursor-pointer" data-testid={`tile-group-email-${group}`}>
+                <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <Mail className={`w-3 h-3 ${emailState === "mixed" ? "text-amber-500" : ""}`} />
+                  Email
+                </span>
                 <Switch
                   checked={emailState === "on"}
                   onCheckedChange={(checked) => handleGroupToggle(group, "email", checked)}
@@ -349,7 +360,12 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
                 />
               </label>
             ) : (
-              <span className="opacity-30"><Mail className="w-3.5 h-3.5" /></span>
+              <div className="flex flex-col items-center gap-0.5 opacity-30">
+                <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide">
+                  <Mail className="w-3 h-3" /> Email
+                </span>
+                <span className="text-[10px]">—</span>
+              </div>
             )}
           </div>
         </div>
