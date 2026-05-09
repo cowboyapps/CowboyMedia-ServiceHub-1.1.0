@@ -40,6 +40,7 @@ import {
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
+import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
 import type { User } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { getOpenAIClient } from "./openai-client";
@@ -2499,27 +2500,25 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       logActivity("news", "news_created", { actorId: req.session.userId!, targetId: story.id, targetType: "news", summary: `News story created: ${story.title}`, details: JSON.stringify({ title: story.title, content: story.content?.substring(0, 200) }) });
       broadcast({ type: "new_news", story });
       const allUsers = await storage.getAllUsers();
-      for (const u of allUsers.filter(u => u.role === "customer")) {
-        if (customerWantsPush(u, "news")) {
-          sendPushToUser(u.id, {
-            title: "New News Story",
-            body: story.title,
-            url: `/news/${story.id}`,
-            tag: `news-${story.id}`,
-          }, { type: "news", referenceType: "news", referenceId: story.id });
-        }
+      for (const u of selectNewsPushRecipients(allUsers)) {
+        sendPushToUser(u.id, {
+          title: "New News Story",
+          body: story.title,
+          url: `/news/${story.id}`,
+          tag: `news-${story.id}`,
+        }, { type: "news", referenceType: "news", referenceId: story.id });
       }
-      const customerEmails = allUsers.filter(u => u.role === "customer" && u.email && customerWantsEmail(u, "news")).map(u => u.email);
-      if (customerEmails.length > 0) {
+      const newsEmails = selectNewsEmailRecipients(allUsers);
+      if (newsEmails.length > 0) {
         const plainContent = sanitizeHtml(story.content, { allowedTags: [], allowedAttributes: {} }).trim();
         const emailPreview = plainContent.length > 500 ? plainContent.substring(0, 500) + "..." : plainContent;
-        sendTemplatedEmail(customerEmails, "customer_news", {
+        sendTemplatedEmail(newsEmails, "customer_news", {
           story_title: story.title,
           story_content: emailPreview,
         }, "Customers");
       }
-      const customerIds = allUsers.filter(u => u.role === "customer").map(u => u.id);
-      storage.createContentNotificationBulk(customerIds, "news", story.title, story.id).catch(() => {});
+      const newsRecipientIds = selectNewsInAppRecipients(allUsers);
+      storage.createContentNotificationBulk(newsRecipientIds, "news", story.title, story.id).catch(() => {});
       fireDiscordMany(composeDiscordNews({ title: story.title, content: story.content || "", newsId: story.id, baseUrl: getBaseUrl(req) }), "news");
       fireTelegramMany(composeNews({ title: story.title, content: story.content || "" }), "news");
       res.json(story);
