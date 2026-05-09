@@ -18,82 +18,22 @@ const SAMPLE: TicketCategory = {
   name: "Billing",
   description: "Billing questions",
   assignedRoleIds: ["role-a"],
-  firstResponseTargetMinutes: 60,
-  resolutionTargetMinutes: 480,
   createdAt: new Date("2025-01-01T00:00:00Z"),
 };
 
-// ---------- Schema ----------
+// ---------- Update schema ----------
 
 test("updateTicketCategorySchema: accepts a complete valid payload", () => {
   const r = updateTicketCategorySchema.safeParse({
     name: "Support",
     description: "general questions",
     assignedRoleIds: ["a", "b"],
-    firstResponseTargetMinutes: 30,
-    resolutionTargetMinutes: 240,
   });
   assert.equal(r.success, true);
 });
 
 test("updateTicketCategorySchema: accepts an empty payload", () => {
   assert.equal(updateTicketCategorySchema.safeParse({}).success, true);
-});
-
-test("updateTicketCategorySchema: accepts null/empty SLA targets and normalizes to null", () => {
-  const a = updateTicketCategorySchema.safeParse({ firstResponseTargetMinutes: null });
-  const b = updateTicketCategorySchema.safeParse({ firstResponseTargetMinutes: "" });
-  assert.equal(a.success, true);
-  assert.equal(b.success, true);
-  if (a.success) assert.equal(a.data.firstResponseTargetMinutes, null);
-  if (b.success) assert.equal(b.data.firstResponseTargetMinutes, null);
-});
-
-test("updateTicketCategorySchema: parses numeric strings into integers", () => {
-  const r = updateTicketCategorySchema.safeParse({ firstResponseTargetMinutes: "45" });
-  assert.equal(r.success, true);
-  if (r.success) assert.equal(r.data.firstResponseTargetMinutes, 45);
-});
-
-test("updateTicketCategorySchema: rejects non-numeric SLA strings", () => {
-  for (const bad of ["abc", "-5", "10m", "1e3"]) {
-    const r = updateTicketCategorySchema.safeParse({ firstResponseTargetMinutes: bad });
-    assert.equal(r.success, false, `value "${bad}" should be rejected`);
-  }
-});
-
-test("updateTicketCategorySchema: rejects non-positive numeric SLA targets", () => {
-  assert.equal(
-    updateTicketCategorySchema.safeParse({ resolutionTargetMinutes: 0 }).success,
-    false,
-  );
-  assert.equal(
-    updateTicketCategorySchema.safeParse({ resolutionTargetMinutes: -1 }).success,
-    false,
-  );
-});
-
-test("updateTicketCategorySchema: floors fractional numeric SLA targets", () => {
-  // Non-integer numbers fail schema validation; the string variant floors.
-  assert.equal(
-    updateTicketCategorySchema.safeParse({ resolutionTargetMinutes: 1.5 }).success,
-    false,
-  );
-  const r = updateTicketCategorySchema.safeParse({ resolutionTargetMinutes: "1.5" });
-  assert.equal(r.success, true);
-  if (r.success) assert.equal(r.data.resolutionTargetMinutes, 1);
-});
-
-test("updateTicketCategorySchema: rejects oversize SLA targets", () => {
-  const r = updateTicketCategorySchema.safeParse({
-    resolutionTargetMinutes: 60 * 24 * 365 + 1,
-  });
-  assert.equal(r.success, false);
-});
-
-test("updateTicketCategorySchema: rejects oversize SLA target as numeric string", () => {
-  const r = updateTicketCategorySchema.safeParse({ resolutionTargetMinutes: "999999999" });
-  assert.equal(r.success, false);
 });
 
 test("updateTicketCategorySchema: rejects empty/oversize name", () => {
@@ -127,13 +67,10 @@ test("updateTicketCategorySchema: accepts null description", () => {
 
 test("buildTicketCategoryPatch: only includes specified fields", () => {
   assert.deepEqual(buildTicketCategoryPatch({}), {});
+  assert.deepEqual(buildTicketCategoryPatch({ name: "X" }), { name: "X" });
   assert.deepEqual(
-    buildTicketCategoryPatch({ name: "X" }),
-    { name: "X" },
-  );
-  assert.deepEqual(
-    buildTicketCategoryPatch({ firstResponseTargetMinutes: null }),
-    { firstResponseTargetMinutes: null },
+    buildTicketCategoryPatch({ description: null }),
+    { description: null },
   );
 });
 
@@ -170,8 +107,6 @@ function mockStorage(opts: { found?: TicketCategory | null } = {}) {
         name: cat.name,
         description: cat.description ?? null,
         assignedRoleIds: cat.assignedRoleIds ?? [],
-        firstResponseTargetMinutes: cat.firstResponseTargetMinutes ?? null,
-        resolutionTargetMinutes: cat.resolutionTargetMinutes ?? null,
       };
     },
     async updateTicketCategory(id, data) {
@@ -186,57 +121,6 @@ function mockStorage(opts: { found?: TicketCategory | null } = {}) {
 function makeReq(body: any, id = "cat-1"): any {
   return { body, params: { id }, session: { userId: "admin-1" } };
 }
-
-test("PATCH ticket-categories: 400 on schema-invalid SLA", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.patchAdmin(makeReq({ firstResponseTargetMinutes: "abc" }), res);
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.body.message, "Invalid category");
-  assert.equal(state.updateCalls.length, 0);
-});
-
-test("PATCH ticket-categories: 400 on negative SLA", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.patchAdmin(makeReq({ resolutionTargetMinutes: -5 }), res);
-  assert.equal(res.statusCode, 400);
-  assert.equal(state.updateCalls.length, 0);
-});
-
-test("PATCH ticket-categories: persists numeric-string SLA as integer minutes", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.patchAdmin(makeReq({ firstResponseTargetMinutes: "45" }), res);
-  assert.equal(res.statusCode, 200);
-  assert.equal(state.updateCalls.length, 1);
-  assert.deepEqual(state.updateCalls[0], {
-    id: "cat-1",
-    data: { firstResponseTargetMinutes: 45 },
-  });
-  assert.equal(res.body.firstResponseTargetMinutes, 45);
-});
-
-test("PATCH ticket-categories: clears SLA when given null", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.patchAdmin(makeReq({ resolutionTargetMinutes: null }), res);
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(state.updateCalls[0].data, { resolutionTargetMinutes: null });
-});
-
-test("PATCH ticket-categories: clears SLA when given empty string", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.patchAdmin(makeReq({ firstResponseTargetMinutes: "" }), res);
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(state.updateCalls[0].data, { firstResponseTargetMinutes: null });
-});
 
 test("PATCH ticket-categories: omits unspecified fields from storage call", async () => {
   const { storage, state } = mockStorage();
@@ -276,6 +160,7 @@ test("PATCH ticket-categories: 404 when category not found", async () => {
 
 test("PATCH ticket-categories: 500 when storage throws", async () => {
   const storage: TicketCategoryStorage = {
+    async createTicketCategory() { throw new Error("not used"); },
     async updateTicketCategory() { throw new Error("db down"); },
   };
   const handlers = createTicketCategoryHandlers({ storage });
@@ -307,61 +192,9 @@ test("createTicketCategorySchema: accepts a complete payload and trims name", ()
     name: "  Support  ",
     description: "general",
     assignedRoleIds: ["a", "b"],
-    firstResponseTargetMinutes: 30,
-    resolutionTargetMinutes: 240,
   });
   assert.equal(r.success, true);
   if (r.success) assert.equal(r.data.name, "Support");
-});
-
-test("createTicketCategorySchema: parses numeric-string SLA into integer", () => {
-  const r = createTicketCategorySchema.safeParse({
-    name: "X",
-    firstResponseTargetMinutes: "45",
-  });
-  assert.equal(r.success, true);
-  if (r.success) assert.equal(r.data.firstResponseTargetMinutes, 45);
-});
-
-test("createTicketCategorySchema: normalizes empty/null SLA to null", () => {
-  const a = createTicketCategorySchema.safeParse({ name: "X", firstResponseTargetMinutes: "" });
-  const b = createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: null });
-  assert.equal(a.success, true);
-  assert.equal(b.success, true);
-  if (a.success) assert.equal(a.data.firstResponseTargetMinutes, null);
-  if (b.success) assert.equal(b.data.resolutionTargetMinutes, null);
-});
-
-test("createTicketCategorySchema: rejects non-numeric / non-positive SLA", () => {
-  for (const bad of ["abc", "-5", "10m", "1e3"]) {
-    const r = createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: bad });
-    assert.equal(r.success, false, `value "${bad}" should be rejected`);
-  }
-  assert.equal(
-    createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: 0 }).success,
-    false,
-  );
-  assert.equal(
-    createTicketCategorySchema.safeParse({ name: "X", resolutionTargetMinutes: -1 }).success,
-    false,
-  );
-});
-
-test("createTicketCategorySchema: rejects oversize SLA targets", () => {
-  assert.equal(
-    createTicketCategorySchema.safeParse({
-      name: "X",
-      resolutionTargetMinutes: 60 * 24 * 365 + 1,
-    }).success,
-    false,
-  );
-  assert.equal(
-    createTicketCategorySchema.safeParse({
-      name: "X",
-      firstResponseTargetMinutes: "999999999",
-    }).success,
-    false,
-  );
 });
 
 test("createTicketCategorySchema: rejects oversize description and assignedRoleIds", () => {
@@ -382,8 +215,6 @@ test("buildTicketCategoryInsert: fills defaults for omitted fields", () => {
     name: "X",
     description: null,
     assignedRoleIds: [],
-    firstResponseTargetMinutes: null,
-    resolutionTargetMinutes: null,
   });
 });
 
@@ -393,15 +224,11 @@ test("buildTicketCategoryInsert: passes through provided fields", () => {
       name: "X",
       description: "d",
       assignedRoleIds: ["r"],
-      firstResponseTargetMinutes: 10,
-      resolutionTargetMinutes: 20,
     }),
     {
       name: "X",
       description: "d",
       assignedRoleIds: ["r"],
-      firstResponseTargetMinutes: 10,
-      resolutionTargetMinutes: 20,
     },
   );
 });
@@ -423,30 +250,6 @@ test("POST ticket-categories: 400 when name is blank", async () => {
   const handlers = createTicketCategoryHandlers({ storage });
   const res = mockRes();
   await handlers.postAdmin(makeReq({ name: "   " }), res);
-  assert.equal(res.statusCode, 400);
-  assert.equal(state.createCalls.length, 0);
-});
-
-test("POST ticket-categories: 400 on schema-invalid SLA", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.postAdmin(
-    makeReq({ name: "X", firstResponseTargetMinutes: "abc" }),
-    res,
-  );
-  assert.equal(res.statusCode, 400);
-  assert.equal(state.createCalls.length, 0);
-});
-
-test("POST ticket-categories: 400 on negative SLA", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.postAdmin(
-    makeReq({ name: "X", resolutionTargetMinutes: -5 }),
-    res,
-  );
   assert.equal(res.statusCode, 400);
   assert.equal(state.createCalls.length, 0);
 });
@@ -483,28 +286,9 @@ test("POST ticket-categories: persists a valid payload with defaults", async () 
     name: "Billing",
     description: null,
     assignedRoleIds: [],
-    firstResponseTargetMinutes: null,
-    resolutionTargetMinutes: null,
   });
   assert.equal(res.body.id, "new-id");
   assert.equal(res.body.name, "Billing");
-});
-
-test("POST ticket-categories: parses numeric-string SLA into integer minutes", async () => {
-  const { storage, state } = mockStorage();
-  const handlers = createTicketCategoryHandlers({ storage });
-  const res = mockRes();
-  await handlers.postAdmin(
-    makeReq({
-      name: "Support",
-      firstResponseTargetMinutes: "45",
-      resolutionTargetMinutes: "240",
-    }),
-    res,
-  );
-  assert.equal(res.statusCode, 200);
-  assert.equal(state.createCalls[0].firstResponseTargetMinutes, 45);
-  assert.equal(state.createCalls[0].resolutionTargetMinutes, 240);
 });
 
 test("POST ticket-categories: strips unknown fields", async () => {

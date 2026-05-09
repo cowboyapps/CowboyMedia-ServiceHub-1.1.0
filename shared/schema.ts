@@ -80,7 +80,6 @@ export const tickets = pgTable("tickets", {
   imageUrl: text("image_url"),
   resolutionNote: text("resolution_note"),
   closedBy: varchar("closed_by"),
-  firstResponseAt: timestamp("first_response_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
 });
@@ -210,8 +209,6 @@ export const ticketCategories = pgTable("ticket_categories", {
   name: text("name").notNull().unique(),
   description: text("description"),
   assignedRoleIds: text("assigned_role_ids").array().default(sql`'{}'::text[]`),
-  firstResponseTargetMinutes: integer("first_response_target_minutes"),
-  resolutionTargetMinutes: integer("resolution_target_minutes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -607,39 +604,11 @@ export const updateDiscordSettingsSchema = z.object({
 });
 export type UpdateDiscordSettingsData = z.infer<typeof updateDiscordSettingsSchema>;
 
-// Ticket category SLA / metadata (admin PATCH)
-const slaTargetSchema = z
-  .union([
-    z.null(),
-    z.literal(""),
-    z.number().int().positive().max(60 * 24 * 365),
-    z
-      .string()
-      .max(16)
-      .regex(/^\d+(\.\d+)?$/, "Must be a positive number"),
-  ])
-  .transform((v, ctx): number | null => {
-    if (v === null || v === "") return null;
-    if (typeof v === "number") return Math.floor(v);
-    const n = Number(v);
-    if (!Number.isFinite(n) || n <= 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Must be a positive number" });
-      return z.NEVER;
-    }
-    const floored = Math.floor(n);
-    if (floored > 60 * 24 * 365) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "SLA target too large" });
-      return z.NEVER;
-    }
-    return floored;
-  });
-
+// Ticket category metadata (admin PATCH)
 export const updateTicketCategorySchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   description: z.union([z.string().max(2000), z.null()]).optional(),
   assignedRoleIds: z.array(z.string().min(1).max(64)).max(64).optional(),
-  firstResponseTargetMinutes: slaTargetSchema.optional(),
-  resolutionTargetMinutes: slaTargetSchema.optional(),
 });
 export type UpdateTicketCategoryData = z.infer<typeof updateTicketCategorySchema>;
 
@@ -647,8 +616,6 @@ export const createTicketCategorySchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.union([z.string().max(2000), z.null()]).optional(),
   assignedRoleIds: z.array(z.string().min(1).max(64)).max(64).optional(),
-  firstResponseTargetMinutes: slaTargetSchema.optional(),
-  resolutionTargetMinutes: slaTargetSchema.optional(),
 });
 export type CreateTicketCategoryData = z.infer<typeof createTicketCategorySchema>;
 

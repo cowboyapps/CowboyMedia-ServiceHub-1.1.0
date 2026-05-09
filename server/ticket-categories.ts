@@ -26,12 +26,6 @@ export function buildTicketCategoryPatch(data: UpdateTicketCategoryData): Partia
   if (data.name !== undefined) patch.name = data.name;
   if (data.description !== undefined) patch.description = data.description;
   if (data.assignedRoleIds !== undefined) patch.assignedRoleIds = data.assignedRoleIds;
-  if (data.firstResponseTargetMinutes !== undefined) {
-    patch.firstResponseTargetMinutes = data.firstResponseTargetMinutes;
-  }
-  if (data.resolutionTargetMinutes !== undefined) {
-    patch.resolutionTargetMinutes = data.resolutionTargetMinutes;
-  }
   return patch;
 }
 
@@ -40,8 +34,6 @@ export function buildTicketCategoryInsert(data: CreateTicketCategoryData): Inser
     name: data.name,
     description: data.description ?? null,
     assignedRoleIds: data.assignedRoleIds ?? [],
-    firstResponseTargetMinutes: data.firstResponseTargetMinutes ?? null,
-    resolutionTargetMinutes: data.resolutionTargetMinutes ?? null,
   };
 }
 

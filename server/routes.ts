@@ -43,7 +43,6 @@ import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, 
 import type { User } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { getOpenAIClient } from "./openai-client";
-import { computeTicketSla, businessMinutesBetween, averageMinutes, type TicketSla, type SlaState } from "./sla";
 
 function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
@@ -1071,78 +1070,17 @@ export async function registerRoutes(
         const pendingTransferTicketIds = new Set(pendingTransfers.map(t => t.ticketId));
         result = result.filter(t => !t.claimedBy || t.claimedBy === user.id || pendingTransferTicketIds.has(t.id));
       }
-      const [allCategories, bh] = await Promise.all([
-        storage.getAllTicketCategories(),
-        storage.getBusinessHours(),
-      ]);
-      const catMap = new Map(allCategories.map(c => [c.id, c]));
-      const now = new Date();
       const enriched = await Promise.all(result.map(async (t) => {
-        const sla = computeTicketSla(t, t.categoryId ? catMap.get(t.categoryId) : null, bh, now);
         if (t.claimedBy) {
           const claimedAdmin = await storage.getUser(t.claimedBy);
-          return { ...t, claimedByName: claimedAdmin?.fullName || "Unknown", sla };
+          return { ...t, claimedByName: claimedAdmin?.fullName || "Unknown" };
         }
-        return { ...t, claimedByName: null, sla };
+        return { ...t, claimedByName: null };
       }));
       res.json(enriched);
     } else {
       const result = await storage.getTicketsByCustomer(user.id);
       res.json(result);
-    }
-  });
-
-  app.get("/api/admin/tickets/sla-summary", requirePermission("support_tickets"), async (req, res) => {
-    try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user) return res.status(401).json({ message: "Unauthorized" });
-      let tickets = await storage.getAllTickets();
-      if (user.role !== "master_admin") {
-        const accessibleCategoryIds = await getAdminCategoryAccess(user.id);
-        if (!accessibleCategoryIds.includes("*")) {
-          tickets = tickets.filter(t => !t.categoryId || accessibleCategoryIds.includes(t.categoryId));
-        }
-      }
-      const open = tickets.filter(t => t.status === "open");
-      const [allCategories, bh] = await Promise.all([
-        storage.getAllTicketCategories(),
-        storage.getBusinessHours(),
-      ]);
-      const catMap = new Map(allCategories.map(c => [c.id, c]));
-      const now = new Date();
-      const counts: Record<SlaState, number> = { breached: 0, approaching: 0, on_track: 0, met: 0, none: 0 };
-      let awaitingFirstResponse = 0;
-      for (const t of open) {
-        const sla = computeTicketSla(t, t.categoryId ? catMap.get(t.categoryId) : null, bh, now);
-        counts[sla.worstState] += 1;
-        if (!t.firstResponseAt) awaitingFirstResponse += 1;
-      }
-      // 7-day averages over tickets whose relevant timestamp falls in the trailing window.
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const frSamples: number[] = [];
-      const resSamples: number[] = [];
-      for (const t of tickets) {
-        if (t.firstResponseAt && new Date(t.firstResponseAt) >= sevenDaysAgo) {
-          frSamples.push(businessMinutesBetween(new Date(t.createdAt), new Date(t.firstResponseAt), bh));
-        }
-        if (t.status === "closed" && t.closedAt && new Date(t.closedAt) >= sevenDaysAgo) {
-          resSamples.push(businessMinutesBetween(new Date(t.createdAt), new Date(t.closedAt), bh));
-        }
-      }
-      res.json({
-        openCount: open.length,
-        awaitingFirstResponse,
-        breached: counts.breached,
-        approaching: counts.approaching,
-        onTrack: counts.on_track,
-        noTarget: counts.none,
-        avgFirstResponseMinutes7d: averageMinutes(frSamples),
-        avgResolutionMinutes7d: averageMinutes(resSamples),
-        firstResponseSampleCount7d: frSamples.length,
-        resolutionSampleCount7d: resSamples.length,
-      });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
     }
   });
 
@@ -1171,12 +1109,7 @@ export async function registerRoutes(
       const claimedAdmin = await storage.getUser(ticket.claimedBy);
       claimedByName = claimedAdmin?.fullName || "Unknown";
     }
-    const [category, bh] = await Promise.all([
-      ticket.categoryId ? storage.getTicketCategory(ticket.categoryId) : Promise.resolve(undefined),
-      storage.getBusinessHours(),
-    ]);
-    const sla = computeTicketSla(ticket, category, bh);
-    res.json({ ...ticket, claimedByName, sla });
+    res.json({ ...ticket, claimedByName });
   });
 
   app.post("/api/tickets", requireAuth, upload.single("image"), async (req, res) => {
@@ -1887,15 +1820,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         message: req.body.message,
         imageUrl: imageUrl || null,
       });
-      // SLA: capture first admin response (excludes the cowboymedia-support system auto-replies).
-      if (isAdmin && !ticket.firstResponseAt && user.username !== "cowboymedia-support") {
-        try {
-          const updated = await storage.updateTicket(ticket.id, { firstResponseAt: message.createdAt });
-          if (updated) broadcast({ type: "ticket_updated", ticket: updated });
-        } catch (slaErr) {
-          console.error("SLA first-response capture error:", slaErr);
-        }
-      }
       const msgCustomer = isAdmin ? await storage.getUser(ticket.customerId) : user;
       logActivity("ticket", "ticket_message", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Message on ticket "${ticket.subject}" by ${user.fullName} (customer: ${msgCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ sender: user.fullName, customer: msgCustomer?.fullName, subject: ticket.subject }) });
       broadcast({ type: "ticket_message", ticketId: req.params.id, message });

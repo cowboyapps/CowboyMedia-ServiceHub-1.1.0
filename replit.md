@@ -38,7 +38,6 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Notification Categories**: `shared/notification-categories.ts`
 - **Knowledge Base Helpers**: `shared/kb.ts`
 - **Announcement Routes Allowlist**: `shared/announcement-routes.ts`
-- **SLA UI Helpers**: `client/src/lib/sla-ui.tsx`
 - **OpenAI Client**: `server/openai-client.ts`
 
 ## Architecture decisions
@@ -48,7 +47,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Role-Based Access**: Granular permissions system for admin users ensures secure access control.
 - **Rich Content Editing**: TipTap editor used for news, knowledge base articles, and postmortems, ensuring rich text formatting.
 - **Optimistic UI Updates**: Implemented in support ticketing for a smoother user experience, particularly with message sending.
-- **Business Hours Logic**: Centralized configuration and server-side calculation for SLAs and customer interactions, accounting for timezones and DST.
+- **Business Hours Logic**: Centralized configuration and server-side calculation for customer interactions and auto-responses, accounting for timezones and DST.
 - **AI Integration**: Optional AI features for canned response suggestions and drafting replies, integrated with OpenAI.
 - **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers. Discord supports per-service webhook overrides (services.discord_webhook_url) for alert / alert update / resolve / postmortem / service update fan-outs; news still uses the global webhook.
 
@@ -60,7 +59,6 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Admin Portal**: Comprehensive tools for user, service, alert, and content management.
 - **PWA Features**: Offline support, push notifications, and app badge management.
 - **Knowledge Base**: Searchable articles with rich text, helpfulness feedback, and suggested articles for new tickets.
-- **SLA Tracking**: Per-category service level agreement targets for first response and resolution times, with business hour considerations.
 - **Incident Postmortems**: Rich-text postmortems for service alerts, with email and push notification fan-out to affected users.
 - **Customer Onboarding Tour**: Interactive tour for first-time customers highlighting key features.
 - **Admin Announcements**: Popup announcements for customers with rich text and optional in-app links.

@@ -20,7 +20,6 @@ import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, QuickResponse, TicketCategory } from "@shared/schema";
-import { SlaPill, formatDuration, slaStateLabel, type TicketSla } from "@/lib/sla-ui";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string };
 
@@ -603,9 +602,6 @@ export default function TicketDetail() {
               <Badge variant={ticket.priority === "high" ? "destructive" : "secondary"} className="text-xs capitalize">{ticket.priority}</Badge>
               {serviceName && <Badge variant="secondary" className="text-xs">{serviceName}</Badge>}
               {categoryName && <Badge variant="outline" className="text-xs">{categoryName}</Badge>}
-              {isAdmin && (ticket as any).sla && (
-                <SlaPill sla={(ticket as any).sla as TicketSla} status={ticket.status} compact testId="sla-pill-header" />
-              )}
               {(() => {
                 const otherPartyRole = isAdmin ? "user" : "admin";
                 const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
@@ -951,48 +947,6 @@ export default function TicketDetail() {
               <p className="text-xs text-muted-foreground mt-2">
                 Opened {format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}
               </p>
-              {isAdmin && (ticket as any).sla && (() => {
-                const sla = (ticket as any).sla as TicketSla;
-                const renderRow = (label: string, m: TicketSla["firstResponse"]) => {
-                  if (m.state === "none") return (
-                    <div className="flex items-center justify-between gap-2 text-xs" data-testid={`sla-row-${label.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className="text-muted-foreground">No target set</span>
-                    </div>
-                  );
-                  const stateColor = m.state === "breached"
-                    ? "text-red-700 dark:text-red-300"
-                    : m.state === "approaching"
-                      ? "text-amber-700 dark:text-amber-300"
-                      : m.state === "on_track"
-                        ? "text-green-700 dark:text-green-300"
-                        : "text-muted-foreground";
-                  const tip = `Target: ${formatDuration(m.targetMinutes!)}${m.dueAt ? ` · Due ${new Date(m.dueAt).toLocaleString()}` : ""}${m.completedAt ? ` · Completed ${new Date(m.completedAt).toLocaleString()}` : ""} · Elapsed ${formatDuration(m.elapsedMinutes)} (business hours)`;
-                  let detail: string;
-                  if (m.completedAt) {
-                    detail = m.state === "met" ? `Met in ${formatDuration(m.elapsedMinutes)}` : `Breached by ${formatDuration(-(m.remainingMinutes ?? 0))}`;
-                  } else if ((m.remainingMinutes ?? 0) < 0) {
-                    detail = `${formatDuration(-(m.remainingMinutes ?? 0))} over target`;
-                  } else {
-                    detail = `${formatDuration(m.remainingMinutes ?? 0)} remaining`;
-                  }
-                  return (
-                    <div className="flex items-center justify-between gap-2 text-xs" title={tip} data-testid={`sla-row-${label.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className={`font-medium ${stateColor}`}>{slaStateLabel(m.state)} · {detail}</span>
-                    </div>
-                  );
-                };
-                return (
-                  <div className="mt-3 p-3 rounded-md border bg-muted/30 space-y-1.5" data-testid="sla-panel">
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                      <Clock className="w-3 h-3" /> SLA
-                    </div>
-                    {renderRow("First response", sla.firstResponse)}
-                    {renderRow("Resolution", sla.resolution)}
-                  </div>
-                );
-              })()}
             </div>
 
             {ticket.status === "closed" && (
