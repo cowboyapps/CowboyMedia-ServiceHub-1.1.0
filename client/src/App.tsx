@@ -29,7 +29,7 @@ import { NotificationCenter } from "@/components/notification-center";
 import { OnboardingTour } from "@/components/onboarding-tour";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
-import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
+import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import NotFound from "@/pages/not-found";

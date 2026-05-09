@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ArrowLeft, Mail, CheckCircle } from "lucide-react";
-import logoImg from "@assets/CowboyMedia_App_Internal_Logo_(512_x_512_px)_20260128_040144_0_1771258775818.png";
+import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
 
 const forgotPasswordSchema = z.object({
   usernameOrEmail: z.string().min(1, "Username or email is required"),
