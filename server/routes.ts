@@ -1552,7 +1552,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         body: `${admin.fullName} transferred a ticket to you: ${ticket.subject} — Reason: ${reason}`,
         url: `/tickets/${ticket.id}`,
         tag: `ticket-transfer-${ticket.id}`,
-      });
+      }, { type: "ticket_transfer", referenceType: "ticket", referenceId: ticket.id });
 
       storage.createTicketNotification({
         userId: toAdminId,
@@ -2619,7 +2619,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           body: `${sender?.fullName}: ${subject}`,
           url: "/messages",
           tag: `pm-${message.id}`,
-        });
+        }, { type: "private_message", referenceType: "private_message", referenceId: message.id });
       }
 
       if (recipient.email && customerWantsEmail(recipient, "private_message") && sender) {
@@ -3551,7 +3551,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               body: `${user.fullName}: ${messagePreview}`,
               url: `/admin?tab=admin-chat&chat=${req.params.id}`,
               tag: `admin-chat-${req.params.id}`,
-            });
+            }, { type: "admin_chat_message", referenceType: "admin_chat_thread", referenceId: req.params.id });
           }
         }
       }
@@ -4472,8 +4472,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       sendPushToUser(userId, {
         title: "⚠️ Community Chat Warning",
         body: warnMessage,
-        data: { url: "/community" },
-      });
+        url: "/community",
+        tag: `community-warn-${userId}`,
+      }, { type: "community_chat_warn", referenceType: "user", referenceId: userId });
 
       logActivity("community_chat", "warn_user", {
         actorId: req.session.userId!,
@@ -4511,8 +4512,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       sendPushToUser(userId, {
         title: "🚫 Community Chat Ban",
         body: "You have been banned from the community chat.",
-        data: { url: "/community" },
-      });
+        url: "/community",
+        tag: `community-ban-${userId}`,
+      }, { type: "community_chat_ban", referenceType: "user", referenceId: userId });
 
       logActivity("community_chat", "ban_user", {
         actorId: req.session.userId!,
