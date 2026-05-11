@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { findUnfilledPlaceholders } from "@shared/quick-response-vars";
+import { findUnfilledPlaceholders, tokenizeQuickResponseTemplate } from "@shared/quick-response-vars";
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -156,6 +156,7 @@ export default function TicketDetail() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const placeholderOverlayRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
@@ -498,6 +499,28 @@ export default function TicketDetail() {
     if (!trimmed) return [];
     return Array.from(new Set(findUnfilledPlaceholders(trimmed, placeholderContext)));
   }, [isAdmin, isInternalNote, message, placeholderContext]);
+
+  const showPlaceholderOverlay = isAdmin && !isInternalNote;
+  const placeholderOverlaySegments = useMemo(() => {
+    if (!showPlaceholderOverlay || !message) return [];
+    return tokenizeQuickResponseTemplate(message, placeholderContext);
+  }, [showPlaceholderOverlay, message, placeholderContext]);
+  const hasPlaceholderHighlights = useMemo(
+    () => placeholderOverlaySegments.some((s) => s.kind === "missing" || s.kind === "unknown"),
+    [placeholderOverlaySegments],
+  );
+
+  const syncPlaceholderOverlayScroll = useCallback(() => {
+    const ta = messageInputRef.current;
+    const overlay = placeholderOverlayRef.current;
+    if (!ta || !overlay) return;
+    overlay.scrollTop = ta.scrollTop;
+    overlay.scrollLeft = ta.scrollLeft;
+  }, []);
+
+  useEffect(() => {
+    syncPlaceholderOverlayScroll();
+  }, [message, syncPlaceholderOverlayScroll]);
 
   const performSend = useCallback(
     (msgText: string, imgFile: File | null, internal: boolean) => {
@@ -1462,27 +1485,57 @@ export default function TicketDetail() {
                     onInsert={applySuggestion}
                   />
                 )}
-                <Textarea
-                  ref={messageInputRef}
-                  value={message}
-                  onChange={(e) => {
-                    setMessage(e.target.value);
-                    if (e.target.value.trim()) sendTypingEvent();
-                    const el = e.target;
-                    el.style.height = "auto";
-                    el.style.height = Math.min(el.scrollHeight, 120) + "px";
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  placeholder={isAdmin && isInternalNote ? "Type an internal note (admins only)..." : "Type a message..."}
-                  className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm py-2 leading-5"
-                  rows={1}
-                  data-testid="input-message"
-                />
+                <div className="relative flex-1">
+                  {showPlaceholderOverlay && hasPlaceholderHighlights && (
+                    <div
+                      ref={placeholderOverlayRef}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 overflow-hidden rounded-md border border-transparent px-3 py-2 text-sm leading-5 text-transparent whitespace-pre-wrap break-words"
+                      data-testid="overlay-placeholder-highlights"
+                    >
+                      {placeholderOverlaySegments.map((seg, i) => {
+                        if (seg.kind === "missing" || seg.kind === "unknown") {
+                          return (
+                            <span
+                              key={i}
+                              className="rounded bg-amber-200/70 dark:bg-amber-900/50 underline decoration-amber-600 decoration-2 underline-offset-2"
+                              data-testid={`overlay-placeholder-token-${i}`}
+                            >
+                              {seg.raw}
+                            </span>
+                          );
+                        }
+                        if (seg.kind === "filled") {
+                          return <span key={i}>{seg.raw}</span>;
+                        }
+                        return <span key={i}>{seg.value}</span>;
+                      })}
+                      {message.endsWith("\n") && "\u200b"}
+                    </div>
+                  )}
+                  <Textarea
+                    ref={messageInputRef}
+                    value={message}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      if (e.target.value.trim()) sendTypingEvent();
+                      const el = e.target;
+                      el.style.height = "auto";
+                      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    onScroll={syncPlaceholderOverlayScroll}
+                    placeholder={isAdmin && isInternalNote ? "Type an internal note (admins only)..." : "Type a message..."}
+                    className="relative w-full min-h-[36px] max-h-[120px] resize-none text-sm py-2 leading-5 bg-transparent whitespace-pre-wrap break-words"
+                    rows={1}
+                    data-testid="input-message"
+                  />
+                </div>
                 <Button
                   type="button"
                   size="icon"
