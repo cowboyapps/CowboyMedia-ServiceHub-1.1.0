@@ -5,11 +5,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   PLACEHOLDER_TOKEN_RE,
   QUICK_RESPONSE_VARIABLES,
+  suggestKnownVariable,
 } from "@shared/quick-response-vars";
 
 export type TemplateEditorPart =
   | { kind: "text"; value: string }
-  | { kind: "unknown"; raw: string; start: number; end: number };
+  | { kind: "unknown"; raw: string; start: number; end: number; suggestion: string | null };
 
 type Part = TemplateEditorPart;
 
@@ -35,7 +36,13 @@ export function tokenizeTemplateForEditor(value: string): TemplateEditorPart[] {
     if (isKnown) {
       out.push({ kind: "text", value: raw });
     } else {
-      out.push({ kind: "unknown", raw, start: m.index, end: m.index + raw.length });
+      out.push({
+        kind: "unknown",
+        raw,
+        start: m.index,
+        end: m.index + raw.length,
+        suggestion: suggestKnownVariable(raw),
+      });
     }
     last = m.index + raw.length;
   }
@@ -198,11 +205,37 @@ export function TemplateMessageEditor({
                       className="text-xs text-muted-foreground"
                       data-testid={`text-template-placeholder-explanation-${i}`}
                     >
-                      This isn&apos;t a recognized variable, so it can&apos;t be filled in
-                      automatically. Check for a typo.
+                      {part.suggestion ? (
+                        <>
+                          This isn&apos;t a recognized variable. Did you mean{" "}
+                          <code className="font-mono">{`{{${part.suggestion}}}`}</code>?
+                        </>
+                      ) : (
+                        <>
+                          This isn&apos;t a recognized variable, so it can&apos;t be
+                          filled in automatically. Check for a typo.
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="border-t flex flex-col">
+                    {part.suggestion && (
+                      <button
+                        type="button"
+                        className="px-3 py-2 text-left text-sm hover:bg-accent"
+                        onClick={() =>
+                          replaceRange(
+                            part.start,
+                            part.end,
+                            `{{${part.suggestion}}}`,
+                            "end",
+                          )
+                        }
+                        data-testid={`button-template-placeholder-suggest-${i}`}
+                      >
+                        Replace with <code className="font-mono">{`{{${part.suggestion}}}`}</code>
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="px-3 py-2 text-left text-sm hover:bg-accent"

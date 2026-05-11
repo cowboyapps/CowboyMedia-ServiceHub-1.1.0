@@ -2,12 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyQuickResponseVariables,
+  applySuggestionsToTemplate,
   findUnfilledPlaceholders,
   findUnknownPlaceholders,
   nextRecentList,
   QUICK_RESPONSE_VARIABLES,
   quickResponseHasMissingVariables,
   recordQuickResponseInsertion,
+  suggestKnownVariable,
   tokenizeQuickResponseTemplate,
   walkPlaceholderOverlay,
 } from "./quick-response-vars";
@@ -316,6 +318,67 @@ test("walkPlaceholderOverlay: repeated calls return identical results (regex sta
   const text = "Hi {{customer_name}} {{evil}}";
   const ctx = { customer_name: "Sam" };
   assert.deepEqual(walkPlaceholderOverlay(text, ctx), walkPlaceholderOverlay(text, ctx));
+});
+
+test("suggestKnownVariable: maps common typos to the canonical variable", () => {
+  assert.equal(suggestKnownVariable("{{customername}}"), "customer_name");
+  assert.equal(suggestKnownVariable("{{customer-name}}"), "customer_name");
+  assert.equal(suggestKnownVariable("{{Customer Name}}"), "customer_name");
+  assert.equal(suggestKnownVariable("customername"), "customer_name");
+  assert.equal(suggestKnownVariable("{{ticketsubject}}"), "ticket_subject");
+  assert.equal(suggestKnownVariable("{{adminname}}"), "admin_name");
+});
+
+test("suggestKnownVariable: matches close typos via small edit distance", () => {
+  assert.equal(suggestKnownVariable("{{custmer_name}}"), "customer_name");
+  assert.equal(suggestKnownVariable("{{ticket_subjct}}"), "ticket_subject");
+});
+
+test("suggestKnownVariable: returns null for empty / unrelated tokens", () => {
+  assert.equal(suggestKnownVariable(""), null);
+  assert.equal(suggestKnownVariable("{{}}"), null);
+  assert.equal(suggestKnownVariable("{{   }}"), null);
+  assert.equal(suggestKnownVariable("{{evil}}"), null);
+  assert.equal(suggestKnownVariable("{{order_total}}"), null);
+});
+
+test("suggestKnownVariable: ignores known variables themselves and whitespace", () => {
+  assert.equal(suggestKnownVariable("{{customer_name}}"), "customer_name");
+  assert.equal(suggestKnownVariable("{{  customer_name  }}"), "customer_name");
+});
+
+test("applySuggestionsToTemplate: rewrites confident unknown tokens to canonical form", () => {
+  const out = applySuggestionsToTemplate(
+    "Hi {{customername}}, re {{ticketsubject}} from {{adminname}} — {{evil}}",
+  );
+  assert.equal(
+    out.next,
+    "Hi {{customer_name}}, re {{ticket_subject}} from {{admin_name}} — {{evil}}",
+  );
+  assert.equal(out.replaced, 3);
+});
+
+test("applySuggestionsToTemplate: leaves known and ambiguous tokens untouched", () => {
+  const out = applySuggestionsToTemplate(
+    "Hi {{customer_name}} and {{evil}}",
+  );
+  assert.equal(out.next, "Hi {{customer_name}} and {{evil}}");
+  assert.equal(out.replaced, 0);
+});
+
+test("applySuggestionsToTemplate: empty template yields empty output and zero replacements", () => {
+  assert.deepEqual(applySuggestionsToTemplate(""), { next: "", replaced: 0 });
+});
+
+test("applySuggestionsToTemplate: counts every occurrence, not unique tokens", () => {
+  const out = applySuggestionsToTemplate(
+    "{{customername}} and {{customername}} again, plus {{ticketsubject}}",
+  );
+  assert.equal(
+    out.next,
+    "{{customer_name}} and {{customer_name}} again, plus {{ticket_subject}}",
+  );
+  assert.equal(out.replaced, 3);
 });
 
 test("variable list contains the documented placeholders", () => {

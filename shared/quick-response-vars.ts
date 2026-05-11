@@ -208,3 +208,95 @@ export function findUnknownPlaceholders(template: string): string[] {
   }
   return out;
 }
+
+function normalizeVariableName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let prev = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    const curr = new Array<number>(b.length + 1);
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Suggest a known quick-response variable for an unknown placeholder token.
+ * Accepts either a bare name (e.g. `"customername"`) or a full token
+ * (`"{{customername}}"`, with optional inner whitespace).
+ *
+ * Matching strategy:
+ *   1. Normalize both sides by lowercasing and dropping any non-alphanumeric
+ *      characters, so `{{Customer Name}}`, `{{customer-name}}`, `{{customername}}`
+ *      all collapse to the same key as `customer_name`.
+ *   2. If a normalized known variable matches exactly, return it.
+ *   3. Otherwise compute Levenshtein distance against each normalized known
+ *      variable and return the unique closest one within a small budget
+ *      (1 edit for short names, 2 for longer ones). Ambiguous ties yield
+ *      `null` so we never auto-apply a guess we aren't confident in.
+ */
+export function suggestKnownVariable(token: string): QuickResponseVariable | null {
+  if (!token) return null;
+  const inner = token
+    .replace(/^\{\{\s*/, "")
+    .replace(/\s*\}\}$/, "")
+    .trim();
+  const norm = normalizeVariableName(inner);
+  if (!norm) return null;
+  for (const v of QUICK_RESPONSE_VARIABLES) {
+    if (normalizeVariableName(v) === norm) return v;
+  }
+  const maxDist = norm.length <= 4 ? 1 : 2;
+  let best: { v: QuickResponseVariable; d: number } | null = null;
+  let secondBestDist = Infinity;
+  for (const v of QUICK_RESPONSE_VARIABLES) {
+    const d = levenshtein(norm, normalizeVariableName(v));
+    if (d > maxDist) continue;
+    if (!best || d < best.d) {
+      if (best) secondBestDist = Math.min(secondBestDist, best.d);
+      best = { v, d };
+    } else if (d < secondBestDist) {
+      secondBestDist = d;
+    }
+  }
+  if (!best) return null;
+  if (secondBestDist === best.d) return null;
+  return best.v;
+}
+
+/**
+ * Walk a template and replace every unknown `{{...}}` token that has a
+ * confident suggestion (per `suggestKnownVariable`) with the canonical
+ * `{{known_name}}` form. Tokens whose name already matches a known variable
+ * are left untouched (preserving any inner whitespace), as are unknown tokens
+ * with no confident suggestion.
+ *
+ * Returns the rewritten template plus the number of token occurrences that
+ * were replaced, so callers can tell when there's nothing to do.
+ */
+export function applySuggestionsToTemplate(
+  template: string,
+): { next: string; replaced: number } {
+  if (!template) return { next: "", replaced: 0 };
+  let replaced = 0;
+  const re = new RegExp(PLACEHOLDER_TOKEN_RE.source, "g");
+  const next = template.replace(re, (raw, key: string) => {
+    if ((QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key)) return raw;
+    const sug = suggestKnownVariable(raw);
+    if (!sug) return raw;
+    replaced++;
+    return `{{${sug}}}`;
+  });
+  return { next, replaced };
+}

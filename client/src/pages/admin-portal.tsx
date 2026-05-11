@@ -34,7 +34,7 @@ import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
-import { findUnknownPlaceholders } from "@shared/quick-response-vars";
+import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable } from "@shared/quick-response-vars";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
@@ -2427,6 +2427,48 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
     },
   });
 
+  const applySuggestionMutation = useMutation({
+    mutationFn: async ({ id, message }: { id: string; message: string }) => {
+      await apiRequest("PATCH", `/api/admin/quick-responses/${id}`, { message });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/quick-responses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quick-responses"] });
+      toast({ title: "Suggestion applied" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to apply suggestion", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const bulkApplySuggestionsMutation = useMutation({
+    mutationFn: async (items: { id: string; message: string }[]) => {
+      const results = await Promise.allSettled(
+        items.map((it) =>
+          apiRequest("PATCH", `/api/admin/quick-responses/${it.id}`, { message: it.message }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      return { total: items.length, failed };
+    },
+    onSuccess: ({ total, failed }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/quick-responses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quick-responses"] });
+      if (failed === 0) {
+        toast({ title: `Applied suggestions to ${total} template${total === 1 ? "" : "s"}` });
+      } else {
+        toast({
+          title: `Applied ${total - failed} of ${total} suggestions`,
+          description: `${failed} update${failed === 1 ? "" : "s"} failed.`,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to apply suggestions", description: e.message, variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/admin/quick-responses/${id}`);
@@ -2510,6 +2552,34 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
     }
     return map;
   }, [quickResponses]);
+
+  const suggestionsById = useMemo(() => {
+    const map = new Map<string, { nextMessage: string; replaced: number; pairs: { token: string; suggestion: string }[] }>();
+    for (const qr of quickResponses ?? []) {
+      const msg = qr.message ?? "";
+      const { next, replaced } = applySuggestionsToTemplate(msg);
+      if (replaced === 0 || next === msg) continue;
+      const seen = new Set<string>();
+      const pairs: { token: string; suggestion: string }[] = [];
+      for (const token of findUnknownPlaceholders(msg)) {
+        if (seen.has(token)) continue;
+        const sug = suggestKnownVariable(token);
+        if (!sug) continue;
+        seen.add(token);
+        pairs.push({ token, suggestion: sug });
+      }
+      map.set(qr.id, { nextMessage: next, replaced, pairs });
+    }
+    return map;
+  }, [quickResponses]);
+
+  const pendingSaveSuggestion = useMemo(() => {
+    if (!pendingSave) return null;
+    const msg = pendingSave.data.message ?? "";
+    const { next, replaced } = applySuggestionsToTemplate(msg);
+    if (replaced === 0 || next === msg) return null;
+    return { nextMessage: next, replaced };
+  }, [pendingSave]);
 
   const filteredResponses = useMemo(() => {
     const all = quickResponses ?? [];
@@ -2658,8 +2728,34 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
               , which {pendingSave && pendingSave.unknown.length === 1 ? "does" : "do"} not match any known variable and will be sent literally. Save anyway?
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingSaveSuggestion && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="text-qr-unknown-suggestion-summary"
+            >
+              We can replace {pendingSaveSuggestion.replaced} placeholder
+              {pendingSaveSuggestion.replaced === 1 ? "" : "s"} with the closest
+              recognized variable.
+            </p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-qr-unknown-fix">Fix</AlertDialogCancel>
+            {pendingSaveSuggestion && (
+              <AlertDialogAction
+                onClick={() => {
+                  if (!pendingSave || !pendingSaveSuggestion) return;
+                  const { data, mode } = pendingSave;
+                  const fixed = { ...data, message: pendingSaveSuggestion.nextMessage };
+                  setPendingSave(null);
+                  form.setValue("message", pendingSaveSuggestion.nextMessage);
+                  if (mode === "update") updateMutation.mutate(fixed);
+                  else createMutation.mutate(fixed);
+                }}
+                data-testid="button-qr-unknown-apply-suggestion"
+              >
+                Apply suggestion & save
+              </AlertDialogAction>
+            )}
             <AlertDialogAction
               onClick={() => {
                 if (!pendingSave) return;
@@ -2803,6 +2899,42 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
             />
           </div>
 
+          {canManage && selectedCategory === NEEDS_REVIEW && (() => {
+            const items = filteredResponses
+              .map((qr) => {
+                const sug = suggestionsById.get(qr.id);
+                return sug ? { id: qr.id, message: sug.nextMessage, replaced: sug.replaced } : null;
+              })
+              .filter((x): x is { id: string; message: string; replaced: number } => x !== null);
+            const totalReplacements = items.reduce((acc, it) => acc + it.replaced, 0);
+            if (items.length === 0) return null;
+            return (
+              <div
+                className="flex items-center justify-between gap-3 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2"
+                data-testid="banner-qr-bulk-suggestions"
+              >
+                <div className="text-xs text-amber-900 dark:text-amber-100">
+                  We found{" "}
+                  <span data-testid="text-qr-bulk-suggestion-count">{totalReplacements}</span>
+                  {" "}placeholder{totalReplacements === 1 ? "" : "s"} across{" "}
+                  {items.length} template{items.length === 1 ? "" : "s"} that look like typos of known variables.
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkApplySuggestionsMutation.isPending}
+                  onClick={() =>
+                    bulkApplySuggestionsMutation.mutate(
+                      items.map(({ id, message }) => ({ id, message })),
+                    )
+                  }
+                  data-testid="button-qr-bulk-apply-suggestions"
+                >
+                  {bulkApplySuggestionsMutation.isPending ? "Applying…" : "Apply all suggestions"}
+                </Button>
+              </div>
+            );
+          })()}
           {isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
@@ -2855,9 +2987,38 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
                                   <div className="font-mono">
                                     {(unknownTokensById.get(qr.id) ?? []).join(", ")}
                                   </div>
+                                  {suggestionsById.get(qr.id) && (
+                                    <div className="mt-2 pt-2 border-t border-border/50">
+                                      <div className="font-medium mb-1">Suggested fix{(suggestionsById.get(qr.id)?.pairs.length ?? 0) > 1 ? "es" : ""}:</div>
+                                      <div className="font-mono space-y-0.5">
+                                        {(suggestionsById.get(qr.id)?.pairs ?? []).map((p) => (
+                                          <div key={p.token}>
+                                            {p.token} → {`{{${p.suggestion}}}`}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               </TooltipContent>
                             </Tooltip>
+                          )}
+                          {canManage && suggestionsById.has(qr.id) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-5 text-[10px] px-1.5 py-0 gap-1 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100"
+                              disabled={applySuggestionMutation.isPending}
+                              onClick={() => {
+                                const sug = suggestionsById.get(qr.id);
+                                if (!sug) return;
+                                applySuggestionMutation.mutate({ id: qr.id, message: sug.nextMessage });
+                              }}
+                              data-testid={`button-qr-apply-suggestion-${qr.id}`}
+                            >
+                              <Check className="w-2.5 h-2.5" />
+                              Apply suggestion
+                            </Button>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap" data-testid={`text-qr-message-${qr.id}`}>{qr.message}</p>
