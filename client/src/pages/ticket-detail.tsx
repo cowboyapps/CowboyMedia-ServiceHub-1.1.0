@@ -19,7 +19,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Ticket, TicketMessage, Service, User, QuickResponse, TicketCategory } from "@shared/schema";
+import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
+import { QuickResponsePicker } from "@/components/quick-response-picker";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string };
 
@@ -169,11 +170,6 @@ export default function TicketDetail() {
     enabled: isAdmin,
   });
 
-  const { data: quickResponses } = useQuery<QuickResponse[]>({
-    queryKey: ["/api/quick-responses"],
-    enabled: isAdmin,
-  });
-
   type Suggestion = { id: string; title: string; message: string };
   const { data: suggestions } = useQuery<Suggestion[]>({
     queryKey: ["/api/tickets", params.id, "suggestions"],
@@ -186,8 +182,8 @@ export default function TicketDetail() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const applySuggestion = (text: string) => {
-    if (message.trim() && !window.confirm("Replace your current draft with this response?")) return;
+  const applySuggestion = (text: string): boolean => {
+    if (message.trim() && !window.confirm("Replace your current draft with this response?")) return false;
     setMessage(text);
     requestAnimationFrame(() => {
       const el = messageInputRef.current;
@@ -197,6 +193,7 @@ export default function TicketDetail() {
         el.style.height = Math.min(el.scrollHeight, 120) + "px";
       }
     });
+    return true;
   };
 
   const aiDraftMutation = useMutation({
@@ -1380,27 +1377,16 @@ export default function TicketDetail() {
                 >
                   <Paperclip className="w-4 h-4" />
                 </Button>
-                {isAdmin && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button type="button" size="icon" variant="ghost" className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10" data-testid="button-quick-responses">
-                        <Zap className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="max-h-60 overflow-y-auto w-56">
-                      {quickResponses && quickResponses.length > 0 ? (
-                        quickResponses.map((qr) => (
-                          <DropdownMenuItem key={qr.id} onClick={() => setMessage(qr.message)} data-testid={`quick-response-${qr.id}`}>
-                            {qr.title}
-                          </DropdownMenuItem>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No quick responses yet. Create them in Admin Portal &rarr; Quick Responses.
-                        </div>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                {isAdmin && user?.id && (
+                  <QuickResponsePicker
+                    adminId={user.id}
+                    context={{
+                      customer_name: customerInfo?.customer.fullName ?? null,
+                      ticket_subject: ticket.subject,
+                      admin_name: user.fullName,
+                    }}
+                    onInsert={applySuggestion}
+                  />
                 )}
                 <Textarea
                   ref={messageInputRef}

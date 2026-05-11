@@ -10,6 +10,8 @@ import {
   type TicketNotification, type InsertTicketNotification,
   type PushSubscription, type InsertPushSubscription,
   type QuickResponse, type InsertQuickResponse,
+  type QuickResponseCategory, type InsertQuickResponseCategory,
+  type QuickResponseFavorite,
   type ReportRequest, type InsertReportRequest,
   type ReportNotification, type InsertReportNotification,
   type ServiceUpdate, type InsertServiceUpdate,
@@ -47,7 +49,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -173,6 +175,18 @@ export interface IStorage {
   createQuickResponse(qr: InsertQuickResponse): Promise<QuickResponse>;
   updateQuickResponse(id: string, data: Partial<QuickResponse>): Promise<QuickResponse | undefined>;
   deleteQuickResponse(id: string): Promise<void>;
+  bumpQuickResponseUsage(id: string): Promise<QuickResponse | undefined>;
+
+  getAllQuickResponseCategories(): Promise<QuickResponseCategory[]>;
+  getQuickResponseCategory(id: string): Promise<QuickResponseCategory | undefined>;
+  createQuickResponseCategory(data: InsertQuickResponseCategory): Promise<QuickResponseCategory>;
+  updateQuickResponseCategory(id: string, data: Partial<QuickResponseCategory>): Promise<QuickResponseCategory | undefined>;
+  deleteQuickResponseCategory(id: string): Promise<void>;
+  reorderQuickResponseCategories(orderedIds: string[]): Promise<void>;
+
+  getQuickResponseFavoriteIds(adminId: string): Promise<string[]>;
+  addQuickResponseFavorite(adminId: string, responseId: string): Promise<void>;
+  removeQuickResponseFavorite(adminId: string, responseId: string): Promise<void>;
 
   getAllReportRequests(): Promise<ReportRequest[]>;
   getReportRequestsByCustomer(customerId: string): Promise<ReportRequest[]>;
@@ -654,7 +668,76 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteQuickResponse(id: string): Promise<void> {
+    await db.delete(quickResponseFavorites).where(eq(quickResponseFavorites.responseId, id));
     await db.delete(quickResponses).where(eq(quickResponses.id, id));
+  }
+
+  async bumpQuickResponseUsage(id: string): Promise<QuickResponse | undefined> {
+    const [updated] = await db
+      .update(quickResponses)
+      .set({ usageCount: sql`${quickResponses.usageCount} + 1` })
+      .where(eq(quickResponses.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getAllQuickResponseCategories(): Promise<QuickResponseCategory[]> {
+    return db
+      .select()
+      .from(quickResponseCategories)
+      .orderBy(quickResponseCategories.sortOrder, quickResponseCategories.createdAt);
+  }
+
+  async getQuickResponseCategory(id: string): Promise<QuickResponseCategory | undefined> {
+    const [cat] = await db.select().from(quickResponseCategories).where(eq(quickResponseCategories.id, id));
+    return cat;
+  }
+
+  async createQuickResponseCategory(data: InsertQuickResponseCategory): Promise<QuickResponseCategory> {
+    const [created] = await db.insert(quickResponseCategories).values(data).returning();
+    return created;
+  }
+
+  async updateQuickResponseCategory(id: string, data: Partial<QuickResponseCategory>): Promise<QuickResponseCategory | undefined> {
+    const [updated] = await db.update(quickResponseCategories).set(data).where(eq(quickResponseCategories.id, id)).returning();
+    return updated;
+  }
+
+  async deleteQuickResponseCategory(id: string): Promise<void> {
+    await db.update(quickResponses).set({ categoryId: null }).where(eq(quickResponses.categoryId, id));
+    await db.delete(quickResponseCategories).where(eq(quickResponseCategories.id, id));
+  }
+
+  async reorderQuickResponseCategories(orderedIds: string[]): Promise<void> {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db
+        .update(quickResponseCategories)
+        .set({ sortOrder: i })
+        .where(eq(quickResponseCategories.id, orderedIds[i]));
+    }
+  }
+
+  async getQuickResponseFavoriteIds(adminId: string): Promise<string[]> {
+    const rows = await db
+      .select({ responseId: quickResponseFavorites.responseId })
+      .from(quickResponseFavorites)
+      .where(eq(quickResponseFavorites.adminId, adminId));
+    return rows.map((r) => r.responseId);
+  }
+
+  async addQuickResponseFavorite(adminId: string, responseId: string): Promise<void> {
+    const existing = await db
+      .select()
+      .from(quickResponseFavorites)
+      .where(and(eq(quickResponseFavorites.adminId, adminId), eq(quickResponseFavorites.responseId, responseId)));
+    if (existing.length > 0) return;
+    await db.insert(quickResponseFavorites).values({ adminId, responseId });
+  }
+
+  async removeQuickResponseFavorite(adminId: string, responseId: string): Promise<void> {
+    await db
+      .delete(quickResponseFavorites)
+      .where(and(eq(quickResponseFavorites.adminId, adminId), eq(quickResponseFavorites.responseId, responseId)));
   }
 
   async getAllReportRequests(): Promise<ReportRequest[]> {

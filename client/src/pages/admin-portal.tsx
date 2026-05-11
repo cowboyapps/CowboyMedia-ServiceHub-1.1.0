@@ -29,7 +29,7 @@ import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
-import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
+import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
@@ -2254,20 +2254,33 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
 const quickResponseSchema = z.object({
   title: z.string().min(1, "Title is required"),
   message: z.string().min(1, "Message is required"),
+  categoryId: z.string().nullable().optional(),
 });
+
+const UNCATEGORIZED = "__uncategorized__";
+const ALL_CATEGORIES = "__all__";
 
 function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingQr, setEditingQr] = useState<QuickResponse | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState("");
+  const [dragId, setDragId] = useState<string | null>(null);
 
   const { data: quickResponses, isLoading } = useQuery<QuickResponse[]>({
     queryKey: ["/api/admin/quick-responses"],
   });
+  const { data: categories } = useQuery<QuickResponseCategory[]>({
+    queryKey: ["/api/quick-response-categories"],
+  });
 
   const form = useForm({
     resolver: zodResolver(quickResponseSchema),
-    defaultValues: { title: "", message: "" },
+    defaultValues: { title: "", message: "", categoryId: null as string | null },
   });
 
   const createMutation = useMutation({
@@ -2319,22 +2332,116 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
     },
   });
 
+  const createCategoryMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/admin/quick-response-categories", { name });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quick-response-categories"] });
+      setNewCategoryName("");
+    },
+    onError: (e: Error) => toast({ title: "Failed to add category", description: e.message, variant: "destructive" }),
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      await apiRequest("PATCH", `/api/admin/quick-response-categories/${id}`, { name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quick-response-categories"] });
+      setEditingCatId(null);
+      setEditingCatName("");
+    },
+    onError: (e: Error) => toast({ title: "Failed to rename category", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/quick-response-categories/${id}`);
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quick-response-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/quick-responses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quick-responses"] });
+      if (selectedCategory === id) setSelectedCategory(ALL_CATEGORIES);
+      toast({ title: "Category deleted" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      await apiRequest("POST", "/api/admin/quick-response-categories/reorder", { orderedIds });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/quick-response-categories"] }),
+  });
+
   const openEdit = (qr: QuickResponse) => {
     setEditingQr(qr);
-    form.setValue("title", qr.title);
-    form.setValue("message", qr.message);
+    form.reset({ title: qr.title, message: qr.message, categoryId: qr.categoryId ?? null });
     setDialogOpen(true);
   };
 
   const openCreate = () => {
     setEditingQr(null);
-    form.reset();
+    form.reset({
+      title: "",
+      message: "",
+      categoryId: selectedCategory === ALL_CATEGORIES || selectedCategory === UNCATEGORIZED ? null : selectedCategory,
+    });
     setDialogOpen(true);
   };
 
+  const filteredResponses = useMemo(() => {
+    const all = quickResponses ?? [];
+    let scoped = all;
+    if (selectedCategory === UNCATEGORIZED) scoped = all.filter((qr) => !qr.categoryId);
+    else if (selectedCategory !== ALL_CATEGORIES) scoped = all.filter((qr) => qr.categoryId === selectedCategory);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return scoped;
+    return scoped.filter((qr) => qr.title.toLowerCase().includes(q) || qr.message.toLowerCase().includes(q));
+  }, [quickResponses, selectedCategory, searchQuery]);
+
+  const counts = useMemo(() => {
+    const all = quickResponses ?? [];
+    const map = new Map<string, number>();
+    let uncat = 0;
+    for (const qr of all) {
+      if (!qr.categoryId) uncat++;
+      else map.set(qr.categoryId, (map.get(qr.categoryId) ?? 0) + 1);
+    }
+    return { total: all.length, uncategorized: uncat, byCategory: map };
+  }, [quickResponses]);
+
+  const handleDrop = (targetId: string) => {
+    if (!dragId || !categories || dragId === targetId) return;
+    const ids = categories.map((c) => c.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, dragId);
+    reorderMutation.mutate(ids);
+    setDragId(null);
+  };
+
+  const renderCategoryRow = (label: string, value: string, count: number, key: string) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setSelectedCategory(value)}
+      className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between gap-2 hover-elevate ${selectedCategory === value ? "bg-accent" : ""}`}
+      data-testid={`button-cat-${key}`}
+    >
+      <span className="truncate">{label}</span>
+      <span className="text-xs text-muted-foreground flex-shrink-0">{count}</span>
+    </button>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold" data-testid="text-quick-responses-title">Quick Responses</h2>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingQr(null); form.reset(); } }}>
           {canManage && <DialogTrigger asChild>
@@ -2345,6 +2452,9 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{editingQr ? "Edit Quick Response" : "Add Quick Response"}</DialogTitle>
+              <DialogDescription>
+                Use <code>{"{{customer_name}}"}</code>, <code>{"{{ticket_subject}}"}</code>, or <code>{"{{admin_name}}"}</code> to insert dynamic values.
+              </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((data) => editingQr ? updateMutation.mutate(data) : createMutation.mutate(data))} className="space-y-4">
@@ -2352,6 +2462,24 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
                   <FormItem>
                     <FormLabel>Title</FormLabel>
                     <FormControl><Input {...field} placeholder="e.g. Billing Question" data-testid="input-qr-title" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="categoryId" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <Select
+                      value={field.value ?? "__none__"}
+                      onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+                    >
+                      <FormControl><SelectTrigger data-testid="select-qr-category"><SelectValue placeholder="Uncategorized" /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="__none__">Uncategorized</SelectItem>
+                        {(categories ?? []).map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -2371,55 +2499,185 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
         </Dialog>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
-        </div>
-      ) : !quickResponses || quickResponses.length === 0 ? (
+      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
         <Card>
-          <CardContent className="py-8 text-center">
-            <Zap className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No quick responses yet. Add one to get started.</p>
+          <CardContent className="p-2 space-y-1">
+            <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Categories</div>
+            {renderCategoryRow("All", ALL_CATEGORIES, counts.total, "all")}
+            {renderCategoryRow("Uncategorized", UNCATEGORIZED, counts.uncategorized, "uncategorized")}
+            <div className="border-t my-1" />
+            {(categories ?? []).map((c) => (
+              <div
+                key={c.id}
+                draggable={canManage}
+                onDragStart={() => setDragId(c.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleDrop(c.id)}
+                className={`group flex items-center gap-1 ${dragId === c.id ? "opacity-50" : ""}`}
+                data-testid={`row-cat-${c.id}`}
+              >
+                {editingCatId === c.id ? (
+                  <div className="flex-1 flex items-center gap-1 px-2 py-1">
+                    <Input
+                      value={editingCatName}
+                      onChange={(e) => setEditingCatName(e.target.value)}
+                      className="h-7 text-sm"
+                      data-testid={`input-edit-cat-${c.id}`}
+                      autoFocus
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => updateCategoryMutation.mutate({ id: c.id, name: editingCatName })} data-testid={`button-save-cat-${c.id}`}>
+                      <Check className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditingCatId(null); setEditingCatName(""); }}>
+                      <XIcon className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategory(c.id)}
+                      className={`flex-1 text-left px-3 py-2 text-sm rounded-md flex items-center justify-between gap-2 hover-elevate ${selectedCategory === c.id ? "bg-accent" : ""}`}
+                      data-testid={`button-cat-${c.id}`}
+                    >
+                      <span className="truncate">{c.name}</span>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">{counts.byCategory.get(c.id) ?? 0}</span>
+                    </button>
+                    {canManage && (
+                      <div className="opacity-0 group-hover:opacity-100 flex items-center">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditingCatId(c.id); setEditingCatName(c.name); }} data-testid={`button-rename-cat-${c.id}`}>
+                          <Edit className="w-3 h-3" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" data-testid={`button-delete-cat-${c.id}`}>
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete category "{c.name}"?</AlertDialogTitle>
+                              <AlertDialogDescription>Responses in this category will become Uncategorized.</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteCategoryMutation.mutate(c.id)}>Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+            {canManage && (
+              <div className="flex items-center gap-1 pt-2 border-t">
+                <Input
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="New category"
+                  className="h-7 text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newCategoryName.trim()) {
+                      createCategoryMutation.mutate(newCategoryName.trim());
+                    }
+                  }}
+                  data-testid="input-new-cat"
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  disabled={!newCategoryName.trim() || createCategoryMutation.isPending}
+                  onClick={() => createCategoryMutation.mutate(newCategoryName.trim())}
+                  data-testid="button-add-cat"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
-      ) : (
+
         <div className="space-y-3">
-          {quickResponses.map((qr) => (
-            <Card key={qr.id} data-testid={`card-quick-response-${qr.id}`}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm" data-testid={`text-qr-title-${qr.id}`}>{qr.title}</p>
-                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap" data-testid={`text-qr-message-${qr.id}`}>{qr.message}</p>
-                  </div>
-                  {canManage && <div className="flex items-center gap-1 flex-shrink-0">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(qr)} data-testid={`button-edit-qr-${qr.id}`}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" data-testid={`button-delete-qr-${qr.id}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Quick Response</AlertDialogTitle>
-                          <AlertDialogDescription>Are you sure you want to delete "{qr.title}"?</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteMutation.mutate(qr.id)}>Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>}
-                </div>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search responses..."
+              className="pl-8"
+              data-testid="input-qr-search"
+            />
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
+            </div>
+          ) : filteredResponses.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <Zap className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  {(quickResponses ?? []).length === 0
+                    ? "No quick responses yet. Add one to get started."
+                    : "No responses match this filter."}
+                </p>
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            <div className="space-y-3">
+              {filteredResponses.map((qr) => (
+                <Card key={qr.id} data-testid={`card-quick-response-${qr.id}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-sm" data-testid={`text-qr-title-${qr.id}`}>{qr.title}</p>
+                          {qr.categoryId && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1">
+                              <Hash className="w-2.5 h-2.5" />
+                              {(categories ?? []).find((c) => c.id === qr.categoryId)?.name ?? "Unknown"}
+                            </Badge>
+                          )}
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0" data-testid={`text-qr-usage-${qr.id}`}>
+                            Used {qr.usageCount}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap" data-testid={`text-qr-message-${qr.id}`}>{qr.message}</p>
+                      </div>
+                      {canManage && <div className="flex items-center gap-1 flex-shrink-0">
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(qr)} data-testid={`button-edit-qr-${qr.id}`}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" data-testid={`button-delete-qr-${qr.id}`}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Quick Response</AlertDialogTitle>
+                              <AlertDialogDescription>Are you sure you want to delete "{qr.title}"?</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteMutation.mutate(qr.id)}>Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

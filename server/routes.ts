@@ -16,6 +16,7 @@ import { createDiscordSettingsHandlers } from "./discord-settings";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
+import { createQuickResponseHandlers } from "./quick-responses";
 import { z } from "zod";
 import { eq, isNotNull, isNull, and, notInArray } from "drizzle-orm";
 import multer from "multer";
@@ -3102,38 +3103,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/quick-responses", requirePermission("quick_responses.view", "quick_responses.manage"), async (req, res) => {
-    try {
-      const { title, message } = req.body;
-      if (!title || !message) return res.status(400).json({ message: "Title and message are required" });
-      const qr = await storage.createQuickResponse({ title, message });
-      res.json(qr);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  const qrHandlers = createQuickResponseHandlers({ storage });
+  app.post("/api/admin/quick-responses", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.create);
+  app.patch("/api/admin/quick-responses/:id", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.update);
+  app.delete("/api/admin/quick-responses/:id", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.remove);
+  app.post("/api/quick-responses/:id/use", requireAdmin, qrHandlers.bumpUsage);
 
-  app.patch("/api/admin/quick-responses/:id", requirePermission("quick_responses.view", "quick_responses.manage"), async (req, res) => {
-    try {
-      const { title, message } = req.body;
-      const updated = await storage.updateQuickResponse(req.params.id, { title, message });
-      if (!updated) return res.status(404).json({ message: "Quick response not found" });
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.delete("/api/admin/quick-responses/:id", requirePermission("quick_responses.view", "quick_responses.manage"), async (req, res) => {
-    try {
-      await storage.deleteQuickResponse(req.params.id);
-      res.json({ message: "Quick response deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.get("/api/quick-responses", requireAuth, async (req, res) => {
+  app.get("/api/quick-responses", requireAuth, async (_req, res) => {
     try {
       const responses = await storage.getAllQuickResponses();
       res.json(responses);
@@ -3141,6 +3117,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.status(500).json({ message: e.message });
     }
   });
+
+  app.get("/api/quick-response-categories", requireAuth, qrHandlers.listCategories);
+  app.post("/api/admin/quick-response-categories", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.createCategory);
+  app.patch("/api/admin/quick-response-categories/:id", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.updateCategory);
+  app.delete("/api/admin/quick-response-categories/:id", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.removeCategory);
+  app.post("/api/admin/quick-response-categories/reorder", requirePermission("quick_responses.view", "quick_responses.manage"), qrHandlers.reorderCategories);
+
+  app.get("/api/quick-responses/favorites", requireAdmin, qrHandlers.listFavorites);
+  app.post("/api/quick-responses/:id/favorite", requireAdmin, qrHandlers.addFavorite);
+  app.delete("/api/quick-responses/:id/favorite", requireAdmin, qrHandlers.removeFavorite);
 
   app.get("/api/tickets/:id/suggestions", requireAdmin, async (req, res) => {
     try {

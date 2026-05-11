@@ -28,4 +28,6 @@ echo "Running migration: 017_hot_path_indexes.sql"
 psql "$DATABASE_URL" -f migrations/017_hot_path_indexes.sql
 echo "Running migration: 018_ticket_internal_notes.sql"
 psql "$DATABASE_URL" -f migrations/018_ticket_internal_notes.sql
+echo "Running migration: 019_quick_response_categories.sql"
+psql "$DATABASE_URL" -f migrations/019_quick_response_categories.sql
 echo "Migration complete."

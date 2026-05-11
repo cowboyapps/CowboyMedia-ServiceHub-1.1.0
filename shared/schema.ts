@@ -130,10 +130,26 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   userIdx: index("push_subscriptions_user_id_idx").on(table.userId),
 }));
 
+export const quickResponseCategories = pgTable("quick_response_categories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const quickResponses = pgTable("quick_responses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
   message: text("message").notNull(),
+  categoryId: varchar("category_id"),
+  usageCount: integer("usage_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const quickResponseFavorites = pgTable("quick_response_favorites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adminId: varchar("admin_id").notNull(),
+  responseId: varchar("response_id").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -287,7 +303,8 @@ export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit
 export const insertPrivateMessageSchema = createInsertSchema(privateMessages).omit({ id: true, createdAt: true, readAt: true });
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({ id: true, createdAt: true, readAt: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
-export const insertQuickResponseSchema = createInsertSchema(quickResponses).omit({ id: true, createdAt: true });
+export const insertQuickResponseSchema = createInsertSchema(quickResponses).omit({ id: true, createdAt: true, usageCount: true });
+export const insertQuickResponseCategorySchema = createInsertSchema(quickResponseCategories).omit({ id: true, createdAt: true });
 export const insertReportRequestSchema = createInsertSchema(reportRequests).omit({ id: true, createdAt: true });
 export const insertReportNotificationSchema = createInsertSchema(reportNotifications).omit({ id: true, createdAt: true, readAt: true });
 export const insertServiceUpdateSchema = createInsertSchema(serviceUpdates).omit({ id: true, createdAt: true });
@@ -324,6 +341,9 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertQuickResponse = z.infer<typeof insertQuickResponseSchema>;
 export type QuickResponse = typeof quickResponses.$inferSelect;
+export type InsertQuickResponseCategory = z.infer<typeof insertQuickResponseCategorySchema>;
+export type QuickResponseCategory = typeof quickResponseCategories.$inferSelect;
+export type QuickResponseFavorite = typeof quickResponseFavorites.$inferSelect;
 export type InsertReportRequest = z.infer<typeof insertReportRequestSchema>;
 export type ReportRequest = typeof reportRequests.$inferSelect;
 export type InsertReportNotification = z.infer<typeof insertReportNotificationSchema>;
