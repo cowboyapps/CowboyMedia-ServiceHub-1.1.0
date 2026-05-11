@@ -23,6 +23,7 @@ import {
 import {
   findUnfilledPlaceholders,
   walkPlaceholderOverlay,
+  suggestKnownVariable,
   PLACEHOLDER_VARIABLE_LABELS,
   PLACEHOLDER_EMPTY_REASONS,
 } from "@shared/quick-response-vars";
@@ -1777,6 +1778,9 @@ export default function TicketDetail() {
                           const v = (placeholderContext as Record<string, unknown>)[variable];
                           return v == null ? "" : String(v).trim();
                         })();
+                        const suggestion = !isMissing
+                          ? suggestKnownVariable(part.raw)
+                          : null;
                         return (
                           <Popover
                             key={tokenKey}
@@ -1824,8 +1828,17 @@ export default function TicketDetail() {
                                     className="text-xs text-muted-foreground"
                                     data-testid={`text-placeholder-explanation-${i}`}
                                   >
-                                    This isn't a recognized variable, so it can't be filled
-                                    in automatically.
+                                    {suggestion ? (
+                                      <>
+                                        This isn&apos;t a recognized variable. Did you mean{" "}
+                                        <code className="font-mono">{`{{${suggestion}}}`}</code>?
+                                      </>
+                                    ) : (
+                                      <>
+                                        This isn&apos;t a recognized variable, so it can&apos;t be
+                                        filled in automatically.
+                                      </>
+                                    )}
                                   </p>
                                 )}
                               </div>
@@ -1840,6 +1853,23 @@ export default function TicketDetail() {
                                     data-testid={`button-placeholder-insert-${i}`}
                                   >
                                     Insert &ldquo;{liveValue}&rdquo;
+                                  </button>
+                                )}
+                                {!isMissing && suggestion && (
+                                  <button
+                                    type="button"
+                                    className="px-3 py-2 text-left text-sm hover:bg-accent"
+                                    onClick={() =>
+                                      replaceTokenRange(
+                                        part.start,
+                                        part.end,
+                                        `{{${suggestion}}}`,
+                                        "end",
+                                      )
+                                    }
+                                    data-testid={`button-placeholder-suggest-${i}`}
+                                  >
+                                    Replace with <code className="font-mono">{`{{${suggestion}}}`}</code>
                                   </button>
                                 )}
                                 <button
