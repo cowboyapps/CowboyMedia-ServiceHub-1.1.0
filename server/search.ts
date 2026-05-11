@@ -108,7 +108,7 @@ export async function runSearch(
         id: u.id,
         title: u.fullName || u.username,
         snippet: `${u.username} · ${u.email}`,
-        url: "/admin",
+        url: `/admin?tab=users&user=${u.id}`,
       }));
   }
 

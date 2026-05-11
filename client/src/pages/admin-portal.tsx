@@ -85,7 +85,7 @@ const createUserSchema = z.object({
   role: z.string().default("customer"),
 });
 
-function UsersTab({ canManage = true }: { canManage?: boolean }) {
+function UsersTab({ canManage = true, initialUserId = null }: { canManage?: boolean; initialUserId?: string | null }) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { isMasterAdmin } = useAuth();
@@ -222,6 +222,29 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
     setEditRole(u.role);
     setEditSubscribedServices(u.subscribedServices || []);
   };
+
+  const [didFocusInitialUser, setDidFocusInitialUser] = useState(false);
+  useEffect(() => {
+    if (didFocusInitialUser) return;
+    if (!initialUserId || !users) return;
+    const target = users.find((u) => u.id === initialUserId);
+    if (!target) {
+      setDidFocusInitialUser(true);
+      return;
+    }
+    setSearchQuery("");
+    openDetailDialog(target);
+    setDidFocusInitialUser(true);
+    if (typeof window !== "undefined") {
+      requestAnimationFrame(() => {
+        const row = document.querySelector(`[data-testid="row-user-${target.id}"]`);
+        if (row && "scrollIntoView" in row) {
+          (row as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUserId, users, didFocusInitialUser]);
 
   const handleSaveUser = () => {
     if (!detailUser) return;
@@ -7155,8 +7178,8 @@ export default function AdminPortal() {
   const [, navigate] = useLocation();
 
   const initialParams = useMemo(() => {
-    const empty = { tab: null, chat: null, monitor: null, ticket: null, section: null } as {
-      tab: string | null; chat: string | null; monitor: string | null; ticket: string | null; section: string | null;
+    const empty = { tab: null, chat: null, monitor: null, ticket: null, section: null, user: null } as {
+      tab: string | null; chat: string | null; monitor: string | null; ticket: string | null; section: string | null; user: string | null;
     };
     if (typeof window === "undefined") return empty;
     const sp = new URLSearchParams(window.location.search);
@@ -7166,6 +7189,7 @@ export default function AdminPortal() {
       monitor: sp.get("monitor"),
       ticket: sp.get("ticket"),
       section: sp.get("section"),
+      user: sp.get("user"),
     };
   }, []);
 
@@ -7174,7 +7198,7 @@ export default function AdminPortal() {
       navigate(`/tickets/${initialParams.ticket}`);
       return;
     }
-    if (initialParams.tab || initialParams.chat || initialParams.monitor || initialParams.section) {
+    if (initialParams.tab || initialParams.chat || initialParams.monitor || initialParams.section || initialParams.user) {
       if (typeof window !== "undefined" && window.history?.replaceState) {
         window.history.replaceState(null, "", window.location.pathname);
       }
@@ -7272,7 +7296,7 @@ export default function AdminPortal() {
   const renderContent = () => {
     switch (activeSection) {
       case "overview": return <AdminDashboard onNavigateSection={(k) => setActiveSection(k)} />;
-      case "users": return <UsersTab canManage={canManageSection("users")} />;
+      case "users": return <UsersTab canManage={canManageSection("users")} initialUserId={initialParams.user} />;
       case "services": return <ServicesTab canManage={canManageSection("services")} />;
       case "alerts": return <AlertsTab canManage={canManageSection("alerts")} />;
       case "news": return <NewsTab canManage={canManageSection("news")} />;
