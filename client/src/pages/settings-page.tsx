@@ -619,7 +619,7 @@ export default function SettingsPage() {
       )}
 
       <p className="text-center text-xs text-muted-foreground mt-6 mb-1" data-testid="text-app-version">
-        Version 4.4
+        Version 5.0
       </p>
       <p className="text-center text-xs text-muted-foreground mb-2" data-testid="text-developed-by">
         Developed by CowboyApps
