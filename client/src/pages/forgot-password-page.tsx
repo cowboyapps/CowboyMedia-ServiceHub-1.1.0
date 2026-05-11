@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ArrowLeft, Mail, CheckCircle } from "lucide-react";
-import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import { BrandLogo } from "@/components/brand-logo";
 
 const forgotPasswordSchema = z.object({
   usernameOrEmail: z.string().min(1, "Username or email is required"),
@@ -47,7 +47,7 @@ export default function ForgotPasswordPage() {
     <div className="min-h-dvh flex items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <img src={logoImg} alt="CowboyMedia" className="mx-auto h-24 mb-3" />
+          <BrandLogo className="mx-auto h-24 mb-3" />
           <CardTitle className="text-xl" data-testid="text-forgot-password-title">
             {submitted ? "Check Your Email" : "Forgot Password"}
           </CardTitle>

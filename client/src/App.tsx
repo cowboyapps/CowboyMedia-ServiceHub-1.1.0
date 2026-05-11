@@ -31,7 +31,7 @@ import { Search } from "lucide-react";
 import { OnboardingTour } from "@/components/onboarding-tour";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
-import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import { BrandLogo } from "@/components/brand-logo";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import NotFound from "@/pages/not-found";
@@ -166,7 +166,7 @@ function AuthenticatedLayout() {
             </div>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <Link href="/" className="pointer-events-auto" data-testid="link-header-home">
-                <img src={logoImg} alt="CowboyMedia" className="h-20 md:h-8 cursor-pointer" />
+                <BrandLogo className="h-20 md:h-8 cursor-pointer" />
               </Link>
             </div>
             <div className="z-10 ml-auto flex items-center gap-1">
@@ -250,7 +250,7 @@ function SetupReminderDialog() {
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-setup-reminder">
         <DialogHeader>
           <div className="flex justify-center mb-2">
-            <img src={logoImg} alt="CowboyMedia" className="h-16" />
+            <BrandLogo className="h-16" />
           </div>
           <DialogTitle className="text-center text-xl" data-testid="text-setup-reminder-title">Quick Reminder</DialogTitle>
         </DialogHeader>
@@ -518,7 +518,7 @@ function WelcomeDialog() {
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-welcome">
         <DialogHeader>
           <div className="flex justify-center mb-2">
-            <img src={logoImg} alt="CowboyMedia" className="h-16" />
+            <BrandLogo className="h-16" />
           </div>
           <DialogTitle className="text-center text-xl" data-testid="text-welcome-title">Welcome to CowboyMedia Service Hub!</DialogTitle>
         </DialogHeader>
@@ -885,7 +885,7 @@ function AnnouncementPopup() {
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-announcement">
         <DialogHeader>
           <div className="flex justify-center mb-2">
-            <img src={logoImg} alt="CowboyMedia" className="h-16" />
+            <BrandLogo className="h-16" />
           </div>
           <DialogTitle className="text-center text-xl" data-testid="text-announcement-title">Announcement</DialogTitle>
         </DialogHeader>

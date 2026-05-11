@@ -18,7 +18,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink } from "lucide-react";
-import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import { BrandLogo } from "@/components/brand-logo";
 
 const categoryMap: Record<string, string> = {
   "Services": "services",
@@ -110,7 +110,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2.5">
-          <img src={logoImg} alt="CowboyMedia" className="h-28 flex-shrink-0" />
+          <BrandLogo className="h-28 flex-shrink-0" />
         </div>
       </SidebarHeader>
 

@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ArrowLeft, CheckCircle, AlertTriangle, Lock } from "lucide-react";
-import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import { BrandLogo } from "@/components/brand-logo";
 
 const resetPasswordSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
@@ -82,7 +82,7 @@ export default function ResetPasswordPage() {
       <div className="min-h-dvh flex items-center justify-center p-6">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <img src={logoImg} alt="CowboyMedia" className="mx-auto h-24 mb-3" />
+            <BrandLogo className="mx-auto h-24 mb-3" />
             <CardTitle className="text-xl" data-testid="text-reset-invalid-title">Invalid Reset Link</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-center">
@@ -109,7 +109,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-dvh flex items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <img src={logoImg} alt="CowboyMedia" className="mx-auto h-24 mb-3" />
+          <BrandLogo className="mx-auto h-24 mb-3" />
           <CardTitle className="text-xl" data-testid="text-reset-password-title">
             {success ? "Password Reset" : "Set New Password"}
           </CardTitle>
