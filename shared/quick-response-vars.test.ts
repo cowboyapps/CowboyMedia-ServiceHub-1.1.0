@@ -9,6 +9,7 @@ import {
   quickResponseHasMissingVariables,
   recordQuickResponseInsertion,
   tokenizeQuickResponseTemplate,
+  walkPlaceholderOverlay,
 } from "./quick-response-vars";
 
 test("substitutes known variables", () => {
@@ -253,6 +254,68 @@ test("findUnknownPlaceholders: ignores whitespace inside braces when matching kn
     findUnknownPlaceholders("Hi {{  customer_name  }} and {{  oops  }}"),
     ["{{  oops  }}"],
   );
+});
+
+test("walkPlaceholderOverlay: tracks start/end offsets for every token kind", () => {
+  const text = "Hi {{customer_name}}, re {{ticket_subject}} - {{admin_name}} {{evil}}";
+  const parts = walkPlaceholderOverlay(text, { customer_name: "Alice", admin_name: "" });
+  assert.deepEqual(parts, [
+    { kind: "text", value: "Hi " },
+    { kind: "filled-token", raw: "{{customer_name}}", variable: "customer_name", value: "Alice", start: 3, end: 20 },
+    { kind: "text", value: ", re " },
+    { kind: "missing-token", raw: "{{ticket_subject}}", variable: "ticket_subject", start: 25, end: 43, currentValue: "" },
+    { kind: "text", value: " - " },
+    { kind: "missing-token", raw: "{{admin_name}}", variable: "admin_name", start: 46, end: 60, currentValue: "" },
+    { kind: "text", value: " " },
+    { kind: "unknown-token", raw: "{{evil}}", start: 61, end: 69 },
+  ]);
+  // Offsets must point at the literal token text inside the source string.
+  for (const p of parts) {
+    if (p.kind === "filled-token" || p.kind === "missing-token" || p.kind === "unknown-token") {
+      assert.equal(text.slice(p.start, p.end), p.raw);
+    }
+  }
+});
+
+test("walkPlaceholderOverlay: empty text yields no parts", () => {
+  assert.deepEqual(walkPlaceholderOverlay("", {}), []);
+});
+
+test("walkPlaceholderOverlay: text without placeholders yields a single text part", () => {
+  assert.deepEqual(walkPlaceholderOverlay("plain text", {}), [
+    { kind: "text", value: "plain text" },
+  ]);
+});
+
+test("walkPlaceholderOverlay: blank/whitespace context value classifies token as missing", () => {
+  const parts = walkPlaceholderOverlay("Hi {{customer_name}}", { customer_name: "   " });
+  assert.deepEqual(parts, [
+    { kind: "text", value: "Hi " },
+    { kind: "missing-token", raw: "{{customer_name}}", variable: "customer_name", start: 3, end: 20, currentValue: "" },
+  ]);
+});
+
+test("walkPlaceholderOverlay: handles whitespace inside placeholder braces and trims value", () => {
+  const parts = walkPlaceholderOverlay("Hi {{  customer_name  }}!", { customer_name: "  Pat  " });
+  assert.deepEqual(parts, [
+    { kind: "text", value: "Hi " },
+    { kind: "filled-token", raw: "{{  customer_name  }}", variable: "customer_name", value: "Pat", start: 3, end: 24 },
+    { kind: "text", value: "!" },
+  ]);
+});
+
+test("walkPlaceholderOverlay: adjacent placeholders produce no spurious empty text parts", () => {
+  const parts = walkPlaceholderOverlay("{{customer_name}}{{evil}}", { customer_name: "" });
+  assert.deepEqual(parts, [
+    { kind: "missing-token", raw: "{{customer_name}}", variable: "customer_name", start: 0, end: 17, currentValue: "" },
+    { kind: "unknown-token", raw: "{{evil}}", start: 17, end: 25 },
+  ]);
+});
+
+test("walkPlaceholderOverlay: repeated calls return identical results (regex state reset)", () => {
+  const text = "Hi {{customer_name}} {{evil}}";
+  const ctx = { customer_name: "Sam" };
+  assert.deepEqual(walkPlaceholderOverlay(text, ctx), walkPlaceholderOverlay(text, ctx));
 });
 
 test("variable list contains the documented placeholders", () => {

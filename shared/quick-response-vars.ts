@@ -131,6 +131,57 @@ export function quickResponseHasMissingVariables(
  * tokens that don't match any documented variable. Used to warn admins before
  * a reply is sent with literal placeholders still in the body.
  */
+export type PlaceholderOverlayPart =
+  | { kind: "text"; value: string }
+  | { kind: "filled-token"; raw: string; variable: string; value: string; start: number; end: number }
+  | { kind: "missing-token"; raw: string; variable: string; start: number; end: number; currentValue: string }
+  | { kind: "unknown-token"; raw: string; start: number; end: number };
+
+/**
+ * Walk a draft message and split it into overlay parts that track the
+ * exact `[start, end)` offsets of every `{{...}}` placeholder. The textarea
+ * overlay in the ticket reply composer uses these offsets to position
+ * highlights/popovers and to splice replacements in the right place.
+ *
+ * Pure helper: no React, no DOM, safe to call repeatedly.
+ */
+export function walkPlaceholderOverlay(
+  text: string,
+  ctx: QuickResponseVarContext,
+): PlaceholderOverlayPart[] {
+  const out: PlaceholderOverlayPart[] = [];
+  if (!text) return out;
+  const re = new RegExp(PLACEHOLDER_TOKEN_RE.source, "g");
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) {
+      out.push({ kind: "text", value: text.slice(last, m.index) });
+    }
+    const raw = m[0];
+    const key = m[1];
+    const start = m.index;
+    const end = m.index + raw.length;
+    const isKnown = (QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key);
+    if (!isKnown) {
+      out.push({ kind: "unknown-token", raw, start, end });
+    } else {
+      const ctxV = (ctx as Record<string, unknown>)[key];
+      const v = ctxV == null ? "" : String(ctxV).trim();
+      if (v.length === 0) {
+        out.push({ kind: "missing-token", raw, variable: key, start, end, currentValue: v });
+      } else {
+        out.push({ kind: "filled-token", raw, variable: key, value: v, start, end });
+      }
+    }
+    last = end;
+  }
+  if (last < text.length) {
+    out.push({ kind: "text", value: text.slice(last) });
+  }
+  return out;
+}
+
 export function findUnfilledPlaceholders(
   text: string,
   ctx: QuickResponseVarContext,

@@ -22,8 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   findUnfilledPlaceholders,
-  QUICK_RESPONSE_VARIABLES,
-  PLACEHOLDER_TOKEN_RE,
+  walkPlaceholderOverlay,
   PLACEHOLDER_VARIABLE_LABELS,
   PLACEHOLDER_EMPTY_REASONS,
 } from "@shared/quick-response-vars";
@@ -509,42 +508,9 @@ export default function TicketDetail() {
 
   const showPlaceholderOverlay = isAdmin && !isInternalNote;
 
-  type OverlayPart =
-    | { kind: "text"; value: string }
-    | { kind: "filled-token"; raw: string }
-    | { kind: "missing-token"; raw: string; variable: string; start: number; end: number; currentValue: string }
-    | { kind: "unknown-token"; raw: string; start: number; end: number };
-
-  const overlayParts = useMemo<OverlayPart[]>(() => {
+  const overlayParts = useMemo(() => {
     if (!showPlaceholderOverlay || !message) return [];
-    const out: OverlayPart[] = [];
-    const re = new RegExp(PLACEHOLDER_TOKEN_RE.source, "g");
-    let last = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(message)) !== null) {
-      if (m.index > last) {
-        out.push({ kind: "text", value: message.slice(last, m.index) });
-      }
-      const key = m[1];
-      const raw = m[0];
-      const isKnown = (QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key);
-      if (!isKnown) {
-        out.push({ kind: "unknown-token", raw, start: m.index, end: m.index + raw.length });
-      } else {
-        const ctxV = (placeholderContext as Record<string, unknown>)[key];
-        const v = ctxV == null ? "" : String(ctxV).trim();
-        if (v.length === 0) {
-          out.push({ kind: "missing-token", raw, variable: key, start: m.index, end: m.index + raw.length, currentValue: v });
-        } else {
-          out.push({ kind: "filled-token", raw });
-        }
-      }
-      last = m.index + raw.length;
-    }
-    if (last < message.length) {
-      out.push({ kind: "text", value: message.slice(last) });
-    }
-    return out;
+    return walkPlaceholderOverlay(message, placeholderContext);
   }, [showPlaceholderOverlay, message, placeholderContext]);
 
   const hasPlaceholderHighlights = useMemo(
