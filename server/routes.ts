@@ -453,9 +453,14 @@ interface NotifMeta {
   referenceId?: string;
 }
 
-async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string }, notif?: NotifMeta) {
+async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string }, notif?: NotifMeta | { notificationId: string }) {
   let notificationId: string | null = null;
-  if (notif) {
+  if (notif && "notificationId" in notif) {
+    // Caller already created the user_notifications row and is just
+    // wiring the existing row's id into the push so the OS toast can
+    // use the "Mark as read" action.
+    notificationId = notif.notificationId;
+  } else if (notif) {
     try {
       const row = await storage.createUserNotification({
         userId,
@@ -4461,7 +4466,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!targetUser) return res.status(404).json({ error: "User not found" });
       const admin = await storage.getUser(req.session.userId!);
 
-      await storage.createUserNotification({
+      const warnRow = await storage.createUserNotification({
         userId,
         type: "warning",
         title: "⚠️ Warning from Admin",
@@ -4474,7 +4479,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         body: warnMessage,
         url: "/community",
         tag: `community-warn-${userId}`,
-      }, { type: "community_chat_warn", referenceType: "user", referenceId: userId });
+      }, { notificationId: warnRow.id });
 
       logActivity("community_chat", "warn_user", {
         actorId: req.session.userId!,
@@ -4501,7 +4506,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       await storage.updateUser(userId, { chatBanned: true });
 
-      await storage.createUserNotification({
+      const banRow = await storage.createUserNotification({
         userId,
         type: "warning",
         title: "🚫 Banned from Community Chat",
@@ -4514,7 +4519,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         body: "You have been banned from the community chat.",
         url: "/community",
         tag: `community-ban-${userId}`,
-      }, { type: "community_chat_ban", referenceType: "user", referenceId: userId });
+      }, { notificationId: banRow.id });
 
       logActivity("community_chat", "ban_user", {
         actorId: req.session.userId!,
