@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,7 @@ import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
-import { parseAdminPortalQuery, shouldCleanInitialUrl, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
+import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
 
 function pillColorClass(enabled: number, total: number): string {
   if (total === 0) return "bg-muted text-muted-foreground border-transparent";
@@ -90,6 +90,13 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { isMasterAdmin } = useAuth();
+  const [, navigateUsers] = useLocation();
+  const pushUserUrl = useCallback((id: string | null) => {
+    const sp = new URLSearchParams();
+    sp.set("tab", "users");
+    if (id) sp.set("user", id);
+    navigateUsers(`/admin?${sp.toString()}`);
+  }, [navigateUsers]);
 
   const forceDisable2faMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -196,7 +203,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      setDetailUser(null);
+      closeDetailDialog();
       toast({ title: "User updated" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -215,8 +222,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const openDetailDialog = (u: User) => {
-    setDetailUser(u);
+  const fillDetailFields = (u: User) => {
     setEditFullName(u.fullName);
     setEditUsername(u.username);
     setEditEmail(u.email);
@@ -224,7 +230,32 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
     setEditSubscribedServices(u.subscribedServices || []);
   };
 
+  const openDetailDialog = (u: User) => {
+    setDetailUser(u);
+    fillDetailFields(u);
+    pushUserUrl(u.id);
+  };
+
+  const closeDetailDialog = useCallback(() => {
+    setDetailUser(null);
+    // Always pop the ?user= param so the URL stays in lock-step with
+    // dialog state, even if our local view of initialUserId hasn't
+    // caught up yet (race between open → immediate close).
+    pushUserUrl(null);
+  }, [pushUserUrl]);
+
+  // Reset the single-shot focus flag whenever the URL-driven user id
+  // changes (fresh deep-link, remount, browser back/forward) so the
+  // dialog opens / closes in lock-step with the URL.
   const [didFocusInitialUser, setDidFocusInitialUser] = useState(false);
+  const lastSeenInitialUserIdRef = useRef<string | null | undefined>(initialUserId);
+  useEffect(() => {
+    if (lastSeenInitialUserIdRef.current === initialUserId) return;
+    lastSeenInitialUserIdRef.current = initialUserId;
+    setDidFocusInitialUser(false);
+    if (!initialUserId) setDetailUser(null);
+  }, [initialUserId]);
+
   useEffect(() => {
     const action = computeInitialUserAction({
       initialUserId,
@@ -239,7 +270,8 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
     }
     const target = action.target;
     setSearchQuery("");
-    openDetailDialog(target);
+    setDetailUser(target);
+    fillDetailFields(target);
     setDidFocusInitialUser(true);
     if (typeof window !== "undefined") {
       requestAnimationFrame(() => {
@@ -534,8 +566,9 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                     variant="outline"
                     className="gap-1 text-xs sm:text-sm"
                     onClick={() => {
-                      setDetailUser(null);
-                      setSelectedUser(detailUser);
+                      const u = detailUser;
+                      closeDetailDialog();
+                      setSelectedUser(u);
                       setResetDialogOpen(true);
                     }}
                     data-testid="button-detail-reset-password"
@@ -560,7 +593,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={() => { deleteMutation.mutate(detailUser.id); setDetailUser(null); }}
+                          onClick={() => { deleteMutation.mutate(detailUser.id); closeDetailDialog(); }}
                           data-testid="button-confirm-delete-user"
                         >
                           Delete
@@ -597,7 +630,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   )}
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setDetailUser(null)} data-testid="button-detail-cancel">
+                  <Button variant="outline" size="sm" onClick={closeDetailDialog} data-testid="button-detail-cancel">
                     Cancel
                   </Button>
                   <Button
@@ -614,7 +647,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
           );
         if (isMobile) {
           return (
-            <Sheet open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null); }}>
+            <Sheet open={!!detailUser} onOpenChange={(open) => { if (!open) closeDetailDialog(); }}>
               <SheetContent side="bottom" className="h-[92vh] p-0 flex flex-col rounded-t-2xl" data-testid="dialog-user-detail">
                 <div className="flex justify-center pt-2 pb-1">
                   <div className="w-10 h-1.5 rounded-full bg-muted-foreground/30" />
@@ -628,7 +661,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
           );
         }
         return (
-          <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null); }}>
+          <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) closeDetailDialog(); }}>
             <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-user-detail">
               <DialogHeader>
                 <DialogTitle data-testid="text-user-detail-title">{detailUser?.fullName}</DialogTitle>
@@ -7200,27 +7233,23 @@ function OnlineUsersTab() {
 export default function AdminPortal() {
   const { user, isAdmin, isMasterAdmin, hasPermission } = useAuth();
   const [, navigate] = useLocation();
-
+  // Subscribe to the live URL search string so the deep-link params
+  // are recomputed on every URL change. This keeps /admin?tab=...&user=...
+  // working across remounts (Fast Refresh, error-boundary resets, route
+  // swaps that briefly unmount the portal) and makes browser back/forward
+  // restore the right tab and dialog.
+  const search = useSearch();
   const initialParams = useMemo(
-    () =>
-      parseAdminPortalQuery(
-        typeof window === "undefined" ? null : window.location.search,
-      ),
-    [],
+    () => parseAdminPortalQuery(search ? `?${search}` : ""),
+    [search],
   );
 
+  // Ticket deep-link: redirect once whenever the URL carries ?ticket=.
   useEffect(() => {
     if (initialParams.ticket) {
       navigate(`/tickets/${initialParams.ticket}`);
-      return;
     }
-    if (shouldCleanInitialUrl(initialParams)) {
-      if (typeof window !== "undefined" && window.history?.replaceState) {
-        window.history.replaceState(null, "", window.location.pathname);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialParams.ticket, navigate]);
 
   const { data: contentCounts } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
@@ -7249,25 +7278,24 @@ export default function AdminPortal() {
     );
   }
 
-  const [activeSection, setActiveSection] = useState<string | null>(() =>
-    computeInitialActiveSection({
-      tabParam: initialParams.tab,
-      hasDashboardView: hasPermission("dashboard.view"),
-    }),
-  );
+  // The active tab is derived directly from the URL so it survives
+  // remounts and stays in lock-step with browser back/forward.
+  // computeInitialActiveSection still falls back to "overview" once
+  // dashboard.view permission resolves (no tab param + permission).
+  const activeSection = computeInitialActiveSection({
+    tabParam: initialParams.tab,
+    hasDashboardView: hasPermission("dashboard.view"),
+  });
 
-  // Permissions for non-master admins arrive asynchronously, so the
-  // initial useState computation may run before `dashboard.view` is
-  // visible. Once permissions resolve, promote the user to the
-  // Overview landing if they haven't navigated elsewhere yet and no
-  // explicit tab was requested.
-  useEffect(() => {
-    if (activeSection) return;
-    if (initialParams.tab) return;
-    if (hasPermission("dashboard.view")) {
-      setActiveSection("overview");
+  const goToSection = useCallback((section: string | null) => {
+    if (!section) {
+      navigate("/admin");
+      return;
     }
-  }, [hasPermission, activeSection, initialParams.tab]);
+    const sp = new URLSearchParams();
+    sp.set("tab", section);
+    navigate(`/admin?${sp.toString()}`);
+  }, [navigate]);
 
   const allSections = [
     { key: "overview", label: "Overview", icon: LayoutDashboard, color: "text-primary", bg: "bg-primary/10" },
@@ -7311,7 +7339,7 @@ export default function AdminPortal() {
 
   const renderContent = () => {
     switch (activeSection) {
-      case "overview": return <AdminDashboard onNavigateSection={(k) => setActiveSection(k)} />;
+      case "overview": return <AdminDashboard onNavigateSection={(k) => goToSection(k)} />;
       case "users": return <UsersTab canManage={canManageSection("users")} initialUserId={initialParams.user} />;
       case "services": return <ServicesTab canManage={canManageSection("services")} />;
       case "alerts": return <AlertsTab canManage={canManageSection("alerts")} />;
@@ -7355,7 +7383,7 @@ export default function AdminPortal() {
             return (
               <button
                 key={s.key}
-                onClick={() => s.navigateTo ? navigate(s.navigateTo) : setActiveSection(s.key)}
+                onClick={() => s.navigateTo ? navigate(s.navigateTo) : goToSection(s.key)}
                 className="relative flex flex-col items-center justify-center gap-3 p-6 sm:p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
                 data-testid={`tile-admin-${s.key}`}
               >
@@ -7377,7 +7405,7 @@ export default function AdminPortal() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setActiveSection(null)}
+            onClick={() => goToSection(null)}
             className="gap-1 -ml-2 text-muted-foreground hover:text-foreground"
             data-testid="button-admin-back"
           >

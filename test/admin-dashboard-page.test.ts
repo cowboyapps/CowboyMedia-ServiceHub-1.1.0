@@ -54,8 +54,9 @@ test("admin dashboard page: surfaces push success/fail split, online users fallb
 });
 
 test("admin portal: makes Overview the default landing for admins with dashboard.view", () => {
-  // Initial useState path goes through the extracted helper.
+  // The active tab is derived from the URL via the extracted helper,
+  // which falls back to "overview" when no tab param is present and
+  // dashboard.view permission has resolved (covers both first paint
+  // and the async permission-load case in a single derivation).
   assert.match(PORTAL, /computeInitialActiveSection\(\{[\s\S]*hasDashboardView:\s*hasPermission\("dashboard\.view"\)/);
-  // useEffect fallback for async permission load
-  assert.match(PORTAL, /setActiveSection\("overview"\)/);
 });
