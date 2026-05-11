@@ -947,11 +947,18 @@ function AppContent() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
     (window as any).__ws = ws;
+    const sendPage = (sock: WebSocket) => {
+      if (sock.readyState === WebSocket.OPEN) {
+        try { sock.send(JSON.stringify({ type: "current_page", page: window.location.pathname })); } catch {}
+      }
+    };
+    ws.onopen = () => sendPage(ws);
     ws.onclose = () => {
       setTimeout(() => {
         if ((window as any).__ws === ws) {
           const newWs = new WebSocket(`${protocol}//${window.location.host}/ws`);
           (window as any).__ws = newWs;
+          newWs.onopen = () => sendPage(newWs);
         }
       }, 3000);
     };
@@ -962,6 +969,14 @@ function AppContent() {
       }
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const ws = (window as any).__ws as WebSocket | null;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: "current_page", page: location })); } catch {}
+    }
+  }, [user, location]);
 
   if (location === "/status" || location.startsWith("/status/")) {
     return <PublicStatusPage />;

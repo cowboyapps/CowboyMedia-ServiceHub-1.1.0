@@ -71,6 +71,14 @@ import {
   hashBackupCode,
   verifyTotpCode,
 } from "./totp";
+import {
+  parseUserAgent,
+  deviceLabel,
+  getSessionsForUser,
+  deleteSession as deleteSessionRow,
+  deleteSessionsForUser,
+  createPresenceMap,
+} from "./sessions";
 
 const totpChallenges = new ChallengeStore();
 setInterval(() => totpChallenges.sweepExpired(), 60_000).unref?.();
@@ -248,6 +256,10 @@ async function saveUploadedFile(file: Express.Multer.File): Promise<string> {
 declare module "express-session" {
   interface SessionData {
     userId: string;
+    userAgent?: string;
+    ip?: string;
+    createdAt?: string;
+    lastSeenAt?: string;
   }
 }
 
@@ -314,6 +326,7 @@ async function getAdminCategoryAccess(userId: string): Promise<string[]> {
     .map(c => c.id);
 }
 
+const presenceMap = createPresenceMap();
 const wsClients = new Set<WebSocket>();
 const ticketViewerCounts = new Map<string, Map<string, { count: number; role: string }>>();
 const adminChatViewerCounts = new Map<string, Map<string, number>>();
@@ -664,6 +677,23 @@ export async function registerRoutes(
 
   app.use(sessionMiddleware);
 
+  const SESSION_ENRICH_THROTTLE_MS = 60 * 1000;
+  app.use((req, _res, next) => {
+    if (req.session && req.session.userId) {
+      const nowIso = new Date().toISOString();
+      if (!req.session.createdAt) req.session.createdAt = nowIso;
+      const ua = req.get("user-agent");
+      if (ua && req.session.userAgent !== ua) req.session.userAgent = ua;
+      const ip = (req.ip || req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+      if (ip && req.session.ip !== ip) req.session.ip = ip;
+      const last = req.session.lastSeenAt ? Date.parse(req.session.lastSeenAt) : 0;
+      if (!last || Date.now() - last > SESSION_ENRICH_THROTTLE_MS) {
+        req.session.lastSeenAt = nowIso;
+      }
+    }
+    next();
+  });
+
   app.get("/uploads/:filename", async (req, res) => {
     try {
       const filename = req.params.filename;
@@ -868,6 +898,54 @@ export async function registerRoutes(
     req.session.destroy(() => {
       res.json({ message: "Logged out" });
     });
+  });
+
+  // ---------- Active sessions (any signed-in user) ----------
+  app.get("/api/me/sessions", requireAuth, async (req, res) => {
+    try {
+      const rows = await getSessionsForUser(pool, req.session.userId!);
+      const currentSid = req.sessionID;
+      res.json(rows.map((s) => {
+        const ua = parseUserAgent(s.userAgent);
+        return {
+          sid: s.sid,
+          deviceLabel: deviceLabel(s.userAgent),
+          device: ua.device,
+          browser: ua.browser,
+          userAgent: s.userAgent,
+          ip: s.ip,
+          createdAt: s.createdAt,
+          lastSeenAt: s.lastSeenAt,
+          expire: s.expire,
+          current: s.sid === currentSid,
+        };
+      }));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/me/sessions/:sid", requireAuth, async (req, res) => {
+    try {
+      const targetSid = req.params.sid;
+      const rows = await getSessionsForUser(pool, req.session.userId!);
+      const owned = rows.find(r => r.sid === targetSid);
+      if (!owned) return res.status(404).json({ message: "Session not found" });
+      await deleteSessionRow(pool, targetSid);
+      const isSelf = targetSid === req.sessionID;
+      res.json({ ok: true, self: isSelf });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/me/sessions", requireAuth, async (req, res) => {
+    try {
+      const removed = await deleteSessionsForUser(pool, req.session.userId!, req.sessionID);
+      res.json({ ok: true, removed });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   function getBaseUrl(req: Request): string {
@@ -4093,6 +4171,49 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
   app.get("/api/admin/dashboard", requirePermission("dashboard.view"), dashboardHandler);
 
+  async function buildOnlineUsersResponse() {
+    const snap = presenceMap.snapshot();
+    const userIds = snap.map(s => s.userId);
+    const users = await Promise.all(userIds.map(id => storage.getUser(id)));
+    return snap.map((s, i) => {
+      const u = users[i];
+      return {
+        userId: s.userId,
+        fullName: u?.fullName || "Unknown",
+        username: u?.username || "",
+        role: u?.role || "unknown",
+        tabs: s.tabs,
+        connectedAt: new Date(s.connectedAt).toISOString(),
+        lastActivityAt: new Date(s.lastActivityAt).toISOString(),
+        idleSeconds: Math.max(0, Math.floor((Date.now() - s.lastActivityAt) / 1000)),
+        page: s.page,
+      };
+    });
+  }
+
+  app.get("/api/admin/online-users", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await buildOnlineUsersResponse());
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  function broadcastPresenceToAdmins(payload: any) {
+    const message = JSON.stringify(payload);
+    wsClients.forEach((client) => {
+      if (client.readyState !== WebSocket.OPEN) return;
+      const uid = wsSessionUserMap?.get(client);
+      if (!uid) return;
+      storage.getUser(uid).then((u) => {
+        if (!u) return;
+        if (u.role === "admin" || u.role === "master_admin") {
+          if (client.readyState === WebSocket.OPEN) client.send(message);
+        }
+      }).catch(() => {});
+    });
+  }
+
   // WebSocket
   app.get("/api/admin/activity-logs", requirePermission("logs.view"), async (req, res) => {
     try {
@@ -4377,10 +4498,25 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   wss.on("connection", (ws) => {
     wsClients.add(ws);
     const sessionUserId = wsSessionUserMap.get(ws);
+    if (sessionUserId) {
+      const wasOnline = presenceMap.hasUser(sessionUserId);
+      presenceMap.add(ws, sessionUserId);
+      if (!wasOnline) {
+        broadcastPresenceToAdmins({ type: "presence_changed", userId: sessionUserId, status: "online" });
+      } else {
+        broadcastPresenceToAdmins({ type: "presence_changed", userId: sessionUserId, status: "tab_added" });
+      }
+    }
 
     ws.on("message", (raw) => {
       try {
         const data = JSON.parse(raw.toString());
+        if (data.type === "current_page" && typeof data.page === "string") {
+          presenceMap.setPage(ws, data.page.slice(0, 200));
+          if (sessionUserId) {
+            broadcastPresenceToAdmins({ type: "presence_changed", userId: sessionUserId, status: "page", page: data.page.slice(0, 200) });
+          }
+        }
         if (data.type === "typing" && data.ticketId && data.userId && data.userName) {
           broadcastExcept({ type: "typing", ticketId: data.ticketId, userId: data.userId, userName: data.userName }, ws);
         }
@@ -4466,6 +4602,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
     ws.on("close", () => {
       wsClients.delete(ws);
+      const removed = presenceMap.remove(ws);
+      if (removed && removed.remaining === 0) {
+        broadcastPresenceToAdmins({ type: "presence_changed", userId: removed.userId, status: "offline" });
+      } else if (removed) {
+        broadcastPresenceToAdmins({ type: "presence_changed", userId: removed.userId, status: "tab_removed" });
+      }
       const info = wsUserMap.get(ws);
       if (info) {
         removeTicketViewer(info.ticketId, info.userId);

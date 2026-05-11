@@ -6961,8 +6961,197 @@ function BusinessHoursTab() {
   );
 }
 
+interface OnlineUserRow {
+  userId: string;
+  fullName: string;
+  username: string;
+  role: string;
+  tabs: number;
+  connectedAt: string;
+  lastActivityAt: string;
+  idleSeconds: number;
+  page: string | null;
+}
+
+function OnlineUsersTab() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [tick, setTick] = useState(0);
+  const [composeFor, setComposeFor] = useState<OnlineUserRow | null>(null);
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<OnlineUserRow[]>({
+    queryKey: ["/api/admin/online-users"],
+    refetchInterval: 15000,
+  });
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const ws = (window as any).__ws as WebSocket | null;
+    if (!ws) return;
+    const orig = ws.onmessage;
+    const listener = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg && msg.type === "presence_changed") refetch();
+      } catch {}
+    };
+    ws.addEventListener("message", listener);
+    return () => ws.removeEventListener("message", listener);
+  }, [refetch]);
+
+  const startMessage = useMutation({
+    mutationFn: async ({ customerId, subject, body }: { customerId: string; subject: string; body: string }) => {
+      const res = await apiRequest("POST", "/api/message-threads", { customerId, subject, body });
+      return res.json() as Promise<{ thread: { id: string } }>;
+    },
+    onSuccess: (result) => {
+      setComposeFor(null);
+      setComposeSubject("");
+      setComposeBody("");
+      navigate(`/messages/${result.thread.id}`);
+    },
+    onError: (e: Error) => toast({ title: "Failed to send", description: e.message, variant: "destructive" }),
+  });
+
+  const formatIdle = (row: OnlineUserRow): string => {
+    const seconds = Math.max(0, Math.floor((Date.now() - new Date(row.lastActivityAt).getTime()) / 1000));
+    if (seconds < 30) return "active now";
+    if (seconds < 60) return `idle ${seconds}s`;
+    if (seconds < 3600) return `idle ${Math.floor(seconds / 60)}m`;
+    return `idle ${Math.floor(seconds / 3600)}h`;
+  };
+
+  const roleBadge = (role: string) => {
+    const map: Record<string, string> = {
+      master_admin: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border-yellow-500/30",
+      admin: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
+      employee: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+      customer: "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30",
+    };
+    return map[role] || "bg-muted text-muted-foreground border-border";
+  };
+
+  const rows = (data || []).filter(r => r.userId !== user?.id);
+  void tick;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-online-title">
+            <Activity className="w-5 h-5 text-emerald-500" /> Online Now
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {isLoading ? "Loading..." : `${rows.length} user${rows.length === 1 ? "" : "s"} currently connected`}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-online">
+          <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
+        </div>
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No other users are currently online.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => (
+            <Card key={r.userId} className="hover-elevate" data-testid={`row-online-${r.userId}`}>
+              <CardContent className="p-3 flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium">
+                    {r.fullName.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium" data-testid={`text-online-name-${r.userId}`}>{r.fullName}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${roleBadge(r.role)}`} data-testid={`badge-online-role-${r.userId}`}>
+                      {r.role.replace("_", " ")}
+                    </span>
+                    {r.tabs > 1 && (
+                      <span className="text-[10px] text-muted-foreground" data-testid={`text-online-tabs-${r.userId}`}>{r.tabs} tabs</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate mt-0.5">
+                    <span data-testid={`text-online-idle-${r.userId}`}>{formatIdle(r)}</span>
+                    {r.page && (
+                      <>
+                        <span className="mx-1.5">•</span>
+                        <span data-testid={`text-online-page-${r.userId}`}>{r.page}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {r.role === "customer" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setComposeFor(r); setComposeSubject(""); setComposeBody(""); }}
+                    data-testid={`button-message-${r.userId}`}
+                  >
+                    <Mail className="w-3.5 h-3.5 mr-1" /> Message
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={!!composeFor} onOpenChange={(open) => { if (!open) setComposeFor(null); }}>
+        <DialogContent data-testid="dialog-online-message">
+          <DialogHeader>
+            <DialogTitle>Message {composeFor?.fullName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Subject"
+              value={composeSubject}
+              onChange={(e) => setComposeSubject(e.target.value)}
+              data-testid="input-online-subject"
+            />
+            <Textarea
+              placeholder="Type your message..."
+              value={composeBody}
+              onChange={(e) => setComposeBody(e.target.value)}
+              rows={5}
+              data-testid="textarea-online-body"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setComposeFor(null)} data-testid="button-cancel-online-message">Cancel</Button>
+            <Button
+              onClick={() => composeFor && startMessage.mutate({ customerId: composeFor.userId, subject: composeSubject.trim(), body: composeBody.trim() })}
+              disabled={startMessage.isPending || !composeSubject.trim() || !composeBody.trim()}
+              data-testid="button-send-online-message"
+            >
+              {startMessage.isPending ? "Sending..." : "Send & Open"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export default function AdminPortal() {
-  const { isAdmin, isMasterAdmin, hasPermission } = useAuth();
+  const { user, isAdmin, isMasterAdmin, hasPermission } = useAuth();
   const [, navigate] = useLocation();
 
   const initialParams = useMemo(() => {
@@ -7063,11 +7252,13 @@ export default function AdminPortal() {
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10" },
     { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+    { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
   ];
 
   const sections = allSections.filter(s => {
     if (s.masterOnly) return isMasterAdmin;
+    if (s.adminOnly) return user?.role === "admin" || user?.role === "master_admin";
     const perm = TILE_PERM_MAP[s.key];
     return perm ? hasPermission(perm) : true;
   });
@@ -7102,6 +7293,7 @@ export default function AdminPortal() {
       case "announcements": return <AnnouncementsTab />;
       case "knowledge-base": return <KnowledgeBaseTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab initialInnerTab={initialParams.section} /> : null;
+      case "online-users": return (user?.role === "admin" || user?.role === "master_admin") ? <OnlineUsersTab /> : null;
       default: return null;
     }
   };

@@ -14,7 +14,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle } from "lucide-react";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
 import { countEnabledGroups, getCategoriesForRole, type AppRole, type NotificationPrefs } from "@shared/notification-categories";
@@ -30,6 +31,150 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+type SessionRow = {
+  sid: string;
+  deviceLabel: string;
+  device: string;
+  browser: string;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: string | null;
+  lastSeenAt: string | null;
+  expire: string | null;
+  current: boolean;
+};
+
+function ActiveSessionsCard() {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<SessionRow[]>({ queryKey: ["/api/me/sessions"] });
+  const [confirmAll, setConfirmAll] = useState(false);
+
+  const signOutOne = useMutation({
+    mutationFn: async (sid: string) => {
+      const res = await apiRequest("DELETE", `/api/me/sessions/${encodeURIComponent(sid)}`);
+      return res.json() as Promise<{ ok: boolean; self: boolean }>;
+    },
+    onSuccess: (result) => {
+      if (result.self) {
+        window.location.href = "/auth";
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/me/sessions"] });
+      toast({ title: "Session signed out" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to sign out session", description: e.message, variant: "destructive" }),
+  });
+
+  const signOutAll = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/me/sessions");
+      return res.json() as Promise<{ ok: boolean; removed: number }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/me/sessions"] });
+      toast({ title: `Signed out ${result.removed} other session${result.removed === 1 ? "" : "s"}` });
+      setConfirmAll(false);
+    },
+    onError: (e: Error) => toast({ title: "Failed to sign out", description: e.message, variant: "destructive" }),
+  });
+
+  const sessions = (data || []).slice().sort((a, b) => {
+    if (a.current && !b.current) return -1;
+    if (!a.current && b.current) return 1;
+    const at = a.lastSeenAt ? Date.parse(a.lastSeenAt) : 0;
+    const bt = b.lastSeenAt ? Date.parse(b.lastSeenAt) : 0;
+    return bt - at;
+  });
+  const otherCount = sessions.filter(s => !s.current).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Monitor className="w-4 h-4" />
+          Active Sessions
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">Devices currently signed in to your account.</p>
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-14" />)}
+          </div>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active sessions found.</p>
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((s) => (
+              <div
+                key={s.sid}
+                className="flex items-start justify-between gap-3 rounded-lg border p-3"
+                data-testid={`row-session-${s.sid}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium" data-testid={`text-device-${s.sid}`}>{s.deviceLabel}</p>
+                    {s.current && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5" data-testid={`badge-current-${s.sid}`}>This device</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {s.ip ? `${s.ip} • ` : ""}
+                    {s.lastSeenAt ? `Last active ${formatDistanceToNow(new Date(s.lastSeenAt), { addSuffix: true })}` : "Last active unknown"}
+                  </p>
+                  {s.createdAt && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Signed in {formatDistanceToNow(new Date(s.createdAt), { addSuffix: true })}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => signOutOne.mutate(s.sid)}
+                  disabled={signOutOne.isPending}
+                  data-testid={`button-signout-${s.sid}`}
+                >
+                  <LogOut className="w-3.5 h-3.5 mr-1" />
+                  {s.current ? "Sign out" : "Revoke"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        {otherCount > 0 && (
+          <div className="pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmAll(true)}
+              data-testid="button-signout-others"
+            >
+              Sign out all other sessions ({otherCount})
+            </Button>
+          </div>
+        )}
+      </CardContent>
+      <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out other sessions?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will revoke {otherCount} session{otherCount === 1 ? "" : "s"} other than this device. Those devices will need to sign in again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-confirm-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => signOutAll.mutate()} data-testid="button-confirm-signout-others">
+              Sign out others
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -403,6 +548,8 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ActiveSessionsCard />
 
       <Card>
         <CardHeader className="pb-3">
