@@ -35,6 +35,7 @@ import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { findUnknownPlaceholders } from "@shared/quick-response-vars";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
 
@@ -2362,6 +2363,7 @@ const quickResponseSchema = z.object({
 
 const UNCATEGORIZED = "__uncategorized__";
 const ALL_CATEGORIES = "__all__";
+const NEEDS_REVIEW = "__needs_review__";
 
 function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
@@ -2500,15 +2502,25 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
     setDialogOpen(true);
   };
 
+  const unknownTokensById = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const qr of quickResponses ?? []) {
+      const tokens = findUnknownPlaceholders(qr.message ?? "");
+      if (tokens.length > 0) map.set(qr.id, tokens);
+    }
+    return map;
+  }, [quickResponses]);
+
   const filteredResponses = useMemo(() => {
     const all = quickResponses ?? [];
     let scoped = all;
     if (selectedCategory === UNCATEGORIZED) scoped = all.filter((qr) => !qr.categoryId);
+    else if (selectedCategory === NEEDS_REVIEW) scoped = all.filter((qr) => unknownTokensById.has(qr.id));
     else if (selectedCategory !== ALL_CATEGORIES) scoped = all.filter((qr) => qr.categoryId === selectedCategory);
     const q = searchQuery.trim().toLowerCase();
     if (!q) return scoped;
     return scoped.filter((qr) => qr.title.toLowerCase().includes(q) || qr.message.toLowerCase().includes(q));
-  }, [quickResponses, selectedCategory, searchQuery]);
+  }, [quickResponses, selectedCategory, searchQuery, unknownTokensById]);
 
   const counts = useMemo(() => {
     const all = quickResponses ?? [];
@@ -2518,8 +2530,8 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
       if (!qr.categoryId) uncat++;
       else map.set(qr.categoryId, (map.get(qr.categoryId) ?? 0) + 1);
     }
-    return { total: all.length, uncategorized: uncat, byCategory: map };
-  }, [quickResponses]);
+    return { total: all.length, uncategorized: uncat, byCategory: map, needsReview: unknownTokensById.size };
+  }, [quickResponses, unknownTokensById]);
 
   const handleDrop = (targetId: string) => {
     if (!dragId || !categories || dragId === targetId) return;
@@ -2670,6 +2682,20 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
             <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Categories</div>
             {renderCategoryRow("All", ALL_CATEGORIES, counts.total, "all")}
             {renderCategoryRow("Uncategorized", UNCATEGORIZED, counts.uncategorized, "uncategorized")}
+            {counts.needsReview > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(NEEDS_REVIEW)}
+                className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center justify-between gap-2 hover-elevate ${selectedCategory === NEEDS_REVIEW ? "bg-accent" : ""}`}
+                data-testid="button-cat-needs-review"
+              >
+                <span className="truncate flex items-center gap-1.5 text-amber-600 dark:text-amber-500">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Needs review
+                </span>
+                <span className="text-xs text-muted-foreground flex-shrink-0" data-testid="text-needs-review-count">{counts.needsReview}</span>
+              </button>
+            )}
             <div className="border-t my-1" />
             {(categories ?? []).map((c) => (
               <div
@@ -2810,6 +2836,29 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0" data-testid={`text-qr-usage-${qr.id}`}>
                             Used {qr.usageCount}
                           </Badge>
+                          {unknownTokensById.has(qr.id) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => canManage && openEdit(qr)}
+                                  className="inline-flex items-center gap-1 rounded border border-amber-300 dark:border-amber-700 bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 text-[10px] px-1.5 py-0 hover-elevate"
+                                  data-testid={`badge-qr-unknown-${qr.id}`}
+                                >
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  Unknown placeholder
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <div className="text-xs">
+                                  <div className="font-medium mb-1">Unknown placeholder{(unknownTokensById.get(qr.id)?.length ?? 0) > 1 ? "s" : ""}:</div>
+                                  <div className="font-mono">
+                                    {(unknownTokensById.get(qr.id) ?? []).join(", ")}
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap" data-testid={`text-qr-message-${qr.id}`}>{qr.message}</p>
                       </div>
