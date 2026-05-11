@@ -24,4 +24,6 @@ echo "Running migration: 015_per_service_discord_webhook.sql"
 psql "$DATABASE_URL" -f migrations/015_per_service_discord_webhook.sql
 echo "Running migration: 016_remove_ticket_sla.sql"
 psql "$DATABASE_URL" -f migrations/016_remove_ticket_sla.sql
+echo "Running migration: 017_hot_path_indexes.sql"
+psql "$DATABASE_URL" -f migrations/017_hot_path_indexes.sql
 echo "Migration complete."

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, integer, primaryKey, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, primaryKey, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { NotificationPrefs } from "./notification-categories";
@@ -92,7 +92,9 @@ export const ticketMessages = pgTable("ticket_messages", {
   imageUrl: text("image_url"),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  ticketCreatedIdx: index("ticket_messages_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
+}));
 
 export const privateMessages = pgTable("private_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -112,7 +114,9 @@ export const ticketNotifications = pgTable("ticket_notifications", {
   message: text("message").notNull(),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  unreadUserIdx: index("ticket_notifications_user_id_unread_idx").on(table.userId).where(sql`${table.readAt} IS NULL`),
+}));
 
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -121,7 +125,9 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   p256dh: text("p256dh").notNull(),
   auth: text("auth").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("push_subscriptions_user_id_idx").on(table.userId),
+}));
 
 export const quickResponses = pgTable("quick_responses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -150,7 +156,9 @@ export const reportNotifications = pgTable("report_notifications", {
   message: text("message").notNull(),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  unreadUserIdx: index("report_notifications_user_id_unread_idx").on(table.userId).where(sql`${table.readAt} IS NULL`),
+}));
 
 export const contentNotifications = pgTable("content_notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -160,7 +168,9 @@ export const contentNotifications = pgTable("content_notifications", {
   message: text("message").notNull(),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  userCategoryReadIdx: index("content_notifications_user_category_read_idx").on(table.userId, table.category, table.readAt),
+}));
 
 export const serviceUpdates = pgTable("service_updates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -235,7 +245,9 @@ export const adminChatMessages = pgTable("admin_chat_messages", {
   fileUrl: text("file_url"),
   fileType: text("file_type"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  threadCreatedIdx: index("admin_chat_messages_thread_id_created_at_idx").on(table.threadId, table.createdAt),
+}));
 
 export const broadcastMessages = pgTable("broadcast_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -454,7 +466,9 @@ export const threadMessages = pgTable("thread_messages", {
   body: text("body").notNull(),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  threadCreatedIdx: index("thread_messages_thread_id_created_at_idx").on(table.threadId, table.createdAt),
+}));
 
 export const insertMessageThreadSchema = createInsertSchema(messageThreads).omit({ id: true, lastMessageAt: true, createdAt: true });
 export type InsertMessageThread = z.infer<typeof insertMessageThreadSchema>;
@@ -476,7 +490,10 @@ export const userNotifications = pgTable("user_notifications", {
   readAt: timestamp("read_at"),
   dismissedAt: timestamp("dismissed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  userCreatedIdx: index("user_notifications_user_id_created_at_idx").on(table.userId, table.createdAt.desc()),
+  unreadUserIdx: index("user_notifications_user_id_unread_idx").on(table.userId).where(sql`${table.readAt} IS NULL AND ${table.dismissedAt} IS NULL`),
+}));
 
 export const insertUserNotificationSchema = createInsertSchema(userNotifications).omit({ id: true, readAt: true, dismissedAt: true, createdAt: true });
 export type InsertUserNotification = z.infer<typeof insertUserNotificationSchema>;
