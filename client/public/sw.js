@@ -8,7 +8,6 @@ const API_CACHE = `servicehub-api-${CACHE_VERSION}`;
 const STATIC_PRECACHE = [
   '/',
   '/manifest.json',
-  '/splash.mp4',
   '/favicon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

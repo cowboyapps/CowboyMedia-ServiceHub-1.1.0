@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import splashVideoUrl from "@assets/ServiceHub_Loading_Screen_1778502829390.mp4";
 
 const MIN_VISIBLE_MS = 800;
 const HARD_TIMEOUT_MS = 5000;
@@ -90,7 +91,7 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
       />
       <video
         ref={videoRef}
-        src="/splash.mp4"
+        src={splashVideoUrl}
         autoPlay
         muted
         playsInline
