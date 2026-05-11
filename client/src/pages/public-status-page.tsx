@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import DOMPurify from "dompurify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
-import { CheckCircle2, AlertTriangle, FileText, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck } from "lucide-react";
+import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck } from "lucide-react";
 
 type PublicAlert = {
   id: string;
@@ -22,8 +21,6 @@ type PublicAlert = {
   createdAt: string | null;
   resolvedAt: string | null;
   lastUpdateAt: string | null;
-  postmortemHtml: string | null;
-  postmortemPublishedAt: string | null;
 };
 
 type DailyBucket = { date: string; status: "up" | "partial" | "down" | "unknown"; downtimeSeconds?: number };
@@ -140,11 +137,6 @@ function FollowDialog({ service, open, onOpenChange }: { service: PublicService;
   );
 }
 
-const PURIFY_CONFIG = {
-  ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a"],
-  ALLOWED_ATTR: ["style", "src", "alt", "width", "height", "href", "target", "rel"],
-};
-
 function statusColor(status: string): string {
   switch (status) {
     case "operational": return "bg-emerald-500";
@@ -176,7 +168,6 @@ const bannerStyles: Record<Banner["tone"], string> = {
 const FOURTEEN_DAYS_MS = 14 * 86400000;
 
 export default function PublicStatusPage() {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [followService, setFollowService] = useState<PublicService | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -204,15 +195,6 @@ export default function PublicStatusPage() {
     queryKey: ["/api/public/status"],
   });
 
-  const toggle = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const services = data?.services || [];
   const alerts = data?.alerts || [];
   const banner = useMemo(() => computeBanner(services), [services]);
@@ -237,8 +219,6 @@ export default function PublicStatusPage() {
   });
 
   const renderIncident = (a: PublicAlert) => {
-    const hasPostmortem = !!(a.postmortemHtml && a.postmortemPublishedAt);
-    const isOpen = expanded.has(a.id);
     return (
       <li key={a.id} className="border rounded-lg p-4" data-testid={`item-incident-${a.id}`}>
         <div className="flex items-start justify-between gap-4">
@@ -262,28 +242,7 @@ export default function PublicStatusPage() {
               {a.resolvedAt && <span>Resolved {format(new Date(a.resolvedAt), "PPp")}</span>}
             </div>
           </div>
-          {hasPostmortem && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => toggle(a.id)}
-              data-testid={`button-postmortem-${a.id}`}
-            >
-              <FileText className="h-3.5 w-3.5 mr-1" />
-              Postmortem
-              {isOpen ? <ChevronUp className="h-3.5 w-3.5 ml-1" /> : <ChevronDown className="h-3.5 w-3.5 ml-1" />}
-            </Button>
-          )}
         </div>
-        {hasPostmortem && isOpen && (
-          <div
-            className="prose prose-sm dark:prose-invert max-w-none mt-4 pt-4 border-t"
-            data-testid={`text-postmortem-${a.id}`}
-            dangerouslySetInnerHTML={{
-              __html: DOMPurify.sanitize(a.postmortemHtml!, PURIFY_CONFIG),
-            }}
-          />
-        )}
       </li>
     );
   };

@@ -302,18 +302,6 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to subscribed customers when a new service alert is created",
   },
   {
-    templateKey: "customer_alert_postmortem",
-    name: "Incident Postmortem",
-    subject: "Postmortem: {alert_title}",
-    body: `<h2>Incident Postmortem</h2>
-<p>A postmortem has been published for an incident affecting <strong>{service_name}</strong>.</p>
-<p><strong>{alert_title}</strong></p>
-<div>{postmortem_html}</div>
-<p>Log in to the app to view full incident history.</p>`,
-    availableVariables: ["alert_title", "service_name", "postmortem_html", "customer_name"],
-    description: "Sent to customers who were notified about the original incident when an admin publishes a postmortem",
-  },
-  {
     templateKey: "customer_service_update",
     name: "Service Update",
     subject: "Service Update: {service_name} - {update_title}",

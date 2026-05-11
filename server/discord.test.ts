@@ -4,7 +4,6 @@ import {
   composeAlertCreated,
   composeAlertUpdate,
   composeAlertResolved,
-  composeAlertPostmortem,
   composeServiceUpdate,
   composeNews,
   composeDiscordTest,
@@ -186,33 +185,6 @@ test("composeServiceUpdate: oversized inputs are clamped under all limits", () =
   assertEmbedWithinLimits(payload, "service update (long)");
 });
 
-test("composeAlertPostmortem: short body returns single payload within limits", () => {
-  const payloads = composeAlertPostmortem({
-    serviceName: "API",
-    title: "Login outage",
-    bodyHtml: "<p>Root cause: bad deploy.</p><p>Fixed by rollback.</p>",
-    alertId: "abc",
-    baseUrl: "https://example.com",
-  });
-  assert.equal(payloads.length, 1);
-  for (const p of payloads) assertEmbedWithinLimits(p, "postmortem (short)");
-});
-
-test("composeAlertPostmortem: very long HTML body is split into multiple payloads, each within limits", () => {
-  const html = `<p>${longParagraphs(8000)}</p>`;
-  const payloads = composeAlertPostmortem({
-    serviceName: long(500, "S"),
-    title: long(1000, "T"),
-    bodyHtml: html,
-    alertId: "abc",
-    baseUrl: "https://example.com",
-  });
-  assert.ok(payloads.length > 1, "expected splitting into multiple payloads");
-  for (const p of payloads) assertEmbedWithinLimits(p, "postmortem (long)");
-  assert.match(payloads[0]!.embeds[0]!.title!, /Postmortem/);
-  assert.match(payloads[1]!.embeds[0]!.title!, /continued/);
-});
-
 test("composeNews: short content returns single payload within limits", () => {
   const payloads = composeNews({
     title: "Maintenance Tonight",
@@ -267,9 +239,6 @@ test("compose helpers tolerate empty strings without throwing", () => {
     composeServiceUpdate({ serviceName: "", title: "", description: "" }),
     "service update (empty)",
   );
-  for (const p of composeAlertPostmortem({ serviceName: "", title: "", bodyHtml: "" })) {
-    assertEmbedWithinLimits(p, "postmortem (empty)");
-  }
   for (const p of composeNews({ title: "", content: "" })) {
     assertEmbedWithinLimits(p, "news (empty)");
   }

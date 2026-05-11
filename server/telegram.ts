@@ -173,25 +173,6 @@ export function composeAlertResolved(opts: {
   ].join("\n");
 }
 
-export function composeAlertPostmortem(opts: {
-  serviceName: string;
-  title: string;
-  bodyHtml: string;
-}): string[] {
-  const plain = stripHtmlPreserveBreaks(opts.bodyHtml);
-  const escapedTitle = escapeHtml(opts.title);
-  const escapedService = escapeHtml(opts.serviceName);
-  const firstHeader = `📝 <b>POSTMORTEM — ${escapedService}</b>\n\n<b>${escapedTitle}</b>\n`;
-  const contHeader = `📝 <b>POSTMORTEM (continued)</b>\n\n`;
-  const escaped = escapeHtml(plain);
-  const firstHeaderLen = firstHeader.length + 7;
-  const bodyChunks = splitForTelegram(escaped, firstHeaderLen);
-  if (bodyChunks.length === 0) return [`${firstHeader}<i></i>`];
-  return bodyChunks.map((chunk, i) =>
-    i === 0 ? `${firstHeader}<i>${chunk}</i>` : `${contHeader}<i>${chunk}</i>`
-  );
-}
-
 export function composeServiceUpdate(opts: {
   serviceName: string;
   title: string;

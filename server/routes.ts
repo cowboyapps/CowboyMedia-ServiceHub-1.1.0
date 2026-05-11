@@ -27,7 +27,7 @@ import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
-import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeAlertPostmortem, composeServiceUpdate, composeNews } from "./telegram";
+import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
 import {
   fireDiscord,
   fireDiscordMany,
@@ -35,7 +35,6 @@ import {
   composeAlertCreated as composeDiscordAlertCreated,
   composeAlertUpdate as composeDiscordAlertUpdate,
   composeAlertResolved as composeDiscordAlertResolved,
-  composeAlertPostmortem as composeDiscordAlertPostmortem,
   composeServiceUpdate as composeDiscordServiceUpdate,
   composeNews as composeDiscordNews,
   composeDiscordTest,
@@ -524,7 +523,6 @@ interface NotifMeta {
 //   ticket-transfer-<id>        — admin transfer notice (separate tray row)
 //   thread-<id>                 — admin↔customer message thread
 //   alert-<id>                  — service alert + alert updates + resolve
-//   alert-postmortem-<id>       — postmortem publish for an alert
 //   service-<id>                — service status flips
 //   service-update-<serviceId>  — admin-authored service updates per service
 //                                 (persisted as referenceType=service_update_group, referenceId=serviceId)
@@ -893,8 +891,6 @@ export async function registerRoutes(
           createdAt: a.createdAt,
           resolvedAt: a.resolvedAt,
           lastUpdateAt: updatesByAlert.get(a.id) || a.resolvedAt || a.createdAt,
-          postmortemHtml: a.postmortemHtml,
-          postmortemPublishedAt: a.postmortemPublishedAt,
         })),
       });
     } catch (e: any) {
@@ -952,18 +948,7 @@ export async function registerRoutes(
         return res.json({ message: "Confirmation email sent. Please check your inbox to complete the subscription." });
       }
 
-      // Global postmortem subscribe (Task #56)
-      const existing = await storage.getPublicStatusSubscriberByEmail(email);
-      if (existing) {
-        const link = `${baseUrl}/api/public/unsubscribe?token=${existing.unsubscribeToken}`;
-        sendEmail(email, "You're already subscribed to status updates", `<p>You are already subscribed to CowboyMedia status updates.</p><p>To unsubscribe at any time, visit <a href="${link}">${link}</a>.</p>`).catch(() => {});
-        return res.json({ message: "Already subscribed" });
-      }
-      const token = crypto.randomBytes(24).toString("hex");
-      await storage.createPublicStatusSubscriber(email, token);
-      const link = `${baseUrl}/api/public/unsubscribe?token=${token}`;
-      sendEmail(email, "Subscribed to CowboyMedia status updates", `<p>Thanks for subscribing. You'll receive an email whenever we publish an incident postmortem.</p><p>To unsubscribe at any time, visit <a href="${link}">${link}</a>.</p>`).catch(() => {});
-      res.json({ message: "Subscribed" });
+      return res.status(400).json({ message: "serviceId is required" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -999,7 +984,7 @@ export async function registerRoutes(
         return res.type("html").send(subscribeHtmlPage("Unsubscribed", `You won't receive any more updates for <strong>${escapeHtml(service?.name || "this service")}</strong>.`, true));
       }
 
-      // Fall back to global postmortem subscriber
+      // Fall back to legacy global subscriber so existing email links still work
       const removed = await storage.deletePublicStatusSubscriberByToken(token);
       res.set("Content-Type", "text/html");
       res.send(`<!doctype html><html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto;"><h2>${removed ? "Unsubscribed" : "Not found"}</h2><p>${removed ? "You've been unsubscribed from CowboyMedia status updates." : "That unsubscribe link is no longer valid."}</p></body></html>`);
@@ -2587,93 +2572,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         alert_title: updated.title,
         resolve_message: resolveMessage,
       }, getBaseUrl(req));
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/alerts/:id/postmortem", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
-    try {
-      const alert = await storage.getAlert(req.params.id);
-      if (!alert) return res.status(404).json({ message: "Alert not found" });
-      const rawHtml = typeof req.body?.postmortemHtml === "string" ? req.body.postmortemHtml : "";
-      const trimmedPlain = sanitizeHtml(rawHtml, { allowedTags: [], allowedAttributes: {} }).trim();
-      if (!trimmedPlain) return res.status(400).json({ message: "Postmortem body is required" });
-      const sanitized = sanitizeNewsContent(rawHtml);
-      const isFirstPublish = !alert.postmortemPublishedAt;
-      const updated = await storage.updateAlert(req.params.id, {
-        postmortemHtml: sanitized,
-        postmortemAuthorId: req.session.userId!,
-        ...(isFirstPublish ? { postmortemPublishedAt: new Date() } : {}),
-      });
-      if (!updated) return res.status(404).json({ message: "Alert not found" });
-      const service = await storage.getService(updated.serviceId);
-      const serviceName = service?.name || "Service";
-      logActivity("alert", isFirstPublish ? "alert_postmortem_published" : "alert_postmortem_edited", {
-        actorId: req.session.userId!,
-        targetId: req.params.id,
-        targetType: "alert",
-        summary: `Postmortem ${isFirstPublish ? "published" : "edited"}: ${updated.title} (${serviceName})`,
-      });
-      broadcast({ type: "alert_postmortem", alertId: req.params.id });
-      if (isFirstPublish) {
-        const recipientIds = await storage.getAlertNotificationRecipientIds(req.params.id);
-        if (recipientIds.length > 0) {
-          const recipients = await Promise.all(recipientIds.map(id => storage.getUser(id)));
-          for (const u of recipients) {
-            if (!u || u.id === req.session.userId) continue;
-            if (u.email && customerWantsEmail(u, "service_alert")) {
-              sendTemplatedEmail(u.email, "customer_alert_postmortem", {
-                alert_title: updated.title,
-                service_name: serviceName,
-                postmortem_html: sanitized,
-                customer_name: u.fullName,
-              }, u.fullName, new Set(["postmortem_html"]));
-            }
-            if (customerWantsPush(u, "service_alert")) {
-              await sendPushToUser(u.id, {
-                title: `${serviceName}: Postmortem published`,
-                body: updated.title,
-                url: `/alerts/${req.params.id}`,
-                tag: `alert-postmortem-${req.params.id}`,
-                resourceLabel: `${serviceName} postmortem: ${updated.title}`,
-                rollupNoun: "updates",
-              }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
-            }
-          }
-          const customerIds = recipients.filter(u => u && u.role === "customer" && u.id !== req.session.userId).map(u => u!.id);
-          if (customerIds.length > 0) {
-            storage.createContentNotificationBulk(customerIds, "alerts", `${serviceName}: Postmortem — ${updated.title}`, updated.id).catch(() => {});
-          }
-        }
-        fireDiscordMany(composeDiscordAlertPostmortem({
-          serviceName,
-          title: updated.title,
-          bodyHtml: sanitized,
-          alertId: updated.id,
-          baseUrl: getBaseUrl(req),
-        }), "alert", service?.discordWebhookUrl);
-        fireTelegramMany(composeAlertPostmortem({
-          serviceName,
-          title: updated.title,
-          bodyHtml: sanitized,
-        }), "alert");
-        try {
-          const publicSubs = await storage.getPublicStatusSubscribers();
-          if (publicSubs.length > 0) {
-            const baseUrl = getBaseUrl(req);
-            const subject = `${serviceName}: Postmortem — ${updated.title}`;
-            for (const sub of publicSubs) {
-              const link = `${baseUrl}/api/public/unsubscribe?token=${sub.unsubscribeToken}`;
-              const html = `<h2>${escapeHtml(serviceName)}: ${escapeHtml(updated.title)}</h2>${sanitized}<hr/><p style="font-size:12px;color:#6b7280;">You received this because you subscribed to CowboyMedia status updates. <a href="${link}">Unsubscribe</a>.</p>`;
-              sendEmail(sub.email, subject, html).catch(() => {});
-            }
-          }
-        } catch (err) {
-          console.error("Public subscriber postmortem fan-out failed:", err);
-        }
-      }
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

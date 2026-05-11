@@ -57,7 +57,6 @@ const COLOR = {
   monitoring: 0x5865F2,
   news: 0x3B82F6,
   service_update: 0x5865F2,
-  postmortem: 0x6B7280,
   info: 0x57F287,
 } as const;
 
@@ -307,34 +306,6 @@ function splitDescription(body: string, max: number = DISCORD_MAX_BODY_LEN): str
   }
   if (remaining.length > 0) chunks.push(remaining);
   return chunks;
-}
-
-export function composeAlertPostmortem(opts: {
-  serviceName: string;
-  title: string;
-  bodyHtml: string;
-  alertId?: string;
-  baseUrl?: string;
-}): DiscordPayload[] {
-  const plain = stripHtmlPreserveBreaks(opts.bodyHtml);
-  const chunks = splitDescription(plain);
-  const url = alertUrl(opts.baseUrl, opts.alertId);
-  return chunks.map((chunk, i) => ({
-    embeds: [{
-      title: truncate(
-        i === 0
-          ? `📝 Postmortem — ${clampTitle(opts.title)}`
-          : `📝 Postmortem (continued) — ${clampTitle(opts.title)}`,
-        256,
-      ),
-      description: chunk || "—",
-      url,
-      color: COLOR.postmortem,
-      fields: i === 0 ? [{ name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true }] : undefined,
-      footer: { text: clampServiceName(opts.serviceName) },
-      ...(i === 0 ? { timestamp: new Date().toISOString() } : {}),
-    }],
-  }));
 }
 
 export function composeServiceUpdate(opts: {

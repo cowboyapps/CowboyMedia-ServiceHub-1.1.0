@@ -45,11 +45,11 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **PWA First**: Emphasizes native app-like experience with installability, offline support, and push notifications.
 - **Real-time Everything**: WebSockets are used extensively for chat, admin communications, and instant updates.
 - **Role-Based Access**: Granular permissions system for admin users ensures secure access control.
-- **Rich Content Editing**: TipTap editor used for news, knowledge base articles, and postmortems, ensuring rich text formatting.
+- **Rich Content Editing**: TipTap editor used for news and knowledge base articles, ensuring rich text formatting.
 - **Optimistic UI Updates**: Implemented in support ticketing for a smoother user experience, particularly with message sending.
 - **Business Hours Logic**: Centralized configuration and server-side calculation for customer interactions and auto-responses, accounting for timezones and DST.
 - **AI Integration**: Optional AI features for canned response suggestions and drafting replies, integrated with OpenAI.
-- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers. Discord supports per-service webhook overrides (services.discord_webhook_url) for alert / alert update / resolve / postmortem / service update fan-outs; news still uses the global webhook.
+- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers. Discord supports per-service webhook overrides (services.discord_webhook_url) for alert / alert update / resolve / service update fan-outs; news still uses the global webhook.
 
 ## Product
 
@@ -59,10 +59,9 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Admin Portal**: Comprehensive tools for user, service, alert, and content management.
 - **PWA Features**: Offline support, push notifications, and app badge management.
 - **Knowledge Base**: Searchable articles with rich text, helpfulness feedback, and suggested articles for new tickets.
-- **Incident Postmortems**: Rich-text postmortems for service alerts, with email and push notification fan-out to affected users.
 - **Customer Onboarding Tour**: Interactive tour for first-time customers highlighting key features.
 - **Admin Announcements**: Popup announcements for customers with rich text and optional in-app links.
-- **Public Status Page**: Unauthenticated `/status` page with live service health, 30-day uptime % + 90-day sparkline (when monitor linked), recent incidents, postmortems, and per-service email "Follow" with confirm/unsubscribe via tokenised links.
+- **Public Status Page**: Unauthenticated `/status` page with live service health, 30-day uptime % + 90-day sparkline (when monitor linked), recent incidents, and per-service email "Follow" with confirm/unsubscribe via tokenised links.
 
 ## User preferences
 
@@ -77,7 +76,6 @@ When the user says "change the version to...", update the version string in `cli
 - **Telegram Integration**: Requires `TELEGRAM_BOT_TOKEN` secret; failures are non-blocking.
 - **Discord Integration**: Webhook URL stored in DB (no env var); set via Admin Portal → Discord. Failures are non-blocking and never block customer notifications.
 - **AI Integrations**: Requires `AI_INTEGRATIONS_OPENAI_BASE_URL` and `AI_INTEGRATIONS_OPENAI_API_KEY` for AI features to be active.
-- **Postmortem Notifications**: "Original notification recipients" for postmortems relies on `user_notifications` table; alerts created before this tracking will not have specific recipients.
 - **Rate Limits** (`server/rate-limits.ts`): Mounted on a few abuse-prone routes only. Login: 5 failures / minute / (IP+username). Register: 10 / hour / IP. Forgot- and reset-password: 3 / hour / IP. Ticket POST: 10 / hour / user. Report submission POST: 10 / minute / user. Community-chat post: 10 / minute / user. Community-chat reactions: 60 / minute / user. Admin and master_admin sessions bypass every limiter via `bypassRateLimitForAdmins`. Limits are enforced by `express-rate-limit` with an in-process memory store, so they reset on restart and are per-process — fine for current single-instance deployment, but document/replace if we ever run multi-process. Limit hits respond with JSON `{ error, retryAfterSeconds }` and a `Retry-After` header so the frontend can show a friendly toast.
 
 ## Pointers
