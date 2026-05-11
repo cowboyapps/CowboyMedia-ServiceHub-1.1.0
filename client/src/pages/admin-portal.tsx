@@ -34,6 +34,7 @@ import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
+import { parseAdminPortalQuery, shouldCleanInitialUrl, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
 
 function pillColorClass(enabled: number, total: number): string {
   if (total === 0) return "bg-muted text-muted-foreground border-transparent";
@@ -225,13 +226,18 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
 
   const [didFocusInitialUser, setDidFocusInitialUser] = useState(false);
   useEffect(() => {
-    if (didFocusInitialUser) return;
-    if (!initialUserId || !users) return;
-    const target = users.find((u) => u.id === initialUserId);
-    if (!target) {
-      setDidFocusInitialUser(true);
+    const action = computeInitialUserAction({
+      initialUserId,
+      users: users ?? null,
+      didFocus: didFocusInitialUser,
+    });
+    if (action.kind === "wait" || action.kind === "noop") {
+      if (action.kind === "noop" && !didFocusInitialUser && initialUserId && users) {
+        setDidFocusInitialUser(true);
+      }
       return;
     }
+    const target = action.target;
     setSearchQuery("");
     openDetailDialog(target);
     setDidFocusInitialUser(true);
@@ -7195,28 +7201,20 @@ export default function AdminPortal() {
   const { user, isAdmin, isMasterAdmin, hasPermission } = useAuth();
   const [, navigate] = useLocation();
 
-  const initialParams = useMemo(() => {
-    const empty = { tab: null, chat: null, monitor: null, ticket: null, section: null, user: null } as {
-      tab: string | null; chat: string | null; monitor: string | null; ticket: string | null; section: string | null; user: string | null;
-    };
-    if (typeof window === "undefined") return empty;
-    const sp = new URLSearchParams(window.location.search);
-    return {
-      tab: sp.get("tab"),
-      chat: sp.get("chat"),
-      monitor: sp.get("monitor"),
-      ticket: sp.get("ticket"),
-      section: sp.get("section"),
-      user: sp.get("user"),
-    };
-  }, []);
+  const initialParams = useMemo(
+    () =>
+      parseAdminPortalQuery(
+        typeof window === "undefined" ? null : window.location.search,
+      ),
+    [],
+  );
 
   useEffect(() => {
     if (initialParams.ticket) {
       navigate(`/tickets/${initialParams.ticket}`);
       return;
     }
-    if (initialParams.tab || initialParams.chat || initialParams.monitor || initialParams.section || initialParams.user) {
+    if (shouldCleanInitialUrl(initialParams)) {
       if (typeof window !== "undefined" && window.history?.replaceState) {
         window.history.replaceState(null, "", window.location.pathname);
       }
@@ -7251,12 +7249,12 @@ export default function AdminPortal() {
     );
   }
 
-  const [activeSection, setActiveSection] = useState<string | null>(() => {
-    const t = initialParams.tab;
-    if (t && t !== "support-tickets") return t;
-    if (!t && hasPermission("dashboard.view")) return "overview";
-    return null;
-  });
+  const [activeSection, setActiveSection] = useState<string | null>(() =>
+    computeInitialActiveSection({
+      tabParam: initialParams.tab,
+      hasDashboardView: hasPermission("dashboard.view"),
+    }),
+  );
 
   // Permissions for non-master admins arrive asynchronously, so the
   // initial useState computation may run before `dashboard.view` is
