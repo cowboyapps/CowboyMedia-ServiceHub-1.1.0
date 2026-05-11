@@ -185,7 +185,7 @@ self.addEventListener('push', (event) => {
     icon: '/icons/icon-192.png',
     badge: '/icons/badge-96.png',
     vibrate: [200, 100, 200],
-    data: { url: data.url || '/' },
+    data: { url: data.url || '/', notificationId: data.notificationId || null },
     actions: data.actions || [],
     tag: data.tag || 'default',
     renotify: true,
@@ -218,20 +218,44 @@ self.addEventListener('push', (event) => {
   );
 });
 
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const url = event.notification.data?.url || '/';
-  event.waitUntil(
-    self.registration.getNotifications().then((notifications) => {
-      const remaining = notifications.length;
-      if (self.navigator && self.navigator.setAppBadge) {
-        if (remaining > 0) {
-          self.navigator.setAppBadge(remaining).catch(() => {});
-        } else {
-          self.navigator.clearAppBadge().catch(() => {});
-        }
+function refreshAppBadge() {
+  return self.registration.getNotifications().then((notifications) => {
+    const remaining = notifications.length;
+    if (self.navigator && self.navigator.setAppBadge) {
+      if (remaining > 0) {
+        self.navigator.setAppBadge(remaining).catch(() => {});
+      } else {
+        self.navigator.clearAppBadge().catch(() => {});
       }
-      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    }
+  });
+}
+
+self.addEventListener('notificationclick', (event) => {
+  const data = event.notification.data || {};
+  const notificationId = data.notificationId;
+
+  // "Mark as read" action: silently mark the row read on the server,
+  // close the notification, and refresh the OS app badge — without
+  // opening or focusing the app. Falls back to default-click behavior
+  // if the id is missing for any reason.
+  if (event.action === 'mark-read' && notificationId) {
+    event.notification.close();
+    event.waitUntil(
+      fetch('/api/notifications/' + encodeURIComponent(notificationId) + '/read', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' },
+      }).catch(() => {}).then(() => refreshAppBadge())
+    );
+    return;
+  }
+
+  event.notification.close();
+  const url = data.url || '/';
+  event.waitUntil(
+    refreshAppBadge().then(() =>
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         for (const client of clients) {
           if (client.url.includes(self.location.origin) && 'focus' in client) {
             client.navigate(url);
@@ -239,7 +263,7 @@ self.addEventListener('notificationclick', (event) => {
           }
         }
         return self.clients.openWindow(url);
-      });
-    })
+      })
+    )
   );
 });

@@ -41,6 +41,7 @@ import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnounce
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
+import { buildPushPayload } from "./push-payload";
 import type { User } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { getOpenAIClient } from "./openai-client";
@@ -453,17 +454,24 @@ interface NotifMeta {
 }
 
 async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string }, notif?: NotifMeta) {
+  let notificationId: string | null = null;
   if (notif) {
-    storage.createUserNotification({
-      userId,
-      type: notif.type,
-      title: payload.title,
-      body: payload.body,
-      referenceType: notif.referenceType || null,
-      referenceId: notif.referenceId || null,
-      url: payload.url || null,
-    }).catch(e => console.error("[UserNotif] Failed to create:", e.message));
+    try {
+      const row = await storage.createUserNotification({
+        userId,
+        type: notif.type,
+        title: payload.title,
+        body: payload.body,
+        referenceType: notif.referenceType || null,
+        referenceId: notif.referenceId || null,
+        url: payload.url || null,
+      });
+      notificationId = row.id;
+    } catch (e: any) {
+      console.error("[UserNotif] Failed to create:", e.message);
+    }
   }
+  const richPayload = buildPushPayload(payload, { notificationId });
   try {
     const subs = await storage.getPushSubscriptionsByUser(userId);
     if (subs.length === 0) {
@@ -475,7 +483,7 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify(payload)
+          JSON.stringify(richPayload)
         );
         sent++;
       } catch (err: any) {
