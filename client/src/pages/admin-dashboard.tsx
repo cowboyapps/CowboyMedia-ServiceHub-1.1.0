@@ -105,6 +105,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
             msg.type.startsWith("ticket_") ||
             msg.type === "new_ticket" ||
             msg.type === "new_alert" ||
+            msg.type === "alert_update" ||
             msg.type === "alert_updated" ||
             msg.type === "alert_resolved"
           ) {
@@ -121,7 +122,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3" data-testid="loading-dashboard">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-4" data-testid="loading-dashboard">
         {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48 w-full" />)}
       </div>
     );
@@ -149,10 +150,10 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
 
   return (
     <div className="space-y-4" data-testid="page-admin-dashboard">
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
         {/* Tickets */}
         <Card
-          className="cursor-pointer hover-elevate active-elevate-2 xl:col-span-2"
+          className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2 xl:col-span-4"
           onClick={() => navigate("/tickets")}
           data-testid="card-dashboard-tickets"
         >

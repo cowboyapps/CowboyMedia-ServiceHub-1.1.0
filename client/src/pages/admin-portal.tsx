@@ -6514,6 +6514,19 @@ export default function AdminPortal() {
     return null;
   });
 
+  // Permissions for non-master admins arrive asynchronously, so the
+  // initial useState computation may run before `dashboard.view` is
+  // visible. Once permissions resolve, promote the user to the
+  // Overview landing if they haven't navigated elsewhere yet and no
+  // explicit tab was requested.
+  useEffect(() => {
+    if (activeSection) return;
+    if (initialParams.tab) return;
+    if (hasPermission("dashboard.view")) {
+      setActiveSection("overview");
+    }
+  }, [hasPermission, activeSection, initialParams.tab]);
+
   const allSections = [
     { key: "overview", label: "Overview", icon: LayoutDashboard, color: "text-primary", bg: "bg-primary/10" },
     { key: "users", label: "Users", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
