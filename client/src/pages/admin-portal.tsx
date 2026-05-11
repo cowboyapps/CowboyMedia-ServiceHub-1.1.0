@@ -7018,11 +7018,29 @@ function OnlineUsersTab() {
   useEffect(() => {
     const ws = (window as any).__ws as WebSocket | null;
     if (!ws) return;
-    const orig = ws.onmessage;
     const listener = (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg && msg.type === "presence_changed") refetch();
+        if (!msg || msg.type !== "presence_changed") return;
+        if (msg.status === "page" && typeof msg.userId === "string") {
+          const nowIso = new Date().toISOString();
+          const newPage: string | null = typeof msg.page === "string" ? msg.page : null;
+          const prev = queryClient.getQueryData<OnlineUserRow[]>(["/api/admin/online-users"]);
+          if (prev && prev.some((r) => r.userId === msg.userId)) {
+            queryClient.setQueryData<OnlineUserRow[]>(
+              ["/api/admin/online-users"],
+              prev.map((r) =>
+                r.userId === msg.userId
+                  ? { ...r, page: newPage, lastActivityAt: nowIso, idleSeconds: 0 }
+                  : r,
+              ),
+            );
+          } else {
+            refetch();
+          }
+          return;
+        }
+        refetch();
       } catch {}
     };
     ws.addEventListener("message", listener);
