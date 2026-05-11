@@ -12,7 +12,22 @@ export const QUICK_RESPONSE_VARIABLES = [
 
 export type QuickResponseVariable = (typeof QUICK_RESPONSE_VARIABLES)[number];
 
-const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
+/** Regex source for matching `{{variable}}` tokens in template/message text. */
+export const PLACEHOLDER_TOKEN_RE = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
+
+/** Human-friendly labels for the recognized quick-response variables. */
+export const PLACEHOLDER_VARIABLE_LABELS: Record<string, string> = {
+  customer_name: "Customer name",
+  ticket_subject: "Ticket subject",
+  admin_name: "Your full name",
+};
+
+/** Reasons shown when a known variable resolves to an empty value at send time. */
+export const PLACEHOLDER_EMPTY_REASONS: Record<string, string> = {
+  customer_name: "This customer has no full name on file.",
+  ticket_subject: "This ticket has no subject set.",
+  admin_name: "Your account has no full name set.",
+};
 
 export const QUICK_RESPONSE_RECENT_MAX = 5;
 
@@ -44,7 +59,7 @@ export function applyQuickResponseVariables(
   ctx: QuickResponseVarContext,
 ): string {
   if (!template) return "";
-  return template.replace(PLACEHOLDER_RE, (match, key: string) => {
+  return template.replace(PLACEHOLDER_TOKEN_RE, (match, key: string) => {
     if (!(QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key)) {
       return match;
     }
@@ -74,9 +89,9 @@ export function tokenizeQuickResponseTemplate(
   const segments: QuickResponsePreviewSegment[] = [];
   if (!template) return segments;
   let lastIndex = 0;
-  PLACEHOLDER_RE.lastIndex = 0;
+  PLACEHOLDER_TOKEN_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = PLACEHOLDER_RE.exec(template)) !== null) {
+  while ((match = PLACEHOLDER_TOKEN_RE.exec(template)) !== null) {
     if (match.index > lastIndex) {
       segments.push({ kind: "text", value: template.slice(lastIndex, match.index) });
     }

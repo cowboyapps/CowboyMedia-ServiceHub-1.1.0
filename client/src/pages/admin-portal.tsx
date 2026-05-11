@@ -28,6 +28,7 @@ import AdminDashboard from "./admin-dashboard";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
+import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
 import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
@@ -2587,7 +2588,17 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
                 <FormField control={form.control} name="message" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Message</FormLabel>
-                    <FormControl><Textarea {...field} rows={4} placeholder="The response text to send..." data-testid="input-qr-message" /></FormControl>
+                    <FormControl>
+                      <TemplateMessageEditor
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        rows={4}
+                        placeholder="The response text to send..."
+                        testId="input-qr-message"
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

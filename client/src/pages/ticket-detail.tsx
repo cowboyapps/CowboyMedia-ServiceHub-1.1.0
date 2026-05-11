@@ -20,7 +20,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { findUnfilledPlaceholders, QUICK_RESPONSE_VARIABLES } from "@shared/quick-response-vars";
+import {
+  findUnfilledPlaceholders,
+  QUICK_RESPONSE_VARIABLES,
+  PLACEHOLDER_TOKEN_RE,
+  PLACEHOLDER_VARIABLE_LABELS,
+  PLACEHOLDER_EMPTY_REASONS,
+} from "@shared/quick-response-vars";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -72,20 +78,6 @@ function BouncingDots() {
     </span>
   );
 }
-
-const PLACEHOLDER_VARIABLE_LABELS: Record<string, string> = {
-  customer_name: "Customer name",
-  ticket_subject: "Ticket subject",
-  admin_name: "Your full name",
-};
-
-const PLACEHOLDER_EMPTY_REASONS: Record<string, string> = {
-  customer_name: "This customer has no full name on file.",
-  ticket_subject: "This ticket has no subject set.",
-  admin_name: "Your account has no full name set.",
-};
-
-const PLACEHOLDER_TOKEN_RE = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
 
 function formatDateSeparator(date: Date): string {
   if (isToday(date)) return "Today";
