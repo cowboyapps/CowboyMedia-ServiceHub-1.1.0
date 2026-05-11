@@ -26,6 +26,8 @@ import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone,
 import DOMPurify from "dompurify";
 import type { Announcement } from "@shared/schema";
 import { NotificationCenter } from "@/components/notification-center";
+import { CommandPalette } from "@/components/command-palette";
+import { Search } from "lucide-react";
 import { OnboardingTour } from "@/components/onboarding-tour";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
@@ -167,7 +169,21 @@ function AuthenticatedLayout() {
                 <img src={logoImg} alt="CowboyMedia" className="h-20 md:h-8 cursor-pointer" />
               </Link>
             </div>
-            <div className="z-10 ml-auto">
+            <div className="z-10 ml-auto flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 gap-2 px-2 sm:px-3 text-muted-foreground hover:text-foreground"
+                onClick={() => window.dispatchEvent(new Event("open-command-palette"))}
+                data-testid="button-open-command-palette"
+                aria-label="Open search"
+              >
+                <Search className="w-4 h-4" />
+                <span className="hidden md:inline text-xs">Search</span>
+                <kbd className="hidden md:inline ml-1 pointer-events-none h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+                  ⌘K
+                </kbd>
+              </Button>
               <NotificationCenter />
             </div>
           </header>
@@ -982,6 +998,7 @@ function AppContent() {
   return (
     <>
       <BroadcastAlertPopup />
+      <CommandPalette />
       {isAdmin && <TicketTransferPopup />}
       <WelcomeDialog />
       <SetupReminderDialog />

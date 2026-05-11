@@ -61,6 +61,7 @@ import {
 } from "./rate-limits";
 import { logError } from "./error-log";
 import { ERROR_LOG_SEVERITIES, ERROR_LOG_SOURCES } from "@shared/schema";
+import { createSearchHandler } from "./search";
 
 function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
@@ -1120,6 +1121,15 @@ export async function registerRoutes(
   });
 
   // Public API routes
+  app.get(
+    "/api/search",
+    requireAuth,
+    createSearchHandler({
+      storage,
+      getAccessibleTicketCategoryIds: (uid) => getAdminCategoryAccess(uid).then((ids) => (ids.includes("*") ? "*" : ids)),
+    }),
+  );
+
   app.get("/api/services", requireAuth, async (req, res) => {
     const result = await storage.getAllServices();
     const user = await storage.getUser(req.session.userId!);
