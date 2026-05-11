@@ -28,6 +28,7 @@ import {
   type ErrorLog, type InsertErrorLog,
   type Download, type InsertDownload,
   type PasswordResetToken, type InsertPasswordResetToken,
+  type TotpBackupCode,
   type UrlMonitor, type InsertUrlMonitor,
   type MonitorIncident, type InsertMonitorIncident,
   type MessageThread, type InsertMessageThread,
@@ -49,7 +50,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -270,6 +271,10 @@ export interface IStorage {
   createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken>;
   getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined>;
   markPasswordResetTokenUsed(id: string): Promise<void>;
+  listTotpBackupCodes(userId: string): Promise<TotpBackupCode[]>;
+  replaceTotpBackupCodes(userId: string, codeHashes: string[]): Promise<void>;
+  markTotpBackupCodeUsed(id: string): Promise<void>;
+  deleteTotpBackupCodes(userId: string): Promise<void>;
 
   getAllUrlMonitors(): Promise<UrlMonitor[]>;
   getUrlMonitor(id: string): Promise<UrlMonitor | undefined>;
@@ -1210,6 +1215,24 @@ export class DatabaseStorage implements IStorage {
 
   async markPasswordResetTokenUsed(id: string): Promise<void> {
     await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
+  }
+
+  async listTotpBackupCodes(userId: string): Promise<TotpBackupCode[]> {
+    return db.select().from(totpBackupCodes).where(eq(totpBackupCodes.userId, userId));
+  }
+
+  async replaceTotpBackupCodes(userId: string, codeHashes: string[]): Promise<void> {
+    await db.delete(totpBackupCodes).where(eq(totpBackupCodes.userId, userId));
+    if (codeHashes.length === 0) return;
+    await db.insert(totpBackupCodes).values(codeHashes.map((codeHash) => ({ userId, codeHash })));
+  }
+
+  async markTotpBackupCodeUsed(id: string): Promise<void> {
+    await db.update(totpBackupCodes).set({ usedAt: new Date() }).where(eq(totpBackupCodes.id, id));
+  }
+
+  async deleteTotpBackupCodes(userId: string): Promise<void> {
+    await db.delete(totpBackupCodes).where(eq(totpBackupCodes.userId, userId));
   }
 
   async getAllUrlMonitors(): Promise<UrlMonitor[]> {

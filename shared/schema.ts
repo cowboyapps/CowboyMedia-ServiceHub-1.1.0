@@ -23,7 +23,19 @@ export const users = pgTable("users", {
   chatNotifications: text("chat_notifications").default("mentions"),
   chatBanned: boolean("chat_banned").default(false),
   onboardingTourCompletedAt: timestamp("onboarding_tour_completed_at"),
+  totpSecret: text("totp_secret"),
+  totpEnabledAt: timestamp("totp_enabled_at"),
 });
+
+export const totpBackupCodes = pgTable("totp_backup_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  codeHash: text("code_hash").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type TotpBackupCode = typeof totpBackupCodes.$inferSelect;
 
 export const services = pgTable("services", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

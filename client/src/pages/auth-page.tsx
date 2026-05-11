@@ -15,10 +15,12 @@ import { Shield, Wifi, Bell, MessageSquare } from "lucide-react";
 import { Link } from "wouter";
 
 export default function AuthPage() {
-  const { login, register, user } = useAuth();
+  const { login, verifyTwoFactor, register, user } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingChallengeId, setPendingChallengeId] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
 
   if (user) {
     navigate((user.role === "admin" || user.role === "master_admin") ? "/admin" : "/");
@@ -38,13 +40,46 @@ export default function AuthPage() {
   const handleLogin = async (data: LoginData) => {
     setIsSubmitting(true);
     try {
-      await login(data);
-      toast({ title: "Welcome back!" });
+      const result = await login(data);
+      if (result?.twoFactorRequired && result.challengeId) {
+        setPendingChallengeId(result.challengeId);
+        setTwoFactorCode("");
+      } else {
+        toast({ title: "Welcome back!" });
+      }
     } catch (e: any) {
       toast({ title: "Login failed", description: e.message, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleVerifyTwoFactor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingChallengeId) return;
+    setIsSubmitting(true);
+    try {
+      await verifyTwoFactor(pendingChallengeId, twoFactorCode);
+      toast({ title: "Welcome back!" });
+      setPendingChallengeId(null);
+      setTwoFactorCode("");
+    } catch (e: any) {
+      const msg = e?.message || "";
+      if (msg.includes("expired") || msg.includes("Too many")) {
+        setPendingChallengeId(null);
+        setTwoFactorCode("");
+        loginForm.reset();
+      }
+      toast({ title: "Verification failed", description: msg, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelTwoFactor = () => {
+    setPendingChallengeId(null);
+    setTwoFactorCode("");
+    loginForm.reset();
   };
 
   const handleRegister = async (data: RegisterData) => {
@@ -69,6 +104,32 @@ export default function AuthPage() {
             <p className="text-sm text-muted-foreground mt-1">Monitor services, get alerts, submit tickets</p>
           </CardHeader>
           <CardContent>
+            {pendingChallengeId ? (
+              <form onSubmit={handleVerifyTwoFactor} className="space-y-4" data-testid="form-two-factor">
+                <div className="space-y-1.5 text-center">
+                  <Shield className="w-8 h-8 mx-auto text-primary" />
+                  <h3 className="font-semibold" data-testid="text-2fa-title">Two-step verification</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Enter the 6-digit code from your authenticator app, or one of your backup codes.
+                  </p>
+                </div>
+                <Input
+                  autoFocus
+                  inputMode="text"
+                  autoComplete="one-time-code"
+                  placeholder="123456 or backup code"
+                  value={twoFactorCode}
+                  onChange={(e) => setTwoFactorCode(e.target.value)}
+                  data-testid="input-2fa-code"
+                />
+                <Button type="submit" className="w-full" disabled={isSubmitting || twoFactorCode.length < 6} data-testid="button-2fa-verify">
+                  {isSubmitting ? "Verifying..." : "Verify"}
+                </Button>
+                <Button type="button" variant="ghost" className="w-full" onClick={handleCancelTwoFactor} data-testid="button-2fa-cancel">
+                  Cancel
+                </Button>
+              </form>
+            ) : (
             <Tabs defaultValue="login">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login" data-testid="tab-login">Sign In</TabsTrigger>
@@ -178,6 +239,7 @@ export default function AuthPage() {
                 </Form>
               </TabsContent>
             </Tabs>
+            )}
           </CardContent>
         </Card>
       </div>

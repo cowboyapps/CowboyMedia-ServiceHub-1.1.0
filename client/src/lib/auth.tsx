@@ -4,10 +4,16 @@ import { queryClient, apiRequest } from "./queryClient";
 import { getQueryFn } from "./queryClient";
 import type { User, LoginData, RegisterData } from "@shared/schema";
 
+export interface LoginResult {
+  twoFactorRequired?: boolean;
+  challengeId?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (data: LoginData) => Promise<void>;
+  login: (data: LoginData) => Promise<LoginResult>;
+  verifyTwoFactor: (challengeId: string, code: string) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   isAdmin: boolean;
@@ -40,8 +46,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginMutation = useMutation({
-    mutationFn: async (data: LoginData) => {
-      await apiRequest("POST", "/api/auth/login", data);
+    mutationFn: async (data: LoginData): Promise<LoginResult> => {
+      const res = await apiRequest("POST", "/api/auth/login", data);
+      return await res.json();
+    },
+    onSuccess: (result) => {
+      if (!result?.twoFactorRequired) {
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      }
+    },
+  });
+
+  const verifyTwoFactorMutation = useMutation({
+    mutationFn: async ({ challengeId, code }: { challengeId: string; code: string }) => {
+      await apiRequest("POST", "/api/auth/2fa/verify", { challengeId, code });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -71,8 +89,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
-  const login = async (data: LoginData) => {
-    await loginMutation.mutateAsync(data);
+  const login = async (data: LoginData): Promise<LoginResult> => {
+    return await loginMutation.mutateAsync(data);
+  };
+
+  const verifyTwoFactor = async (challengeId: string, code: string) => {
+    await verifyTwoFactorMutation.mutateAsync({ challengeId, code });
   };
 
   const register = async (data: RegisterData) => {
@@ -89,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user: user ?? null,
         isLoading,
         login,
+        verifyTwoFactor,
         register,
         logout,
         isAdmin,

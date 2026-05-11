@@ -17,8 +17,9 @@ import { Input } from "@/components/ui/input";
 import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle } from "lucide-react";
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
-import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
 import { countEnabledGroups, getCategoriesForRole, type AppRole, type NotificationPrefs } from "@shared/notification-categories";
+import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
+import { TwoFactorSecurityCard } from "@/components/two-factor-security";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -363,6 +364,8 @@ export default function SettingsPage() {
           })()}
         </CardContent>
       </Card>
+
+      {(user.role === "admin" || user.role === "master_admin") && <TwoFactorSecurityCard />}
 
       <NotificationPreferencesDialog
         open={prefsDialogOpen}

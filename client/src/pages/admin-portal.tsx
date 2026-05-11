@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2 } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -88,6 +88,18 @@ const createUserSchema = z.object({
 function UsersTab({ canManage = true }: { canManage?: boolean }) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
+  const { isMasterAdmin } = useAuth();
+
+  const forceDisable2faMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("POST", `/api/admin/users/${id}/disable-2fa`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "2FA disabled for user" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -527,6 +539,33 @@ function UsersTab({ canManage = true }: { canManage?: boolean }) {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
+                  {isMasterAdmin && (detailUser.role === "admin" || detailUser.role === "master_admin") && !!(detailUser as any).totpEnabledAt && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" variant="outline" className="gap-1 text-xs sm:text-sm" data-testid="button-detail-force-disable-2fa">
+                          <ShieldOff className="w-3.5 h-3.5" />
+                          Disable 2FA
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Force-disable 2FA?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will remove 2FA from {detailUser.fullName}'s account. They'll be able to sign in with just their password until they re-enable it. This action will be audit-logged.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => forceDisable2faMutation.mutate(detailUser.id)}
+                            data-testid="button-confirm-force-disable-2fa"
+                          >
+                            Disable 2FA
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
                 <div className="flex gap-2 justify-end">
                   <Button variant="outline" size="sm" onClick={() => setDetailUser(null)} data-testid="button-detail-cancel">
