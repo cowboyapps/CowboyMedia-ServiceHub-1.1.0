@@ -139,3 +139,21 @@ export function findUnfilledPlaceholders(
     .filter((s) => s.kind === "missing" || s.kind === "unknown")
     .map((s) => (s as { raw: string }).raw);
 }
+
+/**
+ * Find any `{{...}}` tokens in a template whose variable name is NOT one of
+ * the documented quick-response variables. Used at template-save time to warn
+ * admins about typos like `{{customername}}` before the template is shared.
+ * The returned list is de-duplicated and preserves first-occurrence order.
+ */
+export function findUnknownPlaceholders(template: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const seg of tokenizeQuickResponseTemplate(template, {})) {
+    if (seg.kind !== "unknown") continue;
+    if (seen.has(seg.raw)) continue;
+    seen.add(seg.raw);
+    out.push(seg.raw);
+  }
+  return out;
+}

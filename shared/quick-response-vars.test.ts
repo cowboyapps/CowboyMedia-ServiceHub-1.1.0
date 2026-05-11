@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   applyQuickResponseVariables,
   findUnfilledPlaceholders,
+  findUnknownPlaceholders,
   nextRecentList,
   QUICK_RESPONSE_VARIABLES,
   quickResponseHasMissingVariables,
@@ -224,6 +225,34 @@ test("findUnfilledPlaceholders: blank context value counts as unfilled", () => {
 
 test("findUnfilledPlaceholders: empty input yields empty list", () => {
   assert.deepEqual(findUnfilledPlaceholders("", { customer_name: "X" }), []);
+});
+
+test("findUnknownPlaceholders: returns only unknown tokens, dedup'd, in first-seen order", () => {
+  assert.deepEqual(
+    findUnknownPlaceholders(
+      "Hi {{customername}} aka {{customer_name}}, see {{evil}} and {{customername}} again",
+    ),
+    ["{{customername}}", "{{evil}}"],
+  );
+});
+
+test("findUnknownPlaceholders: empty when only known variables are used", () => {
+  assert.deepEqual(
+    findUnknownPlaceholders("Hi {{customer_name}}, re {{ticket_subject}} - {{admin_name}}"),
+    [],
+  );
+});
+
+test("findUnknownPlaceholders: empty for plain text or empty string", () => {
+  assert.deepEqual(findUnknownPlaceholders("plain text"), []);
+  assert.deepEqual(findUnknownPlaceholders(""), []);
+});
+
+test("findUnknownPlaceholders: ignores whitespace inside braces when matching known vars", () => {
+  assert.deepEqual(
+    findUnknownPlaceholders("Hi {{  customer_name  }} and {{  oops  }}"),
+    ["{{  oops  }}"],
+  );
 });
 
 test("variable list contains the documented placeholders", () => {

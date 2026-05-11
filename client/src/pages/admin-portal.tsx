@@ -34,6 +34,7 @@ import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
+import { findUnknownPlaceholders } from "@shared/quick-response-vars";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
 
@@ -2372,6 +2373,10 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
+  const [pendingSave, setPendingSave] = useState<
+    | { data: z.infer<typeof quickResponseSchema>; mode: "create" | "update"; unknown: string[] }
+    | null
+  >(null);
 
   const { data: quickResponses, isLoading } = useQuery<QuickResponse[]>({
     queryKey: ["/api/admin/quick-responses"],
@@ -2559,7 +2564,14 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((data) => editingQr ? updateMutation.mutate(data) : createMutation.mutate(data))} className="space-y-4">
+              <form onSubmit={form.handleSubmit((data) => {
+                const unknown = findUnknownPlaceholders(data.message ?? "");
+                if (unknown.length > 0) {
+                  setPendingSave({ data, mode: editingQr ? "update" : "create", unknown });
+                  return;
+                }
+                if (editingQr) updateMutation.mutate(data); else createMutation.mutate(data);
+              })} className="space-y-4">
                 <FormField control={form.control} name="title" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Title</FormLabel>
@@ -2610,6 +2622,47 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
           </DialogContent>
         </Dialog>
       </div>
+
+      <AlertDialog
+        open={pendingSave !== null}
+        onOpenChange={(open) => { if (!open) setPendingSave(null); }}
+      >
+        <AlertDialogContent data-testid="dialog-qr-unknown-placeholder-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unknown placeholders in this template</AlertDialogTitle>
+            <AlertDialogDescription>
+              This message contains{" "}
+              {pendingSave?.unknown.map((token, i) => (
+                <span key={`${token}-${i}`}>
+                  {i > 0 ? ", " : ""}
+                  <code
+                    className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100"
+                    data-testid={`text-qr-unknown-token-${i}`}
+                  >
+                    {token}
+                  </code>
+                </span>
+              ))}
+              , which {pendingSave && pendingSave.unknown.length === 1 ? "does" : "do"} not match any known variable and will be sent literally. Save anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-qr-unknown-fix">Fix</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingSave) return;
+                const { data, mode } = pendingSave;
+                setPendingSave(null);
+                if (mode === "update") updateMutation.mutate(data);
+                else createMutation.mutate(data);
+              }}
+              data-testid="button-qr-unknown-save-anyway"
+            >
+              Save anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
         <Card>
