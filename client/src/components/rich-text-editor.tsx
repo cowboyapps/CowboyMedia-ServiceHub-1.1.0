@@ -7,10 +7,15 @@ import { TextAlign } from "@tiptap/extension-text-align";
 import { Image } from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useEffect, useRef, useState } from "react";
-import { Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, ImagePlus, Palette, Loader2 } from "lucide-react";
+import { Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, ImagePlus, Palette, Loader2, FileClock } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { useTiptapDraft } from "@/hooks/use-tiptap-draft";
+import { clearDraft as clearTiptapDraft } from "@/lib/tiptap-drafts";
+
+export { clearTiptapDraft };
 
 const COLORS = [
   "#000000", "#374151", "#6b7280", "#9ca3af",
@@ -25,9 +30,10 @@ interface RichTextEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   testIdPrefix?: string;
+  draftKey?: string;
 }
 
-export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "rich-editor" }: RichTextEditorProps) {
+export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "rich-editor", draftKey }: RichTextEditorProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -65,6 +71,20 @@ export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "r
     }
   }, [editor, value]);
 
+  const draft = useTiptapDraft(editor, draftKey, value, (html) => {
+    if (editor) {
+      editor.commands.setContent(html);
+      onChange(html);
+      lastValueRef.current = html;
+    }
+  });
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!draftKey) return;
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [draftKey]);
+
   const handleImageUpload = async (file: File) => {
     setUploading(true);
     try {
@@ -87,7 +107,33 @@ export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "r
   if (!editor) return null;
 
   return (
-    <div className="border rounded-md overflow-hidden bg-background" data-testid={`${testIdPrefix}-wrapper`}>
+    <div className="space-y-1.5">
+      {draftKey && draft.hasDraft && draft.draftAt && (
+        <div
+          className="flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/5 p-2.5 text-xs sm:flex-row sm:items-center sm:justify-between"
+          data-testid={`${testIdPrefix}-draft-banner`}
+        >
+          <div className="flex items-center gap-2">
+            <FileClock className="w-4 h-4 text-primary" />
+            <span>
+              Restore your unsaved draft from{" "}
+              <span data-testid={`${testIdPrefix}-draft-banner-time`}>
+                {formatDistanceToNow(new Date(draft.draftAt), { addSuffix: true })}
+              </span>
+              ?
+            </span>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <Button type="button" size="sm" variant="ghost" onClick={draft.discard} data-testid={`${testIdPrefix}-draft-discard`}>
+              Discard
+            </Button>
+            <Button type="button" size="sm" onClick={draft.restore} data-testid={`${testIdPrefix}-draft-restore`}>
+              Restore
+            </Button>
+          </div>
+        </div>
+      )}
+      <div className="border rounded-md overflow-hidden bg-background" data-testid={`${testIdPrefix}-wrapper`}>
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b bg-muted/30">
         <ToolbarButton
           active={editor.isActive("bold")}
@@ -207,6 +253,16 @@ export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "r
           e.target.value = "";
         }}
       />
+      </div>
+      {draftKey && draft.lastSavedAt && (
+        <p
+          className="text-[11px] text-muted-foreground px-1"
+          data-testid={`${testIdPrefix}-draft-status`}
+          title={new Date(draft.lastSavedAt).toLocaleString()}
+        >
+          Saved as draft {formatDistanceToNow(new Date(Math.min(draft.lastSavedAt, now)), { addSuffix: true })}
+        </p>
+      )}
     </div>
   );
 }

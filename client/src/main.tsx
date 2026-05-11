@@ -5,6 +5,13 @@ import { registerServiceWorker } from "./lib/push-notifications";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { createStaleDeployReloadHandler } from "./lib/stale-deploy";
+import { pruneOldDrafts } from "./lib/tiptap-drafts";
+
+try {
+  pruneOldDrafts();
+} catch {
+  // ignore
+}
 
 const AUTO_RELOAD_DELAY_MS = 1800;
 const DEFERRED_RELOAD_DELAY_MS = 30000;

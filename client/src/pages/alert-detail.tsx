@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Edit, FileText } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
-import { RichTextEditor } from "@/components/rich-text-editor";
+import { RichTextEditor, clearTiptapDraft } from "@/components/rich-text-editor";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -62,6 +62,7 @@ export default function AlertDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts", params.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      clearTiptapDraft(`postmortem:${params.id}`);
       setEditOpen(false);
       toast({ title: alert?.postmortemPublishedAt ? "Postmortem updated" : "Postmortem published" });
     },
@@ -233,7 +234,7 @@ export default function AlertDetail() {
                 ? "Updates are not re-broadcast. Only the first publish notifies original recipients."
                 : "Publishing notifies every customer who was notified about the original incident, plus Telegram (if enabled)."}
             </p>
-            <RichTextEditor value={draft} onChange={setDraft} placeholder="What happened, why, and what changes prevent recurrence..." testIdPrefix="rich-postmortem" />
+            <RichTextEditor value={draft} onChange={setDraft} placeholder="What happened, why, and what changes prevent recurrence..." testIdPrefix="rich-postmortem" draftKey={editOpen ? `postmortem:${params.id}` : undefined} />
           </div>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row">
             <Button variant="outline" onClick={() => setEditOpen(false)} data-testid="button-cancel-postmortem">Cancel</Button>

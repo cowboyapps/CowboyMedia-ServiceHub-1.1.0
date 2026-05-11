@@ -31,7 +31,7 @@ import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
 import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
-import { RichTextEditor, stripHtml } from "@/components/rich-text-editor";
+import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 
@@ -1152,8 +1152,9 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     mutationFn: async ({ id, postmortemHtml }: { id: string; postmortemHtml: string }) => {
       await apiRequest("PATCH", `/api/admin/alerts/${id}/postmortem`, { postmortemHtml });
     },
-    onSuccess: () => {
+    onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      clearTiptapDraft(`postmortem:${vars.id}`);
       setPostmortemDialogOpen(false);
       setPostmortemAlertId(null);
       setPostmortemDraft("");
@@ -1435,7 +1436,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
             <p className="text-xs text-muted-foreground">
               Optional. Publishing notifies every customer who was notified about the original incident, plus Telegram (if enabled). You can also add or edit a postmortem later from the alert detail page.
             </p>
-            <RichTextEditor value={postmortemDraft} onChange={setPostmortemDraft} placeholder="What happened, why, and what changes prevent recurrence..." testIdPrefix="rich-postmortem-admin" />
+            <RichTextEditor value={postmortemDraft} onChange={setPostmortemDraft} placeholder="What happened, why, and what changes prevent recurrence..." testIdPrefix="rich-postmortem-admin" draftKey={postmortemAlertId ? `postmortem:${postmortemAlertId}` : undefined} />
           </div>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row">
             <Button variant="outline" onClick={() => { setPostmortemDialogOpen(false); setPostmortemAlertId(null); setPostmortemDraft(""); }} data-testid="button-skip-postmortem">
@@ -1626,6 +1627,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/news"] });
+      clearTiptapDraft("news:new");
       setDialogOpen(false);
       form.reset();
       setImageFile(null);
@@ -1653,6 +1655,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/news"] });
+      if (editingStory) clearTiptapDraft(`news:${editingStory.id}`);
       setEditDialogOpen(false);
       setEditingStory(null);
       setEditImageFile(null);
@@ -1699,7 +1702,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
                   <FormItem>
                     <FormLabel>Content</FormLabel>
                     <FormControl>
-                      <RichTextEditor value={field.value} onChange={field.onChange} testIdPrefix="create-news" />
+                      <RichTextEditor value={field.value} onChange={field.onChange} testIdPrefix="create-news" draftKey={dialogOpen ? "news:new" : undefined} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1757,7 +1760,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
                 <FormItem>
                   <FormLabel>Content</FormLabel>
                   <FormControl>
-                    <RichTextEditor value={field.value} onChange={field.onChange} testIdPrefix="edit-news" />
+                    <RichTextEditor value={field.value} onChange={field.onChange} testIdPrefix="edit-news" draftKey={editingStory ? `news:${editingStory.id}` : undefined} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -5341,6 +5344,7 @@ function KnowledgeBaseTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
+      clearTiptapDraft("kb-article:new");
       setArtDialogOpen(false); resetArt();
       toast({ title: "Article created" });
     },
@@ -5354,6 +5358,7 @@ function KnowledgeBaseTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
+      if (editingArt) clearTiptapDraft(`kb-article:${editingArt.id}`);
       setArtDialogOpen(false); resetArt();
       toast({ title: "Article updated" });
     },
@@ -5558,7 +5563,7 @@ function KnowledgeBaseTab() {
             </div>
             <div>
               <Label>Body</Label>
-              <RichTextEditor value={artBodyHtml} onChange={setArtBodyHtml} testIdPrefix="kb-article" />
+              <RichTextEditor value={artBodyHtml} onChange={setArtBodyHtml} testIdPrefix="kb-article" draftKey={artDialogOpen ? `kb-article:${editingArt?.id ?? "new"}` : undefined} />
             </div>
             <div>
               <Label>Tags (comma-separated)</Label>
@@ -5648,6 +5653,7 @@ function AnnouncementsTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+      clearTiptapDraft("announcement:new");
       setDialogOpen(false);
       resetForm();
       toast({ title: "Announcement created" });
@@ -5663,6 +5669,7 @@ function AnnouncementsTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+      if (editing) clearTiptapDraft(`announcement:${editing.id}`);
       setDialogOpen(false);
       resetForm();
       toast({ title: "Announcement updated" });
@@ -5799,7 +5806,7 @@ function AnnouncementsTab() {
             </div>
             <div>
               <Label>Body</Label>
-              <RichTextEditor value={bodyHtml} onChange={setBodyHtml} testIdPrefix="announcement" />
+              <RichTextEditor value={bodyHtml} onChange={setBodyHtml} testIdPrefix="announcement" draftKey={dialogOpen ? `announcement:${editing?.id ?? "new"}` : undefined} />
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
