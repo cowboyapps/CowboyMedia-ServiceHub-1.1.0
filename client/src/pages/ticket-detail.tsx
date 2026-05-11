@@ -136,9 +136,24 @@ export default function TicketDetail() {
   const isMobile = useIsMobile();
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [isInternalNote, setIsInternalNote] = useState(false);
+  const [internalNotesOpen, setInternalNotesOpenState] = useState(false);
+  const [newNoteText, setNewNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
+  const setInternalNotesOpen = useCallback((open: boolean) => {
+    setInternalNotesOpenState(open);
+    if (!open) {
+      setNewNoteText("");
+      setEditingNoteId(null);
+      setEditingNoteText("");
+    }
+  }, []);
+  useEffect(() => {
+    setInternalNotesOpenState(false);
+    setNewNoteText("");
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }, [params.id]);
   const [, forceTick] = useState(0);
   useEffect(() => {
     if (!isAdmin) return;
@@ -500,13 +515,13 @@ export default function TicketDetail() {
   );
 
   const draftUnfilledPlaceholders = useMemo(() => {
-    if (!isAdmin || isInternalNote) return [];
+    if (!isAdmin) return [];
     const trimmed = message.trim();
     if (!trimmed) return [];
     return Array.from(new Set(findUnfilledPlaceholders(trimmed, placeholderContext)));
-  }, [isAdmin, isInternalNote, message, placeholderContext]);
+  }, [isAdmin, message, placeholderContext]);
 
-  const showPlaceholderOverlay = isAdmin && !isInternalNote;
+  const showPlaceholderOverlay = isAdmin;
 
   const overlayParts = useMemo(() => {
     if (!showPlaceholderOverlay || !message) return [];
@@ -568,7 +583,6 @@ export default function TicketDetail() {
     (msgText: string, imgFile: File | null, internal: boolean) => {
       setMessage("");
       setImageFile(null);
-      setIsInternalNote(false);
       doSendMessage(msgText, imgFile, undefined, internal);
       setTimeout(() => {
         const el = messageInputRef.current;
@@ -585,8 +599,8 @@ export default function TicketDetail() {
     const msgText = message.trim();
     const imgFile = imageFile;
     if (!msgText && !imgFile) return;
-    const internal = isAdmin && isInternalNote;
-    if (isAdmin && !internal && msgText) {
+    const internal = false;
+    if (isAdmin && msgText) {
       const unfilled = findUnfilledPlaceholders(msgText, placeholderContext);
       if (unfilled.length > 0) {
         setPendingPlaceholderSend({ msgText, imgFile, internal, unfilled });
@@ -594,7 +608,14 @@ export default function TicketDetail() {
       }
     }
     performSend(msgText, imgFile, internal);
-  }, [message, imageFile, isInternalNote, isAdmin, placeholderContext, performSend]);
+  }, [message, imageFile, isAdmin, placeholderContext, performSend]);
+
+  const handleSendInternalNote = useCallback(() => {
+    const trimmed = newNoteText.trim();
+    if (!trimmed) return;
+    doSendMessage(trimmed, null, undefined, true);
+    setNewNoteText("");
+  }, [newNoteText, doSendMessage]);
 
   const confirmPlaceholderSend = useCallback(() => {
     const pending = pendingPlaceholderSend;
@@ -640,18 +661,24 @@ export default function TicketDetail() {
     return [...real, ...pending.map((m) => ({ ...m, _optimistic: true as const }))];
   }, [messages, optimisticMessages]);
 
+  const internalNotes = useMemo(
+    () => allMessages.filter((m) => !!m.isInternal),
+    [allMessages],
+  );
+  const internalNotesCount = internalNotes.length;
+
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [resolutionNote, setResolutionNote] = useState("");
 
   useEffect(() => {
-    if (!customerInfoOpen && !historyOpen && !transferDialogOpen && !closeDialogOpen) {
+    if (!customerInfoOpen && !historyOpen && !transferDialogOpen && !closeDialogOpen && !internalNotesOpen) {
       cleanupBodyStyles();
       const t1 = setTimeout(cleanupBodyStyles, 100);
       const t2 = setTimeout(cleanupBodyStyles, 300);
       const t3 = setTimeout(cleanupBodyStyles, 500);
       return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }
-  }, [customerInfoOpen, historyOpen, transferDialogOpen, closeDialogOpen]);
+  }, [customerInfoOpen, historyOpen, transferDialogOpen, closeDialogOpen, internalNotesOpen]);
 
   const closeMutation = useMutation({
     mutationFn: async (note?: string) => {
@@ -801,6 +828,9 @@ export default function TicketDetail() {
                 <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history">
                   <Clock className="w-4 h-4 mr-2" /> History
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes">
+                  <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
+                </DropdownMenuItem>
                 {ticket.status === "open" && ticket.claimedBy === user?.id && (
                   <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket">
                     <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
@@ -824,6 +854,17 @@ export default function TicketDetail() {
               {isAdmin && (
                 <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history">
                   <Clock className="w-4 h-4 mr-1" /> History
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setInternalNotesOpen(true)}
+                  className="border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                  data-testid="button-internal-notes"
+                >
+                  <Lock className="w-4 h-4 mr-1" /> Notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
                 </Button>
               )}
               {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
@@ -999,6 +1040,187 @@ export default function TicketDetail() {
               ))
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={internalNotesOpen} onOpenChange={setInternalNotesOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              Internal notes
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              Visible to admins only — never sent to the customer. You can edit or delete your own notes within 5 minutes of posting.
+            </p>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-2 -mx-1 px-1" data-testid="list-internal-notes">
+            {internalNotes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-internal-notes">
+                No internal notes on this ticket yet.
+              </p>
+            ) : (
+              internalNotes.map((note) => {
+                const noteIsMe = note.senderId === user?.id;
+                const noteIsOptimistic = "_optimistic" in note && note._optimistic;
+                const noteOptimistic = noteIsOptimistic
+                  ? optimisticMessages.find((o) => o.id === note.id)
+                  : null;
+                const noteFailed = noteOptimistic?.status === "failed";
+                const noteSending = noteOptimistic?.status === "sending";
+                const noteDate = new Date(note.createdAt);
+                const ageMs = Date.now() - noteDate.getTime();
+                const canEdit = isAdmin && noteIsMe && !noteIsOptimistic && ageMs < 5 * 60 * 1000;
+                const isEditingThis = editingNoteId === note.id;
+                return (
+                  <div
+                    key={note.id}
+                    className={`rounded-md border-l-4 border-amber-500 p-2.5 text-sm ${
+                      noteFailed
+                        ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300"
+                        : noteSending
+                          ? "bg-amber-50/60 dark:bg-amber-950/20 opacity-70"
+                          : "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100"
+                    }`}
+                    data-testid={`dialog-internal-note-${note.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-xs font-medium" data-testid={`text-note-sender-${note.id}`}>
+                        {noteIsMe ? "You" : (note.senderName || "Admin")}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground">
+                          {noteSending ? "Sending..." : noteFailed ? "Failed to send" : format(noteDate, "MMM d, h:mm a")}
+                        </span>
+                        {noteFailed && noteOptimistic && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
+                            onClick={() => retryMessage(noteOptimistic)}
+                            data-testid={`button-dialog-retry-note-${note.id}`}
+                          >
+                            <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {isEditingThis ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editingNoteText}
+                          onChange={(e) => setEditingNoteText(e.target.value)}
+                          className="min-h-[70px] text-sm bg-background"
+                          data-testid={`input-dialog-edit-note-${note.id}`}
+                        />
+                        <div className="flex gap-1.5 justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => { setEditingNoteId(null); setEditingNoteText(""); }}
+                            data-testid={`button-dialog-cancel-edit-${note.id}`}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const trimmed = editingNoteText.trim();
+                              if (!trimmed) return;
+                              editNoteMutation.mutate({ id: note.id, text: trimmed });
+                            }}
+                            disabled={editNoteMutation.isPending || !editingNoteText.trim()}
+                            data-testid={`button-dialog-save-edit-${note.id}`}
+                          >
+                            <Check className="w-3 h-3 mr-1" /> Save
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          className="whitespace-pre-wrap"
+                          style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                          data-testid={`text-note-body-${note.id}`}
+                        >
+                          {note.message}
+                        </div>
+                        {canEdit && (
+                          <div className="flex gap-1 justify-end mt-1.5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-[11px]"
+                              onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.message); }}
+                              data-testid={`button-dialog-edit-note-${note.id}`}
+                            >
+                              <Pencil className="w-3 h-3 mr-0.5" /> Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-[11px] text-red-600 hover:text-red-700"
+                              onClick={() => {
+                                if (window.confirm("Delete this internal note?")) deleteNoteMutation.mutate(note.id);
+                              }}
+                              disabled={deleteNoteMutation.isPending}
+                              data-testid={`button-dialog-delete-note-${note.id}`}
+                            >
+                              <Trash2 className="w-3 h-3 mr-0.5" /> Delete
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {ticket.status === "open" && isAdmin && ticket.claimedBy === user?.id && (
+            <div className="border-t pt-3 space-y-2">
+              <Textarea
+                value={newNoteText}
+                onChange={(e) => setNewNoteText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleSendInternalNote();
+                  }
+                }}
+                placeholder="Write a note for other admins..."
+                className="min-h-[80px] text-sm"
+                data-testid="input-new-internal-note"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-muted-foreground">⌘/Ctrl + Enter to save</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSendInternalNote}
+                  disabled={!newNoteText.trim()}
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                  data-testid="button-save-internal-note"
+                >
+                  <Lock className="w-3 h-3 mr-1" /> Save note
+                </Button>
+              </div>
+            </div>
+          )}
+          {ticket.status === "open" && isAdmin && (!ticket.claimedBy || ticket.claimedBy !== user?.id) && (
+            <p className="text-xs text-muted-foreground border-t pt-3" data-testid="text-note-claim-required">
+              {ticket.claimedBy
+                ? "This ticket is claimed by another admin. Existing notes are visible above; you can't add new ones."
+                : "Claim this ticket from the chat view to add new internal notes."}
+            </p>
+          )}
+          {ticket.status !== "open" && (
+            <p className="text-xs text-muted-foreground border-t pt-3" data-testid="text-note-ticket-closed">
+              This ticket is closed. Existing notes remain visible to admins; new notes can't be added.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1403,26 +1625,25 @@ export default function TicketDetail() {
           )}
 
           {ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id) && (
-            <div className={`p-2 sm:p-3 border-t ${isAdmin && isInternalNote ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+            <div className="p-2 sm:p-3 border-t">
               {isAdmin && (
                 <div className="flex items-center gap-2 mb-2">
                   <Button
                     type="button"
                     size="sm"
-                    variant={isInternalNote ? "default" : "outline"}
-                    className={`h-7 px-2 text-xs gap-1 ${isInternalNote ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}`}
-                    onClick={() => setIsInternalNote((v) => !v)}
-                    data-testid="button-toggle-internal-note"
+                    variant="outline"
+                    className="h-7 px-2 text-xs gap-1 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                    onClick={() => setInternalNotesOpen(true)}
+                    data-testid="button-open-internal-notes"
                   >
                     <Lock className="w-3 h-3" />
-                    {isInternalNote ? "Internal note (admins only)" : "Add internal note"}
+                    {internalNotesCount > 0
+                      ? `Internal notes (${internalNotesCount})`
+                      : "Add internal note"}
                   </Button>
-                  {isInternalNote && (
-                    <span className="text-[10px] text-amber-700 dark:text-amber-400">Customer will not see this message.</span>
-                  )}
                 </div>
               )}
-              {isAdmin && !isInternalNote && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
+              {isAdmin && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
                 <div className="flex flex-wrap items-center gap-1.5 mb-2" data-testid="row-suggestions">
                   {suggestions && suggestions.length > 0 && (
                     <span className="text-xs text-muted-foreground mr-1">Suggested:</span>
@@ -1664,7 +1885,7 @@ export default function TicketDetail() {
                       }
                     }}
                     onScroll={syncPlaceholderOverlayScroll}
-                    placeholder={isAdmin && isInternalNote ? "Type an internal note (admins only)..." : "Type a message..."}
+                    placeholder="Type a message..."
                     className="relative w-full min-h-[36px] max-h-[120px] resize-none text-sm py-2 leading-5 bg-transparent whitespace-pre-wrap break-words"
                     rows={1}
                     data-testid="input-message"
