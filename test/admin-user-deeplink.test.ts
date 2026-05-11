@@ -114,6 +114,20 @@ test("computeInitialActiveSection: support-tickets is filtered (legacy alias) an
   );
 });
 
+test("computeInitialActiveSection: ?tab=_menu always returns null so the tile menu shows", () => {
+  // The sentinel exists so admins with dashboard.view (who otherwise
+  // auto-land on Overview) can still navigate to the tile menu via
+  // the Back button or the Menu trigger on the dashboard.
+  assert.equal(
+    computeInitialActiveSection({ tabParam: "_menu", hasDashboardView: true }),
+    null,
+  );
+  assert.equal(
+    computeInitialActiveSection({ tabParam: "_menu", hasDashboardView: false }),
+    null,
+  );
+});
+
 test("computeInitialActiveSection: no tab + dashboard.view -> Overview, otherwise null", () => {
   assert.equal(
     computeInitialActiveSection({ tabParam: null, hasDashboardView: true }),

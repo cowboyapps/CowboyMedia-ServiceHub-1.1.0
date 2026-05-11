@@ -37,7 +37,7 @@ import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announce
 import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable } from "@shared/quick-response-vars";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
-import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction } from "./admin-portal-deeplink";
+import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction, ADMIN_MENU_SENTINEL } from "./admin-portal-deeplink";
 
 function pillColorClass(enabled: number, total: number): string {
   if (total === 0) return "bg-muted text-muted-foreground border-transparent";
@@ -7571,31 +7571,39 @@ export default function AdminPortal() {
     navigate(`/admin?${sp.toString()}`);
   }, [navigate]);
 
+  // Admins with dashboard.view auto-land on Overview. Without an
+  // explicit sentinel, navigating to /admin would just bounce back to
+  // Overview, leaving them no way to reach the tile menu. Always go
+  // through the sentinel so this works for both permission states.
+  const goToMenu = useCallback(() => {
+    goToSection(ADMIN_MENU_SENTINEL);
+  }, [goToSection]);
+
   const allSections = [
-    { key: "overview", label: "Overview", icon: LayoutDashboard, color: "text-primary", bg: "bg-primary/10" },
-    { key: "users", label: "Users", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { key: "services", label: "Services", icon: Server, color: "text-green-500", bg: "bg-green-500/10" },
-    { key: "alerts", label: "Alerts", icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-500/10" },
-    { key: "news", label: "News", icon: Newspaper, color: "text-purple-500", bg: "bg-purple-500/10" },
-    { key: "messages", label: "Messages", icon: Mail, color: "text-rose-500", bg: "bg-rose-500/10" },
-    { key: "quick-responses", label: "Quick Responses", icon: Zap, color: "text-orange-500", bg: "bg-orange-500/10" },
-    { key: "service-updates", label: "Service Updates", icon: RefreshCw, color: "text-teal-500", bg: "bg-teal-500/10" },
-    { key: "reports-requests", label: "Reports/Requests", icon: FileText, color: "text-cyan-500", bg: "bg-cyan-500/10" },
-    { key: "email-templates", label: "Email Templates", icon: MailOpen, color: "text-indigo-500", bg: "bg-indigo-500/10" },
-    { key: "downloads", label: "Downloads", icon: Download, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-    { key: "support-tickets", label: "Support Tickets", icon: LifeBuoy, color: "text-sky-500", bg: "bg-sky-500/10", navigateTo: "/tickets" },
-    { key: "admin-chat", label: "Admin Chat", icon: MessageSquare, color: "text-pink-500", bg: "bg-pink-500/10" },
-    { key: "chat-admin", label: "Chat Admin", icon: ShieldCheck, color: "text-violet-500", bg: "bg-violet-500/10" },
-    { key: "monitoring", label: "URL Monitoring", icon: Globe, color: "text-lime-500", bg: "bg-lime-500/10" },
-    { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
-    { key: "error-log", label: "Error Log", icon: Bug, color: "text-red-500", bg: "bg-red-500/10" },
-    { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10" },
-    { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10" },
-    { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
-    { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10" },
-    { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10" },
-    { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true },
-    { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true },
+    { key: "overview", label: "Overview", icon: LayoutDashboard, color: "text-primary", bg: "bg-primary/10", group: "operations" },
+    { key: "users", label: "Users", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10", group: "people" },
+    { key: "services", label: "Services", icon: Server, color: "text-green-500", bg: "bg-green-500/10", group: "status" },
+    { key: "alerts", label: "Alerts", icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-500/10", group: "status" },
+    { key: "news", label: "News", icon: Newspaper, color: "text-purple-500", bg: "bg-purple-500/10", group: "content" },
+    { key: "messages", label: "Messages", icon: Mail, color: "text-rose-500", bg: "bg-rose-500/10", group: "support" },
+    { key: "quick-responses", label: "Quick Responses", icon: Zap, color: "text-orange-500", bg: "bg-orange-500/10", group: "support" },
+    { key: "service-updates", label: "Service Updates", icon: RefreshCw, color: "text-teal-500", bg: "bg-teal-500/10", group: "status" },
+    { key: "reports-requests", label: "Reports/Requests", icon: FileText, color: "text-cyan-500", bg: "bg-cyan-500/10", group: "support" },
+    { key: "email-templates", label: "Email Templates", icon: MailOpen, color: "text-indigo-500", bg: "bg-indigo-500/10", group: "support" },
+    { key: "downloads", label: "Downloads", icon: Download, color: "text-emerald-500", bg: "bg-emerald-500/10", group: "content" },
+    { key: "support-tickets", label: "Support Tickets", icon: LifeBuoy, color: "text-sky-500", bg: "bg-sky-500/10", navigateTo: "/tickets", group: "support" },
+    { key: "admin-chat", label: "Admin Chat", icon: MessageSquare, color: "text-pink-500", bg: "bg-pink-500/10", group: "support" },
+    { key: "chat-admin", label: "Chat Admin", icon: ShieldCheck, color: "text-violet-500", bg: "bg-violet-500/10", group: "community" },
+    { key: "monitoring", label: "URL Monitoring", icon: Globe, color: "text-lime-500", bg: "bg-lime-500/10", group: "status" },
+    { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10", group: "system" },
+    { key: "error-log", label: "Error Log", icon: Bug, color: "text-red-500", bg: "bg-red-500/10", group: "system" },
+    { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10", group: "integrations" },
+    { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10", group: "integrations" },
+    { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10", group: "system" },
+    { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10", group: "content" },
+    { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10", group: "content" },
+    { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true, group: "community" },
+    { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true, group: "people" },
   ];
 
   const sections = allSections.filter(s => {
@@ -7604,6 +7612,17 @@ export default function AdminPortal() {
     const perm = TILE_PERM_MAP[s.key];
     return perm ? hasPermission(perm) : true;
   });
+
+  const sectionGroups: { key: string; label: string }[] = [
+    { key: "operations", label: "Dashboard" },
+    { key: "support", label: "Customer Support" },
+    { key: "status", label: "Status & Monitoring" },
+    { key: "content", label: "Content" },
+    { key: "community", label: "Community" },
+    { key: "people", label: "People & Access" },
+    { key: "integrations", label: "Integrations" },
+    { key: "system", label: "System" },
+  ];
 
   const canManageSection = (key: string) => {
     if (isMasterAdmin) return true;
@@ -7648,44 +7667,71 @@ export default function AdminPortal() {
       </div>
 
       {!activeSection ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-          {sections.map((s) => {
-            const Icon = s.icon;
-            const badgeCategory = tileBadgeMap[s.key];
-            let badgeCount = badgeCategory && contentCounts ? (contentCounts[badgeCategory] ?? 0) : 0;
-            if (s.key === "admin-chat" && chatUnreadData) badgeCount = chatUnreadData.count;
+        <div className="space-y-6" data-testid="admin-menu-grouped">
+          {sectionGroups.map((g) => {
+            const items = sections.filter((s) => s.group === g.key);
+            if (items.length === 0) return null;
             return (
-              <button
-                key={s.key}
-                onClick={() => s.navigateTo ? navigate(s.navigateTo) : goToSection(s.key)}
-                className="relative flex flex-col items-center justify-center gap-3 p-6 sm:p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
-                data-testid={`tile-admin-${s.key}`}
-              >
-                {badgeCount > 0 && (
-                  <Badge variant="destructive" className="absolute top-2 right-2 text-xs px-1.5 py-0.5 min-w-[20px] text-center" data-testid={`badge-tile-${s.key}`}>
-                    {badgeCount}
-                  </Badge>
-                )}
-                <div className={`rounded-full p-4 ${s.bg}`}>
-                  <Icon className={`w-7 h-7 sm:w-8 sm:h-8 ${s.color}`} />
+              <section key={g.key} data-testid={`menu-group-${g.key}`}>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
+                  {g.label}
+                </h2>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-3">
+                  {items.map((s) => {
+                    const Icon = s.icon;
+                    const badgeCategory = tileBadgeMap[s.key];
+                    let badgeCount = badgeCategory && contentCounts ? (contentCounts[badgeCategory] ?? 0) : 0;
+                    if (s.key === "admin-chat" && chatUnreadData) badgeCount = chatUnreadData.count;
+                    return (
+                      <button
+                        key={s.key}
+                        onClick={() => s.navigateTo ? navigate(s.navigateTo) : goToSection(s.key)}
+                        className="relative flex flex-col items-center justify-center gap-1.5 p-3 sm:p-3.5 rounded-lg border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[88px]"
+                        data-testid={`tile-admin-${s.key}`}
+                      >
+                        {badgeCount > 0 && (
+                          <Badge variant="destructive" className="absolute top-1 right-1 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center" data-testid={`badge-tile-${s.key}`}>
+                            {badgeCount}
+                          </Badge>
+                        )}
+                        <div className={`rounded-full p-2 ${s.bg}`}>
+                          <Icon className={`w-5 h-5 ${s.color}`} />
+                        </div>
+                        <span className="font-medium text-xs sm:text-[13px] leading-tight line-clamp-2">{s.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <span className="font-semibold text-sm sm:text-base">{s.label}</span>
-              </button>
+              </section>
             );
           })}
         </div>
       ) : (
         <div className="space-y-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => goToSection(null)}
-            className="gap-1 -ml-2 text-muted-foreground hover:text-foreground"
-            data-testid="button-admin-back"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Back to Admin Menu
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={goToMenu}
+              className="gap-1 -ml-2 text-muted-foreground hover:text-foreground"
+              data-testid="button-admin-back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Admin Menu
+            </Button>
+            {activeSection === "overview" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToMenu}
+                className="gap-1 ml-auto"
+                data-testid="button-admin-open-menu"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                All sections
+              </Button>
+            )}
+          </div>
           {renderContent()}
         </div>
       )}

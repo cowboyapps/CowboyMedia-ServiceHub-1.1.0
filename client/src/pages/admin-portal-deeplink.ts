@@ -35,11 +35,17 @@ export function shouldCleanInitialUrl(q: AdminPortalQuery): boolean {
   return Boolean(q.tab || q.chat || q.monitor || q.section || q.user);
 }
 
+export const ADMIN_MENU_SENTINEL = "_menu";
+
 export function computeInitialActiveSection(opts: {
   tabParam: string | null;
   hasDashboardView: boolean;
 }): string | null {
   const t = opts.tabParam;
+  // Explicit "show me the tile menu" sentinel — needed so admins with
+  // dashboard.view (who otherwise auto-land on overview) can reach the
+  // tile menu via the Back button or a dedicated Menu trigger.
+  if (t === ADMIN_MENU_SENTINEL) return null;
   if (t && t !== "support-tickets") return t;
   if (!t && opts.hasDashboardView) return "overview";
   return null;
