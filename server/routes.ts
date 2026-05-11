@@ -57,6 +57,8 @@ import {
   createReportLimiter,
   bypassRateLimitForAdmins,
 } from "./rate-limits";
+import { logError } from "./error-log";
+import { ERROR_LOG_SEVERITIES, ERROR_LOG_SOURCES } from "@shared/schema";
 
 function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
@@ -517,6 +519,7 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
       notificationId = row.id;
     } catch (e: any) {
       console.error("[UserNotif] Failed to create:", e.message);
+      logError("push", e, { severity: "warn", userId, summary: "Failed to create user_notification row before push" });
     }
   }
   const richPayload = buildPushPayload(
@@ -550,6 +553,12 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
           console.log(`[Push] User ${userId} — removed stale subscription (${err.statusCode})`);
         } else {
           console.error(`[Push] User ${userId} — push failed (${err.statusCode}):`, err.message);
+          logError("push", err, {
+            severity: "warn",
+            userId,
+            summary: `Push failed (${err.statusCode}): ${payload.title}`.slice(0, 500),
+            extra: { statusCode: err.statusCode, endpoint: sub.endpoint, title: payload.title },
+          });
         }
         failed++;
       }
@@ -564,6 +573,7 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
     }
   } catch (e) {
     console.error(`[Push] User ${userId} — error:`, e);
+    logError("push", e, { severity: "error", userId, summary: `Push pipeline error: ${payload.title}`.slice(0, 500) });
   }
 }
 
@@ -576,6 +586,7 @@ async function sendPushToSubscribedUsers(serviceId: string, payload: { title: st
     }
   } catch (e) {
     console.error("Push notification error:", e);
+    logError("push", e, { severity: "error", summary: `Push to subscribed users failed for service ${serviceId}`, referenceType: "service", referenceId: serviceId });
   }
 }
 
@@ -3846,6 +3857,68 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         recipientName: log.recipientId ? userMap.get(log.recipientId) || null : null,
       }));
       res.json({ logs: enrichedLogs, total: result.total });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/error-logs", requirePermission("error_log.view"), async (req, res) => {
+    try {
+      const { severity, source, search, resolved, page, limit } = req.query;
+      const resolvedParsed = resolved === "true" ? true : resolved === "false" ? false : undefined;
+      const result = await storage.getErrorLogs({
+        severity: severity as string | undefined,
+        source: source as string | undefined,
+        search: search as string | undefined,
+        resolved: resolvedParsed,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      });
+      const userIds = new Set<string>();
+      result.logs.forEach(l => { if (l.userId) userIds.add(l.userId); if (l.resolvedBy) userIds.add(l.resolvedBy); });
+      const userMap = new Map<string, string>();
+      if (userIds.size > 0) {
+        const allUsers = await storage.getAllUsers();
+        allUsers.forEach(u => { if (userIds.has(u.id)) userMap.set(u.id, u.fullName); });
+      }
+      const enriched = result.logs.map(l => ({
+        ...l,
+        userName: l.userId ? userMap.get(l.userId) || null : null,
+        resolvedByName: l.resolvedBy ? userMap.get(l.resolvedBy) || null : null,
+      }));
+      res.json({ logs: enriched, total: result.total });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/error-logs/unresolved-count", requirePermission("error_log.view"), async (_req, res) => {
+    try {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const count = await storage.countUnresolvedErrorLogsSince(since);
+      res.json({ count });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/error-logs/:id", requirePermission("error_log.view"), async (req, res) => {
+    try {
+      const log = await storage.getErrorLog(req.params.id);
+      if (!log) return res.status(404).json({ message: "Error log not found" });
+      res.json(log);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/error-logs/:id/resolve", requirePermission("error_log.view"), async (req, res) => {
+    try {
+      const resolved = req.body?.resolved !== false;
+      const userId = (req as any).session?.userId || null;
+      const log = await storage.setErrorLogResolved(req.params.id, resolved, resolved ? userId : null);
+      if (!log) return res.status(404).json({ message: "Error log not found" });
+      res.json(log);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

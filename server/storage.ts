@@ -23,6 +23,7 @@ import {
   type BroadcastRecipient, type InsertBroadcastRecipient,
   type TicketTransfer, type InsertTicketTransfer,
   type AdminActivityLog, type InsertAdminActivityLog,
+  type ErrorLog, type InsertErrorLog,
   type Download, type InsertDownload,
   type PasswordResetToken, type InsertPasswordResetToken,
   type UrlMonitor, type InsertUrlMonitor,
@@ -46,7 +47,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -240,6 +241,13 @@ export interface IStorage {
   createActivityLog(data: InsertAdminActivityLog): Promise<AdminActivityLog>;
   getActivityLogs(filters: { category?: string; action?: string; search?: string; page?: number; limit?: number }): Promise<{ logs: AdminActivityLog[]; total: number }>;
   getActivityLog(id: string): Promise<AdminActivityLog | undefined>;
+
+  createErrorLog(data: InsertErrorLog): Promise<ErrorLog>;
+  getErrorLogs(filters: { severity?: string; source?: string; resolved?: boolean; search?: string; page?: number; limit?: number }): Promise<{ logs: ErrorLog[]; total: number }>;
+  getErrorLog(id: string): Promise<ErrorLog | undefined>;
+  setErrorLogResolved(id: string, resolved: boolean, resolvedBy?: string | null): Promise<ErrorLog | undefined>;
+  countUnresolvedErrorLogsSince(since: Date): Promise<number>;
+  deleteOldErrorLogs(daysOld: number): Promise<number>;
 
   getUserByEmail(email: string): Promise<User | undefined>;
   createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken>;
@@ -1009,6 +1017,53 @@ export class DatabaseStorage implements IStorage {
   async getActivityLog(id: string): Promise<AdminActivityLog | undefined> {
     const [log] = await db.select().from(adminActivityLogs).where(eq(adminActivityLogs.id, id));
     return log;
+  }
+
+  async createErrorLog(data: InsertErrorLog): Promise<ErrorLog> {
+    const [log] = await db.insert(errorLogs).values(data).returning();
+    return log;
+  }
+
+  async getErrorLogs(filters: { severity?: string; source?: string; resolved?: boolean; search?: string; page?: number; limit?: number }): Promise<{ logs: ErrorLog[]; total: number }> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 50;
+    const offset = (page - 1) * limit;
+    const conditions = [];
+    if (filters.severity) conditions.push(eq(errorLogs.severity, filters.severity));
+    if (filters.source) conditions.push(eq(errorLogs.source, filters.source));
+    if (filters.resolved === true) conditions.push(isNotNull(errorLogs.resolvedAt));
+    if (filters.resolved === false) conditions.push(isNull(errorLogs.resolvedAt));
+    if (filters.search) conditions.push(sql`(${errorLogs.summary} ILIKE ${'%' + filters.search + '%'} OR ${errorLogs.details} ILIKE ${'%' + filters.search + '%'})`);
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const logs = await db.select().from(errorLogs).where(where).orderBy(desc(errorLogs.createdAt)).limit(limit).offset(offset);
+    const [countResult] = await db.select({ count: sql<number>`count(*)::int` }).from(errorLogs).where(where);
+    return { logs, total: countResult?.count || 0 };
+  }
+
+  async getErrorLog(id: string): Promise<ErrorLog | undefined> {
+    const [log] = await db.select().from(errorLogs).where(eq(errorLogs.id, id));
+    return log;
+  }
+
+  async setErrorLogResolved(id: string, resolved: boolean, resolvedBy?: string | null): Promise<ErrorLog | undefined> {
+    const [log] = await db.update(errorLogs)
+      .set({ resolvedAt: resolved ? new Date() : null, resolvedBy: resolved ? (resolvedBy ?? null) : null })
+      .where(eq(errorLogs.id, id))
+      .returning();
+    return log;
+  }
+
+  async countUnresolvedErrorLogsSince(since: Date): Promise<number> {
+    const [r] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(errorLogs)
+      .where(and(isNull(errorLogs.resolvedAt), sql`${errorLogs.createdAt} >= ${since}`));
+    return r?.count || 0;
+  }
+
+  async deleteOldErrorLogs(daysOld: number): Promise<number> {
+    const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+    const result = await db.delete(errorLogs).where(sql`${errorLogs.createdAt} < ${cutoff}`);
+    return result.rowCount ?? 0;
   }
 
   async getAllDownloads(): Promise<Download[]> {

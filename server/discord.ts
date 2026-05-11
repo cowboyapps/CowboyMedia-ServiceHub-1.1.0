@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { logError } from "./error-log";
 
 function stripHtmlPreserveBreaks(html: string): string {
   let s = String(html ?? "");
@@ -86,11 +87,13 @@ async function postToDiscord(webhookUrl: string, payload: DiscordPayload): Promi
       const body = await res.text().catch(() => "");
       const err = `Discord API ${res.status}: ${body}`;
       console.error("[Discord]", err);
+      logError("discord", err, { severity: "warn", summary: `Discord API ${res.status}`, extra: { status: res.status, body: body.slice(0, 1000) } });
       return { ok: false, error: err };
     }
     return { ok: true };
   } catch (e: any) {
     console.error("[Discord] send error:", e?.message || e);
+    logError("discord", e, { severity: "error", summary: "Discord send error" });
     return { ok: false, error: e?.message || "Unknown error" };
   }
 }
@@ -115,7 +118,10 @@ export async function sendDiscordTestMessage(payload: DiscordPayload): Promise<{
 }
 
 export function fireDiscord(payload: DiscordPayload, category?: DiscordCategory, overrideWebhookUrl?: string | null): void {
-  sendDiscordMessage(payload, category, overrideWebhookUrl).catch((e) => console.error("[Discord] fire error:", e));
+  sendDiscordMessage(payload, category, overrideWebhookUrl).catch((e) => {
+    console.error("[Discord] fire error:", e);
+    logError("discord", e, { severity: "error", summary: "Discord fire error" });
+  });
 }
 
 export function fireDiscordMany(payloads: DiscordPayload[], category?: DiscordCategory, overrideWebhookUrl?: string | null): void {
@@ -124,7 +130,10 @@ export function fireDiscordMany(payloads: DiscordPayload[], category?: DiscordCa
       const r = await sendDiscordMessage(p, category, overrideWebhookUrl);
       if (!r.ok) break;
     }
-  })().catch((e) => console.error("[Discord] fire-many error:", e));
+  })().catch((e) => {
+    console.error("[Discord] fire-many error:", e);
+    logError("discord", e, { severity: "error", summary: "Discord fire-many error" });
+  });
 }
 
 export function composeDiscordTest(): DiscordPayload {

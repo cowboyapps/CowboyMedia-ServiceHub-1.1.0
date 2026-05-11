@@ -365,6 +365,30 @@ export const insertAdminActivityLogSchema = createInsertSchema(adminActivityLogs
 export type InsertAdminActivityLog = z.infer<typeof insertAdminActivityLogSchema>;
 export type AdminActivityLog = typeof adminActivityLogs.$inferSelect;
 
+export const errorLogs = pgTable("error_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  severity: varchar("severity").notNull(),
+  source: varchar("source").notNull(),
+  summary: text("summary").notNull(),
+  details: text("details"),
+  userId: varchar("user_id"),
+  referenceType: varchar("reference_type"),
+  referenceId: varchar("reference_id"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertErrorLogSchema = createInsertSchema(errorLogs).omit({ id: true, createdAt: true, resolvedAt: true, resolvedBy: true });
+export type InsertErrorLog = z.infer<typeof insertErrorLogSchema>;
+export type ErrorLog = typeof errorLogs.$inferSelect;
+
+export const ERROR_LOG_SEVERITIES = ["warn", "error", "fatal"] as const;
+export type ErrorLogSeverity = typeof ERROR_LOG_SEVERITIES[number];
+
+export const ERROR_LOG_SOURCES = ["push", "email", "discord", "telegram", "webhook", "route", "job"] as const;
+export type ErrorLogSource = typeof ERROR_LOG_SOURCES[number];
+
 export const downloads = pgTable("downloads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
@@ -654,6 +678,7 @@ export const ADMIN_PERMISSION_KEYS = [
   "announcements",
   "knowledge_base",
   "dashboard.view",
+  "error_log.view",
 ] as const;
 export type AdminPermissionKey = typeof ADMIN_PERMISSION_KEYS[number];
 

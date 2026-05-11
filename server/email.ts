@@ -97,6 +97,12 @@ export async function sendEmail(to: string, subject: string, html: string) {
     if (err?.response?.body) {
       console.error('SendGrid error details:', JSON.stringify(err.response.body));
     }
+    const { logError } = await import("./error-log");
+    logError("email", err, {
+      severity: "error",
+      summary: `Email send failed: ${subject}`.slice(0, 500),
+      extra: { to, subject, sendgridBody: err?.response?.body },
+    });
   }
 }
 
@@ -106,6 +112,12 @@ export async function sendEmailToMultiple(recipients: string[], subject: string,
       await sendEmail(to, subject, html);
     } catch (err: any) {
       console.error(`Failed to send email to ${to}, continuing with remaining recipients:`, err?.message || err);
+      const { logError } = await import("./error-log");
+      logError("email", err, {
+        severity: "error",
+        summary: `Email send failed (multi) → ${to}`.slice(0, 500),
+        extra: { to, subject },
+      });
     }
   }
 }

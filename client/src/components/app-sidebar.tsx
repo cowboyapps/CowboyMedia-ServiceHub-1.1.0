@@ -29,7 +29,7 @@ const categoryMap: Record<string, string> = {
 };
 
 export function AppSidebar() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, hasPermission } = useAuth();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -61,6 +61,13 @@ export function AppSidebar() {
   });
   const contentCounts = contentNotifData ?? {};
 
+  const { data: errorLogData } = useQuery<{ count: number }>({
+    queryKey: ["/api/admin/error-logs/unresolved-count"],
+    refetchInterval: 60000,
+    enabled: !!user && isAdmin && hasPermission("error_log.view"),
+  });
+  const unresolvedErrorCount = errorLogData?.count ?? 0;
+
   const handleNavClick = () => {
     if (isMobile) {
       requestAnimationFrame(() => {
@@ -73,7 +80,7 @@ export function AppSidebar() {
     if (title === "Tickets") return unreadTicketCount;
     if (title === "Messages") return unreadCount;
     if (title === "Report/Request") return unreadReportCount;
-    if (title === "Admin Portal") return (contentCounts["admin-reports"] ?? 0) + (contentCounts["admin-users"] ?? 0);
+    if (title === "Admin Portal") return (contentCounts["admin-reports"] ?? 0) + (contentCounts["admin-users"] ?? 0) + unresolvedErrorCount;
     const cat = categoryMap[title];
     if (cat) return contentCounts[cat] ?? 0;
     return 0;

@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { logError } from "./error-log";
 
 function escapeHtml(text: string): string {
   return String(text ?? "")
@@ -47,11 +48,13 @@ async function postToTelegram(chatId: string, text: string): Promise<{ ok: boole
       const body = await res.text().catch(() => "");
       const err = `Telegram API ${res.status}: ${body}`;
       console.error("[Telegram]", err);
+      logError("telegram", err, { severity: "warn", summary: `Telegram API ${res.status}`, extra: { status: res.status, body: body.slice(0, 1000) } });
       return { ok: false, error: err };
     }
     return { ok: true };
   } catch (e: any) {
     console.error("[Telegram] send error:", e?.message || e);
+    logError("telegram", e, { severity: "error", summary: "Telegram send error" });
     return { ok: false, error: e?.message || "Unknown error" };
   }
 }
@@ -75,7 +78,10 @@ export async function sendTelegramTestMessage(text: string): Promise<{ ok: boole
 }
 
 export function fireTelegram(text: string, category?: TelegramCategory): void {
-  sendTelegramMessage(text, category).catch((e) => console.error("[Telegram] fire error:", e));
+  sendTelegramMessage(text, category).catch((e) => {
+    console.error("[Telegram] fire error:", e);
+    logError("telegram", e, { severity: "error", summary: "Telegram fire error" });
+  });
 }
 
 export function fireTelegramMany(texts: string[], category?: TelegramCategory): void {
@@ -84,7 +90,10 @@ export function fireTelegramMany(texts: string[], category?: TelegramCategory): 
       const r = await sendTelegramMessage(t, category);
       if (!r.ok) break;
     }
-  })().catch((e) => console.error("[Telegram] fire-many error:", e));
+  })().catch((e) => {
+    console.error("[Telegram] fire-many error:", e);
+    logError("telegram", e, { severity: "error", summary: "Telegram fire-many error" });
+  });
 }
 
 const impactEmoji: Record<string, string> = {

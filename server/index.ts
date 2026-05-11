@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { seed } from "./seed";
 import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
 import { storage } from "./storage";
+import { logError } from "./error-log";
 import { userWantsChannel } from "@shared/notification-categories";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
@@ -161,6 +162,37 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS error_logs (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      severity VARCHAR NOT NULL,
+      source VARCHAR NOT NULL,
+      summary TEXT NOT NULL,
+      details TEXT,
+      user_id VARCHAR,
+      reference_type VARCHAR,
+      reference_id VARCHAR,
+      resolved_at TIMESTAMP,
+      resolved_by VARCHAR,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS error_logs_created_at_idx ON error_logs (created_at DESC)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS error_logs_resolved_idx ON error_logs (resolved_at) WHERE resolved_at IS NULL`);
+  } catch (e) {
+    console.error("Migration error (error_logs):", e);
+  }
+
+  async function pruneOldErrorLogs() {
+    try {
+      const removed = await storage.deleteOldErrorLogs(30);
+      if (removed > 0) console.log(`[ErrorLog] Pruned ${removed} log(s) older than 30 days`);
+    } catch (e) {
+      console.error("[ErrorLog] Retention prune error:", e);
+    }
+  }
+  setTimeout(() => pruneOldErrorLogs(), 30000);
+  setInterval(() => pruneOldErrorLogs(), 24 * 60 * 60 * 1000);
+
+  try {
     await seed();
   } catch (e) {
     console.error("Seed error:", e);
@@ -229,11 +261,22 @@ app.use((req, res, next) => {
   setTimeout(() => checkSetupReminders(), 10000);
   setInterval(() => checkSetupReminders(), 60 * 60 * 1000);
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
+
+    if (status >= 500) {
+      try {
+        logError("route", err, {
+          severity: "error",
+          userId: (req as any)?.session?.userId ?? null,
+          summary: `${req.method} ${req.path} → ${status}: ${message}`.slice(0, 500),
+          extra: { method: req.method, path: req.path, status },
+        });
+      } catch {}
+    }
 
     if (res.headersSent) {
       return next(err);

@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2 } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -3719,6 +3719,213 @@ function LogsTab() {
   );
 }
 
+type ErrorLogRow = {
+  id: string;
+  severity: string;
+  source: string;
+  summary: string;
+  details: string | null;
+  userId: string | null;
+  referenceType: string | null;
+  referenceId: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdAt: string;
+  userName?: string | null;
+  resolvedByName?: string | null;
+};
+
+const ERROR_SEVERITY_OPTIONS = ["warn", "error", "fatal"] as const;
+const ERROR_SOURCE_OPTIONS = ["push", "email", "discord", "telegram", "webhook", "route", "job"] as const;
+
+function severityBadgeClass(sev: string): string {
+  if (sev === "fatal") return "bg-red-600/20 text-red-700 dark:text-red-400";
+  if (sev === "error") return "bg-red-500/15 text-red-600 dark:text-red-400";
+  return "bg-amber-500/15 text-amber-600 dark:text-amber-400";
+}
+
+function ErrorLogsTab() {
+  const { toast } = useToast();
+  const [severity, setSeverity] = useState<string>("");
+  const [source, setSource] = useState<string>("");
+  const [resolved, setResolved] = useState<string>("false");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const limit = 30;
+
+  const { data, isLoading } = useQuery<{ logs: ErrorLogRow[]; total: number }>({
+    queryKey: ["/api/admin/error-logs", severity, source, resolved, search, page],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (severity) params.set("severity", severity);
+      if (source) params.set("source", source);
+      if (resolved !== "all") params.set("resolved", resolved);
+      if (search) params.set("search", search);
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      const res = await fetch(`/api/admin/error-logs?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load error logs");
+      return res.json();
+    },
+    refetchInterval: 15000,
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/admin/error-logs/${id}/resolve`, { resolved: value });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs/unresolved-count"] });
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message || "Could not update", variant: "destructive" }),
+  });
+
+  const logs = data?.logs || [];
+  const total = data?.total || 0;
+  const totalPages = Math.ceil(total / limit);
+
+  const handleSearch = () => { setSearch(searchInput); setPage(1); };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
+        <Select value={severity || "all"} onValueChange={(v) => { setSeverity(v === "all" ? "" : v); setPage(1); }}>
+          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-error-severity">
+            <SelectValue placeholder="All Severities" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Severities</SelectItem>
+            {ERROR_SEVERITY_OPTIONS.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+          </SelectContent>
+        </Select>
+        <Select value={source || "all"} onValueChange={(v) => { setSource(v === "all" ? "" : v); setPage(1); }}>
+          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-error-source">
+            <SelectValue placeholder="All Sources" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Sources</SelectItem>
+            {ERROR_SOURCE_OPTIONS.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+          </SelectContent>
+        </Select>
+        <Select value={resolved} onValueChange={(v) => { setResolved(v); setPage(1); }}>
+          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-error-resolved">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="false">Unresolved</SelectItem>
+            <SelectItem value="true">Resolved</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="flex gap-2 flex-1 min-w-[200px]">
+          <Input
+            placeholder="Search errors..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            className="flex-1"
+            data-testid="input-error-search"
+          />
+          <Button size="icon" variant="outline" onClick={handleSearch} data-testid="button-error-search">
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="text-xs text-muted-foreground" data-testid="text-error-total">{total} error log entries</div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
+      ) : logs.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Bug className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No errors logged 🎉</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {logs.map((log) => {
+            const isExpanded = expandedId === log.id;
+            const isResolved = !!log.resolvedAt;
+            return (
+              <Card key={log.id} data-testid={`card-error-${log.id}`} className={isResolved ? "opacity-70" : ""}>
+                <CardContent className="p-3 space-y-1.5">
+                  <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : log.id)} data-testid={`button-expand-error-${log.id}`}>
+                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
+                    <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${severityBadgeClass(log.severity)}`}>{log.severity}</Badge>
+                    <Badge variant="outline" className="text-[10px] flex-shrink-0">{log.source}</Badge>
+                    <span className="text-sm flex-1 min-w-0 truncate" data-testid={`text-error-summary-${log.id}`}>{log.summary}</span>
+                    {isResolved ? (
+                      <Badge variant="outline" className="text-[10px] flex-shrink-0 bg-green-500/10 text-green-600 dark:text-green-400">resolved</Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2"
+                        disabled={resolveMutation.isPending}
+                        onClick={(e) => { e.stopPropagation(); resolveMutation.mutate({ id: log.id, value: true }); }}
+                        data-testid={`button-resolve-error-${log.id}`}
+                      >
+                        <CheckCircle2 className="w-3 h-3 mr-1" /> Resolve
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 pl-7 flex-wrap">
+                    {log.userName && (<span className="text-[10px] text-muted-foreground">user: {log.userName}</span>)}
+                    {log.referenceType && log.referenceId && (<span className="text-[10px] text-muted-foreground">ref: {log.referenceType}/{log.referenceId.slice(0,8)}</span>)}
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                      <Clock className="w-2.5 h-2.5" />
+                      {format(new Date(log.createdAt), "MMM d, yyyy h:mm a")}
+                    </span>
+                    {isResolved && log.resolvedAt && (
+                      <span className="text-[10px] text-muted-foreground">
+                        resolved {format(new Date(log.resolvedAt), "MMM d, h:mm a")}{log.resolvedByName ? ` by ${log.resolvedByName}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  {isExpanded && (
+                    <div className="mt-2 pl-7 border-l-2 border-muted ml-2 pl-4 py-2 space-y-2">
+                      {log.details ? (
+                        <pre className="text-xs whitespace-pre-wrap break-all bg-muted/40 rounded p-2 max-h-96 overflow-auto" data-testid={`text-error-details-${log.id}`}>{log.details}</pre>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No additional details.</p>
+                      )}
+                      {isResolved && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={resolveMutation.isPending}
+                          onClick={() => resolveMutation.mutate({ id: log.id, value: false })}
+                          data-testid={`button-reopen-error-${log.id}`}
+                        >
+                          Reopen
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-error-prev">Previous</Button>
+          <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)} data-testid="button-error-next">Next</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MonitoringTab({ canManage, initialMonitorId }: { canManage: boolean; initialMonitorId?: string | null }) {
   const { toast } = useToast();
   const { data: monitors = [], isLoading } = useQuery<UrlMonitor[]>({ queryKey: ["/api/admin/monitors"], refetchInterval: 15000 });
@@ -4176,6 +4383,7 @@ const ALL_PERMISSIONS = [
   { category: "Support Tickets", perms: ["support_tickets"] },
   { category: "Admin Chat", perms: ["admin_chat"] },
   { category: "Logs", perms: ["logs.view"] },
+  { category: "Error Log", perms: ["error_log.view"] },
   { category: "URL Monitoring", perms: ["monitoring.view", "monitoring.manage"] },
   { category: "Announcements", perms: ["announcements"] },
   { category: "Knowledge Base", perms: ["knowledge_base"] },
@@ -5186,6 +5394,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "support-tickets": "support_tickets",
   "admin-chat": "admin_chat",
   "logs": "logs.view",
+  "error-log": "error_log.view",
   "monitoring": "monitoring.view",
   "chat-admin": "admin_chat",
   "announcements": "announcements",
@@ -6551,6 +6760,7 @@ export default function AdminPortal() {
     { key: "chat-admin", label: "Chat Admin", icon: ShieldCheck, color: "text-violet-500", bg: "bg-violet-500/10" },
     { key: "monitoring", label: "URL Monitoring", icon: Globe, color: "text-lime-500", bg: "bg-lime-500/10" },
     { key: "logs", label: "Logs", icon: ScrollText, color: "text-slate-500", bg: "bg-slate-500/10" },
+    { key: "error-log", label: "Error Log", icon: Bug, color: "text-red-500", bg: "bg-red-500/10" },
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10" },
     { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
@@ -6588,6 +6798,7 @@ export default function AdminPortal() {
       case "chat-admin": return <ChatAdminTab />;
       case "monitoring": return <MonitoringTab canManage={canManageSection("monitoring")} initialMonitorId={initialParams.monitor} />;
       case "logs": return <LogsTab />;
+      case "error-log": return <ErrorLogsTab />;
       case "telegram": return <TelegramTab />;
       case "discord": return <DiscordTab />;
       case "business-hours": return <BusinessHoursTab />;
