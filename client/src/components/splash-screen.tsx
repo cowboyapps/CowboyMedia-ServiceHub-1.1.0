@@ -86,7 +86,7 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
       <img
         src={logoImg}
         alt="CowboyMedia"
-        className={`absolute max-w-[40%] max-h-[40%] object-contain transition-opacity duration-300 ${videoReady ? "opacity-0" : "opacity-100"}`}
+        className={`absolute w-[60%] max-w-[260px] object-contain transition-opacity duration-300 ${videoReady ? "opacity-0" : "opacity-100"}`}
         data-testid="splash-logo-fallback"
       />
       <video
@@ -99,7 +99,7 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
         onCanPlay={() => setVideoReady(true)}
         onEnded={handleVideoEnd}
         onError={handleVideoError}
-        className={`relative max-w-full max-h-full object-contain transition-opacity duration-300 ${videoReady ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${videoReady ? "opacity-100" : "opacity-0"}`}
         data-testid="splash-video"
       />
     </div>

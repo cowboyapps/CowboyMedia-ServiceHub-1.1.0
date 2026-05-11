@@ -1043,7 +1043,24 @@ export default function App() {
   }, []);
 
   const [showSplash, setShowSplash] = useState(() => {
-    return !sessionStorage.getItem("splashShown");
+    if (sessionStorage.getItem("splashShown")) return false;
+    // Skip the splash on non-phone viewports (desktop, large tablets,
+    // foldable inner screens). We require a small max-width AND portrait
+    // orientation so typical smartphones get the splash and everything
+    // else falls through to the normal first screen.
+    try {
+      const isPhone =
+        window.matchMedia("(max-width: 767px)").matches &&
+        window.matchMedia("(orientation: portrait)").matches;
+      if (!isPhone) {
+        sessionStorage.setItem("splashShown", "1");
+        return false;
+      }
+    } catch {
+      // If matchMedia is unavailable for any reason, fall back to showing
+      // the splash — the existing hard timeout still protects the user.
+    }
+    return true;
   });
 
   const handleSplashComplete = useCallback(() => {
