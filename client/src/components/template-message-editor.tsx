@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -6,9 +7,75 @@ import {
   QUICK_RESPONSE_VARIABLES,
 } from "@shared/quick-response-vars";
 
-type Part =
+export type TemplateEditorPart =
   | { kind: "text"; value: string }
   | { kind: "unknown"; raw: string; start: number; end: number };
+
+type Part = TemplateEditorPart;
+
+/**
+ * Tokenize a template into plain text segments and "unknown" placeholder
+ * tokens (i.e. `{{...}}` whose key is not in `QUICK_RESPONSE_VARIABLES`).
+ * Known variables are folded into the surrounding text since the editor
+ * only highlights *unknown* tokens.
+ */
+export function tokenizeTemplateForEditor(value: string): TemplateEditorPart[] {
+  if (!value) return [];
+  const out: TemplateEditorPart[] = [];
+  const re = new RegExp(PLACEHOLDER_TOKEN_RE.source, "g");
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(value)) !== null) {
+    if (m.index > last) {
+      out.push({ kind: "text", value: value.slice(last, m.index) });
+    }
+    const key = m[1];
+    const raw = m[0];
+    const isKnown = (QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key);
+    if (isKnown) {
+      out.push({ kind: "text", value: raw });
+    } else {
+      out.push({ kind: "unknown", raw, start: m.index, end: m.index + raw.length });
+    }
+    last = m.index + raw.length;
+  }
+  if (last < value.length) {
+    out.push({ kind: "text", value: value.slice(last) });
+  }
+  return out;
+}
+
+export function hasUnknownPlaceholders(parts: TemplateEditorPart[]): boolean {
+  return parts.some((p) => p.kind === "unknown");
+}
+
+/**
+ * Compute the new value and resulting selection after replacing
+ * `value[start:end]` with `replacement`.
+ *
+ * - `caret: "end"` collapses the selection to the end of the inserted
+ *   replacement (used by "Remove placeholder").
+ * - `caret: "select"` selects the inserted replacement (used when
+ *   programmatically swapping one token for another).
+ */
+export function applyTemplateReplace(
+  value: string,
+  start: number,
+  end: number,
+  replacement: string,
+  caret: "end" | "select",
+): { next: string; selectionStart: number; selectionEnd: number } {
+  const next = value.slice(0, start) + replacement + value.slice(end);
+  if (caret === "select") {
+    return {
+      next,
+      selectionStart: start,
+      selectionEnd: start + replacement.length,
+    };
+  }
+  const pos = start + replacement.length;
+  return { next, selectionStart: pos, selectionEnd: pos };
+}
 
 export type TemplateMessageEditorProps = {
   value: string;
@@ -33,36 +100,9 @@ export function TemplateMessageEditor({
   const overlayRef = useRef<HTMLDivElement>(null);
   const [openTokenKey, setOpenTokenKey] = useState<string | null>(null);
 
-  const parts = useMemo<Part[]>(() => {
-    if (!value) return [];
-    const out: Part[] = [];
-    const re = new RegExp(PLACEHOLDER_TOKEN_RE.source, "g");
-    let last = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(value)) !== null) {
-      if (m.index > last) {
-        out.push({ kind: "text", value: value.slice(last, m.index) });
-      }
-      const key = m[1];
-      const raw = m[0];
-      const isKnown = (QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key);
-      if (isKnown) {
-        out.push({ kind: "text", value: raw });
-      } else {
-        out.push({ kind: "unknown", raw, start: m.index, end: m.index + raw.length });
-      }
-      last = m.index + raw.length;
-    }
-    if (last < value.length) {
-      out.push({ kind: "text", value: value.slice(last) });
-    }
-    return out;
-  }, [value]);
+  const parts = useMemo<Part[]>(() => tokenizeTemplateForEditor(value), [value]);
 
-  const hasHighlights = useMemo(
-    () => parts.some((p) => p.kind === "unknown"),
-    [parts],
-  );
+  const hasHighlights = useMemo(() => hasUnknownPlaceholders(parts), [parts]);
 
   useEffect(() => {
     if (!hasHighlights) setOpenTokenKey(null);
@@ -70,19 +110,20 @@ export function TemplateMessageEditor({
 
   const replaceRange = useCallback(
     (start: number, end: number, replacement: string, caret: "end" | "select") => {
-      const next = value.slice(0, start) + replacement + value.slice(end);
+      const { next, selectionStart, selectionEnd } = applyTemplateReplace(
+        value,
+        start,
+        end,
+        replacement,
+        caret,
+      );
       onChange(next);
       setOpenTokenKey(null);
       requestAnimationFrame(() => {
         const el = taRef.current;
         if (!el) return;
         el.focus();
-        if (caret === "select") {
-          el.setSelectionRange(start, start + replacement.length);
-        } else {
-          const pos = start + replacement.length;
-          el.setSelectionRange(pos, pos);
-        }
+        el.setSelectionRange(selectionStart, selectionEnd);
       });
     },
     [value, onChange],
