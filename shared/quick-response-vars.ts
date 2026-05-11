@@ -108,3 +108,19 @@ export function quickResponseHasMissingVariables(
 ): boolean {
   return tokenizeQuickResponseTemplate(template, ctx).some((s) => s.kind === "missing");
 }
+
+/**
+ * Find any unfilled `{{...}}` placeholder tokens left in an outgoing message.
+ * Returns the list of raw tokens (e.g. `"{{customer_name}}"`) for both known
+ * variables that have no value in the given context and unknown `{{...}}`
+ * tokens that don't match any documented variable. Used to warn admins before
+ * a reply is sent with literal placeholders still in the body.
+ */
+export function findUnfilledPlaceholders(
+  text: string,
+  ctx: QuickResponseVarContext,
+): string[] {
+  return tokenizeQuickResponseTemplate(text, ctx)
+    .filter((s) => s.kind === "missing" || s.kind === "unknown")
+    .map((s) => (s as { raw: string }).raw);
+}

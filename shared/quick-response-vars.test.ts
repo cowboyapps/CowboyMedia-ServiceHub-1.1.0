@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyQuickResponseVariables,
+  findUnfilledPlaceholders,
   nextRecentList,
   QUICK_RESPONSE_VARIABLES,
   quickResponseHasMissingVariables,
@@ -189,6 +190,40 @@ test("quickResponseHasMissingVariables: false when all placeholders are filled",
 
 test("quickResponseHasMissingVariables: false for templates with no placeholders", () => {
   assert.equal(quickResponseHasMissingVariables("static text", {}), false);
+});
+
+test("findUnfilledPlaceholders: returns missing known variables and unknown tokens", () => {
+  const out = findUnfilledPlaceholders(
+    "Hi {{customer_name}}, re {{ticket_subject}} - {{admin_name}} {{evil}}",
+    { customer_name: "Alice", admin_name: "" },
+  );
+  assert.deepEqual(out, [
+    "{{ticket_subject}}",
+    "{{admin_name}}",
+    "{{evil}}",
+  ]);
+});
+
+test("findUnfilledPlaceholders: empty array when message has no placeholders", () => {
+  assert.deepEqual(findUnfilledPlaceholders("plain text", {}), []);
+});
+
+test("findUnfilledPlaceholders: empty array when all placeholders are filled", () => {
+  assert.deepEqual(
+    findUnfilledPlaceholders("Hi {{customer_name}}", { customer_name: "Pat" }),
+    [],
+  );
+});
+
+test("findUnfilledPlaceholders: blank context value counts as unfilled", () => {
+  assert.deepEqual(
+    findUnfilledPlaceholders("Hi {{customer_name}}", { customer_name: "   " }),
+    ["{{customer_name}}"],
+  );
+});
+
+test("findUnfilledPlaceholders: empty input yields empty list", () => {
+  assert.deepEqual(findUnfilledPlaceholders("", { customer_name: "X" }), []);
 });
 
 test("variable list contains the documented placeholders", () => {

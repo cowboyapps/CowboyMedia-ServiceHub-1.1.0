@@ -10,6 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { findUnfilledPlaceholders } from "@shared/quick-response-vars";
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -465,23 +476,60 @@ export default function TicketDetail() {
       });
   }, [params.id, user, isAdmin, scrollToBottom]);
 
+  const [pendingPlaceholderSend, setPendingPlaceholderSend] = useState<{
+    msgText: string;
+    imgFile: File | null;
+    internal: boolean;
+    unfilled: string[];
+  } | null>(null);
+
+  const placeholderContext = useMemo(
+    () => ({
+      customer_name: customerInfo?.customer.fullName ?? null,
+      ticket_subject: ticket?.subject ?? null,
+      admin_name: user?.fullName ?? null,
+    }),
+    [customerInfo?.customer.fullName, ticket?.subject, user?.fullName],
+  );
+
+  const performSend = useCallback(
+    (msgText: string, imgFile: File | null, internal: boolean) => {
+      setMessage("");
+      setImageFile(null);
+      setIsInternalNote(false);
+      doSendMessage(msgText, imgFile, undefined, internal);
+      setTimeout(() => {
+        const el = messageInputRef.current;
+        if (el) {
+          el.style.height = "auto";
+          el.focus();
+        }
+      }, 0);
+    },
+    [doSendMessage],
+  );
+
   const handleSend = useCallback(() => {
     const msgText = message.trim();
     const imgFile = imageFile;
     if (!msgText && !imgFile) return;
     const internal = isAdmin && isInternalNote;
-    setMessage("");
-    setImageFile(null);
-    setIsInternalNote(false);
-    doSendMessage(msgText, imgFile, undefined, internal);
-    setTimeout(() => {
-      const el = messageInputRef.current;
-      if (el) {
-        el.style.height = "auto";
-        el.focus();
+    if (isAdmin && !internal && msgText) {
+      const unfilled = findUnfilledPlaceholders(msgText, placeholderContext);
+      if (unfilled.length > 0) {
+        setPendingPlaceholderSend({ msgText, imgFile, internal, unfilled });
+        return;
       }
-    }, 0);
-  }, [message, imageFile, isInternalNote, isAdmin, doSendMessage]);
+    }
+    performSend(msgText, imgFile, internal);
+  }, [message, imageFile, isInternalNote, isAdmin, placeholderContext, performSend]);
+
+  const confirmPlaceholderSend = useCallback(() => {
+    const pending = pendingPlaceholderSend;
+    if (!pending) return;
+    setPendingPlaceholderSend(null);
+    performSend(pending.msgText, pending.imgFile, pending.internal);
+  }, [pendingPlaceholderSend, performSend]);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
     doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal);
@@ -1424,6 +1472,42 @@ export default function TicketDetail() {
           )}
         </CardContent>
       </Card>
+      <AlertDialog
+        open={pendingPlaceholderSend !== null}
+        onOpenChange={(open) => { if (!open) setPendingPlaceholderSend(null); }}
+      >
+        <AlertDialogContent data-testid="dialog-placeholder-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unfilled placeholders in your reply</AlertDialogTitle>
+            <AlertDialogDescription>
+              This message still contains{" "}
+              {pendingPlaceholderSend?.unfilled.map((token, i) => (
+                <span key={`${token}-${i}`}>
+                  {i > 0 ? ", " : ""}
+                  <code
+                    className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100"
+                    data-testid={`text-unfilled-token-${i}`}
+                  >
+                    {token}
+                  </code>
+                </span>
+              ))}
+              . Send anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-placeholder-cancel">
+              Go back and edit
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmPlaceholderSend}
+              data-testid="button-placeholder-send-anyway"
+            >
+              Send anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
