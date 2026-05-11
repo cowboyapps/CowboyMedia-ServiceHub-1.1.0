@@ -9,25 +9,23 @@ interface BrandLogoProps {
 
 export function BrandLogo({
   className,
-  alt = "CowboyMedia",
+  alt = "CowboyApps",
   "data-testid": dataTestId,
 }: BrandLogoProps) {
   return (
-    <>
+    <span className="contents" data-testid={dataTestId}>
       <img
         src={lightBgLogo}
         alt={alt}
         loading="eager"
         className={`block dark:hidden ${className ?? ""}`}
-        data-testid={dataTestId}
       />
       <img
         src={darkBgLogo}
         alt={alt}
-        aria-hidden="true"
         loading="eager"
         className={`hidden dark:block ${className ?? ""}`}
       />
-    </>
+    </span>
   );
 }
