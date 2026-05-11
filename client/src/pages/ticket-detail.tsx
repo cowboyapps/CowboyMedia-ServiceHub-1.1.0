@@ -20,7 +20,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { findUnfilledPlaceholders, tokenizeQuickResponseTemplate } from "@shared/quick-response-vars";
+import { findUnfilledPlaceholders, QUICK_RESPONSE_VARIABLES } from "@shared/quick-response-vars";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -71,6 +72,20 @@ function BouncingDots() {
     </span>
   );
 }
+
+const PLACEHOLDER_VARIABLE_LABELS: Record<string, string> = {
+  customer_name: "Customer name",
+  ticket_subject: "Ticket subject",
+  admin_name: "Your full name",
+};
+
+const PLACEHOLDER_EMPTY_REASONS: Record<string, string> = {
+  customer_name: "This customer has no full name on file.",
+  ticket_subject: "This ticket has no subject set.",
+  admin_name: "Your account has no full name set.",
+};
+
+const PLACEHOLDER_TOKEN_RE = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
 
 function formatDateSeparator(date: Date): string {
   if (isToday(date)) return "Today";
@@ -501,14 +516,83 @@ export default function TicketDetail() {
   }, [isAdmin, isInternalNote, message, placeholderContext]);
 
   const showPlaceholderOverlay = isAdmin && !isInternalNote;
-  const placeholderOverlaySegments = useMemo(() => {
+
+  type OverlayPart =
+    | { kind: "text"; value: string }
+    | { kind: "filled-token"; raw: string }
+    | { kind: "missing-token"; raw: string; variable: string; start: number; end: number; currentValue: string }
+    | { kind: "unknown-token"; raw: string; start: number; end: number };
+
+  const overlayParts = useMemo<OverlayPart[]>(() => {
     if (!showPlaceholderOverlay || !message) return [];
-    return tokenizeQuickResponseTemplate(message, placeholderContext);
+    const out: OverlayPart[] = [];
+    const re = new RegExp(PLACEHOLDER_TOKEN_RE.source, "g");
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(message)) !== null) {
+      if (m.index > last) {
+        out.push({ kind: "text", value: message.slice(last, m.index) });
+      }
+      const key = m[1];
+      const raw = m[0];
+      const isKnown = (QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key);
+      if (!isKnown) {
+        out.push({ kind: "unknown-token", raw, start: m.index, end: m.index + raw.length });
+      } else {
+        const ctxV = (placeholderContext as Record<string, unknown>)[key];
+        const v = ctxV == null ? "" : String(ctxV).trim();
+        if (v.length === 0) {
+          out.push({ kind: "missing-token", raw, variable: key, start: m.index, end: m.index + raw.length, currentValue: v });
+        } else {
+          out.push({ kind: "filled-token", raw });
+        }
+      }
+      last = m.index + raw.length;
+    }
+    if (last < message.length) {
+      out.push({ kind: "text", value: message.slice(last) });
+    }
+    return out;
   }, [showPlaceholderOverlay, message, placeholderContext]);
+
   const hasPlaceholderHighlights = useMemo(
-    () => placeholderOverlaySegments.some((s) => s.kind === "missing" || s.kind === "unknown"),
-    [placeholderOverlaySegments],
+    () => overlayParts.some((p) => p.kind === "missing-token" || p.kind === "unknown-token"),
+    [overlayParts],
   );
+
+  const [openTokenKey, setOpenTokenKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasPlaceholderHighlights) setOpenTokenKey(null);
+  }, [hasPlaceholderHighlights]);
+
+  const replaceTokenRange = useCallback((start: number, end: number, replacement: string, caretAfter: "end" | "select") => {
+    setMessage((prev) => prev.slice(0, start) + replacement + prev.slice(end));
+    setOpenTokenKey(null);
+    requestAnimationFrame(() => {
+      const el = messageInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+      if (caretAfter === "select") {
+        el.setSelectionRange(start, start + replacement.length);
+      } else {
+        const pos = start + replacement.length;
+        el.setSelectionRange(pos, pos);
+      }
+    });
+  }, []);
+
+  const jumpToToken = useCallback((start: number, end: number) => {
+    setOpenTokenKey(null);
+    requestAnimationFrame(() => {
+      const el = messageInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(start, end);
+    });
+  }, []);
 
   const syncPlaceholderOverlayScroll = useCallback(() => {
     const ta = messageInputRef.current;
@@ -1493,22 +1577,114 @@ export default function TicketDetail() {
                       className="pointer-events-none absolute inset-0 overflow-hidden rounded-md border border-transparent px-3 py-2 text-sm leading-5 text-transparent whitespace-pre-wrap break-words"
                       data-testid="overlay-placeholder-highlights"
                     >
-                      {placeholderOverlaySegments.map((seg, i) => {
-                        if (seg.kind === "missing" || seg.kind === "unknown") {
-                          return (
-                            <span
-                              key={i}
-                              className="rounded bg-amber-200/70 dark:bg-amber-900/50 underline decoration-amber-600 decoration-2 underline-offset-2"
-                              data-testid={`overlay-placeholder-token-${i}`}
+                      {overlayParts.map((part, i) => {
+                        if (part.kind === "text") {
+                          return <span key={i}>{part.value}</span>;
+                        }
+                        if (part.kind === "filled-token") {
+                          return <span key={i}>{part.raw}</span>;
+                        }
+                        const tokenKey = `${i}-${part.start}`;
+                        const isMissing = part.kind === "missing-token";
+                        const variable = isMissing ? part.variable : undefined;
+                        const label = variable
+                          ? PLACEHOLDER_VARIABLE_LABELS[variable] ?? variable
+                          : null;
+                        const reason = variable
+                          ? PLACEHOLDER_EMPTY_REASONS[variable] ?? null
+                          : null;
+                        const liveValue = (() => {
+                          if (!variable) return "";
+                          const v = (placeholderContext as Record<string, unknown>)[variable];
+                          return v == null ? "" : String(v).trim();
+                        })();
+                        return (
+                          <Popover
+                            key={tokenKey}
+                            open={openTokenKey === tokenKey}
+                            onOpenChange={(o) => setOpenTokenKey(o ? tokenKey : null)}
+                          >
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="pointer-events-auto rounded bg-amber-200/70 dark:bg-amber-900/50 underline decoration-amber-600 decoration-2 underline-offset-2 text-transparent cursor-pointer p-0 m-0 border-0 align-baseline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                                data-testid={`overlay-placeholder-token-${i}`}
+                                aria-label={
+                                  isMissing
+                                    ? `Fix unfilled placeholder ${part.raw}`
+                                    : `Fix unknown placeholder ${part.raw}`
+                                }
+                              >
+                                {part.raw}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              align="start"
+                              side="top"
+                              className="w-64 p-0 pointer-events-auto"
+                              data-testid={`popover-placeholder-${i}`}
                             >
-                              {seg.raw}
-                            </span>
-                          );
-                        }
-                        if (seg.kind === "filled") {
-                          return <span key={i}>{seg.raw}</span>;
-                        }
-                        return <span key={i}>{seg.value}</span>;
+                              <div className="p-3 space-y-1">
+                                <div
+                                  className="text-xs font-mono break-all"
+                                  data-testid={`text-placeholder-token-${i}`}
+                                >
+                                  {part.raw}
+                                </div>
+                                {isMissing ? (
+                                  <p
+                                    className="text-xs text-muted-foreground"
+                                    data-testid={`text-placeholder-explanation-${i}`}
+                                  >
+                                    {liveValue
+                                      ? `${label} is now available — insert it below.`
+                                      : `${label} is empty. ${reason ?? ""}`}
+                                  </p>
+                                ) : (
+                                  <p
+                                    className="text-xs text-muted-foreground"
+                                    data-testid={`text-placeholder-explanation-${i}`}
+                                  >
+                                    This isn't a recognized variable, so it can't be filled
+                                    in automatically.
+                                  </p>
+                                )}
+                              </div>
+                              <div className="border-t flex flex-col">
+                                {isMissing && liveValue && (
+                                  <button
+                                    type="button"
+                                    className="px-3 py-2 text-left text-sm hover:bg-accent"
+                                    onClick={() =>
+                                      replaceTokenRange(part.start, part.end, liveValue, "end")
+                                    }
+                                    data-testid={`button-placeholder-insert-${i}`}
+                                  >
+                                    Insert &ldquo;{liveValue}&rdquo;
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="px-3 py-2 text-left text-sm hover:bg-accent"
+                                  onClick={() =>
+                                    replaceTokenRange(part.start, part.end, "", "end")
+                                  }
+                                  data-testid={`button-placeholder-remove-${i}`}
+                                >
+                                  Remove placeholder
+                                </button>
+                                <button
+                                  type="button"
+                                  className="px-3 py-2 text-left text-sm hover:bg-accent"
+                                  onClick={() => jumpToToken(part.start, part.end)}
+                                  data-testid={`button-placeholder-edit-${i}`}
+                                >
+                                  Edit manually
+                                </button>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        );
                       })}
                       {message.endsWith("\n") && "\u200b"}
                     </div>
