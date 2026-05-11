@@ -49,7 +49,51 @@ import {
   users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, downloads, passwordResetTokens, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, isNull, isNotNull, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
+
+export type DashboardMetrics = {
+  generatedAt: string;
+  tickets: {
+    open: number;
+    awaitingCustomer: number;
+    awaitingAdmin: number;
+    openedToday: number;
+    resolvedToday: number;
+    avgFirstResponseMinutes7d: number | null;
+    series14d: { date: string; opened: number; resolved: number }[];
+  };
+  services: {
+    total: number;
+    operational: number;
+    degraded: number;
+    down: number;
+    activeAlerts: number;
+    recentAlerts: { id: string; title: string; severity: string; status: string; createdAt: string }[];
+  };
+  notifications: {
+    pushSent24h: number;
+    emailSent24h: number;
+    pushSubscriptionsTotal: number;
+    pushSubscriptionsThisWeek: number;
+  };
+  knowledgeBase: {
+    total: number;
+    published: number;
+    topViewed: { id: string; title: string; slug: string; viewCount: number }[];
+  };
+  community: {
+    messages24h: number;
+    activeUsers7d: number;
+    bannedUsers: number;
+  };
+  users: {
+    total: number;
+    customers: number;
+    admins: number;
+    signupsToday: number;
+    signupsThisWeek: number;
+  };
+};
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -286,6 +330,8 @@ export interface IStorage {
   incrementKbArticleViewCount(id: string): Promise<void>;
   recordKbArticleHelpful(id: string, helpful: boolean): Promise<KbArticle | undefined>;
   searchKbArticles(query: string, opts?: { limit?: number; publishedOnly?: boolean }): Promise<KbArticle[]>;
+
+  getDashboardMetrics(): Promise<DashboardMetrics>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1527,6 +1573,176 @@ export class DatabaseStorage implements IStorage {
       LIMIT ${limit}
     `);
     return (result as any).rows ?? (result as any);
+  }
+  async getDashboardMetrics(): Promise<DashboardMetrics> {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const start7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const start14d = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const start24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const openTicketRows = await db.select({ id: tickets.id, customerId: tickets.customerId }).from(tickets).where(ne(tickets.status, "closed"));
+    const openTicketIds = openTicketRows.map(t => t.id);
+
+    const [
+      lastMsgRows,
+      openedTodayRow,
+      resolvedTodayRow,
+      ticketsLast14dRows,
+      msgs7dRows,
+      servicesRows,
+      activeAlertRow,
+      recentAlertsRows,
+      pushSent24hRow,
+      emailSent24hRow,
+      pushSubsTotalRow,
+      pushSubsThisWeekRow,
+      kbTotalRow,
+      kbPublishedRow,
+      kbTopRows,
+      community24hRow,
+      communityActive7dRow,
+      bannedRow,
+      userRows,
+      signupsTodayRow,
+      signupsWeekRow,
+    ] = await Promise.all([
+      openTicketIds.length === 0
+        ? Promise.resolve({ rows: [] } as any)
+        : db.execute<{ ticket_id: string; sender_id: string }>(sql`
+            SELECT DISTINCT ON (ticket_id) ticket_id, sender_id
+            FROM ticket_messages
+            WHERE ticket_id IN (${sql.join(openTicketIds.map(id => sql`${id}`), sql`, `)})
+            ORDER BY ticket_id, created_at DESC
+          `),
+      db.select({ c: sql<number>`count(*)::int` }).from(tickets).where(gte(tickets.createdAt, startOfToday)),
+      db.select({ c: sql<number>`count(*)::int` }).from(tickets).where(and(eq(tickets.status, "closed"), isNotNull(tickets.closedAt), gte(tickets.closedAt, startOfToday))),
+      db.execute<{ day: string; opened: number; resolved: number }>(sql`
+        WITH days AS (
+          SELECT generate_series(${start14d}::date, ${now}::date, '1 day'::interval)::date AS day
+        )
+        SELECT
+          to_char(d.day, 'YYYY-MM-DD') AS day,
+          COALESCE((SELECT COUNT(*)::int FROM tickets WHERE created_at::date = d.day), 0) AS opened,
+          COALESCE((SELECT COUNT(*)::int FROM tickets WHERE closed_at IS NOT NULL AND closed_at::date = d.day), 0) AS resolved
+        FROM days d
+        ORDER BY d.day ASC
+      `),
+      db.execute<{ ticket_id: string; first_admin_minutes: number }>(sql`
+        WITH ticket_creators AS (
+          SELECT t.id, t.created_at, t.customer_id
+          FROM tickets t
+          WHERE t.created_at >= ${start7d}
+        ),
+        first_admin AS (
+          SELECT tm.ticket_id,
+                 EXTRACT(EPOCH FROM (MIN(tm.created_at) - tc.created_at)) / 60.0 AS first_admin_minutes
+          FROM ticket_messages tm
+          JOIN ticket_creators tc ON tc.id = tm.ticket_id
+          WHERE tm.sender_id <> tc.customer_id
+          GROUP BY tm.ticket_id, tc.created_at
+        )
+        SELECT ticket_id, first_admin_minutes::float8 AS first_admin_minutes FROM first_admin
+        WHERE first_admin_minutes >= 0
+      `),
+      db.select().from(services),
+      db.select({ c: sql<number>`count(*)::int` }).from(serviceAlerts).where(isNull(serviceAlerts.resolvedAt)),
+      db.select().from(serviceAlerts).orderBy(desc(serviceAlerts.createdAt)).limit(3),
+      db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "push"), gte(adminActivityLogs.createdAt, start24h))),
+      db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "email"), gte(adminActivityLogs.createdAt, start24h))),
+      db.select({ c: sql<number>`count(*)::int` }).from(pushSubscriptions),
+      db.select({ c: sql<number>`count(*)::int` }).from(pushSubscriptions).where(gte(pushSubscriptions.createdAt, start7d)),
+      db.select({ c: sql<number>`count(*)::int` }).from(kbArticles),
+      db.select({ c: sql<number>`count(*)::int` }).from(kbArticles).where(eq(kbArticles.published, true)),
+      db.select({ id: kbArticles.id, title: kbArticles.title, slug: kbArticles.slug, viewCount: kbArticles.viewCount }).from(kbArticles).where(eq(kbArticles.published, true)).orderBy(desc(kbArticles.viewCount)).limit(5),
+      db.select({ c: sql<number>`count(*)::int` }).from(communityMessages).where(gte(communityMessages.createdAt, start24h)),
+      db.select({ c: sql<number>`count(DISTINCT user_id)::int` }).from(communityMessages).where(gte(communityMessages.createdAt, start7d)),
+      db.select({ c: sql<number>`count(*)::int` }).from(users).where(eq(users.chatBanned, true)),
+      db.select({ role: users.role, c: sql<number>`count(*)::int` }).from(users).groupBy(users.role),
+      db.select({ c: sql<number>`count(*)::int` }).from(users).where(gte(users.createdAt, startOfToday)),
+      db.select({ c: sql<number>`count(*)::int` }).from(users).where(gte(users.createdAt, start7d)),
+    ]);
+
+    const lastMsgMap = new Map<string, string>();
+    for (const r of (lastMsgRows as any).rows ?? (lastMsgRows as any)) {
+      lastMsgMap.set(r.ticket_id, r.sender_id);
+    }
+
+    let awaitingCustomer = 0;
+    let awaitingAdmin = 0;
+    const openCount = openTicketRows.length;
+    for (const t of openTicketRows) {
+      const lastSender = lastMsgMap.get(t.id);
+      if (!lastSender || lastSender === t.customerId) {
+        awaitingAdmin++;
+      } else {
+        awaitingCustomer++;
+      }
+    }
+
+    const series14dRaw = ((ticketsLast14dRows as any).rows ?? (ticketsLast14dRows as any)) as { day: string; opened: number; resolved: number }[];
+    const series14d = series14dRaw.map(r => ({ date: r.day, opened: Number(r.opened) || 0, resolved: Number(r.resolved) || 0 }));
+
+    const responseRows = ((msgs7dRows as any).rows ?? (msgs7dRows as any)) as { first_admin_minutes: number }[];
+    const avgFirstResponseMinutes7d = responseRows.length > 0
+      ? Math.round(responseRows.reduce((a, r) => a + Number(r.first_admin_minutes || 0), 0) / responseRows.length)
+      : null;
+
+    const operational = servicesRows.filter(s => s.status === "operational").length;
+    const degraded = servicesRows.filter(s => s.status === "degraded").length;
+    const down = servicesRows.filter(s => s.status === "down" || s.status === "outage").length;
+
+    const userTotals = { total: 0, customers: 0, admins: 0 };
+    for (const r of userRows) {
+      const c = Number(r.c) || 0;
+      userTotals.total += c;
+      if (r.role === "customer") userTotals.customers += c;
+      else userTotals.admins += c;
+    }
+
+    return {
+      generatedAt: now.toISOString(),
+      tickets: {
+        open: openCount,
+        awaitingCustomer,
+        awaitingAdmin,
+        openedToday: Number(openedTodayRow[0]?.c) || 0,
+        resolvedToday: Number(resolvedTodayRow[0]?.c) || 0,
+        avgFirstResponseMinutes7d,
+        series14d,
+      },
+      services: {
+        total: servicesRows.length,
+        operational,
+        degraded,
+        down,
+        activeAlerts: Number(activeAlertRow[0]?.c) || 0,
+        recentAlerts: recentAlertsRows.map(a => ({ id: a.id, title: a.title, severity: a.severity, status: a.status, createdAt: a.createdAt.toISOString() })),
+      },
+      notifications: {
+        pushSent24h: Number(pushSent24hRow[0]?.c) || 0,
+        emailSent24h: Number(emailSent24hRow[0]?.c) || 0,
+        pushSubscriptionsTotal: Number(pushSubsTotalRow[0]?.c) || 0,
+        pushSubscriptionsThisWeek: Number(pushSubsThisWeekRow[0]?.c) || 0,
+      },
+      knowledgeBase: {
+        total: Number(kbTotalRow[0]?.c) || 0,
+        published: Number(kbPublishedRow[0]?.c) || 0,
+        topViewed: kbTopRows.map(a => ({ id: a.id, title: a.title, slug: a.slug, viewCount: a.viewCount })),
+      },
+      community: {
+        messages24h: Number(community24hRow[0]?.c) || 0,
+        activeUsers7d: Number(communityActive7dRow[0]?.c) || 0,
+        bannedUsers: Number(bannedRow[0]?.c) || 0,
+      },
+      users: {
+        total: userTotals.total,
+        customers: userTotals.customers,
+        admins: userTotals.admins,
+        signupsToday: Number(signupsTodayRow[0]?.c) || 0,
+        signupsThisWeek: Number(signupsWeekRow[0]?.c) || 0,
+      },
+    };
   }
 }
 

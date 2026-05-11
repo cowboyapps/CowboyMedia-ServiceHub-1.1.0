@@ -23,7 +23,8 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard } from "lucide-react";
+import AdminDashboard from "./admin-dashboard";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
@@ -5186,6 +5187,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "chat-admin": "admin_chat",
   "announcements": "announcements",
   "knowledge-base": "knowledge_base",
+  "overview": "dashboard.view",
 };
 
 const TILE_MANAGE_MAP: Record<string, string> = {
@@ -6512,6 +6514,7 @@ export default function AdminPortal() {
   });
 
   const allSections = [
+    { key: "overview", label: "Overview", icon: LayoutDashboard, color: "text-primary", bg: "bg-primary/10" },
     { key: "users", label: "Users", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
     { key: "services", label: "Services", icon: Server, color: "text-green-500", bg: "bg-green-500/10" },
     { key: "alerts", label: "Alerts", icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-500/10" },
@@ -6549,6 +6552,7 @@ export default function AdminPortal() {
 
   const renderContent = () => {
     switch (activeSection) {
+      case "overview": return <AdminDashboard onNavigateSection={(k) => setActiveSection(k)} />;
       case "users": return <UsersTab canManage={canManageSection("users")} />;
       case "services": return <ServicesTab canManage={canManageSection("services")} />;
       case "alerts": return <AlertsTab canManage={canManageSection("alerts")} />;

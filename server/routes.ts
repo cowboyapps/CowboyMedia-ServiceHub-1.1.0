@@ -539,6 +539,9 @@ export async function registerRoutes(
   pool.query("UPDATE users SET full_name = TRIM(full_name) WHERE full_name != TRIM(full_name)")
     .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Trimmed whitespace from ${r.rowCount} full_name(s)`); })
     .catch((e) => console.error("[Migration] Failed to trim full_names:", e.message));
+  pool.query(`UPDATE admin_roles SET permissions = array_append(permissions, 'dashboard.view') WHERE NOT ('dashboard.view' = ANY(permissions))`)
+    .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Added dashboard.view permission to ${r.rowCount} admin role(s)`); })
+    .catch((e) => console.error("[Migration] Failed to seed dashboard.view:", e.message));
 
   app.set("trust proxy", 1);
 
@@ -3721,6 +3724,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/push/vapid-key", (_req, res) => {
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || "" });
+  });
+
+  let dashboardCache: { at: number; payload: any } | null = null;
+  const DASHBOARD_TTL_MS = 30_000;
+  app.get("/api/admin/dashboard", requirePermission("dashboard.view"), async (_req, res) => {
+    try {
+      const now = Date.now();
+      if (dashboardCache && now - dashboardCache.at < DASHBOARD_TTL_MS) {
+        return res.json({ ...dashboardCache.payload, cached: true });
+      }
+      const payload = await storage.getDashboardMetrics();
+      dashboardCache = { at: now, payload };
+      res.json({ ...payload, cached: false });
+    } catch (e: any) {
+      console.error("[Dashboard] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // WebSocket

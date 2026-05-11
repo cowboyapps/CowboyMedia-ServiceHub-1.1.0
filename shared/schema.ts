@@ -636,6 +636,7 @@ export const ADMIN_PERMISSION_KEYS = [
   "monitoring.view", "monitoring.manage",
   "announcements",
   "knowledge_base",
+  "dashboard.view",
 ] as const;
 export type AdminPermissionKey = typeof ADMIN_PERMISSION_KEYS[number];
 
