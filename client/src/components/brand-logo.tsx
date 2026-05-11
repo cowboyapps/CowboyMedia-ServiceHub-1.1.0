@@ -9,7 +9,7 @@ interface BrandLogoProps {
 
 export function BrandLogo({
   className,
-  alt = "CowboyApps",
+  alt = "CowboyMedia",
   "data-testid": dataTestId,
 }: BrandLogoProps) {
   return (
