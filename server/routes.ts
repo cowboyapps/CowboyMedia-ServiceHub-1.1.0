@@ -9,6 +9,7 @@ import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications } from "@shared/schema";
 import { createBusinessHoursHandlers } from "./business-hours";
+import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
 import { createDiscordSettingsHandlers } from "./discord-settings";
 import { createTicketCategoryHandlers } from "./ticket-categories";
@@ -505,6 +506,9 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
     if (sent > 0) {
       const pushRecipient = await storage.getUser(userId);
       logActivity("push", "push_sent", { recipientId: userId, summary: `Push to ${pushRecipient?.fullName || "user"}: ${payload.title} — ${payload.body}`, details: JSON.stringify({ recipientName: pushRecipient?.fullName || null, ...payload }) });
+    }
+    if (failed > 0) {
+      logActivity("push", "push_failed", { recipientId: userId, summary: `Push failed to user: ${payload.title}`, details: JSON.stringify({ failed, sent, ...payload }) });
     }
   } catch (e) {
     console.error(`[Push] User ${userId} — error:`, e);
@@ -3726,22 +3730,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || "" });
   });
 
-  let dashboardCache: { at: number; payload: any } | null = null;
-  const DASHBOARD_TTL_MS = 30_000;
-  app.get("/api/admin/dashboard", requirePermission("dashboard.view"), async (_req, res) => {
-    try {
-      const now = Date.now();
-      if (dashboardCache && now - dashboardCache.at < DASHBOARD_TTL_MS) {
-        return res.json({ ...dashboardCache.payload, cached: true });
-      }
-      const payload = await storage.getDashboardMetrics();
-      dashboardCache = { at: now, payload };
-      res.json({ ...payload, cached: false });
-    } catch (e: any) {
-      console.error("[Dashboard] failed:", e);
-      res.status(500).json({ message: e.message });
-    }
+  const dashboardHandler = createDashboardHandler({
+    storage,
+    getOnlineUsersCount: () => new Set(wsSessionUserMap.values()).size,
   });
+  app.get("/api/admin/dashboard", requirePermission("dashboard.view"), dashboardHandler);
 
   // WebSocket
   app.get("/api/admin/activity-logs", requirePermission("logs.view"), async (req, res) => {

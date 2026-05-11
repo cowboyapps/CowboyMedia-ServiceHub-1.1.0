@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import {
   LifeBuoy,
   Server,
@@ -14,13 +16,16 @@ import {
   Users,
   Clock,
   TrendingUp,
+  Search,
+  XCircle,
 } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { formatDistanceToNow } from "date-fns";
 
 type DashboardMetrics = {
   generatedAt: string;
   cached?: boolean;
+  usersOnline: number | null;
   tickets: {
     open: number; awaitingCustomer: number; awaitingAdmin: number;
     openedToday: number; resolvedToday: number;
@@ -33,12 +38,13 @@ type DashboardMetrics = {
     recentAlerts: { id: string; title: string; severity: string; status: string; createdAt: string }[];
   };
   notifications: {
-    pushSent24h: number; emailSent24h: number;
+    pushSent24h: number; pushFailed24h: number; emailSent24h: number;
     pushSubscriptionsTotal: number; pushSubscriptionsThisWeek: number;
   };
   knowledgeBase: {
     total: number; published: number;
     topViewed: { id: string; title: string; slug: string; viewCount: number }[];
+    topZeroResultSearches: { query: string; count: number }[];
   };
   community: { messages24h: number; activeUsers7d: number; bannedUsers: number };
   users: { total: number; customers: number; admins: number; signupsToday: number; signupsThisWeek: number };
@@ -62,16 +68,60 @@ function severityColor(s: string) {
   }
 }
 
+const ticketChartConfig = {
+  opened: { label: "Opened", color: "hsl(217 91% 60%)" },
+  resolved: { label: "Resolved", color: "hsl(142 71% 45%)" },
+} as const;
+
 export default function AdminDashboard({ onNavigateSection }: { onNavigateSection?: (key: string) => void }) {
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const { data, isLoading, error, dataUpdatedAt } = useQuery<DashboardMetrics>({
     queryKey: ["/api/admin/dashboard"],
     refetchInterval: 30_000,
   });
 
+  // Live refresh via websocket: invalidate the dashboard query when ticket
+  // or alert events fire so the counters react instantly instead of waiting
+  // for the 30s poll. Throttled by the server-side 30s cache.
+  useEffect(() => {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    let ws: WebSocket | null = null;
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard"] });
+      }, 1500);
+    };
+    try {
+      ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (typeof msg?.type !== "string") return;
+          if (
+            msg.type.startsWith("ticket_") ||
+            msg.type === "new_ticket" ||
+            msg.type === "new_alert" ||
+            msg.type === "alert_updated" ||
+            msg.type === "alert_resolved"
+          ) {
+            schedule();
+          }
+        } catch {}
+      };
+    } catch {}
+    return () => {
+      if (pending) clearTimeout(pending);
+      try { ws?.close(); } catch {}
+    };
+  }, [queryClient]);
+
   if (isLoading) {
     return (
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3" data-testid="loading-dashboard">
         {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48 w-full" />)}
       </div>
     );
@@ -95,8 +145,10 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
     return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
   };
 
+  const onlineDisplay = data.usersOnline === null || data.usersOnline === undefined ? "—" : data.usersOnline;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="page-admin-dashboard">
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
         {/* Tickets */}
         <Card
@@ -118,19 +170,17 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
               <Stat label="Resolved today" value={data.tickets.resolvedToday} />
               <Stat label="Avg 1st reply (7d)" value={fmtMinutes(data.tickets.avgFirstResponseMinutes7d)} />
             </div>
-            <div className="h-32">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.tickets.series14d} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="opened" fill="hsl(217 91% 60%)" name="Opened" />
-                  <Bar dataKey="resolved" fill="hsl(142 71% 45%)" name="Resolved" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ChartContainer config={ticketChartConfig} className="h-32 w-full aspect-auto">
+              <BarChart data={data.tickets.series14d} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="opened" fill="var(--color-opened)" name="Opened" />
+                <Bar dataKey="resolved" fill="var(--color-resolved)" name="Resolved" />
+              </BarChart>
+            </ChartContainer>
           </CardContent>
         </Card>
 
@@ -180,7 +230,19 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-3">
-              <Stat label="Push sent" value={data.notifications.pushSent24h} />
+              <Stat
+                label="Push sent"
+                value={data.notifications.pushSent24h}
+                sub={
+                  data.notifications.pushFailed24h > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-red-500">
+                      <XCircle className="w-3 h-3" /> {data.notifications.pushFailed24h} failed
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">0 failed</span>
+                  )
+                }
+              />
               <Stat label="Email sent" value={data.notifications.emailSent24h} sub={<span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> last 24h</span>} />
               <Stat label="Push subs" value={data.notifications.pushSubscriptionsTotal} sub={`+${data.notifications.pushSubscriptionsThisWeek} this week`} />
             </div>
@@ -211,6 +273,21 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                 <div key={a.id} className="flex items-center justify-between text-xs gap-2" data-testid={`row-kb-top-${a.id}`}>
                   <span className="truncate flex-1">{a.title}</span>
                   <span className="text-muted-foreground tabular-nums">{a.viewCount}</span>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Search className="w-3 h-3" /> Top zero-result searches
+              </p>
+              {data.knowledgeBase.topZeroResultSearches.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic" data-testid="text-zero-search-empty">
+                  Search analytics not tracked yet
+                </p>
+              ) : data.knowledgeBase.topZeroResultSearches.map((s, i) => (
+                <div key={i} className="flex items-center justify-between text-xs gap-2" data-testid={`row-kb-zero-${i}`}>
+                  <span className="truncate flex-1">{s.query}</span>
+                  <span className="text-muted-foreground tabular-nums">{s.count}</span>
                 </div>
               ))}
             </div>
@@ -251,7 +328,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
           <CardContent>
             <div className="grid grid-cols-2 gap-3">
               <Stat label="Total" value={data.users.total} sub={`${data.users.customers} customers · ${data.users.admins} admins`} />
-              <Stat label="Online now" value="—" sub="Coming soon" />
+              <Stat label="Online now" value={onlineDisplay} sub={data.usersOnline === null ? "presence unavailable" : "live websocket count"} />
               <Stat label="Signups today" value={data.users.signupsToday} sub={<span className="inline-flex items-center gap-1"><TrendingUp className="w-3 h-3" /> {data.users.signupsThisWeek} this week</span>} />
             </div>
           </CardContent>

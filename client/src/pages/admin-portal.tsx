@@ -6509,8 +6509,9 @@ export default function AdminPortal() {
 
   const [activeSection, setActiveSection] = useState<string | null>(() => {
     const t = initialParams.tab;
-    if (!t || t === "support-tickets") return null;
-    return t;
+    if (t && t !== "support-tickets") return t;
+    if (!t && hasPermission("dashboard.view")) return "overview";
+    return null;
   });
 
   const allSections = [

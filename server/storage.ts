@@ -72,6 +72,7 @@ export type DashboardMetrics = {
   };
   notifications: {
     pushSent24h: number;
+    pushFailed24h: number;
     emailSent24h: number;
     pushSubscriptionsTotal: number;
     pushSubscriptionsThisWeek: number;
@@ -80,6 +81,7 @@ export type DashboardMetrics = {
     total: number;
     published: number;
     topViewed: { id: string; title: string; slug: string; viewCount: number }[];
+    topZeroResultSearches: { query: string; count: number }[];
   };
   community: {
     messages24h: number;
@@ -1594,6 +1596,7 @@ export class DatabaseStorage implements IStorage {
       activeAlertRow,
       recentAlertsRows,
       pushSent24hRow,
+      pushFailed24hRow,
       emailSent24hRow,
       pushSubsTotalRow,
       pushSubsThisWeekRow,
@@ -1648,7 +1651,8 @@ export class DatabaseStorage implements IStorage {
       db.select().from(services),
       db.select({ c: sql<number>`count(*)::int` }).from(serviceAlerts).where(isNull(serviceAlerts.resolvedAt)),
       db.select().from(serviceAlerts).orderBy(desc(serviceAlerts.createdAt)).limit(3),
-      db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "push"), gte(adminActivityLogs.createdAt, start24h))),
+      db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "push"), eq(adminActivityLogs.action, "push_sent"), gte(adminActivityLogs.createdAt, start24h))),
+      db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "push"), eq(adminActivityLogs.action, "push_failed"), gte(adminActivityLogs.createdAt, start24h))),
       db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "email"), gte(adminActivityLogs.createdAt, start24h))),
       db.select({ c: sql<number>`count(*)::int` }).from(pushSubscriptions),
       db.select({ c: sql<number>`count(*)::int` }).from(pushSubscriptions).where(gte(pushSubscriptions.createdAt, start7d)),
@@ -1721,6 +1725,7 @@ export class DatabaseStorage implements IStorage {
       },
       notifications: {
         pushSent24h: Number(pushSent24hRow[0]?.c) || 0,
+        pushFailed24h: Number(pushFailed24hRow[0]?.c) || 0,
         emailSent24h: Number(emailSent24hRow[0]?.c) || 0,
         pushSubscriptionsTotal: Number(pushSubsTotalRow[0]?.c) || 0,
         pushSubscriptionsThisWeek: Number(pushSubsThisWeekRow[0]?.c) || 0,
@@ -1729,6 +1734,7 @@ export class DatabaseStorage implements IStorage {
         total: Number(kbTotalRow[0]?.c) || 0,
         published: Number(kbPublishedRow[0]?.c) || 0,
         topViewed: kbTopRows.map(a => ({ id: a.id, title: a.title, slug: a.slug, viewCount: a.viewCount })),
+        topZeroResultSearches: [],
       },
       community: {
         messages24h: Number(community24hRow[0]?.c) || 0,
