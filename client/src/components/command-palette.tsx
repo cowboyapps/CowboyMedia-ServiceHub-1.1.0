@@ -86,6 +86,9 @@ const GROUP_META: Record<ResultGroupKey, GroupMeta> = {
 
 export const QUICK_ACTIONS: QuickAction[] = [
   { id: "qa-new-ticket", label: "New ticket", url: "/tickets?new=1", icon: Plus },
+  { id: "qa-open-tickets", label: "Open tickets", url: "/tickets?status=open", icon: MessageSquare, adminOnly: true },
+  { id: "qa-claimed-tickets", label: "My claimed tickets", url: "/tickets?claimedBy=me", icon: MessageSquare, adminOnly: true },
+  { id: "qa-unclaimed-tickets", label: "Unclaimed tickets", url: "/tickets?claimedBy=unclaimed&status=open", icon: MessageSquare, adminOnly: true },
   { id: "qa-new-kb", label: "New KB article", url: "/admin?tab=knowledge&new=1", icon: FileText, adminOnly: true },
   { id: "qa-admin", label: "Open admin portal", url: "/admin", icon: Shield, adminOnly: true },
 ];

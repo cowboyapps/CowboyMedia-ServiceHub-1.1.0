@@ -1,5 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useLocation, useSearch } from "wouter";
+import {
+  parseTicketFiltersFromSearch,
+  buildTicketFilterSearch,
+  applyTicketFilters,
+  filtersAreActive,
+  DEFAULT_TICKET_FILTERS,
+  type TicketFilters,
+} from "@shared/ticket-filters";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import type { KbArticle } from "@shared/schema";
@@ -33,7 +41,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen } from "lucide-react";
+import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen, Filter, X } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -223,10 +231,32 @@ export default function TicketsPage() {
     return () => document.removeEventListener("visibilitychange", onVisChange);
   }, [markTicketsRead]);
 
-  const openTickets = tickets?.filter((t) => t.status === "open") || [];
-  const closedTickets = tickets?.filter((t) => t.status === "closed") || [];
+  const search = useSearch();
+  const filters = useMemo<TicketFilters>(() => parseTicketFiltersFromSearch(search), [search]);
+
+  const updateFilters = useCallback(
+    (next: TicketFilters) => {
+      const qs = buildTicketFilterSearch(next);
+      setLocation(`/tickets${qs}`, { replace: true });
+    },
+    [setLocation],
+  );
+
+  const filteredTickets = useMemo(
+    () => applyTicketFilters(tickets ?? [], { ...filters, status: "all" }, user?.id ?? null),
+    [tickets, filters, user?.id],
+  );
+  const openTickets = filteredTickets.filter((t) => t.status === "open");
+  const closedTickets = filteredTickets.filter((t) => t.status === "closed");
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
   const categoryMap = new Map(categories?.map((c) => [c.id, c.name]) || []);
+  const hasActiveFilters = filtersAreActive(filters);
+
+  const activeTab = filters.status === "all" ? "open" : filters.status;
+  const handleTabChange = (value: string) => {
+    if (value !== "open" && value !== "closed") return;
+    updateFilters({ ...filters, status: value });
+  };
 
   return (
     <div className="space-y-6">
@@ -483,7 +513,77 @@ export default function TicketsPage() {
         )}
       </div>
 
-      <Tabs defaultValue="open">
+      {isAdmin && (
+        <div className="flex flex-wrap items-end gap-2 rounded-md border bg-muted/30 p-3" data-testid="ticket-filters">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mr-1">
+            <Filter className="w-3.5 h-3.5" />
+            Filters
+          </div>
+          <div className="flex flex-col gap-1 min-w-[160px]">
+            <label className="text-[11px] uppercase tracking-wide text-muted-foreground">Category</label>
+            <Select
+              value={filters.categoryId ?? "any"}
+              onValueChange={(v) => updateFilters({ ...filters, categoryId: v === "any" ? null : v })}
+            >
+              <SelectTrigger className="h-8 text-sm" data-testid="select-filter-category">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">All categories</SelectItem>
+                {categories?.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1 min-w-[140px]">
+            <label className="text-[11px] uppercase tracking-wide text-muted-foreground">Claim</label>
+            <Select
+              value={filters.claimedBy === "me" || filters.claimedBy === "unclaimed" ? filters.claimedBy : "any"}
+              onValueChange={(v) => updateFilters({ ...filters, claimedBy: v as TicketFilters["claimedBy"] })}
+            >
+              <SelectTrigger className="h-8 text-sm" data-testid="select-filter-claimed">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Anyone</SelectItem>
+                <SelectItem value="me">Claimed by me</SelectItem>
+                <SelectItem value="unclaimed">Unclaimed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1 min-w-[120px]">
+            <label className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</label>
+            <Select
+              value={filters.priority}
+              onValueChange={(v) => updateFilters({ ...filters, priority: v as TicketFilters["priority"] })}
+            >
+              <SelectTrigger className="h-8 text-sm" data-testid="select-filter-priority">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any priority</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              onClick={() => updateFilters(DEFAULT_TICKET_FILTERS)}
+              data-testid="button-clear-filters"
+            >
+              <X className="w-3.5 h-3.5 mr-1" /> Clear filters
+            </Button>
+          )}
+        </div>
+      )}
+
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <TabsList>
             <TabsTrigger value="open" data-testid="tab-open-tickets">Open ({openTickets.length})</TabsTrigger>
