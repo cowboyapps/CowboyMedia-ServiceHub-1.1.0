@@ -876,6 +876,29 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/2fa/backup-codes/regenerate", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user || !isAdminRole(user.role)) return res.status(403).json({ message: "Forbidden" });
+      if (!user.totpEnabledAt || !user.totpSecret) return res.status(400).json({ message: "2FA is not enabled" });
+      const password = String(req.body?.password ?? "");
+      const code = String(req.body?.code ?? "").replace(/\s/g, "");
+      if (!password || !(await verifyPassword(password, user.password))) {
+        return res.status(401).json({ message: "Password is incorrect" });
+      }
+      if (!verifyTotpCode(user.totpSecret, code)) {
+        return res.status(401).json({ message: "Invalid 6-digit code" });
+      }
+      const backupCodes = generateBackupCodes(10);
+      const hashes = backupCodes.map(hashBackupCode);
+      await storage.replaceTotpBackupCodes(user.id, hashes);
+      logActivity("user", "two_factor_backup_codes_regenerated", { actorId: user.id, targetId: user.id, targetType: "user", summary: `${user.fullName} (${user.username}) regenerated 2FA backup codes` });
+      res.json({ backupCodes });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/auth/2fa/status", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);

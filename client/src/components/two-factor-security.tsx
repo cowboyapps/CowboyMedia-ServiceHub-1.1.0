@@ -22,7 +22,7 @@ interface SetupResponse {
   qrDataUrl: string;
 }
 
-type Stage = "idle" | "setup" | "activated" | "disable";
+type Stage = "idle" | "setup" | "activated" | "disable" | "regenerate";
 
 export function TwoFactorSecurityCard() {
   const { toast } = useToast();
@@ -33,6 +33,8 @@ export function TwoFactorSecurityCard() {
   const [acknowledgedBackup, setAcknowledgedBackup] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
   const [disableCode, setDisableCode] = useState("");
+  const [regeneratePassword, setRegeneratePassword] = useState("");
+  const [regenerateCode, setRegenerateCode] = useState("");
   const [copiedCodes, setCopiedCodes] = useState(false);
 
   const { data: status, isLoading } = useQuery<StatusResponse>({
@@ -84,6 +86,22 @@ export function TwoFactorSecurityCard() {
     onError: (e: Error) => toast({ title: "Could not disable 2FA", description: e.message, variant: "destructive" }),
   });
 
+  const regenerate = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auth/2fa/backup-codes/regenerate", { password: regeneratePassword, code: regenerateCode });
+      return (await res.json()) as { backupCodes: string[] };
+    },
+    onSuccess: (data) => {
+      setBackupCodes(data.backupCodes);
+      setStage("activated");
+      setAcknowledgedBackup(false);
+      setRegeneratePassword("");
+      setRegenerateCode("");
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/2fa/status"] });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't regenerate codes", description: e.message, variant: "destructive" }),
+  });
+
   const closeAndReset = () => {
     setStage("idle");
     setSetupData(null);
@@ -92,6 +110,8 @@ export function TwoFactorSecurityCard() {
     setAcknowledgedBackup(false);
     setDisablePassword("");
     setDisableCode("");
+    setRegeneratePassword("");
+    setRegenerateCode("");
   };
 
   const downloadCodes = () => {
@@ -138,14 +158,24 @@ export function TwoFactorSecurityCard() {
                     {status.remainingBackupCodes} backup code{status.remainingBackupCodes === 1 ? "" : "s"} remaining
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setStage("disable")}
-                  data-testid="button-disable-2fa"
-                >
-                  Disable
-                </Button>
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStage("regenerate")}
+                    data-testid="button-regenerate-backup-codes"
+                  >
+                    Regenerate codes
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStage("disable")}
+                    data-testid="button-disable-2fa"
+                  >
+                    Disable
+                  </Button>
+                </div>
               </div>
             </>
           ) : (
@@ -241,6 +271,43 @@ export function TwoFactorSecurityCard() {
           <DialogFooter>
             <Button onClick={closeAndReset} disabled={!acknowledgedBackup} data-testid="button-finish-2fa-setup">
               Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={stage === "regenerate"} onOpenChange={(o) => { if (!o) closeAndReset(); }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-2fa-regenerate">
+          <DialogHeader>
+            <DialogTitle>Regenerate backup codes</DialogTitle>
+            <DialogDescription>
+              Confirm your password and a current 6-digit code to replace your existing backup codes. Your old codes will stop working immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              type="password"
+              placeholder="Current password"
+              value={regeneratePassword}
+              onChange={(e) => setRegeneratePassword(e.target.value)}
+              data-testid="input-regenerate-password"
+            />
+            <Input
+              placeholder="6-digit code"
+              inputMode="numeric"
+              value={regenerateCode}
+              onChange={(e) => setRegenerateCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              data-testid="input-regenerate-code"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeAndReset}>Cancel</Button>
+            <Button
+              onClick={() => regenerate.mutate()}
+              disabled={!regeneratePassword || regenerateCode.length !== 6 || regenerate.isPending}
+              data-testid="button-confirm-regenerate-backup-codes"
+            >
+              {regenerate.isPending ? "Regenerating…" : "Regenerate codes"}
             </Button>
           </DialogFooter>
         </DialogContent>
