@@ -492,6 +492,13 @@ export default function TicketDetail() {
     [customerInfo?.customer.fullName, ticket?.subject, user?.fullName],
   );
 
+  const draftUnfilledPlaceholders = useMemo(() => {
+    if (!isAdmin || isInternalNote) return [];
+    const trimmed = message.trim();
+    if (!trimmed) return [];
+    return Array.from(new Set(findUnfilledPlaceholders(trimmed, placeholderContext)));
+  }, [isAdmin, isInternalNote, message, placeholderContext]);
+
   const performSend = useCallback(
     (msgText: string, imgFile: File | null, internal: boolean) => {
       setMessage("");
@@ -1405,6 +1412,25 @@ export default function TicketDetail() {
                   <Button size="icon" variant="ghost" onClick={() => setImageFile(null)} data-testid="button-remove-image">
                     <X className="w-3 h-3" />
                   </Button>
+                </div>
+              )}
+              {draftUnfilledPlaceholders.length > 0 && (
+                <div
+                  className="flex items-start gap-1.5 mb-2 text-[11px] text-amber-700 dark:text-amber-400"
+                  data-testid="hint-unfilled-placeholders"
+                >
+                  <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                  <span>
+                    This draft still has unfilled placeholders:{" "}
+                    {draftUnfilledPlaceholders.map((token, i) => (
+                      <span key={`${token}-${i}`}>
+                        {i > 0 && ", "}
+                        <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 font-mono">
+                          {token}
+                        </code>
+                      </span>
+                    ))}
+                  </span>
                 </div>
               )}
               <div className="flex items-end gap-1.5 sm:gap-2">
