@@ -46,6 +46,16 @@ import { buildPushPayload } from "./push-payload";
 import type { User } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { getOpenAIClient } from "./openai-client";
+import {
+  createLoginLimiter,
+  createRegisterLimiter,
+  createPasswordResetLimiter,
+  createTicketLimiter,
+  createCommunityChatPostLimiter,
+  createCommunityChatReactionLimiter,
+  createReportLimiter,
+  bypassRateLimitForAdmins,
+} from "./rate-limits";
 
 function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
   if (!user) return false;
@@ -581,7 +591,11 @@ export async function registerRoutes(
   });
 
   // Auth routes
-  app.post("/api/auth/register", async (req, res) => {
+  // Single shared password-reset limiter so forgot + reset share one
+  // 3/hour/IP budget instead of getting two separate buckets.
+  const passwordResetLimiter = createPasswordResetLimiter();
+
+  app.post("/api/auth/register", createRegisterLimiter(), async (req, res) => {
     try {
       const username = req.body.username?.trim();
       const fullName = req.body.fullName?.trim();
@@ -622,7 +636,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", createLoginLimiter(), async (req, res) => {
     try {
       const username = req.body.username?.trim();
       const { password } = req.body;
@@ -837,7 +851,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", passwordResetLimiter, async (req, res) => {
     try {
       const { usernameOrEmail } = req.body;
       if (!usernameOrEmail || typeof usernameOrEmail !== "string") {
@@ -897,7 +911,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
+  app.post("/api/auth/reset-password", passwordResetLimiter, async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password) {
@@ -1131,7 +1145,7 @@ export async function registerRoutes(
     res.json({ ...ticket, claimedByName });
   });
 
-  app.post("/api/tickets", requireAuth, upload.single("image"), async (req, res) => {
+  app.post("/api/tickets", requireAuth, bypassRateLimitForAdmins, createTicketLimiter(), upload.single("image"), async (req, res) => {
     try {
       const { subject, description, serviceId, priority, categoryId } = req.body;
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
@@ -3056,7 +3070,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/report-requests", requireAuth, upload.single("image"), async (req, res) => {
+  app.post("/api/report-requests", requireAuth, bypassRateLimitForAdmins, createReportLimiter(), upload.single("image"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -4266,7 +4280,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/community-chat/messages", requireAuth, async (req, res) => {
+  app.post("/api/community-chat/messages", requireAuth, bypassRateLimitForAdmins, createCommunityChatPostLimiter(), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ error: "User not found" });
@@ -4385,7 +4399,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/community-chat/messages/:id/reactions", requireAuth, async (req, res) => {
+  app.post("/api/community-chat/messages/:id/reactions", requireAuth, bypassRateLimitForAdmins, createCommunityChatReactionLimiter(), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ error: "User not found" });

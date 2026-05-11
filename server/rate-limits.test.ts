@@ -1,0 +1,335 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import express, { type Request, type Response, type NextFunction } from "express";
+import type { AddressInfo } from "node:net";
+import {
+  createLoginLimiter,
+  createRegisterLimiter,
+  createPasswordResetLimiter,
+  createTicketLimiter,
+  createCommunityChatPostLimiter,
+  createCommunityChatReactionLimiter,
+  createReportLimiter,
+} from "./rate-limits";
+
+type Role = "customer" | "admin" | "master_admin";
+
+interface FakeSession {
+  userId?: string;
+}
+
+function withSession(role: Role | null, userId?: string) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const session: FakeSession = userId ? { userId } : {};
+    (req as any).session = session;
+    if (role === "admin" || role === "master_admin") {
+      (req as any).skipRateLimit = true;
+    }
+    next();
+  };
+}
+
+async function startApp(configure: (app: express.Express) => void): Promise<{
+  url: string;
+  close: () => Promise<void>;
+}> {
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  configure(app);
+  const server = app.listen(0);
+  await new Promise<void>((r) => server.once("listening", () => r()));
+  const port = (server.address() as AddressInfo).port;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
+}
+
+async function postJson(url: string, body: unknown = {}, headers: Record<string, string> = {}) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+// ---------- Login limiter ----------
+
+test("login limiter: allows 5 failures, blocks the 6th", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post("/login", createLoginLimiter(), (_req, res) => {
+      res.status(401).json({ ok: false });
+    });
+  });
+  try {
+    const body = { username: "alice", password: "nope" };
+    for (let i = 0; i < 5; i++) {
+      const r = await postJson(`${url}/login`, body);
+      assert.equal(r.status, 401, `attempt ${i + 1} should still be allowed`);
+    }
+    const blocked = await postJson(`${url}/login`, body);
+    assert.equal(blocked.status, 429);
+    const json = await blocked.json();
+    assert.equal(json.error, "Too many requests. Please slow down and try again shortly.");
+    assert.ok(typeof json.retryAfterSeconds === "number" && json.retryAfterSeconds > 0);
+    assert.ok(blocked.headers.get("retry-after"));
+  } finally {
+    await close();
+  }
+});
+
+test("login limiter: successful logins do not consume the budget", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post("/login", createLoginLimiter(), (_req, res) => {
+      res.json({ ok: true });
+    });
+  });
+  try {
+    const body = { username: "bob", password: "right" };
+    for (let i = 0; i < 12; i++) {
+      const r = await postJson(`${url}/login`, body);
+      assert.equal(r.status, 200, `successful attempt ${i + 1} should never be limited`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("login limiter: separate username buckets do not interfere", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post("/login", createLoginLimiter(), (_req, res) => {
+      res.status(401).json({ ok: false });
+    });
+  });
+  try {
+    for (let i = 0; i < 5; i++) {
+      const r = await postJson(`${url}/login`, { username: "u1", password: "x" });
+      assert.equal(r.status, 401);
+    }
+    const blocked = await postJson(`${url}/login`, { username: "u1", password: "x" });
+    assert.equal(blocked.status, 429);
+    const otherUser = await postJson(`${url}/login`, { username: "u2", password: "x" });
+    assert.equal(otherUser.status, 401);
+  } finally {
+    await close();
+  }
+});
+
+// ---------- Register limiter ----------
+
+test("register limiter: 10/hour/IP, 11th is blocked", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post("/register", createRegisterLimiter(), (_req, res) => {
+      res.json({ ok: true });
+    });
+  });
+  try {
+    for (let i = 0; i < 10; i++) {
+      const r = await postJson(`${url}/register`, { username: `u${i}` });
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/register`, { username: "x" });
+    assert.equal(blocked.status, 429);
+  } finally {
+    await close();
+  }
+});
+
+// ---------- Password reset limiter ----------
+
+test("password reset limiter: 3/hour/IP, 4th is blocked", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post("/forgot", createPasswordResetLimiter(), (_req, res) => {
+      res.json({ ok: true });
+    });
+  });
+  try {
+    for (let i = 0; i < 3; i++) {
+      const r = await postJson(`${url}/forgot`, { usernameOrEmail: "x" });
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/forgot`, { usernameOrEmail: "x" });
+    assert.equal(blocked.status, 429);
+    const json = await blocked.json();
+    assert.ok(json.retryAfterSeconds > 0);
+  } finally {
+    await close();
+  }
+});
+
+test("password reset limiter: forgot + reset share one budget per IP", async () => {
+  const { url, close } = await startApp((app) => {
+    // Same shared instance mounted on both endpoints, mirroring routes.ts.
+    const shared = createPasswordResetLimiter();
+    app.post("/forgot", shared, (_req, res) => res.json({ ok: true }));
+    app.post("/reset", shared, (_req, res) => res.json({ ok: true }));
+  });
+  try {
+    // 3 hits to forgot exhaust the IP's budget.
+    for (let i = 0; i < 3; i++) {
+      const r = await postJson(`${url}/forgot`, { usernameOrEmail: "x" });
+      assert.equal(r.status, 200);
+    }
+    // The very next reset hit from the same IP should already be 429.
+    const blockedReset = await postJson(`${url}/reset`, { token: "t", password: "p" });
+    assert.equal(blockedReset.status, 429, "reset must inherit forgot's spent budget");
+    // Forgot is also still blocked, confirming a single bucket.
+    const blockedForgot = await postJson(`${url}/forgot`, { usernameOrEmail: "x" });
+    assert.equal(blockedForgot.status, 429);
+  } finally {
+    await close();
+  }
+});
+
+test("password reset limiter: reset hits also count against forgot's budget", async () => {
+  const { url, close } = await startApp((app) => {
+    const shared = createPasswordResetLimiter();
+    app.post("/forgot", shared, (_req, res) => res.json({ ok: true }));
+    app.post("/reset", shared, (_req, res) => res.json({ ok: true }));
+  });
+  try {
+    for (let i = 0; i < 3; i++) {
+      const r = await postJson(`${url}/reset`, { token: "t", password: "p" });
+      assert.equal(r.status, 200);
+    }
+    const blockedForgot = await postJson(`${url}/forgot`, { usernameOrEmail: "x" });
+    assert.equal(blockedForgot.status, 429, "forgot must inherit reset's spent budget");
+  } finally {
+    await close();
+  }
+});
+
+// ---------- Ticket limiter ----------
+
+test("ticket limiter: 10/hour/user, 11th is blocked, admin bypasses", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post(
+      "/tickets",
+      withSession("customer", "user-A"),
+      createTicketLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/tickets-admin",
+      withSession("admin", "admin-A"),
+      createTicketLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 10; i++) {
+      const r = await postJson(`${url}/tickets`);
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/tickets`);
+    assert.equal(blocked.status, 429);
+
+    for (let i = 0; i < 25; i++) {
+      const r = await postJson(`${url}/tickets-admin`);
+      assert.equal(r.status, 200, `admin attempt ${i + 1} should never be limited`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+// ---------- Community chat limiter ----------
+
+test("community chat post limiter: 10/min/user, 11th is blocked, admin bypasses", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post(
+      "/chat",
+      withSession("customer", "user-B"),
+      createCommunityChatPostLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/chat-admin",
+      withSession("admin", "admin-C"),
+      createCommunityChatPostLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 10; i++) {
+      const r = await postJson(`${url}/chat`);
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/chat`);
+    assert.equal(blocked.status, 429);
+
+    for (let i = 0; i < 25; i++) {
+      const r = await postJson(`${url}/chat-admin`);
+      assert.equal(r.status, 200, `admin chat attempt ${i + 1} should never be limited`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("community chat reaction limiter: 60/min/user, 61st is blocked, admin bypasses", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post(
+      "/react",
+      withSession("customer", "user-C"),
+      createCommunityChatReactionLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/react-admin",
+      withSession("master_admin", "admin-B"),
+      createCommunityChatReactionLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 60; i++) {
+      const r = await postJson(`${url}/react`);
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/react`);
+    assert.equal(blocked.status, 429);
+
+    for (let i = 0; i < 80; i++) {
+      const r = await postJson(`${url}/react-admin`);
+      assert.equal(r.status, 200);
+    }
+  } finally {
+    await close();
+  }
+});
+
+// ---------- Report limiter ----------
+
+test("report limiter: 10/min/user, 11th is blocked, admin bypasses", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post(
+      "/reports",
+      withSession("customer", "user-D"),
+      createReportLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/reports-admin",
+      withSession("master_admin", "admin-D"),
+      createReportLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 10; i++) {
+      const r = await postJson(`${url}/reports`);
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/reports`);
+    assert.equal(blocked.status, 429);
+
+    for (let i = 0; i < 25; i++) {
+      const r = await postJson(`${url}/reports-admin`);
+      assert.equal(r.status, 200, `admin report attempt ${i + 1} should never be limited`);
+    }
+  } finally {
+    await close();
+  }
+});
