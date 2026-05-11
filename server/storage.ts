@@ -1622,7 +1622,7 @@ export class DatabaseStorage implements IStorage {
       db.select({ c: sql<number>`count(*)::int` }).from(tickets).where(and(eq(tickets.status, "closed"), isNotNull(tickets.closedAt), gte(tickets.closedAt, startOfToday))),
       db.execute<{ day: string; opened: number; resolved: number }>(sql`
         WITH days AS (
-          SELECT generate_series(${start14d}::date, ${now}::date, '1 day'::interval)::date AS day
+          SELECT generate_series((${now}::date - INTERVAL '13 days')::date, ${now}::date, '1 day'::interval)::date AS day
         )
         SELECT
           to_char(d.day, 'YYYY-MM-DD') AS day,
