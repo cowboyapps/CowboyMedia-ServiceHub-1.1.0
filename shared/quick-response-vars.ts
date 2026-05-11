@@ -55,3 +55,56 @@ export function applyQuickResponseVariables(
     return value;
   });
 }
+
+export type QuickResponsePreviewSegment =
+  | { kind: "text"; value: string }
+  | { kind: "filled"; variable: string; value: string }
+  | { kind: "missing"; variable: string; raw: string }
+  | { kind: "unknown"; raw: string };
+
+/**
+ * Break a quick-response template into segments showing which placeholders
+ * resolve against the given context and which are missing. Used to render a
+ * live preview where unfilled `{{variable}}` slots are visually highlighted.
+ */
+export function tokenizeQuickResponseTemplate(
+  template: string,
+  ctx: QuickResponseVarContext,
+): QuickResponsePreviewSegment[] {
+  const segments: QuickResponsePreviewSegment[] = [];
+  if (!template) return segments;
+  let lastIndex = 0;
+  PLACEHOLDER_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = PLACEHOLDER_RE.exec(template)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ kind: "text", value: template.slice(lastIndex, match.index) });
+    }
+    const raw = match[0];
+    const key = match[1];
+    if (!(QUICK_RESPONSE_VARIABLES as readonly string[]).includes(key)) {
+      segments.push({ kind: "unknown", raw });
+    } else {
+      const ctxVal = (ctx as Record<string, unknown>)[key];
+      const value =
+        ctxVal === undefined || ctxVal === null ? "" : String(ctxVal).trim();
+      if (value.length === 0) {
+        segments.push({ kind: "missing", variable: key, raw });
+      } else {
+        segments.push({ kind: "filled", variable: key, value });
+      }
+    }
+    lastIndex = match.index + raw.length;
+  }
+  if (lastIndex < template.length) {
+    segments.push({ kind: "text", value: template.slice(lastIndex) });
+  }
+  return segments;
+}
+
+export function quickResponseHasMissingVariables(
+  template: string,
+  ctx: QuickResponseVarContext,
+): boolean {
+  return tokenizeQuickResponseTemplate(template, ctx).some((s) => s.kind === "missing");
+}

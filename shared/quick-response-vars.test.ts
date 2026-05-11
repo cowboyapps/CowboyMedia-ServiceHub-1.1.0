@@ -4,7 +4,9 @@ import {
   applyQuickResponseVariables,
   nextRecentList,
   QUICK_RESPONSE_VARIABLES,
+  quickResponseHasMissingVariables,
   recordQuickResponseInsertion,
+  tokenizeQuickResponseTemplate,
 } from "./quick-response-vars";
 
 test("substitutes known variables", () => {
@@ -111,6 +113,82 @@ test("recordQuickResponseInsertion: bumps usage, updates recent, closes picker o
   assert.equal(bumped, "qr-1");
   assert.deepEqual(savedRecent, ["qr-1", "b", "c"]);
   assert.equal(closed, true);
+});
+
+test("tokenize: splits template into text/filled/missing/unknown segments", () => {
+  const segs = tokenizeQuickResponseTemplate(
+    "Hi {{customer_name}}, re {{ticket_subject}} - {{admin_name}} {{evil}}",
+    { customer_name: "Alice", admin_name: "" },
+  );
+  assert.deepEqual(segs, [
+    { kind: "text", value: "Hi " },
+    { kind: "filled", variable: "customer_name", value: "Alice" },
+    { kind: "text", value: ", re " },
+    { kind: "missing", variable: "ticket_subject", raw: "{{ticket_subject}}" },
+    { kind: "text", value: " - " },
+    { kind: "missing", variable: "admin_name", raw: "{{admin_name}}" },
+    { kind: "text", value: " " },
+    { kind: "unknown", raw: "{{evil}}" },
+  ]);
+});
+
+test("tokenize: empty template yields no segments", () => {
+  assert.deepEqual(tokenizeQuickResponseTemplate("", {}), []);
+});
+
+test("tokenize: pure text template yields a single text segment", () => {
+  assert.deepEqual(tokenizeQuickResponseTemplate("hello world", {}), [
+    { kind: "text", value: "hello world" },
+  ]);
+});
+
+test("tokenize: blank/whitespace-only context value is treated as missing", () => {
+  const segs = tokenizeQuickResponseTemplate("Hi {{customer_name}}", {
+    customer_name: "   ",
+  });
+  assert.deepEqual(segs, [
+    { kind: "text", value: "Hi " },
+    { kind: "missing", variable: "customer_name", raw: "{{customer_name}}" },
+  ]);
+});
+
+test("tokenize: handles whitespace inside placeholder braces", () => {
+  const segs = tokenizeQuickResponseTemplate("Hi {{  customer_name  }}!", {
+    customer_name: "Pat",
+  });
+  assert.deepEqual(segs, [
+    { kind: "text", value: "Hi " },
+    { kind: "filled", variable: "customer_name", value: "Pat" },
+    { kind: "text", value: "!" },
+  ]);
+});
+
+test("tokenize: is safe to call repeatedly (PLACEHOLDER_RE state reset)", () => {
+  const tpl = "Hi {{customer_name}}";
+  const ctx = { customer_name: "Sam" };
+  const a = tokenizeQuickResponseTemplate(tpl, ctx);
+  const b = tokenizeQuickResponseTemplate(tpl, ctx);
+  assert.deepEqual(a, b);
+});
+
+test("quickResponseHasMissingVariables: true when context is missing a placeholder", () => {
+  assert.equal(
+    quickResponseHasMissingVariables("Hi {{customer_name}} - {{admin_name}}", {
+      customer_name: "X",
+    }),
+    true,
+  );
+});
+
+test("quickResponseHasMissingVariables: false when all placeholders are filled", () => {
+  assert.equal(
+    quickResponseHasMissingVariables("Hi {{customer_name}}", { customer_name: "X" }),
+    false,
+  );
+});
+
+test("quickResponseHasMissingVariables: false for templates with no placeholders", () => {
+  assert.equal(quickResponseHasMissingVariables("static text", {}), false);
 });
 
 test("variable list contains the documented placeholders", () => {
