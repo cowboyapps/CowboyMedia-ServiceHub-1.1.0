@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Sparkles, Loader2, Lock, Pencil, Trash2, Check } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
@@ -34,6 +34,7 @@ type OptimisticMessage = {
   senderRole: string;
   status: "sending" | "failed";
   imageFile?: File;
+  isInternal?: boolean;
 };
 
 function BouncingDots() {
@@ -117,6 +118,15 @@ export default function TicketDetail() {
   const isMobile = useIsMobile();
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isInternalNote, setIsInternalNote] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const t = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [isAdmin]);
   const [customerInfoOpen, setCustomerInfoOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -409,7 +419,7 @@ export default function TicketDetail() {
     }
   };
 
-  const doSendMessage = useCallback((msgText: string, imgFile: File | null, optimisticId?: string) => {
+  const doSendMessage = useCallback((msgText: string, imgFile: File | null, optimisticId?: string, internal: boolean = false) => {
     const tempId = optimisticId || `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimistic: OptimisticMessage = {
       id: tempId,
@@ -422,6 +432,7 @@ export default function TicketDetail() {
       senderRole: isAdmin ? "admin" : "user",
       status: "sending",
       imageFile: imgFile || undefined,
+      isInternal: internal,
     };
 
     if (!optimisticId) {
@@ -437,6 +448,7 @@ export default function TicketDetail() {
     const formData = new FormData();
     formData.append("message", msgText);
     if (imgFile) formData.append("image", imgFile);
+    if (internal) formData.append("isInternal", "true");
 
     fetch(`/api/tickets/${params.id}/messages`, {
       method: "POST",
@@ -460,9 +472,11 @@ export default function TicketDetail() {
     const msgText = message.trim();
     const imgFile = imageFile;
     if (!msgText && !imgFile) return;
+    const internal = isAdmin && isInternalNote;
     setMessage("");
     setImageFile(null);
-    doSendMessage(msgText, imgFile);
+    setIsInternalNote(false);
+    doSendMessage(msgText, imgFile, undefined, internal);
     setTimeout(() => {
       const el = messageInputRef.current;
       if (el) {
@@ -470,11 +484,37 @@ export default function TicketDetail() {
         el.focus();
       }
     }, 0);
-  }, [message, imageFile, doSendMessage]);
+  }, [message, imageFile, isInternalNote, isAdmin, doSendMessage]);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
-    doSendMessage(msg.message, msg.imageFile || null, msg.id);
+    doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal);
   }, [doSendMessage]);
+
+  const editNoteMutation = useMutation({
+    mutationFn: async ({ id, text }: { id: string; text: string }) => {
+      await apiRequest("PATCH", `/api/tickets/${params.id}/messages/${id}`, { message: text });
+    },
+    onSuccess: () => {
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to edit note", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/tickets/${params.id}/messages/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to delete note", description: e.message, variant: "destructive" });
+    },
+  });
 
   const allMessages = useMemo(() => {
     const real = (messages || []) as (EnrichedTicketMessage & { _optimistic?: false })[];
@@ -995,6 +1035,11 @@ export default function TicketDetail() {
                   const showDateSep = !prevDate ||
                     msgDate.toDateString() !== prevDate.toDateString();
 
+                  const isInternal = !!msg.isInternal || !!optimisticData?.isInternal;
+                  const noteAgeMs = Date.now() - msgDate.getTime();
+                  const canEditNote = isAdmin && isInternal && isMe && !isOptimistic && noteAgeMs < 5 * 60 * 1000;
+                  const isEditingThis = editingNoteId === msg.id;
+
                   return (
                     <div key={msg.id}>
                       {showDateSep && (
@@ -1004,6 +1049,129 @@ export default function TicketDetail() {
                           <div className="flex-1 h-px bg-border" />
                         </div>
                       )}
+                      {isInternal ? (
+                        <div className="flex gap-2" data-testid={`message-${msg.id}`} data-internal="true">
+                          <Avatar className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 mt-0.5">
+                            <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
+                              {msg.senderName?.[0] || "A"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="max-w-[90%] min-w-0 space-y-0.5 flex-1">
+                            <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                              <Lock className="w-3 h-3" />
+                              <p className="text-xs font-medium" data-testid={`text-chat-sender-${msg.id}`}>{displayName}</p>
+                              <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
+                            </div>
+                            <div
+                              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500 ${
+                                isFailed
+                                  ? "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
+                                  : isSending
+                                    ? "bg-amber-100/60 dark:bg-amber-900/30 opacity-70"
+                                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100"
+                              }`}
+                              style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                              data-testid={`internal-note-${msg.id}`}
+                            >
+                              {isEditingThis ? (
+                                <div className="space-y-2">
+                                  <Textarea
+                                    value={editingNoteText}
+                                    onChange={(e) => setEditingNoteText(e.target.value)}
+                                    className="min-h-[60px] text-sm bg-background"
+                                    data-testid={`input-edit-note-${msg.id}`}
+                                  />
+                                  <div className="flex gap-1.5 justify-end">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => { setEditingNoteId(null); setEditingNoteText(""); }}
+                                      data-testid={`button-cancel-edit-${msg.id}`}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => {
+                                        const trimmed = editingNoteText.trim();
+                                        if (!trimmed) return;
+                                        editNoteMutation.mutate({ id: msg.id, text: trimmed });
+                                      }}
+                                      disabled={editNoteMutation.isPending || !editingNoteText.trim()}
+                                      data-testid={`button-save-edit-${msg.id}`}
+                                    >
+                                      <Check className="w-3 h-3 mr-1" /> Save
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  {msg.message}
+                                  {msg.imageUrl && <FileAttachment url={msg.imageUrl} />}
+                                  {isOptimistic && optimisticData?.imageFile && (
+                                    <div className="mt-1 flex items-center gap-1.5 text-xs opacity-70">
+                                      <Paperclip className="w-3 h-3" />
+                                      <span className="truncate">{optimisticData.imageFile.name}</span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {isSending && (
+                                <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
+                              )}
+                              {isFailed && (
+                                <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
+                                  <AlertCircle className="w-3 h-3 text-red-500" />
+                                  <span className="text-[10px] text-red-500">Failed to send</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
+                                    onClick={() => retryMessage(optimisticData!)}
+                                    data-testid={`button-retry-${msg.id}`}
+                                  >
+                                    <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                                  </Button>
+                                </div>
+                              )}
+                              {!isOptimistic && (
+                                <p className="text-[10px] sm:text-xs text-muted-foreground">
+                                  {format(msgDate, "h:mm a")}
+                                </p>
+                              )}
+                              {canEditNote && !isEditingThis && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 px-1.5 text-[10px]"
+                                    onClick={() => { setEditingNoteId(msg.id); setEditingNoteText(msg.message); }}
+                                    data-testid={`button-edit-note-${msg.id}`}
+                                  >
+                                    <Pencil className="w-3 h-3 mr-0.5" /> Edit
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
+                                    onClick={() => {
+                                      if (window.confirm("Delete this internal note?")) deleteNoteMutation.mutate(msg.id);
+                                    }}
+                                    disabled={deleteNoteMutation.isPending}
+                                    data-testid={`button-delete-note-${msg.id}`}
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-0.5" /> Delete
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
                       <div className={`flex gap-2 ${isMe ? "flex-row-reverse" : ""}`} data-testid={`message-${msg.id}`}>
                         <Avatar className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 mt-0.5">
                           <AvatarFallback className="text-xs">
@@ -1068,6 +1236,7 @@ export default function TicketDetail() {
                           </div>
                         </div>
                       </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1117,8 +1286,26 @@ export default function TicketDetail() {
           )}
 
           {ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id) && (
-            <div className="p-2 sm:p-3 border-t">
-              {isAdmin && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
+            <div className={`p-2 sm:p-3 border-t ${isAdmin && isInternalNote ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+              {isAdmin && (
+                <div className="flex items-center gap-2 mb-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isInternalNote ? "default" : "outline"}
+                    className={`h-7 px-2 text-xs gap-1 ${isInternalNote ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}`}
+                    onClick={() => setIsInternalNote((v) => !v)}
+                    data-testid="button-toggle-internal-note"
+                  >
+                    <Lock className="w-3 h-3" />
+                    {isInternalNote ? "Internal note (admins only)" : "Add internal note"}
+                  </Button>
+                  {isInternalNote && (
+                    <span className="text-[10px] text-amber-700 dark:text-amber-400">Customer will not see this message.</span>
+                  )}
+                </div>
+              )}
+              {isAdmin && !isInternalNote && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
                 <div className="flex flex-wrap items-center gap-1.5 mb-2" data-testid="row-suggestions">
                   {suggestions && suggestions.length > 0 && (
                     <span className="text-xs text-muted-foreground mr-1">Suggested:</span>
@@ -1231,7 +1418,7 @@ export default function TicketDetail() {
                       handleSend();
                     }
                   }}
-                  placeholder="Type a message..."
+                  placeholder={isAdmin && isInternalNote ? "Type an internal note (admins only)..." : "Type a message..."}
                   className="flex-1 min-h-[36px] max-h-[120px] resize-none text-sm py-2 leading-5"
                   rows={1}
                   data-testid="input-message"

@@ -26,4 +26,6 @@ echo "Running migration: 016_remove_ticket_sla.sql"
 psql "$DATABASE_URL" -f migrations/016_remove_ticket_sla.sql
 echo "Running migration: 017_hot_path_indexes.sql"
 psql "$DATABASE_URL" -f migrations/017_hot_path_indexes.sql
+echo "Running migration: 018_ticket_internal_notes.sql"
+psql "$DATABASE_URL" -f migrations/018_ticket_internal_notes.sql
 echo "Migration complete."

@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server, ServerResponse } from "http";
 import { storage } from "./storage";
+import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
 import session from "express-session";
@@ -364,6 +365,19 @@ function broadcastExcept(data: any, excludeWs: WebSocket) {
   const message = JSON.stringify(data);
   wsClients.forEach((client) => {
     if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+const wsSessionRoleMap = new Map<WebSocket, string>();
+
+function broadcastToAdmins(data: any) {
+  const message = JSON.stringify(data);
+  wsClients.forEach((client) => {
+    if (client.readyState !== WebSocket.OPEN) return;
+    const role = wsSessionRoleMap.get(client);
+    if (role === "admin" || role === "master_admin") {
       client.send(message);
     }
   });
@@ -1386,7 +1400,8 @@ export async function registerRoutes(
         let conversationHtml = "";
         let resolutionHtml = "";
         try {
-          const allMessages = await storage.getTicketMessages(ticket.id);
+          // Close-transcript is emailed to the customer, so internal notes must be excluded.
+          const allMessages = await storage.getTicketMessages(ticket.id, false);
           const senderIds = [...new Set(allMessages.map(m => m.senderId))];
           const senderMap = new Map<string, string>();
           await Promise.all(senderIds.map(async (id) => {
@@ -1752,13 +1767,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(403).json({ message: "This ticket is claimed by another admin" });
       }
     }
-    const messages = await storage.getTicketMessages(req.params.id);
     const isCustomer = user.role === "customer";
+    const includeInternal = !isCustomer;
+    const messages = await storage.getTicketMessages(req.params.id, includeInternal);
     if (isCustomer) {
       const hasUnread = messages.some(m => m.senderId !== user.id && !m.readAt);
       if (hasUnread) {
         await storage.markTicketMessagesRead(req.params.id, user.id);
-        const updatedMessages = await storage.getTicketMessages(req.params.id);
+        const updatedMessages = await storage.getTicketMessages(req.params.id, false);
         const senderIds = [...new Set(updatedMessages.map(m => m.senderId))];
         const senderMap = new Map<string, { name: string; role: string }>();
         await Promise.all(senderIds.map(async (id) => {
@@ -1880,8 +1896,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (user.role === "admin" && ticket.claimedBy !== user.id) {
         return res.status(403).json({ message: "Only the admin who claimed this ticket can respond" });
       }
+      const requestedInternal = parseIsInternalFlag(req.body.isInternal);
+      if (requestedInternal && !canPostInternalNote(user.role)) {
+        return res.status(403).json({ message: "Only admins can post internal notes" });
+      }
+      const isInternal = requestedInternal && canPostInternalNote(user.role);
       if (user.role === "master_admin" && ticket.claimedBy && ticket.claimedBy !== user.id) {
-        const existingMessages = await storage.getTicketMessages(req.params.id);
+        const existingMessages = await storage.getTicketMessages(req.params.id, true);
         const joinedMessage = `${user.fullName} has joined the conversation`;
         const alreadyJoined = existingMessages.some(m => m.message === joinedMessage);
         if (!alreadyJoined) {
@@ -1911,8 +1932,39 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         senderId: req.session.userId!,
         message: req.body.message,
         imageUrl: imageUrl || null,
+        isInternal,
       });
       const msgCustomer = isAdmin ? await storage.getUser(ticket.customerId) : user;
+      if (isInternal) {
+        logActivity("ticket", "ticket_internal_note_created", {
+          actorId: req.session.userId!,
+          targetId: ticket.id,
+          targetType: "ticket",
+          summary: `Internal note added by ${user.fullName} on ticket "${ticket.subject}"`,
+          details: JSON.stringify({ messageId: message.id, sender: user.fullName, customer: msgCustomer?.fullName, subject: ticket.subject, body: req.body.message }),
+        });
+        broadcastToAdmins({ type: "ticket_message", ticketId: req.params.id, message, isInternal: true });
+        const allAdminUsers = await storage.getAllUsers();
+        let admins = allAdminUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support" && u.id !== req.session.userId);
+        if (ticket.categoryId) {
+          const category = await storage.getTicketCategory(ticket.categoryId);
+          if (category && category.assignedRoleIds && category.assignedRoleIds.length > 0) {
+            admins = admins.filter(a => a.role === "master_admin" || (a.adminRoleId && category.assignedRoleIds!.includes(a.adminRoleId)));
+          }
+        }
+        for (const admin of admins) {
+          const adminViewingTicket = isUserViewingTicket(admin.id, ticket.id);
+          if (adminWantsPush(admin, "admin_internal_note")) {
+            sendPushToUser(admin.id, {
+              title: "Internal note",
+              body: `${user.fullName} on: ${ticket.subject}`,
+              url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
+              tag: `ticket-${ticket.id}`,
+            }, adminViewingTicket ? undefined : { type: "ticket_internal_note", referenceType: "ticket", referenceId: ticket.id });
+          }
+        }
+        return res.json(message);
+      }
       logActivity("ticket", "ticket_message", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Message on ticket "${ticket.subject}" by ${user.fullName} (customer: ${msgCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ sender: user.fullName, customer: msgCustomer?.fullName, subject: ticket.subject }) });
       broadcast({ type: "ticket_message", ticketId: req.params.id, message });
       if (isAdmin) {
@@ -1996,6 +2048,54 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
       res.json(message);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/tickets/:id/messages/:messageId", requireAdmin, async (req, res) => {
+    try {
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const msg = await storage.getTicketMessage(req.params.messageId);
+      const actor = await storage.getUser(req.session.userId!);
+      const check = canMutateInternalNote(msg, ticket.id, actor);
+      if (!check.ok) return res.status(check.status).json({ message: check.message });
+      const newText = typeof req.body.message === "string" ? req.body.message.trim() : "";
+      if (!newText) return res.status(400).json({ message: "Message cannot be empty" });
+      const updated = await storage.updateTicketMessage(req.params.messageId, { message: newText });
+      logActivity("ticket", "ticket_internal_note_edited", {
+        actorId: req.session.userId!,
+        targetId: ticket.id,
+        targetType: "ticket",
+        summary: `Internal note edited by ${actor?.fullName || "admin"} on ticket "${ticket.subject}"`,
+        details: JSON.stringify({ messageId: msg!.id, before: msg!.message, after: newText }),
+      });
+      broadcastToAdmins({ type: "ticket_message_edited", ticketId: ticket.id, message: updated, isInternal: true });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, async (req, res) => {
+    try {
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const msg = await storage.getTicketMessage(req.params.messageId);
+      const actor = await storage.getUser(req.session.userId!);
+      const check = canMutateInternalNote(msg, ticket.id, actor);
+      if (!check.ok) return res.status(check.status).json({ message: check.message });
+      await storage.deleteTicketMessage(req.params.messageId);
+      logActivity("ticket", "ticket_internal_note_deleted", {
+        actorId: req.session.userId!,
+        targetId: ticket.id,
+        targetType: "ticket",
+        summary: `Internal note deleted by ${actor?.fullName || "admin"} on ticket "${ticket.subject}"`,
+        details: JSON.stringify({ messageId: msg!.id, body: msg!.message }),
+      });
+      broadcastToAdmins({ type: "ticket_message_deleted", ticketId: ticket.id, messageId: msg!.id });
+      res.json({ message: "Deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -3048,7 +3148,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const [allQrs, msgs] = await Promise.all([
         storage.getAllQuickResponses(),
-        storage.getTicketMessages(req.params.id),
+        // Suggestions feed customer-facing replies; exclude internal notes.
+        storage.getTicketMessages(req.params.id, false),
       ]);
       const lastCustomer = [...msgs].reverse().find((m) => m.senderId === ticket.customerId);
       const top = suggestQuickResponses(ticket, lastCustomer?.message ?? null, allQrs, 3);
@@ -3081,7 +3182,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const [allQrs, msgs, customer] = await Promise.all([
         storage.getAllQuickResponses(),
-        storage.getTicketMessages(req.params.id),
+        // AI draft becomes a customer-facing reply; exclude internal notes from the prompt context.
+        storage.getTicketMessages(req.params.id, false),
         storage.getUser(ticket.customerId),
       ]);
 
@@ -4108,7 +4210,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const sessionReq = req as unknown as Request;
       const userId = sessionReq.session?.userId;
       wss.handleUpgrade(req, socket, head, (ws) => {
-        if (userId) wsSessionUserMap.set(ws, userId);
+        if (userId) {
+          wsSessionUserMap.set(ws, userId);
+          storage.getUser(userId).then((u) => {
+            if (u && wsClients.has(ws)) wsSessionRoleMap.set(ws, u.role);
+          }).catch(() => {});
+        }
         wss.emit("connection", ws, req);
       });
     });
@@ -4222,6 +4329,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         wsThreadMap.delete(ws);
       }
       wsSessionUserMap.delete(ws);
+      wsSessionRoleMap.delete(ws);
     });
   });
 

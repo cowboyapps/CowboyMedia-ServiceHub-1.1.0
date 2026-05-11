@@ -142,8 +142,11 @@ export interface IStorage {
 
   deleteTicket(id: string): Promise<void>;
 
-  getTicketMessages(ticketId: string): Promise<TicketMessage[]>;
+  getTicketMessages(ticketId: string, includeInternal?: boolean): Promise<TicketMessage[]>;
+  getTicketMessage(id: string): Promise<TicketMessage | undefined>;
   createTicketMessage(message: InsertTicketMessage): Promise<TicketMessage>;
+  updateTicketMessage(id: string, data: Partial<Pick<TicketMessage, "message">>): Promise<TicketMessage | undefined>;
+  deleteTicketMessage(id: string): Promise<void>;
   markTicketMessagesRead(ticketId: string, readerId: string): Promise<void>;
 
   createPrivateMessage(message: InsertPrivateMessage): Promise<PrivateMessage>;
@@ -518,8 +521,16 @@ export class DatabaseStorage implements IStorage {
     await db.delete(tickets).where(eq(tickets.id, id));
   }
 
-  async getTicketMessages(ticketId: string): Promise<TicketMessage[]> {
-    return db.select().from(ticketMessages).where(eq(ticketMessages.ticketId, ticketId)).orderBy(ticketMessages.createdAt);
+  async getTicketMessages(ticketId: string, includeInternal: boolean = false): Promise<TicketMessage[]> {
+    const where = includeInternal
+      ? eq(ticketMessages.ticketId, ticketId)
+      : and(eq(ticketMessages.ticketId, ticketId), eq(ticketMessages.isInternal, false));
+    return db.select().from(ticketMessages).where(where).orderBy(ticketMessages.createdAt);
+  }
+
+  async getTicketMessage(id: string): Promise<TicketMessage | undefined> {
+    const [row] = await db.select().from(ticketMessages).where(eq(ticketMessages.id, id));
+    return row;
   }
 
   async markTicketMessagesRead(ticketId: string, readerId: string): Promise<void> {
@@ -527,6 +538,7 @@ export class DatabaseStorage implements IStorage {
       and(
         eq(ticketMessages.ticketId, ticketId),
         isNull(ticketMessages.readAt),
+        eq(ticketMessages.isInternal, false),
         sql`${ticketMessages.senderId} != ${readerId}`
       )
     );
@@ -535,6 +547,15 @@ export class DatabaseStorage implements IStorage {
   async createTicketMessage(message: InsertTicketMessage): Promise<TicketMessage> {
     const [created] = await db.insert(ticketMessages).values(message).returning();
     return created;
+  }
+
+  async updateTicketMessage(id: string, data: Partial<Pick<TicketMessage, "message">>): Promise<TicketMessage | undefined> {
+    const [updated] = await db.update(ticketMessages).set(data).where(eq(ticketMessages.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTicketMessage(id: string): Promise<void> {
+    await db.delete(ticketMessages).where(eq(ticketMessages.id, id));
   }
 
   async createPrivateMessage(message: InsertPrivateMessage): Promise<PrivateMessage> {

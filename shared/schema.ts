@@ -91,6 +91,7 @@ export const ticketMessages = pgTable("ticket_messages", {
   message: text("message").notNull(),
   imageUrl: text("image_url"),
   readAt: timestamp("read_at"),
+  isInternal: boolean("is_internal").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   ticketCreatedIdx: index("ticket_messages_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),

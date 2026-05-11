@@ -167,6 +167,14 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     roles: ["admin"],
   },
   {
+    key: "admin_internal_note",
+    label: "Internal note on ticket",
+    description: "When another admin posts an internal note on a ticket",
+    group: "Admin tickets",
+    channels: ["push"],
+    roles: ["admin"],
+  },
+  {
     key: "admin_broadcast",
     label: "Broadcast received",
     description: "Urgent admin broadcast pushes sent to your account",
