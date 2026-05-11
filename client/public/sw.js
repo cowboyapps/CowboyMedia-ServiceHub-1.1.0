@@ -172,6 +172,33 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(handleOther(request));
 });
 
+// Build a calm, rolled-up toast title/body for the Nth push on the same
+// resource-level `tag`. Pure helper kept on `self` so test/sw.test.ts
+// can exercise it directly.
+//
+// `prevCount` is the running unread count carried in the previous toast's
+// data.rollupCount (or 0 if no prior toast exists). The new toast represents
+// `prevCount + 1` unread events. We only roll up once the running total
+// reaches 2 — the first push always shows its original body verbatim.
+//
+// Counting cannot rely on `getNotifications({tag}).length` alone because
+// same-tag pushes *replace* the previous toast, so that length never
+// exceeds 1 — we'd be stuck at "2 new …" forever. Persisting the count
+// in the notification's data unlocks 3, 4, 5… as expected.
+self.buildRollup = function buildRollup(data, prevCount) {
+  const total = (prevCount || 0) + 1;
+  if (total < 2) {
+    return { title: data.title, body: data.body, total: total };
+  }
+  const noun = data.rollupNoun || 'updates';
+  const label = data.resourceLabel || data.title || 'this conversation';
+  return {
+    title: data.title,
+    body: total + ' new ' + noun + ' on ' + label,
+    total: total,
+  };
+};
+
 self.addEventListener('push', (event) => {
   let data = { title: 'ServiceHub', body: 'You have a new notification', url: '/' };
   try {
@@ -180,20 +207,11 @@ self.addEventListener('push', (event) => {
     data.body = event.data ? event.data.text() : data.body;
   }
 
-  const options = {
-    body: data.body,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/badge-96.png',
-    vibrate: [200, 100, 200],
-    data: { url: data.url || '/', notificationId: data.notificationId || null },
-    actions: data.actions || [],
-    tag: data.tag || 'default',
-    renotify: true,
-  };
+  const tag = data.tag || 'default';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const isAdminChat = data.tag && data.tag.startsWith('admin-chat-');
+      const isAdminChat = tag && tag.startsWith('admin-chat-');
       if (isAdminChat) {
         const viewingAdmin = clients.some((client) =>
           client.visibilityState === 'visible' && client.url && client.url.includes('/admin')
@@ -202,7 +220,37 @@ self.addEventListener('push', (event) => {
           return;
         }
       }
-      return self.registration.showNotification(data.title, options).then(() => {
+      // Count existing unread toasts for this same resource-level tag so
+      // we can collapse N back-to-back pushes into a single rolled-up
+      // toast ("3 new replies on Ticket …") instead of stacking N rows
+      // in the OS tray.
+      return self.registration.getNotifications({ tag }).then((sameTag) => {
+        // Read the running rollup count from the previous toast for this
+        // tag (if any). Same-tag pushes replace each other, so this is
+        // how the count crosses 2 → 3 → 4 — the count lives in
+        // `data.rollupCount` on the previous toast, not in the toast
+        // tray length.
+        const prevCount = sameTag.length > 0
+          ? ((sameTag[0].data && sameTag[0].data.rollupCount) || 1)
+          : 0;
+        const rolled = self.buildRollup(data, prevCount);
+        const options = {
+          body: rolled.body,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/badge-96.png',
+          vibrate: [200, 100, 200],
+          data: {
+            url: data.url || '/',
+            notificationId: data.notificationId || null,
+            tag,
+            rollupCount: rolled.total,
+          },
+          actions: data.actions || [],
+          tag,
+          renotify: true,
+        };
+        return self.registration.showNotification(rolled.title, options);
+      }).then(() => {
         return self.registration.getNotifications().then((notifications) => {
           const count = notifications.length;
           if (self.navigator && self.navigator.setAppBadge) {
@@ -241,12 +289,26 @@ self.addEventListener('notificationclick', (event) => {
   // if the id is missing for any reason.
   if (event.action === 'mark-read' && notificationId) {
     event.notification.close();
+    const tag = data.tag || event.notification.tag;
     event.waitUntil(
       fetch('/api/notifications/' + encodeURIComponent(notificationId) + '/read', {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Accept': 'application/json' },
-      }).catch(() => {}).then(() => refreshAppBadge())
+      })
+        .catch(() => {})
+        // Close every other rolled-up toast for the same resource so the
+        // user sees the whole group disappear at once. The PATCH above
+        // already marks all peer notification rows read on the server.
+        .then(() => {
+          if (!tag) return;
+          return self.registration.getNotifications({ tag }).then((peers) => {
+            for (const n of peers) {
+              try { n.close(); } catch {}
+            }
+          }).catch(() => {});
+        })
+        .then(() => refreshAppBadge())
     );
     return;
   }

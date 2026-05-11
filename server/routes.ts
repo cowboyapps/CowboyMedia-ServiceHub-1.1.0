@@ -45,6 +45,7 @@ import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRec
 import { buildPushPayload } from "./push-payload";
 import type { User } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
+import { markGroupRead } from "./notifications-helpers";
 import { getOpenAIClient } from "./openai-client";
 import {
   createLoginLimiter,
@@ -464,7 +465,38 @@ interface NotifMeta {
   referenceId?: string;
 }
 
-async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string }, notif?: NotifMeta | { notificationId: string }) {
+// ───────────────────────────────────────────────────────────────────────
+// Push notification `tag` scheme — keep these resource-level (not
+// per-message) so the OS/SW can collapse N back-to-back pushes about
+// the same resource into a single rolled-up toast in the tray instead
+// of stacking one row per message. The service worker (client/public/
+// sw.js) reads `tag` plus the optional `resourceLabel` / `rollupNoun`
+// fields on the push payload to craft a "N new <noun> on <label>" body
+// when there is already an unread toast for the same tag.
+//
+// Stable resource-level tags currently in use:
+//   ticket-<id>                 — every push tied to one support ticket
+//   ticket-transfer-<id>        — admin transfer notice (separate tray row)
+//   thread-<id>                 — admin↔customer message thread
+//   alert-<id>                  — service alert + alert updates + resolve
+//   alert-postmortem-<id>       — postmortem publish for an alert
+//   service-<id>                — service status flips
+//   service-update-<serviceId>  — admin-authored service updates per service
+//                                 (persisted as referenceType=service_update_group, referenceId=serviceId)
+//   news-<authorId>             — news stories grouped by author
+//                                 (persisted as referenceType=news_author, referenceId=authorId)
+//   admin-chat-<threadId>       — admin chat thread
+//   pm-<id>                     — direct private message (per-message OK)
+//   report-request-<id>         — report-request notifications
+//   report-<id>                 — report status updates
+//   monitor-<id>-down/-up       — uptime monitor flips (already coarse)
+//   community-warn-<userId>     — community moderation warn
+//   community-ban-<userId>      — community moderation ban
+//   community-chat              — community chat (single global tag)
+//   signup-<userId>             — admin "new signup" toast
+// ───────────────────────────────────────────────────────────────────────
+
+async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string; resourceLabel?: string; rollupNoun?: string }, notif?: NotifMeta | { notificationId: string }) {
   let notificationId: string | null = null;
   if (notif && "notificationId" in notif) {
     // Caller already created the user_notifications row and is just
@@ -487,7 +519,17 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
       console.error("[UserNotif] Failed to create:", e.message);
     }
   }
-  const richPayload = buildPushPayload(payload, { notificationId });
+  const richPayload = buildPushPayload(
+    {
+      title: payload.title,
+      body: payload.body,
+      url: payload.url,
+      tag: payload.tag,
+      resourceLabel: payload.resourceLabel,
+      rollupNoun: payload.rollupNoun,
+    },
+    { notificationId },
+  );
   try {
     const subs = await storage.getPushSubscriptionsByUser(userId);
     if (subs.length === 0) {
@@ -1178,6 +1220,8 @@ export async function registerRoutes(
             body: `${customer?.fullName}: ${ticket.subject}`,
             url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
             tag: `ticket-${ticket.id}`,
+            resourceLabel: `Ticket: ${ticket.subject}`,
+            rollupNoun: "messages",
           }, { type: "new_ticket", referenceType: "ticket", referenceId: ticket.id });
         }
         storage.createTicketNotification({
@@ -1227,6 +1271,8 @@ export async function registerRoutes(
             body: `We received: ${ticket.subject}`,
             url: `/tickets/${ticket.id}`,
             tag: `ticket-${ticket.id}`,
+            resourceLabel: `Ticket: ${ticket.subject}`,
+            rollupNoun: "messages",
           }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
         }
         storage.createTicketNotification({
@@ -1373,6 +1419,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             body: `Ticket Closed: ${ticket.subject}`,
             url: `/tickets/${ticket.id}`,
             tag: `ticket-${ticket.id}`,
+            resourceLabel: `Ticket: ${ticket.subject}`,
+            rollupNoun: "messages",
           }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
           storage.createTicketNotification({
             userId: admin.id,
@@ -1865,6 +1913,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             body: `Reply on: ${ticket.subject}`,
             url: `/tickets/${ticket.id}`,
             tag: `ticket-${ticket.id}`,
+            resourceLabel: `Ticket: ${ticket.subject}`,
+            rollupNoun: "replies",
           }, customerViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
         }
         if (!customerViewingTicket) {
@@ -1907,6 +1957,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               body: `${user.fullName}: ${ticket.subject}`,
               url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
               tag: `ticket-${ticket.id}`,
+              resourceLabel: `Ticket: ${ticket.subject}`,
+              rollupNoun: "replies",
             }, adminViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
           }
           if (!adminViewingTicket) {
@@ -2092,6 +2144,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             body: alert.title,
             url: `/alerts/${alert.id}`,
             tag: `alert-${alert.id}`,
+            resourceLabel: `${serviceName} alert: ${alert.title}`,
+            rollupNoun: "updates",
           }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: alert.id } : undefined);
         }
         if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert")) {
@@ -2203,6 +2257,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               body: updateData.message,
               url: `/alerts/${req.params.id}`,
               tag: `alert-${req.params.id}`,
+              resourceLabel: `${serviceName} alert: ${alert.title}`,
+              rollupNoun: "updates",
             }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
           }
           if ((parsedSendEmail || isResolved) && u.email && customerWantsEmail(u, "service_alert")) {
@@ -2298,6 +2354,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             body: `${updated.title} has been resolved. Service is back to operational.`,
             url: `/alerts/${req.params.id}`,
             tag: `alert-${req.params.id}`,
+            resourceLabel: `${serviceName} alert: ${updated.title}`,
+            rollupNoun: "updates",
           }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
         }
         if (u.email && customerWantsEmail(u, "service_alert")) {
@@ -2377,6 +2435,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
                 body: updated.title,
                 url: `/alerts/${req.params.id}`,
                 tag: `alert-postmortem-${req.params.id}`,
+                resourceLabel: `${serviceName} postmortem: ${updated.title}`,
+                rollupNoun: "updates",
               }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
             }
           }
@@ -2465,8 +2525,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             title: `Service Update: ${serviceName}`,
             body: title,
             url: "/service-updates",
-            tag: `service-update-${update.id}`,
-          }, { type: "service_update", referenceType: "service_update", referenceId: update.id });
+            tag: `service-update-${serviceId}`,
+            resourceLabel: serviceName,
+            rollupNoun: "updates",
+            // Group key matches the OS toast `tag` (service-update-<serviceId>)
+            // so PATCH /api/notifications/:id/read sweeps every unread peer
+            // for the same service in one go.
+          }, { type: "service_update", referenceType: "service_update_group", referenceId: serviceId });
         }
         if (u.email && customerWantsEmail(u, "service_update")) {
           sendTemplatedEmail(u.email, "customer_service_update", {
@@ -2534,13 +2599,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       logActivity("news", "news_created", { actorId: req.session.userId!, targetId: story.id, targetType: "news", summary: `News story created: ${story.title}`, details: JSON.stringify({ title: story.title, content: story.content?.substring(0, 200) }) });
       broadcast({ type: "new_news", story });
       const allUsers = await storage.getAllUsers();
+      const author = await storage.getUser(story.authorId);
+      const authorLabel = author?.fullName || "News";
       for (const u of selectNewsPushRecipients(allUsers)) {
         sendPushToUser(u.id, {
           title: "New News Story",
           body: story.title,
           url: `/news/${story.id}`,
-          tag: `news-${story.id}`,
-        }, { type: "news", referenceType: "news", referenceId: story.id });
+          tag: `news-${story.authorId}`,
+          resourceLabel: authorLabel,
+          rollupNoun: "stories",
+          // Group key matches the OS toast `tag` (news-<authorId>) so a
+          // single mark-read sweeps every unread story by this author.
+        }, { type: "news", referenceType: "news_author", referenceId: story.authorId });
       }
       const newsEmails = selectNewsEmailRecipients(allUsers);
       if (newsEmails.length > 0) {
@@ -2717,6 +2788,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           body: `${subject}: ${body.substring(0, 100)}`,
           url: `/messages/${thread.id}`,
           tag: `thread-${thread.id}`,
+          resourceLabel: `your conversation "${subject}"`,
+          rollupNoun: "messages",
         }, { type: "message", referenceType: "message_thread", referenceId: thread.id });
       }
 
@@ -2846,6 +2919,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           body: body.trim().substring(0, 100),
           url: `/messages/${thread.id}`,
           tag: `thread-${thread.id}`,
+          resourceLabel: `your conversation "${thread.subject}"`,
+          rollupNoun: "messages",
         }, shouldCreateNotif ? { type: "message", referenceType: "message_thread", referenceId: thread.id } : undefined);
       }
 
@@ -3577,6 +3652,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               body: `${user.fullName}: ${messagePreview}`,
               url: `/admin?tab=admin-chat&chat=${req.params.id}`,
               tag: `admin-chat-${req.params.id}`,
+              resourceLabel: `Admin Chat — ${threadLabel}`,
+              rollupNoun: "messages",
             }, { type: "admin_chat_message", referenceType: "admin_chat_thread", referenceId: req.params.id });
           }
         }
@@ -3895,9 +3972,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const notif = await storage.getUserNotification(req.params.id, req.session.userId!);
       if (!notif) return res.status(404).json({ message: "Notification not found" });
-      await storage.markUserNotificationRead(req.params.id, req.session.userId!);
+      // Coalesced rollup support: when the user taps "Mark as read" on a
+      // single OS toast, also flip every other unread row that points at
+      // the same resource (referenceType + referenceId). Pairs with the
+      // service-worker rollup logic so the entire group disappears at
+      // once. clearRelatedBadge below still handles per-area badges.
+      const groupCleared = await markGroupRead(storage, req.session.userId!, notif);
       await clearRelatedBadge(req.session.userId!, notif);
-      res.json({ message: "Marked as read" });
+      res.json({ message: "Marked as read", groupCleared });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

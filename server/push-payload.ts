@@ -3,6 +3,17 @@ export interface PushPayloadInput {
   body: string;
   url?: string;
   tag?: string;
+  // Human-readable label for the underlying resource (e.g. "Ticket: Login
+  // broken", "your conversation with Sam", "Cloud API"). The service worker
+  // uses this to craft a coalesced rollup body when more than one unread
+  // notification already exists for the same `tag` — avoiding hardcoded
+  // resource names inside sw.js.
+  resourceLabel?: string;
+  // Plural noun describing what is rolling up (e.g. "replies", "messages",
+  // "updates", "stories"). Combined with resourceLabel by the SW into
+  // "N new <rollupNoun> on <resourceLabel>". Defaults to "updates" if
+  // omitted.
+  rollupNoun?: string;
 }
 
 export interface PushPayloadOptions {

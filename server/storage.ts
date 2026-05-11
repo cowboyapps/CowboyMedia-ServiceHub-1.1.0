@@ -287,6 +287,7 @@ export interface IStorage {
   markAllUserNotificationsRead(userId: string): Promise<void>;
   dismissAllUserNotifications(userId: string): Promise<void>;
   markUserNotificationsByTypeRead(userId: string, types: string[]): Promise<void>;
+  markUserNotificationsByReferenceRead(userId: string, referenceType: string, referenceId: string): Promise<number>;
   deleteExpiredUserNotifications(daysOld: number): Promise<number>;
 
   getCommunityMessages(limit?: number, before?: string): Promise<CommunityMessage[]>;
@@ -1237,6 +1238,23 @@ export class DatabaseStorage implements IStorage {
   async dismissAllUserNotifications(userId: string): Promise<void> {
     await db.update(userNotifications).set({ dismissedAt: new Date(), readAt: sql`COALESCE(${userNotifications.readAt}, NOW())` })
       .where(and(eq(userNotifications.userId, userId), isNull(userNotifications.dismissedAt)));
+  }
+
+  async markUserNotificationsByReferenceRead(userId: string, referenceType: string, referenceId: string): Promise<number> {
+    // Mark every unread+undismissed user_notifications row for this user
+    // that points at the same (referenceType, referenceId) — used by the
+    // PATCH /api/notifications/:id/read flow so a single "Mark as read"
+    // tap on the OS toast clears all the rolled-up rows for that
+    // resource (e.g. every reply on the same ticket).
+    const result = await db.update(userNotifications).set({ readAt: new Date() })
+      .where(and(
+        eq(userNotifications.userId, userId),
+        eq(userNotifications.referenceType, referenceType),
+        eq(userNotifications.referenceId, referenceId),
+        isNull(userNotifications.readAt),
+        isNull(userNotifications.dismissedAt),
+      ));
+    return result.rowCount ?? 0;
   }
 
   async markUserNotificationsByTypeRead(userId: string, types: string[]): Promise<void> {

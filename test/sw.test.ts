@@ -462,6 +462,261 @@ test("notificationclick default click opens a new window when no same-origin cli
   assert.deepEqual(h.badgeCalls, ["clear"]);
 });
 
+interface PushHarness {
+  fire: (payload: unknown) => Promise<void>;
+  shown: Array<{ title: string; options: any }>;
+  setNotifications: (n: any[]) => void;
+  setClients: (c: Array<{ visibilityState?: string; url?: string }>) => void;
+  badgeCalls: Array<number | "clear">;
+  buildRollup: (data: any, n: number) => { title: string; body: string };
+}
+
+function loadPushHandler(): PushHarness {
+  const src = readFileSync(join(process.cwd(), "client/public/sw.js"), "utf8");
+
+  let pushHandler: ((e: any) => void) | null = null;
+  let allNotifications: any[] = [];
+  let clientsList: Array<{ visibilityState?: string; url?: string }> = [];
+  const shown: Array<{ title: string; options: any }> = [];
+  const badgeCalls: Array<number | "clear"> = [];
+
+  const fakeCache = { put: async () => {}, add: async () => {}, match: async () => undefined };
+  const cachesStub = {
+    open: async () => fakeCache,
+    match: async () => undefined,
+    keys: async () => [],
+    delete: async () => true,
+  };
+
+  const self: any = {
+    addEventListener: (type: string, fn: (e: any) => void) => {
+      if (type === "push") pushHandler = fn;
+    },
+    skipWaiting: () => {},
+    location: { origin: "https://example.test" },
+    clients: {
+      matchAll: async () => clientsList,
+      claim: async () => {},
+      openWindow: async () => null,
+    },
+    registration: {
+      showNotification: async (title: string, options: any) => {
+        shown.push({ title, options });
+        // simulate the toast becoming visible / persistent
+        allNotifications = allNotifications.filter((n) => n.tag !== options.tag);
+        allNotifications.push({ tag: options.tag, title, body: options.body, data: options.data });
+      },
+      getNotifications: async (filter?: { tag?: string }) => {
+        if (filter?.tag) return allNotifications.filter((n) => n.tag === filter.tag);
+        return allNotifications;
+      },
+    },
+    navigator: {
+      setAppBadge: (n: number) => {
+        badgeCalls.push(n);
+        return Promise.resolve();
+      },
+      clearAppBadge: () => {
+        badgeCalls.push("clear");
+        return Promise.resolve();
+      },
+    },
+  };
+
+  const ctx: any = {
+    self,
+    caches: cachesStub,
+    fetch: async () => new Response("", { status: 200 }),
+    URL,
+    Response,
+    Request,
+    Promise,
+    setTimeout,
+    clearTimeout,
+    encodeURIComponent,
+    console,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(src, ctx);
+
+  if (!pushHandler) throw new Error("push handler not registered");
+
+  return {
+    fire: async (payload) => {
+      const waits: Promise<unknown>[] = [];
+      const event = {
+        data: { json: () => payload, text: () => JSON.stringify(payload) },
+        waitUntil: (p: Promise<unknown>) => waits.push(p),
+      };
+      pushHandler!(event);
+      await Promise.all(waits);
+    },
+    shown,
+    setNotifications: (n) => {
+      allNotifications = n;
+    },
+    setClients: (c) => {
+      clientsList = c;
+    },
+    badgeCalls,
+    buildRollup: ctx.self.buildRollup,
+  };
+}
+
+test("buildRollup: zero peers returns the original title/body untouched", () => {
+  const h = loadPushHandler();
+  const out = h.buildRollup(
+    { title: "New Ticket Reply", body: "Reply on: Login broken", resourceLabel: "Ticket: Login broken", rollupNoun: "replies" },
+    0,
+  );
+  assert.equal(out.title, "New Ticket Reply");
+  assert.equal(out.body, "Reply on: Login broken");
+});
+
+test("buildRollup: with N existing peers produces 'N+1 new <noun> on <label>'", () => {
+  const h = loadPushHandler();
+  const out = h.buildRollup(
+    { title: "New Ticket Reply", body: "Reply on: Login broken", resourceLabel: "Ticket: Login broken", rollupNoun: "replies" },
+    2,
+  );
+  assert.equal(out.body, "3 new replies on Ticket: Login broken");
+});
+
+test("buildRollup: defaults rollupNoun to 'updates' and falls back to title for label", () => {
+  const h = loadPushHandler();
+  const out = h.buildRollup({ title: "Cloud API: Degraded" }, 1);
+  assert.equal(out.body, "2 new updates on Cloud API: Degraded");
+});
+
+test("push handler: first push for a new tag shows the original body (no rollup)", async () => {
+  const h = loadPushHandler();
+  await h.fire({
+    title: "New Ticket Reply",
+    body: "Reply on: Login broken",
+    tag: "ticket-abc",
+    resourceLabel: "Ticket: Login broken",
+    rollupNoun: "replies",
+    notificationId: "n1",
+  });
+  assert.equal(h.shown.length, 1);
+  assert.equal(h.shown[0].options.tag, "ticket-abc");
+  assert.equal(h.shown[0].options.body, "Reply on: Login broken");
+  // tag is mirrored onto data so notificationclick mark-read can close peers
+  assert.equal(h.shown[0].options.data.tag, "ticket-abc");
+});
+
+test("push handler: 2nd push for same tag rolls up to '2 new replies on …'", async () => {
+  const h = loadPushHandler();
+  await h.fire({
+    title: "New Ticket Reply",
+    body: "Reply 1",
+    tag: "ticket-abc",
+    resourceLabel: "Ticket: Login broken",
+    rollupNoun: "replies",
+    notificationId: "n1",
+  });
+  await h.fire({
+    title: "New Ticket Reply",
+    body: "Reply 2",
+    tag: "ticket-abc",
+    resourceLabel: "Ticket: Login broken",
+    rollupNoun: "replies",
+    notificationId: "n2",
+  });
+  assert.equal(h.shown.length, 2);
+  assert.equal(h.shown[1].options.body, "2 new replies on Ticket: Login broken");
+});
+
+test("push handler: rollup count progresses past 2 (2 → 3 → 4 → 5) for same tag", async () => {
+  const h = loadPushHandler();
+  for (let i = 1; i <= 5; i++) {
+    await h.fire({
+      title: "New Ticket Reply",
+      body: "Reply " + i,
+      tag: "ticket-abc",
+      resourceLabel: "Ticket: Login broken",
+      rollupNoun: "replies",
+      notificationId: "n" + i,
+    });
+  }
+  assert.equal(h.shown.length, 5);
+  // 1st: original body. 2nd–5th: rolled up with growing N.
+  assert.equal(h.shown[0].options.body, "Reply 1");
+  assert.equal(h.shown[1].options.body, "2 new replies on Ticket: Login broken");
+  assert.equal(h.shown[2].options.body, "3 new replies on Ticket: Login broken");
+  assert.equal(h.shown[3].options.body, "4 new replies on Ticket: Login broken");
+  assert.equal(h.shown[4].options.body, "5 new replies on Ticket: Login broken");
+  // Last toast carries the running rollupCount so a 6th push would
+  // continue the progression instead of resetting.
+  assert.equal(h.shown[4].options.data.rollupCount, 5);
+});
+
+test("push handler: rollup count resets after the toast tray is cleared", async () => {
+  const h = loadPushHandler();
+  await h.fire({ title: "T", body: "First", tag: "ticket-x", resourceLabel: "Ticket X", rollupNoun: "replies" });
+  await h.fire({ title: "T", body: "Second", tag: "ticket-x", resourceLabel: "Ticket X", rollupNoun: "replies" });
+  assert.equal(h.shown[1].options.body, "2 new replies on Ticket X");
+  // Simulate user dismissing/clearing all OS toasts (mark-read peer-close).
+  h.setNotifications([]);
+  await h.fire({ title: "T", body: "Third", tag: "ticket-x", resourceLabel: "Ticket X", rollupNoun: "replies" });
+  // With no prior tagged toast in the tray, count restarts at 1 → no rollup.
+  assert.equal(h.shown[2].options.body, "Third");
+  assert.equal(h.shown[2].options.data.rollupCount, 1);
+});
+
+test("push handler: independent tags don't roll up against each other", async () => {
+  const h = loadPushHandler();
+  await h.fire({ title: "T1", body: "First", tag: "ticket-aaa", resourceLabel: "Ticket A", rollupNoun: "replies" });
+  await h.fire({ title: "T2", body: "First", tag: "ticket-bbb", resourceLabel: "Ticket B", rollupNoun: "replies" });
+  assert.equal(h.shown.length, 2);
+  // Neither was rolled up — both kept their original body.
+  assert.equal(h.shown[0].options.body, "First");
+  assert.equal(h.shown[1].options.body, "First");
+});
+
+test("push handler: admin-chat tag is suppressed when an admin tab is visible", async () => {
+  const h = loadPushHandler();
+  h.setClients([{ visibilityState: "visible", url: "https://example.test/admin?tab=admin-chat" }]);
+  await h.fire({
+    title: "Admin Chat - Ops",
+    body: "Hi",
+    tag: "admin-chat-xyz",
+    resourceLabel: "Admin Chat — Ops",
+    rollupNoun: "messages",
+  });
+  assert.equal(h.shown.length, 0);
+});
+
+test("notificationclick 'mark-read' closes all peer toasts sharing the tag", async () => {
+  const h = loadNotificationClickHandler();
+  let closedA = false, closedB = false, closedClicked = false;
+  const peers = [
+    { tag: "ticket-abc", close: () => { closedA = true; } },
+    { tag: "ticket-abc", close: () => { closedB = true; } },
+    { tag: "ticket-zzz", close: () => { throw new Error("must not close other-tag toasts"); } },
+  ];
+  // Fake getNotifications honors the tag filter.
+  // We override by monkey-patching the harness via setNotifications, but
+  // the harness's stub returns whatever is set regardless of filter — so
+  // we filter explicitly here.
+  h.setNotifications(peers.filter((p) => p.tag === "ticket-abc"));
+
+  await h.fire({
+    action: "mark-read",
+    notification: {
+      tag: "ticket-abc",
+      data: { notificationId: "n-clicked", tag: "ticket-abc" },
+      close: () => { closedClicked = true; },
+    },
+  });
+
+  assert.equal(closedClicked, true, "the clicked toast itself closes");
+  assert.equal(closedA, true, "peer toast A closes");
+  assert.equal(closedB, true, "peer toast B closes");
+  assert.equal(h.fetchCalls.length, 1);
+  assert.equal(h.fetchCalls[0].url, "/api/notifications/n-clicked/read");
+});
+
 test("notificationclick default click defaults url to '/' when data.url is missing", async () => {
   const h = loadNotificationClickHandler();
   h.setNotifications([]);
