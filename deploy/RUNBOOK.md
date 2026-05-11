@@ -41,7 +41,7 @@ Avoid OpenVZ-only providers; some block kernel features Postgres needs.
 
 1. Confirm DNS TTL is still 60s on the production record.
 2. Email customers: **15-minute maintenance window at <date/time UTC>**.
-3. (Optional) Add a maintenance banner to the Replit instance.
+3. (Optional) Add a maintenance banner to the source instance.
 
 ## 4. T minus 1 hour — provision the real VPS
 
@@ -55,12 +55,11 @@ We pre-stage everything except the data so the actual cutover window is small.
 
 ## 5. T zero — the cutover (≤15 min)
 
-### 5a. In the Replit shell
+### 5a. In the source instance shell
 
 ```bash
-# Make sure pg_dump is on PATH; on Replit you may need:
-nix-shell -p postgresql_16
-bash deploy/export-from-replit.sh
+# Make sure pg_dump is on PATH (install postgresql-client if missing).
+bash deploy/export-from-source.sh
 # This produces servicehub-migration-<ts>.tar.gz in the current directory.
 ```
 
@@ -130,7 +129,7 @@ Watch logs for 30 minutes:
 sudo -u servicehub pm2 logs servicehub
 ```
 
-### 5g. Decommission the Replit instance
+### 5g. Decommission the source instance
 
 Leave it running for 24 hours as a fallback (in case you need to grab a forgotten file). Then stop it.
 
@@ -147,7 +146,7 @@ sudo bash /root/servicehub-installer/deploy/migrate.sh /root/servicehub-migratio
 
 **Option B — bare dump (DB only, leaves `.env` untouched):** new in this release.
 ```bash
-# On the source (Replit shell or wherever pg_dump can reach the prod DB):
+# On the source (dev-environment shell or wherever pg_dump can reach the prod DB):
 pg_dump -Fc "$DATABASE_URL" -f /tmp/refresh.dump
 scp /tmp/refresh.dump root@<vps-ip>:/root/
 
@@ -170,13 +169,13 @@ If anything in 5f fails and you can't fix it inside 5 minutes:
 
 ```
 DNS already flipped?
-  YES -> flip DNS back to old Replit IP. Wait 60s. You're back on Replit.
+  YES -> flip DNS back to the old source-instance IP. Wait 60s. You're back on the source.
          Investigate at leisure. The bundle is still on disk; you can re-try.
-  NO  -> just don't flip. The Replit instance is still serving live.
+  NO  -> just don't flip. The source instance is still serving live.
          Investigate; re-run migrate.sh after fixing.
 ```
 
-If you flipped DNS, then the cert was issued on the VPS, and now you want to roll back: that's still fine. The old Replit cert is unchanged. Browsers will use whichever cert the IP they hit serves.
+If you flipped DNS, then the cert was issued on the VPS, and now you want to roll back: that's still fine. The source instance's cert is unchanged. Browsers will use whichever cert the IP they hit serves.
 
 ---
 

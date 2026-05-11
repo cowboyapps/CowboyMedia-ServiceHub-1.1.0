@@ -25,7 +25,7 @@
 #
 # WHERE THIS RUNS
 #   - scripts/post-merge.sh (after a task merges into the dev env)
-#   - .replit deployment build step (once per production deploy,
+#   - production deploy build step in deploy/update.sh (once per production deploy,
 #     before the new server image is rolled out)
 
 set -euo pipefail

@@ -1,6 +1,6 @@
 # Day-to-day dev → deploy flow
 
-We continue developing on Replit. The VPS is **production**. Pushing changes is one SSH command.
+Day-to-day development happens in the dev environment. The VPS is **production**. Pushing changes is one SSH command.
 
 ## Golden rules
 
@@ -11,7 +11,7 @@ We continue developing on Replit. The VPS is **production**. Pushing changes is 
 
 ## Standard release
 
-On Replit:
+In the dev environment:
 ```bash
 git push origin main
 ```
@@ -56,4 +56,4 @@ sudo bash /opt/servicehub/deploy/restore.sh
 
 ## Adding a new dependency
 
-Just add it to `package.json` like normal and push. `update.sh` runs `npm ci` so the new dep is installed on deploy. If it's a native module (rare), test on a temp VPS first to make sure it compiles for Linux x64 — Replit's Nix env can hide Linux-specific build problems.
+Just add it to `package.json` like normal and push. `update.sh` runs `npm ci` so the new dep is installed on deploy. If it's a native module (rare), test on a temp VPS first to make sure it compiles for Linux x64 — the dev environment can hide Linux-specific build problems.

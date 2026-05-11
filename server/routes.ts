@@ -815,9 +815,7 @@ export async function registerRoutes(
 
   function getBaseUrl(req: Request): string {
     const appBaseUrl = process.env.APP_BASE_URL;
-    const replitDomains = process.env.REPLIT_DOMAINS;
     if (appBaseUrl) return appBaseUrl.replace(/\/+$/, "");
-    if (replitDomains) return `https://${replitDomains.split(",")[0]}`;
     const hostHeader = req.get("host");
     if (hostHeader) {
       const proto = (req.get("x-forwarded-proto") || (process.env.NODE_ENV === "production" ? "https" : "http")).split(",")[0].trim();
@@ -1012,13 +1010,9 @@ export async function registerRoutes(
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
       await storage.createPasswordResetToken({ userId: user.id, tokenHash, expiresAt });
       const appBaseUrl = process.env.APP_BASE_URL;
-      const replitDomains = process.env.REPLIT_DOMAINS;
       let baseUrl: string;
       if (appBaseUrl) {
         baseUrl = appBaseUrl.replace(/\/+$/, "");
-      } else if (replitDomains) {
-        const primaryDomain = replitDomains.split(",")[0];
-        baseUrl = `https://${primaryDomain}`;
       } else if (process.env.NODE_ENV === "production") {
         // Final fallback in production: request Host header. Documented in
         // RUNBOOK + .env.template that operators SHOULD set APP_BASE_URL on
@@ -1034,7 +1028,7 @@ export async function registerRoutes(
             "Set APP_BASE_URL in production to remove this Host-header dependency."
           );
         } else {
-          console.error("Password reset: no APP_BASE_URL/REPLIT_DOMAINS/Host header available");
+          console.error("Password reset: no APP_BASE_URL or Host header available");
           return res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
         }
       } else {

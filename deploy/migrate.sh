@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Migrate an existing ServiceHub instance from Replit to a fresh VPS.
+# Migrate an existing ServiceHub instance from a source environment to a fresh VPS.
 # Same as install.sh but restores DB + secrets from a migration bundle
 # (or just a bare DB dump, when the box is already provisioned).
 #
@@ -8,7 +8,7 @@
 #   sudo bash migrate.sh <bundle.tar.gz> --restore-only   # box already provisioned, sync secrets+DB
 #   sudo bash migrate.sh <db.dump> --restore-only         # box already provisioned, refresh DB only
 #
-# Bundle is produced by deploy/export-from-replit.sh.
+# Bundle is produced by deploy/export-from-source.sh.
 # Bare dump path (the third form) is for routine "pull latest from source DB"
 # refreshes between cutover-day and final flip — leaves $ENV_FILE untouched.
 
@@ -321,7 +321,7 @@ fi
 
 echo "==> Restoring database from $DUMP_FILE..."
 # --clean --if-exists drops & recreates objects; --no-owner/--no-acl strips
-# Replit-specific role grants. After this, we re-apply schema for any new
+# source-environment role grants. After this, we re-apply schema for any new
 # tables/columns added since the dump (additive-only migrations).
 sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && \
   pg_restore --clean --if-exists --no-owner --no-acl --dbname=\"\$DATABASE_URL\" \"$DUMP_FILE\""
