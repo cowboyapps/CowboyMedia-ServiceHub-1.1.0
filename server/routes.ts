@@ -897,6 +897,64 @@ export async function registerRoutes(
     }
   });
 
+  // Per-IP rate limiter for public incident detail (60 / minute).
+  const incidentRateLimit = new Map<string, number[]>();
+  function checkIncidentRateLimit(ip: string): boolean {
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const max = 60;
+    const arr = (incidentRateLimit.get(ip) || []).filter((t) => now - t < windowMs);
+    if (arr.length >= max) return false;
+    arr.push(now);
+    incidentRateLimit.set(ip, arr);
+    return true;
+  }
+
+  app.get("/api/public/incidents/:id", async (req, res) => {
+    try {
+      const ip = req.ip || "unknown";
+      if (!checkIncidentRateLimit(ip)) {
+        const retryAfterSeconds = 60;
+        res.set("Retry-After", String(retryAfterSeconds));
+        return res.status(429).json({ message: "Too many requests. Please try again in a minute.", retryAfterSeconds });
+      }
+      const alert = await storage.getAlert(req.params.id);
+      if (!alert) return res.status(404).json({ message: "Incident not found" });
+      const [service, updates] = await Promise.all([
+        storage.getService(alert.serviceId),
+        storage.getAlertUpdates(alert.id),
+      ]);
+      const createdAtMs = alert.createdAt?.getTime?.() || 0;
+      const resolvedAtMs = alert.resolvedAt?.getTime?.() || 0;
+      const durationSeconds = createdAtMs
+        ? Math.max(0, Math.floor(((resolvedAtMs || Date.now()) - createdAtMs) / 1000))
+        : 0;
+      const isResolved = alert.status === "resolved";
+      res.set("Cache-Control", isResolved ? "public, max-age=300" : "public, max-age=30");
+      res.json({
+        id: alert.id,
+        title: alert.title,
+        description: alert.description,
+        status: alert.status,
+        severity: alert.severity,
+        serviceName: service?.name || "Service",
+        serviceCategory: service?.category || null,
+        createdAt: alert.createdAt,
+        resolvedAt: alert.resolvedAt,
+        durationSeconds,
+        updates: updates.map((u) => ({
+          id: u.id,
+          message: u.message,
+          status: u.status,
+          imageUrl: u.imageUrl,
+          createdAt: u.createdAt,
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/public/subscribe", async (req, res) => {
     try {
       const ip = req.ip || "unknown";

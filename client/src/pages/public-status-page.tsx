@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
-import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck } from "lucide-react";
+import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck, ChevronRight } from "lucide-react";
+import { Link } from "wouter";
 
 type PublicAlert = {
   id: string;
@@ -220,29 +221,36 @@ export default function PublicStatusPage() {
 
   const renderIncident = (a: PublicAlert) => {
     return (
-      <li key={a.id} className="border rounded-lg p-4" data-testid={`item-incident-${a.id}`}>
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              {a.status === "resolved" ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              ) : (
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-              )}
-              <span className="font-medium">{a.title}</span>
+      <li key={a.id} data-testid={`item-incident-${a.id}`}>
+        <Link
+          href={`/status/incidents/${a.id}`}
+          className="block border rounded-lg p-4 hover:bg-accent/40 transition-colors"
+          data-testid={`link-incident-${a.id}`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                {a.status === "resolved" ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                )}
+                <span className="font-medium">{a.title}</span>
+              </div>
+              <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+                <span>{a.serviceName}</span>
+                <span className="capitalize">{a.severity}</span>
+                <span className="capitalize">{a.status}</span>
+                {a.createdAt && <span>Started {format(new Date(a.createdAt), "PPp")}</span>}
+                {a.lastUpdateAt && a.status !== "resolved" && (
+                  <span data-testid={`text-last-update-${a.id}`}>Last update {format(new Date(a.lastUpdateAt), "PPp")}</span>
+                )}
+                {a.resolvedAt && <span>Resolved {format(new Date(a.resolvedAt), "PPp")}</span>}
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
-              <span>{a.serviceName}</span>
-              <span className="capitalize">{a.severity}</span>
-              <span className="capitalize">{a.status}</span>
-              {a.createdAt && <span>Started {format(new Date(a.createdAt), "PPp")}</span>}
-              {a.lastUpdateAt && a.status !== "resolved" && (
-                <span data-testid={`text-last-update-${a.id}`}>Last update {format(new Date(a.lastUpdateAt), "PPp")}</span>
-              )}
-              {a.resolvedAt && <span>Resolved {format(new Date(a.resolvedAt), "PPp")}</span>}
-            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
           </div>
-        </div>
+        </Link>
       </li>
     );
   };

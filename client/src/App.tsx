@@ -54,6 +54,7 @@ import DownloadsPage from "@/pages/downloads-page";
 import ForgotPasswordPage from "@/pages/forgot-password-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
 import PublicStatusPage from "@/pages/public-status-page";
+import PublicIncidentPage from "@/pages/public-incident-page";
 import CommunityChatPage from "@/pages/community-chat-page";
 import KnowledgePage from "@/pages/knowledge-page";
 
@@ -978,6 +979,14 @@ function AppContent() {
     }
   }, [user, location]);
 
+  if (location.startsWith("/status/incidents/")) {
+    return (
+      <Switch>
+        <Route path="/status/incidents/:id" component={PublicIncidentPage} />
+      </Switch>
+    );
+  }
+
   if (location === "/status" || location.startsWith("/status/")) {
     return <PublicStatusPage />;
   }
@@ -1002,6 +1011,7 @@ function AppContent() {
           <Route path="/forgot-password" component={ForgotPasswordPage} />
           <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/status" component={PublicStatusPage} />
+          <Route path="/status/incidents/:id" component={PublicIncidentPage} />
           <Route>
             <AuthPage />
           </Route>
