@@ -53,24 +53,34 @@ export default function ServiceUpdatesPage() {
   const [pendingAdminDelete, setPendingAdminDelete] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
-    return window.sessionStorage.getItem("service-updates:service-filter") || "all";
+    try {
+      return window.localStorage.getItem("service-updates:service-filter") || "all";
+    } catch {
+      return "all";
+    }
   });
   const [timeFilter, setTimeFilter] = useState<"today" | "7d" | "30d" | "all">(() => {
     if (typeof window === "undefined") return "all";
-    const v = window.sessionStorage.getItem("service-updates:time-filter");
-    return v === "today" || v === "7d" || v === "30d" || v === "all" ? v : "all";
+    try {
+      const v = window.localStorage.getItem("service-updates:time-filter");
+      return v === "today" || v === "7d" || v === "30d" || v === "all" ? v : "all";
+    } catch {
+      return "all";
+    }
   });
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem("service-updates:service-filter", serviceFilter);
-    }
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("service-updates:service-filter", serviceFilter);
+    } catch {}
   }, [serviceFilter]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem("service-updates:time-filter", timeFilter);
-    }
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("service-updates:time-filter", timeFilter);
+    } catch {}
   }, [timeFilter]);
 
   const markUpdatesRead = useCallback(() => {
