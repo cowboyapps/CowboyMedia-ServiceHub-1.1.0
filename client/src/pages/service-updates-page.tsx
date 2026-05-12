@@ -231,7 +231,7 @@ export default function ServiceUpdatesPage() {
                             className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full shrink-0"
                             data-testid={`badge-group-count-${group.head.id}`}
                           >
-                            +{extraCount}
+                            +{extraCount} more
                           </span>
                         )}
                         <span className="text-muted-foreground/40 shrink-0">·</span>

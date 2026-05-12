@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { Activity, AlertTriangle, Bell, CheckCircle, Clock, Newspaper, Ticket } from "lucide-react";
-import type { Service, ServiceAlert, NewsStory, Ticket as TicketType, ServiceUpdate } from "@shared/schema";
+import type { Service, ServiceAlert, NewsStory, Ticket as TicketType } from "@shared/schema";
 import { format } from "date-fns";
 import { LazyImage } from "@/components/lazy-image";
 import { stripHtml } from "@/components/rich-text-editor";
@@ -50,11 +50,7 @@ export default function Dashboard() {
     queryKey: ["/api/tickets"],
   });
 
-  const { data: serviceUpdates, isLoading: serviceUpdatesLoading } = useQuery<ServiceUpdate[]>({
-    queryKey: ["/api/service-updates"],
-  });
-
-  const { data: contentNotifData } = useQuery<Record<string, number>>({
+  const { data: contentNotifData, isLoading: contentNotifLoading } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
     refetchInterval: 15000,
     enabled: !!user,
@@ -137,7 +133,7 @@ export default function Dashboard() {
                 <Bell className="w-5 h-5 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-2xl font-bold" data-testid="text-service-updates-count">{serviceUpdatesLoading ? "-" : newServiceUpdatesCount}</p>
+                <p className="text-2xl font-bold" data-testid="text-service-updates-count">{contentNotifLoading ? "-" : newServiceUpdatesCount}</p>
                 <p className="text-xs text-muted-foreground">New Updates</p>
               </div>
             </CardContent>
