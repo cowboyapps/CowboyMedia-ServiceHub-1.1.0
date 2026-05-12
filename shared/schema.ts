@@ -25,6 +25,8 @@ export const users = pgTable("users", {
   onboardingTourCompletedAt: timestamp("onboarding_tour_completed_at"),
   totpSecret: text("totp_secret"),
   totpEnabledAt: timestamp("totp_enabled_at"),
+  avatarUrl: text("avatar_url"),
+  bio: text("bio"),
 });
 
 export const totpBackupCodes = pgTable("totp_backup_codes", {
@@ -306,6 +308,11 @@ export const ticketTransfers = pgTable("ticket_transfers", {
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, emailNotifications: true });
+export const updateProfileSchema = z.object({
+  avatarUrl: z.string().max(500).nullable().optional(),
+  bio: z.string().max(280).nullable().optional(),
+});
+export type UpdateProfile = z.infer<typeof updateProfileSchema>;
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
 export const insertServiceAlertSchema = createInsertSchema(serviceAlerts).omit({ id: true, createdAt: true, resolvedAt: true });
 export const insertAlertUpdateSchema = createInsertSchema(alertUpdates).omit({ id: true, createdAt: true });

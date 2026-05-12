@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserProfileDialog } from "@/components/user-profile-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -40,7 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
 import { QuickResponsePicker } from "@/components/quick-response-picker";
 
-type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string };
+type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null };
 
 type OptimisticMessage = {
   id: string;
@@ -54,6 +55,7 @@ type OptimisticMessage = {
   status: "sending" | "failed";
   imageFile?: File;
   isInternal?: boolean;
+  senderAvatarUrl?: string | null;
 };
 
 function BouncingDots() {
@@ -167,6 +169,7 @@ export default function TicketDetail() {
   const [transferToAdminId, setTransferToAdminId] = useState("");
   const [transferReason, setTransferReason] = useState("");
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const [onlineViewers, setOnlineViewers] = useState<Map<string, string>>(new Map());
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
@@ -1391,15 +1394,30 @@ export default function TicketDetail() {
                       )}
                       {isInternal ? (
                         <div className="flex gap-2" data-testid={`message-${msg.id}`} data-internal="true">
-                          <Avatar className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 mt-0.5">
-                            <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
-                              {msg.senderName?.[0] || "A"}
-                            </AvatarFallback>
-                          </Avatar>
+                          <button
+                            type="button"
+                            onClick={() => setProfileUserId(msg.senderId)}
+                            className="flex-shrink-0 mt-0.5 rounded-full hover:opacity-80 transition-opacity"
+                            data-testid={`button-avatar-internal-${msg.id}`}
+                          >
+                            <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                              {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />}
+                              <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
+                                {msg.senderName?.[0] || "A"}
+                              </AvatarFallback>
+                            </Avatar>
+                          </button>
                           <div className="max-w-[90%] min-w-0 space-y-0.5 flex-1">
                             <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
                               <Lock className="w-3 h-3" />
-                              <p className="text-xs font-medium" data-testid={`text-chat-sender-${msg.id}`}>{displayName}</p>
+                              <button
+                                type="button"
+                                onClick={() => setProfileUserId(msg.senderId)}
+                                className="text-xs font-medium hover:underline underline-offset-2"
+                                data-testid={`text-chat-sender-${msg.id}`}
+                              >
+                                {displayName}
+                              </button>
                               <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
                             </div>
                             <div
@@ -1513,14 +1531,38 @@ export default function TicketDetail() {
                         </div>
                       ) : (
                       <div className={`flex gap-2 ${isMe ? "flex-row-reverse" : ""}`} data-testid={`message-${msg.id}`}>
-                        <Avatar className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 mt-0.5">
-                          <AvatarFallback className="text-xs">
-                            {isMe ? (user?.fullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
-                          </AvatarFallback>
-                        </Avatar>
+                        <button
+                          type="button"
+                          onClick={() => !isMe && setProfileUserId(msg.senderId)}
+                          disabled={isMe}
+                          className={`flex-shrink-0 mt-0.5 rounded-full ${isMe ? "" : "hover:opacity-80 transition-opacity"}`}
+                          data-testid={`button-avatar-msg-${msg.id}`}
+                        >
+                          <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                            {isMe ? (
+                              user?.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />
+                            ) : (
+                              msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />
+                            )}
+                            <AvatarFallback className="text-xs">
+                              {isMe ? (user?.fullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
+                            </AvatarFallback>
+                          </Avatar>
+                        </button>
                         <div className={`max-w-[80%] sm:max-w-[70%] min-w-0 space-y-0.5 ${isMe ? "items-end" : ""}`}>
                           <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
-                            <p className="text-xs font-medium">{displayName}</p>
+                            {isMe ? (
+                              <p className="text-xs font-medium">{displayName}</p>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setProfileUserId(msg.senderId)}
+                                className="text-xs font-medium hover:underline underline-offset-2"
+                                data-testid={`button-sender-name-${msg.id}`}
+                              >
+                                {displayName}
+                              </button>
+                            )}
                             {isAdminSender && !isMe && (
                               <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
                             )}
@@ -1972,6 +2014,11 @@ export default function TicketDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <UserProfileDialog
+        userId={profileUserId}
+        open={!!profileUserId}
+        onOpenChange={(o) => { if (!o) setProfileUserId(null); }}
+      />
     </div>
   );
 }

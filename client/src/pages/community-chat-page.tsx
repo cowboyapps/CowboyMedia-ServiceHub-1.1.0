@@ -4,7 +4,8 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserProfileDialog } from "@/components/user-profile-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -28,7 +29,7 @@ type AdminAction =
   | null;
 
 type ReactionGroup = { emoji: string; userIds: string[] };
-type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean };
+type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null };
 
 const EMOJI_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
 
@@ -650,6 +651,7 @@ export default function CommunityChatPage() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [adminAction, setAdminAction] = useState<AdminAction>(null);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -987,7 +989,20 @@ export default function CommunityChatPage() {
                       <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{formatDateSeparator(msgDate)}</span>
                     </div>
                   )}
-                  <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1`}>
+                  <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1 gap-2`}>
+                    {!isMe && (
+                      <button
+                        type="button"
+                        onClick={() => setProfileUserId(msg.userId)}
+                        className="flex-shrink-0 self-end mb-1 rounded-full hover:opacity-80 transition-opacity"
+                        data-testid={`button-avatar-${msg.id}`}
+                      >
+                        <Avatar className="w-7 h-7">
+                          {msg.avatarUrl && <AvatarImage src={msg.avatarUrl} alt={msg.chatUsername} />}
+                          <AvatarFallback className="text-[10px]">{msg.chatUsername?.[0]?.toUpperCase() || "?"}</AvatarFallback>
+                        </Avatar>
+                      </button>
+                    )}
                     <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
                       <div className={`rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                         <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
@@ -998,7 +1013,7 @@ export default function CommunityChatPage() {
                                 if (isAdminUser && !msgIsAdmin) {
                                   setAdminAction({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername });
                                 } else {
-                                  setAdminAction({ type: "reply-only", username: msg.chatUsername });
+                                  setProfileUserId(msg.userId);
                                 }
                               }}
                               data-testid={`button-username-${msg.id}`}
@@ -1158,6 +1173,11 @@ export default function CommunityChatPage() {
       )}
 
       <UsernameSetupDialog open={showUsernameDialog} onComplete={handleUsernameComplete} />
+      <UserProfileDialog
+        userId={profileUserId}
+        open={!!profileUserId}
+        onOpenChange={(o) => { if (!o) setProfileUserId(null); }}
+      />
       <MessageActionPopup
         action={adminAction}
         onClose={handleAdminClose}

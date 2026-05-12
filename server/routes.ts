@@ -39,7 +39,8 @@ import {
   composeNews as composeDiscordNews,
   composeDiscordTest,
 } from "./discord";
-import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement } from "@shared/schema";
+import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema } from "@shared/schema";
+import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
@@ -1170,6 +1171,72 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/auth/profile", requireAuth, async (req, res) => {
+    try {
+      const parsed = updateProfileSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid profile data" });
+      }
+      const data: Partial<{ avatarUrl: string | null; bio: string | null }> = {};
+      if (parsed.data.avatarUrl !== undefined) data.avatarUrl = parsed.data.avatarUrl ?? null;
+      if (parsed.data.bio !== undefined) {
+        const trimmed = parsed.data.bio == null ? null : parsed.data.bio.trim();
+        data.bio = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      const updated = await storage.updateUser(req.session.userId!, data);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(sanitizeUser(updated));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/auth/profile/avatar", requireAuth, upload.single("image"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No image provided" });
+      if (!req.file.mimetype.startsWith("image/")) {
+        return res.status(400).json({ message: "File must be an image" });
+      }
+      const url = await saveUploadedFile(req.file);
+      const updated = await storage.updateUser(req.session.userId!, { avatarUrl: url });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json({ url, user: sanitizeUser(updated) });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/users/:id/profile", requireAuth, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const viewer = await storage.getUser(req.session.userId!);
+      const viewerIsAdmin = viewer?.role === "admin" || viewer?.role === "master_admin";
+      const targetTickets = await storage.getTicketsByCustomer(target.id);
+      const stats = {
+        ticketCount: targetTickets.length,
+        accountAgeDays: computeAccountAgeDays(target.createdAt),
+      };
+      const badges = computeUserBadges(
+        { role: target.role, email: target.email, createdAt: target.createdAt },
+        stats,
+      );
+      const isSelf = viewer?.id === target.id;
+      res.json({
+        id: target.id,
+        fullName: viewerIsAdmin || isSelf ? target.fullName : (target.chatUsername || target.fullName),
+        chatUsername: target.chatUsername || null,
+        avatarUrl: target.avatarUrl || null,
+        bio: target.bio || null,
+        memberSince: target.createdAt,
+        badges,
+        ticketCount: stats.ticketCount,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/admin/users/:id/reset-notification-prefs", requirePermission("users.view", "users.manage"), async (req, res) => {
     try {
       const target = await storage.getUser(req.params.id);
@@ -1909,30 +1976,32 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await storage.markTicketMessagesRead(req.params.id, user.id);
         const updatedMessages = await storage.getTicketMessages(req.params.id, false);
         const senderIds = [...new Set(updatedMessages.map(m => m.senderId))];
-        const senderMap = new Map<string, { name: string; role: string }>();
+        const senderMap = new Map<string, { name: string; role: string; avatarUrl: string | null }>();
         await Promise.all(senderIds.map(async (id) => {
           const sender = await storage.getUser(id);
-          if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role });
+          if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role, avatarUrl: sender.avatarUrl || null });
         }));
         const enriched = updatedMessages.map(m => ({
           ...m,
           senderName: senderMap.get(m.senderId)?.name || "Unknown",
           senderRole: senderMap.get(m.senderId)?.role || "customer",
+          senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
         }));
         broadcast({ type: "ticket_messages_read", ticketId: req.params.id, readBy: user.id });
         return res.json(enriched);
       }
     }
     const senderIds = [...new Set(messages.map(m => m.senderId))];
-    const senderMap = new Map<string, { name: string; role: string }>();
+    const senderMap = new Map<string, { name: string; role: string; avatarUrl: string | null }>();
     await Promise.all(senderIds.map(async (id) => {
       const sender = await storage.getUser(id);
-      if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role });
+      if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role, avatarUrl: sender.avatarUrl || null });
     }));
     const enriched = messages.map(m => ({
       ...m,
       senderName: senderMap.get(m.senderId)?.name || "Unknown",
       senderRole: senderMap.get(m.senderId)?.role || "customer",
+      senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
     }));
     res.json(enriched);
   });
@@ -4618,15 +4687,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         else reactionsByMessage[r.messageId].push({ emoji: r.emoji, userIds: [r.userId] });
       }
       const userIds = [...new Set(messages.map(m => m.userId))];
-      const usersMap = new Map<string, { role: string }>();
+      const usersMap = new Map<string, { role: string; avatarUrl: string | null }>();
       for (const uid of userIds) {
         const u = await storage.getUser(uid);
-        if (u) usersMap.set(uid, { role: u.role });
+        if (u) usersMap.set(uid, { role: u.role, avatarUrl: u.avatarUrl || null });
       }
       const enriched = messages.map(m => ({
         ...m,
         reactions: reactionsByMessage[m.id] || [],
         isAdmin: ["admin", "master_admin"].includes(usersMap.get(m.userId)?.role || ""),
+        avatarUrl: usersMap.get(m.userId)?.avatarUrl || null,
       }));
       enriched.reverse();
       res.json(enriched);

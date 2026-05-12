@@ -113,6 +113,18 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+  } catch (e) {
+    console.error("Migration error (users.avatar_url):", e);
+  }
+
+  try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+  } catch (e) {
+    console.error("Migration error (users.bio):", e);
+  }
+
+  try {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS community_messages (
       id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id VARCHAR NOT NULL,

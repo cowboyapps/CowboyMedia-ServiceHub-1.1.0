@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut } from "lucide-react";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
@@ -44,6 +45,157 @@ type SessionRow = {
   expire: string | null;
   current: boolean;
 };
+
+function ProfileEditorCard({ user }: { user: { id: string; fullName: string; avatarUrl: string | null; bio: string | null } }) {
+  const { toast } = useToast();
+  const [bio, setBio] = useState(user.bio || "");
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    setBio(user.bio || "");
+  }, [user.bio]);
+
+  const saveBioMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/auth/profile", { bio });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Profile updated" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Update failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/auth/profile", { avatarUrl: null });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Avatar removed" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Remove failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const handleAvatarFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please choose an image.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image too large", description: "Maximum 5MB.", variant: "destructive" });
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await fetch("/api/auth/profile/avatar", { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Upload failed");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Avatar updated" });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const remaining = 280 - bio.length;
+  const dirty = (user.bio || "") !== bio.trim();
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <User className="w-4 h-4" /> Profile
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-4">
+          <Avatar className="w-16 h-16">
+            {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />}
+            <AvatarFallback className="text-lg">{user.fullName[0]}</AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col gap-1.5">
+            <label>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={uploading}
+                data-testid="input-avatar-file"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleAvatarFile(f);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={uploading}
+                data-testid="button-upload-avatar"
+                asChild
+              >
+                <span className="cursor-pointer">
+                  <ImagePlus className="w-3.5 h-3.5 mr-1.5" />
+                  {uploading ? "Uploading..." : user.avatarUrl ? "Change avatar" : "Upload avatar"}
+                </span>
+              </Button>
+            </label>
+            {user.avatarUrl && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                onClick={() => removeAvatarMutation.mutate()}
+                disabled={removeAvatarMutation.isPending}
+                data-testid="button-remove-avatar"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Remove
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="profile-bio">Bio</Label>
+          <Textarea
+            id="profile-bio"
+            value={bio}
+            onChange={(e) => setBio(e.target.value.slice(0, 280))}
+            placeholder="Tell others a little about yourself..."
+            rows={3}
+            data-testid="input-profile-bio"
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">{remaining} characters left</p>
+            <Button
+              size="sm"
+              onClick={() => saveBioMutation.mutate()}
+              disabled={saveBioMutation.isPending || !dirty}
+              data-testid="button-save-bio"
+            >
+              {saveBioMutation.isPending ? "Saving..." : "Save bio"}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function ActiveSessionsCard() {
   const { toast } = useToast();
@@ -335,6 +487,7 @@ export default function SettingsPage() {
       <Card>
         <CardContent className="flex items-center gap-4 p-6">
           <Avatar className="w-16 h-16">
+            {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />}
             <AvatarFallback className="text-lg">{user.fullName[0]}</AvatarFallback>
           </Avatar>
           <div className="space-y-0.5">
@@ -349,6 +502,9 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ProfileEditorCard user={user} />
+      
 
       {installPrompt && (
         <Card>
