@@ -13,6 +13,37 @@ import { groupServiceUpdates, type ServiceUpdateGroup } from "@shared/group-serv
 
 type Group = ServiceUpdateGroup<ServiceUpdate>;
 
+function FilterChip({
+  active,
+  onClick,
+  children,
+  testId,
+  size = "default",
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  testId: string;
+  size?: "default" | "sm";
+}) {
+  const sizeClasses = size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1 text-xs";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      data-testid={testId}
+      className={`${sizeClasses} rounded-full border transition-colors tap-interactive ${
+        active
+          ? "bg-primary text-primary-foreground border-primary"
+          : "bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function ServiceUpdatesPage() {
   const { user, isAdmin } = useAuth();
   const { toast } = useToast();
@@ -20,6 +51,27 @@ export default function ServiceUpdatesPage() {
   const [unlockedUpdates, setUnlockedUpdates] = useState<Set<string>>(new Set());
   const [pendingUnlock, setPendingUnlock] = useState<string | null>(null);
   const [pendingAdminDelete, setPendingAdminDelete] = useState<string | null>(null);
+  const [serviceFilter, setServiceFilter] = useState<string>(() => {
+    if (typeof window === "undefined") return "all";
+    return window.sessionStorage.getItem("service-updates:service-filter") || "all";
+  });
+  const [timeFilter, setTimeFilter] = useState<"today" | "7d" | "30d" | "all">(() => {
+    if (typeof window === "undefined") return "all";
+    const v = window.sessionStorage.getItem("service-updates:time-filter");
+    return v === "today" || v === "7d" || v === "30d" || v === "all" ? v : "all";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("service-updates:service-filter", serviceFilter);
+    }
+  }, [serviceFilter]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("service-updates:time-filter", timeFilter);
+    }
+  }, [timeFilter]);
 
   const markUpdatesRead = useCallback(() => {
     apiRequest("POST", "/api/content-notifications/mark-read", { category: "service-updates" })
@@ -77,7 +129,54 @@ export default function ServiceUpdatesPage() {
     return update.matureContent && !isAdmin && !unlockedUpdates.has(update.id);
   };
 
-  const groups = useMemo<Group[]>(() => groupServiceUpdates(updates), [updates]);
+  const timeRangeMs = useMemo(() => {
+    switch (timeFilter) {
+      case "today": return 24 * 60 * 60 * 1000;
+      case "7d": return 7 * 24 * 60 * 60 * 1000;
+      case "30d": return 30 * 24 * 60 * 60 * 1000;
+      default: return null;
+    }
+  }, [timeFilter]);
+
+  const filteredUpdates = useMemo(() => {
+    if (!updates) return [];
+    const now = Date.now();
+    return updates.filter(u => {
+      if (serviceFilter !== "all" && u.serviceId !== serviceFilter) return false;
+      if (timeRangeMs !== null) {
+        const t = new Date(u.createdAt).getTime();
+        if (now - t > timeRangeMs) return false;
+      }
+      return true;
+    });
+  }, [updates, serviceFilter, timeRangeMs]);
+
+  const availableServices = useMemo(() => {
+    if (!services || !updates) return [];
+    const ids = new Set(updates.map(u => u.serviceId));
+    return services.filter(s => ids.has(s.id));
+  }, [services, updates]);
+
+  const groups = useMemo<Group[]>(() => groupServiceUpdates(filteredUpdates), [filteredUpdates]);
+
+  const timeRangeLabels: Record<typeof timeFilter, string> = {
+    today: "today",
+    "7d": "in the last 7 days",
+    "30d": "in the last 30 days",
+    all: "",
+  };
+
+  const emptyMessage = (() => {
+    if (!updates || updates.length === 0) return "No service updates yet";
+    const svcLabel = serviceFilter === "all"
+      ? "any service"
+      : (services?.find(s => s.id === serviceFilter)?.name || "this service");
+    const timeLabel = timeRangeLabels[timeFilter];
+    if (serviceFilter === "all" && timeFilter === "all") return "No service updates yet";
+    if (serviceFilter === "all") return `No updates ${timeLabel}`;
+    if (timeFilter === "all") return `No updates from ${svcLabel}`;
+    return `No updates from ${svcLabel} ${timeLabel}`;
+  })();
 
   const toggleGroup = (group: Group) => {
     if (group.items.length === 1 && isMatureHidden(group.head) && !expandedGroups.has(group.key)) {
@@ -122,6 +221,48 @@ export default function ServiceUpdatesPage() {
         <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
         <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
       </div>
+
+      {(updates?.length ?? 0) > 0 && (
+        <div className="space-y-2" data-testid="filters-service-updates">
+          <div className="flex flex-wrap gap-1.5" data-testid="filter-chips-services">
+            <FilterChip
+              active={serviceFilter === "all"}
+              onClick={() => setServiceFilter("all")}
+              testId="chip-service-all"
+            >
+              All services
+            </FilterChip>
+            {availableServices.map(s => (
+              <FilterChip
+                key={s.id}
+                active={serviceFilter === s.id}
+                onClick={() => setServiceFilter(s.id)}
+                testId={`chip-service-${s.id}`}
+              >
+                {s.name}
+              </FilterChip>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5" data-testid="filter-chips-time">
+            {([
+              { v: "today", label: "Today" },
+              { v: "7d", label: "7 days" },
+              { v: "30d", label: "30 days" },
+              { v: "all", label: "All" },
+            ] as const).map(opt => (
+              <FilterChip
+                key={opt.v}
+                active={timeFilter === opt.v}
+                onClick={() => setTimeFilter(opt.v)}
+                testId={`chip-time-${opt.v}`}
+                size="sm"
+              >
+                {opt.label}
+              </FilterChip>
+            ))}
+          </div>
+        </div>
+      )}
 
       <AlertDialog open={!!pendingUnlock} onOpenChange={(open) => { if (!open) setPendingUnlock(null); }}>
         <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm" data-testid="dialog-mature-warning">
@@ -197,7 +338,7 @@ export default function ServiceUpdatesPage() {
       {groups.length === 0 ? (
         <div className="flex items-center gap-3 py-6 text-muted-foreground">
           <Bell className="w-5 h-5 opacity-50" />
-          <p className="text-sm" data-testid="text-no-updates">No service updates yet</p>
+          <p className="text-sm" data-testid="text-no-updates">{emptyMessage}</p>
         </div>
       ) : (
         <div className="relative">
