@@ -36,6 +36,7 @@ import {
   type UserNotification, type InsertUserNotification,
   type CommunityMessage, type InsertCommunityMessage,
   type CommunityReaction, type InsertCommunityReaction,
+  type NewsReaction,
   type ChatWordFilter,
   type TelegramSettings,
   discordSettings,
@@ -50,7 +51,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -325,6 +326,9 @@ export interface IStorage {
   deleteCommunityMessage(id: string): Promise<void>;
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
   toggleCommunityReaction(messageId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
+  getNewsReactions(storyIds: string[]): Promise<NewsReaction[]>;
+  getNewsReactionsForStory(storyId: string): Promise<NewsReaction[]>;
+  toggleNewsReaction(storyId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
   isChatUsernameTaken(chatUsername: string, excludeUserId?: string): Promise<boolean>;
 
   getAllWordFilters(): Promise<ChatWordFilter[]>;
@@ -508,6 +512,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteNewsStory(id: string): Promise<void> {
+    await db.delete(newsReactions).where(eq(newsReactions.storyId, id));
     await db.delete(newsStories).where(eq(newsStories.id, id));
   }
 
@@ -1500,6 +1505,33 @@ export class DatabaseStorage implements IStorage {
     }
     await db.insert(communityReactions).values({ messageId, userId, emoji });
     return { added: true };
+  }
+
+  async getNewsReactions(storyIds: string[]): Promise<NewsReaction[]> {
+    if (storyIds.length === 0) return [];
+    return db.select().from(newsReactions)
+      .where(inArray(newsReactions.storyId, storyIds));
+  }
+
+  async getNewsReactionsForStory(storyId: string): Promise<NewsReaction[]> {
+    return db.select().from(newsReactions).where(eq(newsReactions.storyId, storyId));
+  }
+
+  async toggleNewsReaction(storyId: string, userId: string, emoji: string): Promise<{ added: boolean }> {
+    // Atomic toggle: try to insert; if a row already exists for (story, user, emoji),
+    // the unique index causes ON CONFLICT DO NOTHING to return zero rows, in which case
+    // we delete the existing row. This avoids races between read-then-write tabs.
+    const inserted = await db.insert(newsReactions)
+      .values({ storyId, userId, emoji })
+      .onConflictDoNothing({ target: [newsReactions.storyId, newsReactions.userId, newsReactions.emoji] })
+      .returning({ id: newsReactions.id });
+    if (inserted.length > 0) return { added: true };
+    await db.delete(newsReactions).where(and(
+      eq(newsReactions.storyId, storyId),
+      eq(newsReactions.userId, userId),
+      eq(newsReactions.emoji, emoji),
+    ));
+    return { added: false };
   }
 
   async isChatUsernameTaken(chatUsername: string, excludeUserId?: string): Promise<boolean> {

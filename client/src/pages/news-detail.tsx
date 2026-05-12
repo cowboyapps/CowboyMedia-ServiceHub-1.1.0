@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import { ArrowLeft, Calendar } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
 import { isHtmlContent } from "@/components/rich-text-editor";
+import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import DOMPurify from "dompurify";
 import type { NewsStory } from "@shared/schema";
 
@@ -78,6 +79,8 @@ export default function NewsDetail() {
           )}
         </CardContent>
       </Card>
+
+      <NewsReactionsBar storyId={story.id} source="detail" />
     </div>
   );
 }

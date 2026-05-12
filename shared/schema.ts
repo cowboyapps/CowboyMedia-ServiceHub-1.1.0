@@ -581,6 +581,21 @@ export const insertCommunityReactionSchema = createInsertSchema(communityReactio
 export type InsertCommunityReaction = z.infer<typeof insertCommunityReactionSchema>;
 export type CommunityReaction = typeof communityReactions.$inferSelect;
 
+export const NEWS_REACTION_EMOJIS = ["👍", "❤️", "🎉", "🤔", "😄"] as const;
+export type NewsReactionEmoji = typeof NEWS_REACTION_EMOJIS[number];
+
+export const newsReactions = pgTable("news_reactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storyId: varchar("story_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  emoji: text("emoji").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertNewsReactionSchema = createInsertSchema(newsReactions).omit({ id: true, createdAt: true });
+export type InsertNewsReaction = z.infer<typeof insertNewsReactionSchema>;
+export type NewsReaction = typeof newsReactions.$inferSelect;
+
 // Chat word filters
 export const chatWordFilters = pgTable("chat_word_filters", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

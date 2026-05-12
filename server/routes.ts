@@ -1228,6 +1228,67 @@ export async function registerRoutes(
     res.json(story);
   });
 
+  function aggregateNewsReactions(rows: { emoji: string; userId: string }[], userId: string) {
+    const map = new Map<string, { emoji: string; count: number; mine: boolean }>();
+    for (const r of rows) {
+      const g = map.get(r.emoji) ?? { emoji: r.emoji, count: 0, mine: false };
+      g.count += 1;
+      if (r.userId === userId) g.mine = true;
+      map.set(r.emoji, g);
+    }
+    return Array.from(map.values());
+  }
+
+  app.get("/api/news/reactions/all", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const stories = await storage.getAllNews();
+      const rows = await storage.getNewsReactions(stories.map(s => s.id));
+      const byStory: Record<string, { emoji: string; userId: string }[]> = {};
+      for (const r of rows) {
+        (byStory[r.storyId] ||= []).push({ emoji: r.emoji, userId: r.userId });
+      }
+      const result: Record<string, { emoji: string; count: number; mine: boolean }[]> = {};
+      for (const id of Object.keys(byStory)) {
+        result[id] = aggregateNewsReactions(byStory[id], userId);
+      }
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/news/:id/reactions", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const rows = await storage.getNewsReactionsForStory(req.params.id);
+      res.json(aggregateNewsReactions(rows, userId));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/news/:id/reactions", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { emoji } = req.body ?? {};
+      if (!emoji || typeof emoji !== "string") {
+        return res.status(400).json({ error: "Emoji is required" });
+      }
+      const allowed: readonly string[] = ["👍", "❤️", "🎉", "🤔", "😄"];
+      if (!allowed.includes(emoji)) {
+        return res.status(400).json({ error: "Invalid emoji" });
+      }
+      const story = await storage.getNewsStory(req.params.id);
+      if (!story) return res.status(404).json({ error: "Story not found" });
+      const result = await storage.toggleNewsReaction(req.params.id, userId, emoji);
+      const rows = await storage.getNewsReactionsForStory(req.params.id);
+      res.json({ ...result, reactions: aggregateNewsReactions(rows, userId) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Tickets
   app.get("/api/tickets", requireAuth, async (req, res) => {
     const user = await storage.getUser(req.session.userId!);

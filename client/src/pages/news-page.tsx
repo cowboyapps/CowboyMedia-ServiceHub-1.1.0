@@ -8,6 +8,7 @@ import { Newspaper, ChevronRight } from "lucide-react";
 import { LazyImage } from "@/components/lazy-image";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { stripHtml } from "@/components/rich-text-editor";
+import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import type { NewsStory } from "@shared/schema";
 
 export default function NewsPage() {
@@ -83,6 +84,9 @@ export default function NewsPage() {
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(story.createdAt), "MMMM d, yyyy")}
                     </p>
+                    <div className="pt-1">
+                      <NewsReactionsBar storyId={story.id} source="list" />
+                    </div>
                   </div>
                   <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 self-center" />
                 </CardContent>

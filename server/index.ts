@@ -137,6 +137,27 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS news_reactions (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      story_id VARCHAR NOT NULL,
+      user_id VARCHAR NOT NULL,
+      emoji TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_news_reactions_story_id ON news_reactions (story_id)`);
+    // De-dupe any pre-existing rows before adding the unique index (safe no-op when none exist)
+    await db.execute(sql`DELETE FROM news_reactions a USING news_reactions b
+      WHERE a.ctid < b.ctid
+        AND a.story_id = b.story_id
+        AND a.user_id  = b.user_id
+        AND a.emoji    = b.emoji`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_news_reactions_story_user_emoji
+      ON news_reactions (story_id, user_id, emoji)`);
+  } catch (e) {
+    console.error("Migration error (news_reactions):", e);
+  }
+
+  try {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_word_filters (
       id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
       word TEXT NOT NULL UNIQUE,
