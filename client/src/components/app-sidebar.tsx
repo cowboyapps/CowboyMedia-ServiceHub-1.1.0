@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
+import { APP_VERSION } from "@shared/version";
 
 const categoryMap: Record<string, string> = {
   "Services": "services",
@@ -192,7 +193,7 @@ export function AppSidebar() {
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground/60 text-center" data-testid="text-sidebar-version">Version 5.0</p>
+        <p className="text-[10px] text-muted-foreground/60 text-center" data-testid="text-sidebar-version">Version {APP_VERSION}</p>
       </SidebarFooter>
     </Sidebar>
   );

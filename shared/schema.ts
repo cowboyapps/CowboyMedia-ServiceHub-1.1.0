@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   quietHoursEnd: text("quiet_hours_end").notNull().default("07:00"),
   quietHoursTimezone: text("quiet_hours_timezone").notNull().default("UTC"),
   quietHoursAllowCritical: boolean("quiet_hours_allow_critical").notNull().default(true),
+  lastVersionWelcomeSeen: text("last_version_welcome_seen"),
 });
 
 export const totpBackupCodes = pgTable("totp_backup_codes", {

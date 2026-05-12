@@ -132,6 +132,12 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_version_welcome_seen TEXT`);
+  } catch (e) {
+    console.error("Migration error (users.last_version_welcome_seen):", e);
+  }
+
+  try {
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_start TEXT NOT NULL DEFAULT '22:00'`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_end TEXT NOT NULL DEFAULT '07:00'`);

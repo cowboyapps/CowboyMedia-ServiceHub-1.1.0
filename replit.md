@@ -68,7 +68,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 I prefer detailed explanations.
 I want iterative development.
 Ask before making major changes.
-When the user says "change the version to...", update the version string in `client/src/pages/settings-page.tsx`, `client/src/components/app-sidebar.tsx`, and `client/src/components/bottom-nav.tsx` without further explanation.
+When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, bottom nav, and the welcome popup all read from it) without further explanation.
 
 ## Gotchas
 

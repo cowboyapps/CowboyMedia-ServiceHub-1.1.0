@@ -1177,6 +1177,20 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/users/me/version-welcome-seen", requireAuth, async (req, res) => {
+    try {
+      const { version } = req.body || {};
+      if (typeof version !== "string" || !version.trim()) {
+        return res.status(400).json({ message: "version required" });
+      }
+      const updated = await storage.updateUser(req.session.userId!, { lastVersionWelcomeSeen: version.trim() });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(sanitizeUser(updated));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.patch("/api/auth/onboarding-complete", requireAuth, async (req, res) => {
     try {
       const updated = await storage.updateUser(req.session.userId!, { onboardingTourCompletedAt: new Date() });

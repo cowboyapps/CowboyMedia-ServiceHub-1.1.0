@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
+import { APP_VERSION } from "@shared/version";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme-provider";
@@ -789,7 +791,12 @@ export default function SettingsPage() {
       )}
 
       <p className="text-center text-xs text-muted-foreground mt-6 mb-1" data-testid="text-app-version">
-        Version 5.0
+        Version {APP_VERSION}
+      </p>
+      <p className="text-center text-xs mb-1">
+        <Link href="/whats-new" className="text-primary hover:underline" data-testid="link-whats-new">
+          What&apos;s new in this version
+        </Link>
       </p>
       <p className="text-center text-xs text-muted-foreground mb-2" data-testid="text-developed-by">
         Developed by CowboyApps

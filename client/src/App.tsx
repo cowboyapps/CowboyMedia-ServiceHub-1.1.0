@@ -57,6 +57,8 @@ import PublicStatusPage from "@/pages/public-status-page";
 import PublicIncidentPage from "@/pages/public-incident-page";
 import CommunityChatPage from "@/pages/community-chat-page";
 import KnowledgePage from "@/pages/knowledge-page";
+import WhatsNewPage from "@/pages/whats-new-page";
+import { VersionWelcomeDialog } from "@/components/version-welcome-dialog";
 
 function getRouteDepth(path: string): number {
   if (path === "/") return 0;
@@ -112,6 +114,7 @@ function AppRouter() {
         <Route path="/community" component={CommunityChatPage} />
         <Route path="/knowledge" component={KnowledgePage} />
         <Route path="/knowledge/:slug" component={KnowledgePage} />
+        <Route path="/whats-new" component={WhatsNewPage} />
         <Route path="/admin">
           <Suspense fallback={<div className="p-6 space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>}>
             <AdminPortal />
@@ -1026,6 +1029,7 @@ function AppContent() {
       <CommandPalette />
       {isAdmin && <TicketTransferPopup />}
       <WelcomeDialog />
+      <VersionWelcomeDialog />
       <SetupReminderDialog />
       <PrivateMessagePopup />
       <AnnouncementPopup />

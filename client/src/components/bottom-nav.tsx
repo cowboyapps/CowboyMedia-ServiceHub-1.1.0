@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { APP_VERSION } from "@shared/version";
 
 export function BottomNav() {
   const isMobile = useIsMobile();
@@ -206,7 +207,7 @@ export function BottomNav() {
                 <LogOut className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
-            <p className="text-[10px] text-muted-foreground/60 text-center mt-3" data-testid="text-sheet-version">Version 5.0</p>
+            <p className="text-[10px] text-muted-foreground/60 text-center mt-3" data-testid="text-sheet-version">Version {APP_VERSION}</p>
           </div>
         </SheetContent>
       </Sheet>
