@@ -8,7 +8,7 @@ import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { db } from "./db";
-import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications } from "@shared/schema";
+import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
@@ -1275,8 +1275,7 @@ export async function registerRoutes(
       if (!emoji || typeof emoji !== "string") {
         return res.status(400).json({ error: "Emoji is required" });
       }
-      const allowed: readonly string[] = ["👍", "❤️", "🎉", "🤔", "😄"];
-      if (!allowed.includes(emoji)) {
+      if (!(NEWS_REACTION_EMOJIS as readonly string[]).includes(emoji)) {
         return res.status(400).json({ error: "Invalid emoji" });
       }
       const story = await storage.getNewsStory(req.params.id);

@@ -1659,6 +1659,10 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
     queryKey: ["/api/news"],
   });
 
+  const { data: reactionsByStory } = useQuery<Record<string, { emoji: string; count: number; mine: boolean }[]>>({
+    queryKey: ["/api/news/reactions/all"],
+  });
+
   const form = useForm({
     resolver: zodResolver(createNewsSchema),
     defaultValues: { title: "", content: "" },
@@ -1788,9 +1792,35 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
                   {story.imageUrl && (
                     <img src={story.imageUrl} alt="" loading="lazy" decoding="async" width={64} height={48} className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
                   )}
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     <h4 className="font-semibold text-sm">{story.title}</h4>
                     <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(story.content)}</p>
+                    {(() => {
+                      const groups = reactionsByStory?.[story.id] ?? [];
+                      const total = groups.reduce((sum, g) => sum + g.count, 0);
+                      if (total === 0) {
+                        return (
+                          <p className="text-xs text-muted-foreground" data-testid={`text-admin-news-reactions-${story.id}`}>
+                            No reactions yet
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5" data-testid={`text-admin-news-reactions-${story.id}`}>
+                          {groups.map((g) => (
+                            <span
+                              key={g.emoji}
+                              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 text-xs text-muted-foreground"
+                              data-testid={`text-admin-news-reaction-${story.id}-${g.emoji}`}
+                            >
+                              <span aria-hidden>{g.emoji}</span>
+                              <span className="tabular-nums">{g.count}</span>
+                            </span>
+                          ))}
+                          <span className="text-xs text-muted-foreground">· {total} total</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
                 {canManage && <div className="flex gap-1 flex-shrink-0">
