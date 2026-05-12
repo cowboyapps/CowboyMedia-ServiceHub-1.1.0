@@ -113,6 +113,13 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled_at TIMESTAMP`);
+  } catch (e) {
+    console.error("Migration error (users.totp_*):", e);
+  }
+
+  try {
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
   } catch (e) {
     console.error("Migration error (users.avatar_url):", e);
