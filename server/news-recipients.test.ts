@@ -71,3 +71,53 @@ test("selectNewsInAppRecipients returns every user id regardless of prefs", () =
   ];
   assert.deepEqual(selectNewsInAppRecipients(users).sort(), ["a1", "c1"]);
 });
+
+function withQuietHours<T extends Record<string, any>>(u: T, qh: {
+  enabled?: boolean;
+  start?: string;
+  end?: string;
+  timezone?: string;
+  allowCritical?: boolean;
+}): T {
+  return {
+    ...u,
+    quietHoursEnabled: qh.enabled ?? true,
+    quietHoursStart: qh.start ?? "00:00",
+    quietHoursEnd: qh.end ?? "23:59",
+    quietHoursTimezone: qh.timezone ?? "UTC",
+    quietHoursAllowCritical: qh.allowCritical ?? true,
+  };
+}
+
+test("selectNewsPushRecipients excludes users currently in quiet hours", () => {
+  // 00:00–23:59 UTC effectively covers any "now"; user is always in quiet hours.
+  const users = [
+    user("c1", "customer", "c1@x.com"),
+    withQuietHours(user("c2", "customer", "c2@x.com"), {}),
+  ];
+  const ids = selectNewsPushRecipients(users).map((u) => u.id);
+  assert.deepEqual(ids.sort(), ["c1"]);
+});
+
+test("selectNewsEmailRecipients excludes users currently in quiet hours", () => {
+  const users = [
+    user("c1", "customer", "c1@x.com"),
+    withQuietHours(user("c2", "customer", "c2@x.com"), {}),
+  ];
+  assert.deepEqual(selectNewsEmailRecipients(users), ["c1@x.com"]);
+});
+
+test("news quiet-hours suppression is NOT bypassed by allowCritical (only service_alert critical bypasses)", () => {
+  const users = [
+    withQuietHours(user("c1", "customer", "c1@x.com"), { allowCritical: true }),
+  ];
+  assert.deepEqual(selectNewsPushRecipients(users), []);
+  assert.deepEqual(selectNewsEmailRecipients(users), []);
+});
+
+test("selectNewsInAppRecipients still includes users in quiet hours", () => {
+  const users = [
+    withQuietHours(user("c1", "customer", "c1@x.com"), {}),
+  ];
+  assert.deepEqual(selectNewsInAppRecipients(users), ["c1"]);
+});

@@ -27,6 +27,11 @@ export const users = pgTable("users", {
   totpEnabledAt: timestamp("totp_enabled_at"),
   avatarUrl: text("avatar_url"),
   bio: text("bio"),
+  quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(false),
+  quietHoursStart: text("quiet_hours_start").notNull().default("22:00"),
+  quietHoursEnd: text("quiet_hours_end").notNull().default("07:00"),
+  quietHoursTimezone: text("quiet_hours_timezone").notNull().default("UTC"),
+  quietHoursAllowCritical: boolean("quiet_hours_allow_critical").notNull().default(true),
 });
 
 export const totpBackupCodes = pgTable("totp_backup_codes", {
@@ -667,6 +672,16 @@ export const updateBusinessHoursSchema = z.object({
 });
 
 export type UpdateBusinessHoursData = z.infer<typeof updateBusinessHoursSchema>;
+
+export const updateQuietHoursSchema = z.object({
+  enabled: z.boolean().optional(),
+  start: z.string().regex(HHMM_RE, "Use HH:MM 24-hour format").optional(),
+  end: z.string().regex(HHMM_RE, "Use HH:MM 24-hour format").optional(),
+  timezone: z.string().min(1).max(64).optional(),
+  allowCritical: z.boolean().optional(),
+});
+
+export type UpdateQuietHoursData = z.infer<typeof updateQuietHoursSchema>;
 
 // Telegram settings (admin PATCH)
 export const updateTelegramSettingsSchema = z.object({

@@ -20,6 +20,7 @@ import { formatDistanceToNow } from "date-fns";
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
 import { countEnabledGroups, getCategoriesForRole, type AppRole, type NotificationPrefs } from "@shared/notification-categories";
+import { isInQuietHours, type QuietHoursUser } from "@shared/quiet-hours";
 import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
 import { TwoFactorSecurityCard } from "@/components/two-factor-security";
 import {
@@ -644,12 +645,25 @@ export default function SettingsPage() {
             const visible = getCategoriesForRole((user?.role as AppRole) || "customer");
             const pushSummary = countEnabledGroups(prefs, "push", visible);
             const emailSummary = countEnabledGroups(prefs, "email", visible);
+            const qhUser = user as QuietHoursUser;
+            const quietActive = isInQuietHours(qhUser);
+            const quietSummary = qhUser?.quietHoursEnabled
+              ? `${qhUser.quietHoursStart || "22:00"}–${qhUser.quietHoursEnd || "07:00"} ${qhUser.quietHoursTimezone || "UTC"}`
+              : "Off";
             return (
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Notification preferences</p>
                   <p className="text-xs text-muted-foreground">
                     Push {pushSummary.enabled}/{pushSummary.total} groups · Email {emailSummary.enabled}/{emailSummary.total} groups
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-quiet-hours-summary">
+                    Quiet hours: {quietSummary}
+                    {quietActive && (
+                      <span className="ml-1.5 inline-flex items-center rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium" data-testid="badge-settings-quiet-active">
+                        Active now
+                      </span>
+                    )}
                   </p>
                 </div>
                 <Button

@@ -125,6 +125,16 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_start TEXT NOT NULL DEFAULT '22:00'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_end TEXT NOT NULL DEFAULT '07:00'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_timezone TEXT NOT NULL DEFAULT 'UTC'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_allow_critical BOOLEAN NOT NULL DEFAULT TRUE`);
+  } catch (e) {
+    console.error("Migration error (users.quiet_hours_*):", e);
+  }
+
+  try {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS community_messages (
       id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id VARCHAR NOT NULL,

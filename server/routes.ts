@@ -43,6 +43,8 @@ import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnounce
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
+import { shouldSuppressNotification } from "@shared/quiet-hours";
+import { updateQuietHoursSchema } from "@shared/schema";
 import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
 import { buildPushPayload } from "./push-payload";
 import type { User } from "@shared/schema";
@@ -85,23 +87,31 @@ function isAdminRole(role: string | null | undefined): boolean {
   return role === "admin" || role === "master_admin";
 }
 
-function customerWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
+type NotifUser = Pick<User, "role" | "notificationPrefs"> & Partial<Pick<User, "quietHoursEnabled" | "quietHoursStart" | "quietHoursEnd" | "quietHoursTimezone" | "quietHoursAllowCritical">>;
+
+function customerWantsPush(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
   if (!user) return false;
-  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push");
+  if (!userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push")) return false;
+  if (shouldSuppressNotification({ user, categoryKey, severity })) return false;
+  return true;
 }
 
-function customerWantsEmail(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
+function customerWantsEmail(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
   if (!user) return false;
-  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "email");
+  if (!userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "email")) return false;
+  if (shouldSuppressNotification({ user, categoryKey, severity })) return false;
+  return true;
 }
 
-function adminWantsPush(user: Pick<User, "role" | "notificationPrefs"> | null | undefined, categoryKey: string): boolean {
+function adminWantsPush(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
   if (!user) return false;
   if (user.role !== "admin" && user.role !== "master_admin") return false;
   const cat = getNotificationCategory(categoryKey);
   if (!cat) return false;
   if (!isCategoryVisibleToRole(cat, user.role as AppRole)) return false;
-  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push");
+  if (!userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push")) return false;
+  if (shouldSuppressNotification({ user, categoryKey, severity })) return false;
+  return true;
 }
 
 const sanitizeNewsContent = (html: string): string =>
@@ -725,6 +735,7 @@ export async function registerRoutes(
       const allUsers = await storage.getAllUsers();
       const admins = allUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support");
       for (const admin of admins) {
+        if (shouldSuppressNotification({ user: admin, categoryKey: "admin_new_signup" })) continue;
         sendPushToUser(admin.id, {
           title: "New Customer Signup",
           body: `${fullName} (${username}) just created an account`,
@@ -732,7 +743,10 @@ export async function registerRoutes(
           tag: `signup-${user.id}`,
         }, { type: "new_signup", referenceType: "user", referenceId: user.id });
       }
-      const adminEmails = admins.map(a => a.email).filter(Boolean);
+      const adminEmails = admins
+        .filter(a => !shouldSuppressNotification({ user: a, categoryKey: "admin_new_signup" }))
+        .map(a => a.email)
+        .filter(Boolean);
       if (adminEmails.length > 0) {
         sendTemplatedEmail(adminEmails, "admin_new_signup", {
           customer_name: fullName,
@@ -1249,6 +1263,34 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/auth/quiet-hours", requireAuth, async (req, res) => {
+    try {
+      const parsed = updateQuietHoursSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid quiet hours", errors: parsed.error.flatten() });
+      }
+      const data = parsed.data;
+      const updateData: Record<string, any> = {};
+      if (data.enabled !== undefined) updateData.quietHoursEnabled = data.enabled;
+      if (data.start !== undefined) updateData.quietHoursStart = data.start;
+      if (data.end !== undefined) updateData.quietHoursEnd = data.end;
+      if (data.timezone !== undefined) {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: data.timezone });
+        } catch {
+          return res.status(400).json({ message: `Unknown timezone: ${data.timezone}` });
+        }
+        updateData.quietHoursTimezone = data.timezone;
+      }
+      if (data.allowCritical !== undefined) updateData.quietHoursAllowCritical = data.allowCritical;
+      const updated = await storage.updateUser(req.session.userId!, updateData);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(sanitizeUser(updated));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/auth/profile/avatar", requireAuth, upload.single("image"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No image provided" });
@@ -1513,7 +1555,7 @@ export async function registerRoutes(
           type: "new_ticket",
           message: `New ticket from ${customer?.fullName}: ${ticket.subject}`,
         });
-        if (admin.email && customer) {
+        if (admin.email && customer && !shouldSuppressNotification({ user: admin, categoryKey: "admin_new_ticket" })) {
           sendTemplatedEmail(admin.email, "admin_new_ticket", {
             customer_name: customer.fullName,
             customer_username: customer.username,
@@ -1698,21 +1740,24 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
 
         for (const admin of admins) {
-          sendPushToUser(admin.id, {
-            title: "Ticket Closed",
-            body: `Ticket Closed: ${ticket.subject}`,
-            url: `/tickets/${ticket.id}`,
-            tag: `ticket-${ticket.id}`,
-            resourceLabel: `Ticket: ${ticket.subject}`,
-            rollupNoun: "messages",
-          }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+          const adminQuiet = shouldSuppressNotification({ user: admin, categoryKey: "admin_ticket_closed" });
+          if (!adminQuiet) {
+            sendPushToUser(admin.id, {
+              title: "Ticket Closed",
+              body: `Ticket Closed: ${ticket.subject}`,
+              url: `/tickets/${ticket.id}`,
+              tag: `ticket-${ticket.id}`,
+              resourceLabel: `Ticket: ${ticket.subject}`,
+              rollupNoun: "messages",
+            }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+          }
           storage.createTicketNotification({
             userId: admin.id,
             ticketId: ticket.id,
             type: "ticket_closed",
             message: `Ticket closed: ${ticket.subject}`,
           });
-          if (admin.email && customer) {
+          if (admin.email && customer && !adminQuiet) {
             sendTemplatedEmail(admin.email, "admin_ticket_closed", {
               customer_name: customer.fullName,
               customer_username: customer.username,
@@ -1905,12 +1950,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const categories = await storage.getAllTicketCategories();
       const category = categories.find(c => c.id === ticket.categoryId);
 
-      sendPushToUser(toAdminId, {
-        title: "Ticket Transfer",
-        body: `${admin.fullName} transferred a ticket to you: ${ticket.subject} — Reason: ${reason}`,
-        url: `/tickets/${ticket.id}`,
-        tag: `ticket-transfer-${ticket.id}`,
-      }, { type: "ticket_transfer", referenceType: "ticket", referenceId: ticket.id });
+      if (!shouldSuppressNotification({ user: targetAdmin, categoryKey: "ticket_transferred" })) {
+        sendPushToUser(toAdminId, {
+          title: "Ticket Transfer",
+          body: `${admin.fullName} transferred a ticket to you: ${ticket.subject} — Reason: ${reason}`,
+          url: `/tickets/${ticket.id}`,
+          tag: `ticket-transfer-${ticket.id}`,
+        }, { type: "ticket_transfer", referenceType: "ticket", referenceId: ticket.id });
+      }
 
       storage.createTicketNotification({
         userId: toAdminId,
@@ -2292,7 +2339,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               message: `${user.fullName} replied: ${ticket.subject}`,
             });
           }
-          if (admin.email && !isUserViewingTicket(admin.id, ticket.id)) {
+          if (admin.email && !isUserViewingTicket(admin.id, ticket.id) && !shouldSuppressNotification({ user: admin, categoryKey: isAssignee ? "admin_ticket_reply_mine" : "admin_ticket_reply_any" })) {
             if (shouldSendTicketEmail(admin.id, ticket.id)) {
               recordTicketEmailSent(admin.id, ticket.id);
               sendTemplatedEmail(admin.email, "admin_ticket_reply", {
@@ -2506,7 +2553,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
       console.log(`[Alert Create] Alert ${alert.id} — sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
       for (const u of subscribers) {
-        if (parsedSendPush && customerWantsPush(u, "service_alert")) {
+        if (parsedSendPush && customerWantsPush(u, "service_alert", alert.severity)) {
           await sendPushToUser(u.id, {
             title: `${serviceName}: ${impactLabel}`,
             body: alert.title,
@@ -2516,7 +2563,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             rollupNoun: "updates",
           }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: alert.id } : undefined);
         }
-        if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert")) {
+        if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceName}: ${impactLabel}`,
             alert_description: `${alert.title}\n\n${alert.description}`,
@@ -2619,7 +2666,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
         console.log(`[Alert Update] Alert ${req.params.id} — status=${updateData.status}, sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
         for (const u of subscribers) {
-          if ((parsedSendPush || isResolved) && customerWantsPush(u, "service_alert")) {
+          if ((parsedSendPush || isResolved) && customerWantsPush(u, "service_alert", alert.severity)) {
             await sendPushToUser(u.id, {
               title: pushTitle,
               body: updateData.message,
@@ -2629,7 +2676,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               rollupNoun: "updates",
             }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
           }
-          if ((parsedSendEmail || isResolved) && u.email && customerWantsEmail(u, "service_alert")) {
+          if ((parsedSendEmail || isResolved) && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
             sendTemplatedEmail(u.email, "customer_service_alert", {
               alert_title: emailTitle,
               alert_description: updateData.message,
@@ -2716,7 +2763,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const subscribers = allUsers.filter(u => u.subscribedServices?.includes(updated.serviceId) && u.id !== req.session.userId);
       console.log(`[Alert Resolve] Alert ${req.params.id} — ${subscribers.length} subscriber(s) to notify`);
       for (const u of subscribers) {
-        if (customerWantsPush(u, "service_alert")) {
+        if (customerWantsPush(u, "service_alert", updated.severity)) {
           await sendPushToUser(u.id, {
             title: `${serviceName}: Resolved — Now Operational`,
             body: `${updated.title} has been resolved. Service is back to operational.`,
@@ -2726,7 +2773,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             rollupNoun: "updates",
           }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
         }
-        if (u.email && customerWantsEmail(u, "service_alert")) {
+        if (u.email && customerWantsEmail(u, "service_alert", updated.severity)) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceName}: Issue Resolved — Service Restored`,
             alert_description: `${updated.title} has been resolved. Service is back to operational.`,
@@ -3454,13 +3501,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const allUsers = await storage.getAllUsers();
       const admins = allUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support");
       for (const admin of admins) {
-        sendPushToUser(admin.id, {
-          title: `New ${typeLabel}`,
-          body: `${user.fullName}: ${title}`,
-          url: "/admin",
-          tag: `report-request-${rr.id}`,
-        }, { type: "new_report", referenceType: "report_request", referenceId: rr.id });
-        if (admin.email) {
+        const adminQuiet = shouldSuppressNotification({ user: admin, categoryKey: "admin_new_report" });
+        if (!adminQuiet) {
+          sendPushToUser(admin.id, {
+            title: `New ${typeLabel}`,
+            body: `${user.fullName}: ${title}`,
+            url: "/admin",
+            tag: `report-request-${rr.id}`,
+          }, { type: "new_report", referenceType: "report_request", referenceId: rr.id });
+        }
+        if (admin.email && !adminQuiet) {
           sendTemplatedEmail(admin.email, "admin_new_report", {
             type_label: typeLabel,
             type_label_lower: typeLabel.toLowerCase(),
@@ -5434,7 +5484,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
 
     if (monitor.emailNotifications) {
-      const adminEmails = admins.filter(a => a.email).map(a => a.email!);
+      const adminEmails = admins
+        .filter(a => a.email && !shouldSuppressNotification({ user: a, categoryKey: "admin_monitor_down" }))
+        .map(a => a.email!);
       if (adminEmails.length > 0) {
         const rendered = await renderTemplate("monitor_down", {
           monitor_name: monitor.name,
@@ -5480,7 +5532,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
 
     if (monitor.emailNotifications) {
-      const adminEmails = admins.filter(a => a.email).map(a => a.email!);
+      const adminEmails = admins
+        .filter(a => a.email && !shouldSuppressNotification({ user: a, categoryKey: "admin_monitor_down" }))
+        .map(a => a.email!);
       if (adminEmails.length > 0) {
         const rendered = await renderTemplate("monitor_up", {
           monitor_name: monitor.name,

@@ -13,6 +13,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Bell, Mail, RotateCcw, BellOff, ChevronDown } from "lucide-react";
 import type { User } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
+import { QuietHoursSection } from "@/components/quiet-hours-section";
 import {
   NOTIFICATION_PRESETS,
   getCategoriesForRole,
@@ -381,6 +382,9 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
   const Body = (
     <div>
       {Presets}
+      <div className="mb-4">
+        <QuietHoursSection />
+      </div>
       <div className="space-y-2">
         {grouped.map(({ group, categories }) => renderGroupCard(group, categories))}
       </div>
