@@ -134,7 +134,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-2xl font-bold" data-testid="text-service-updates-count">{contentNotifLoading ? "-" : newServiceUpdatesCount}</p>
-                <p className="text-xs text-muted-foreground">New Updates</p>
+                <p className="text-xs text-muted-foreground">Service Updates</p>
               </div>
             </CardContent>
           </Card>
