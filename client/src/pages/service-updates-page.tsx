@@ -6,7 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Trash2, Bell, ShieldAlert, X } from "lucide-react";
+import { Trash2, Bell, ShieldAlert, X, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { formatDistanceToNow } from "date-fns";
 import type { ServiceUpdate, Service } from "@shared/schema";
 import { groupServiceUpdates, type ServiceUpdateGroup } from "@shared/group-service-updates";
@@ -68,6 +69,16 @@ export default function ServiceUpdatesPage() {
       return "all";
     }
   });
+  const [searchQuery, setSearchQuery] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.sessionStorage.getItem("service-updates:search") || "";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("service-updates:search", searchQuery);
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -148,6 +159,8 @@ export default function ServiceUpdatesPage() {
     }
   }, [timeFilter]);
 
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+
   const filteredUpdates = useMemo(() => {
     if (!updates) return [];
     const now = Date.now();
@@ -157,9 +170,14 @@ export default function ServiceUpdatesPage() {
         const t = new Date(u.createdAt).getTime();
         if (now - t > timeRangeMs) return false;
       }
+      if (trimmedQuery) {
+        const title = (u.title || "").toLowerCase();
+        const desc = (u.description || "").toLowerCase();
+        if (!title.includes(trimmedQuery) && !desc.includes(trimmedQuery)) return false;
+      }
       return true;
     });
-  }, [updates, serviceFilter, timeRangeMs]);
+  }, [updates, serviceFilter, timeRangeMs, trimmedQuery]);
 
   const availableServices = useMemo(() => {
     if (!services || !updates) return [];
@@ -178,6 +196,7 @@ export default function ServiceUpdatesPage() {
 
   const emptyMessage = (() => {
     if (!updates || updates.length === 0) return "No service updates yet";
+    if (trimmedQuery) return `No updates matching '${searchQuery.trim()}'`;
     const svcLabel = serviceFilter === "all"
       ? "any service"
       : (services?.find(s => s.id === serviceFilter)?.name || "this service");
@@ -234,6 +253,29 @@ export default function ServiceUpdatesPage() {
 
       {(updates?.length ?? 0) > 0 && (
         <div className="space-y-2" data-testid="filters-service-updates">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search updates..."
+              className="pl-8 pr-8 h-9"
+              data-testid="input-search-updates"
+              aria-label="Search service updates"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground tap-interactive"
+                aria-label="Clear search"
+                data-testid="button-clear-search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1.5" data-testid="filter-chips-services">
             <FilterChip
               active={serviceFilter === "all"}
