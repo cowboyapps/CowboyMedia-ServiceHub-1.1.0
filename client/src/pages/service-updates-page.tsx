@@ -14,6 +14,32 @@ import { groupServiceUpdates, type ServiceUpdateGroup } from "@shared/group-serv
 
 type Group = ServiceUpdateGroup<ServiceUpdate>;
 
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const re = new RegExp(`(${escapeRegExp(query)})`, "gi");
+  const parts = text.split(re);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark
+            key={i}
+            className="bg-yellow-200 dark:bg-yellow-500/40 text-inherit rounded-sm px-0.5"
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 function FilterChip({
   active,
   onClick,
@@ -159,7 +185,8 @@ export default function ServiceUpdatesPage() {
     }
   }, [timeFilter]);
 
-  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const trimmedQueryRaw = searchQuery.trim();
+  const trimmedQuery = trimmedQueryRaw.toLowerCase();
 
   const filteredUpdates = useMemo(() => {
     if (!updates) return [];
@@ -429,7 +456,7 @@ export default function ServiceUpdatesPage() {
                         )}
                         <span className="text-muted-foreground/40 shrink-0">·</span>
                         <span className="text-sm truncate flex-1 min-w-0" data-testid={`text-update-title-${group.head.id}`}>
-                          {group.head.title}
+                          <HighlightedText text={group.head.title} query={trimmedQueryRaw} />
                         </span>
                         {headMature && (
                           <span title="Contains mature content" className="shrink-0" data-testid={`mature-marker-${group.head.id}`}>
@@ -457,7 +484,7 @@ export default function ServiceUpdatesPage() {
                       {showSingleDescription && (
                         <div className="mt-2 mb-1" onClick={(e) => e.stopPropagation()}>
                           <p className="text-sm whitespace-pre-wrap text-foreground/90" data-testid={`text-update-desc-${group.head.id}`}>
-                            {group.head.description}
+                            <HighlightedText text={group.head.description} query={trimmedQueryRaw} />
                           </p>
                         </div>
                       )}
@@ -480,7 +507,9 @@ export default function ServiceUpdatesPage() {
                             return (
                               <li key={item.id} className="text-sm" data-testid={`subitem-update-${item.id}`}>
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium text-foreground/90 truncate flex-1 min-w-0">{item.title}</span>
+                                  <span className="font-medium text-foreground/90 truncate flex-1 min-w-0">
+                                    <HighlightedText text={item.title} query={trimmedQueryRaw} />
+                                  </span>
                                   {item.matureContent && (
                                     <ShieldAlert className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
                                   )}
@@ -510,7 +539,7 @@ export default function ServiceUpdatesPage() {
                                   </button>
                                 ) : (
                                   <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-1" data-testid={`text-update-desc-${item.id}`}>
-                                    {item.description}
+                                    <HighlightedText text={item.description} query={trimmedQueryRaw} />
                                   </p>
                                 )}
                               </li>
