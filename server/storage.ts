@@ -37,6 +37,8 @@ import {
   type CommunityMessage, type InsertCommunityMessage,
   type CommunityReaction, type InsertCommunityReaction,
   type NewsReaction,
+  type Poll, type PollOption, type PollVote, type InsertPoll,
+  polls, pollOptions, pollVotes,
   type ChatWordFilter,
   type TelegramSettings,
   discordSettings,
@@ -369,6 +371,13 @@ export interface IStorage {
   searchKbArticles(query: string, opts?: { limit?: number; publishedOnly?: boolean }): Promise<KbArticle[]>;
 
   getDashboardMetrics(): Promise<DashboardMetrics>;
+
+  createPoll(data: { parentType: string; parentId: string; question: string; multiSelect: boolean; closesAt: Date | null; createdBy: string; options: string[] }): Promise<Poll & { options: PollOption[] }>;
+  getPollWithOptions(id: string): Promise<(Poll & { options: PollOption[]; counts: Record<string, number>; totalVotes: number }) | undefined>;
+  getUserPollVotes(pollId: string, userId: string): Promise<string[]>;
+  castPollVote(pollId: string, userId: string, optionIds: string[]): Promise<void>;
+  deletePoll(id: string): Promise<void>;
+  getPollsForParent(parentType: string, parentIds: string[]): Promise<(Poll & { options: PollOption[]; counts: Record<string, number>; totalVotes: number })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1981,6 +1990,75 @@ export class DatabaseStorage implements IStorage {
         signupsThisWeek: Number(signupsWeekRow[0]?.c) || 0,
       },
     };
+  }
+
+  async createPoll(data: { parentType: string; parentId: string; question: string; multiSelect: boolean; closesAt: Date | null; createdBy: string; options: string[] }): Promise<Poll & { options: PollOption[] }> {
+    const [poll] = await db.insert(polls).values({
+      parentType: data.parentType,
+      parentId: data.parentId,
+      question: data.question,
+      multiSelect: data.multiSelect,
+      closesAt: data.closesAt,
+      createdBy: data.createdBy,
+    }).returning();
+    const optionRows = data.options.map((text, i) => ({ pollId: poll.id, text, sortOrder: i }));
+    const inserted = await db.insert(pollOptions).values(optionRows).returning();
+    return { ...poll, options: inserted.sort((a, b) => a.sortOrder - b.sortOrder) };
+  }
+
+  async getPollWithOptions(id: string): Promise<(Poll & { options: PollOption[]; counts: Record<string, number>; totalVotes: number }) | undefined> {
+    const [poll] = await db.select().from(polls).where(eq(polls.id, id));
+    if (!poll) return undefined;
+    const options = await db.select().from(pollOptions).where(eq(pollOptions.pollId, id)).orderBy(pollOptions.sortOrder);
+    const countRows = await db.select({ optionId: pollVotes.optionId, c: sql<number>`count(*)::int` })
+      .from(pollVotes)
+      .where(eq(pollVotes.pollId, id))
+      .groupBy(pollVotes.optionId);
+    const counts: Record<string, number> = {};
+    let totalVotes = 0;
+    for (const o of options) counts[o.id] = 0;
+    for (const r of countRows) {
+      counts[r.optionId] = Number(r.c) || 0;
+      totalVotes += Number(r.c) || 0;
+    }
+    return { ...poll, options, counts, totalVotes };
+  }
+
+  async getUserPollVotes(pollId: string, userId: string): Promise<string[]> {
+    const rows = await db.select({ optionId: pollVotes.optionId })
+      .from(pollVotes)
+      .where(and(eq(pollVotes.pollId, pollId), eq(pollVotes.userId, userId)));
+    return rows.map(r => r.optionId);
+  }
+
+  async castPollVote(pollId: string, userId: string, optionIds: string[]): Promise<void> {
+    const [poll] = await db.select().from(polls).where(eq(polls.id, pollId));
+    const isSingleChoice = poll ? !poll.multiSelect : true;
+    await db.transaction(async (tx) => {
+      await tx.delete(pollVotes).where(and(eq(pollVotes.pollId, pollId), eq(pollVotes.userId, userId)));
+      if (optionIds.length === 0) return;
+      const rows = optionIds.map(optionId => ({ pollId, optionId, userId, isSingleChoice }));
+      await tx.insert(pollVotes).values(rows);
+    });
+  }
+
+  async deletePoll(id: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(pollVotes).where(eq(pollVotes.pollId, id));
+      await tx.delete(pollOptions).where(eq(pollOptions.pollId, id));
+      await tx.delete(polls).where(eq(polls.id, id));
+    });
+  }
+
+  async getPollsForParent(parentType: string, parentIds: string[]): Promise<(Poll & { options: PollOption[]; counts: Record<string, number>; totalVotes: number })[]> {
+    if (parentIds.length === 0) return [];
+    const rows = await db.select().from(polls).where(and(eq(polls.parentType, parentType), inArray(polls.parentId, parentIds)));
+    const result = [];
+    for (const p of rows) {
+      const full = await this.getPollWithOptions(p.id);
+      if (full) result.push(full);
+    }
+    return result;
   }
 }
 

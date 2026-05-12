@@ -4958,6 +4958,153 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // ============ Polls ============
+  const { insertPollSchema, voteSchema, POLL_PARENT_TYPES } = await import("@shared/schema");
+
+  async function enrichPoll(pollId: string, userId: string) {
+    const poll = await storage.getPollWithOptions(pollId);
+    if (!poll) return null;
+    const userVotes = await storage.getUserPollVotes(pollId, userId);
+    return { ...poll, userVotes };
+  }
+
+  app.post("/api/polls", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const isAdminUser = user.role === "admin" || user.role === "master_admin";
+      if (!isAdminUser) return res.status(403).json({ error: "Only admins can create polls" });
+
+      const parsed = insertPollSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid poll" });
+      const data = parsed.data;
+      const trimmed = data.options.map(o => o.trim()).filter(o => o.length > 0);
+      if (trimmed.length < 2) return res.status(400).json({ error: "At least 2 options required" });
+      if (trimmed.length > 6) return res.status(400).json({ error: "Up to 6 options allowed" });
+
+      let parentId = data.parentId || "";
+      let createdMessage: any = null;
+
+      if (data.parentType === "news") {
+        if (!parentId) return res.status(400).json({ error: "parentId required for news poll" });
+        const story = await storage.getNewsStory(parentId);
+        if (!story) return res.status(404).json({ error: "News story not found" });
+      } else if (data.parentType === "community") {
+        // Create a community message that wraps the poll
+        // parentId will be the community message id
+        const placeholderMessage = await storage.createCommunityMessage({
+          userId: user.id,
+          chatUsername: user.fullName,
+          content: data.question,
+        });
+        parentId = placeholderMessage.id;
+        createdMessage = placeholderMessage;
+      }
+
+      const poll = await storage.createPoll({
+        parentType: data.parentType,
+        parentId,
+        question: data.question,
+        multiSelect: data.multiSelect,
+        closesAt: data.closesAt ? new Date(data.closesAt) : null,
+        createdBy: user.id,
+        options: trimmed,
+      });
+
+      if (data.parentType === "community" && createdMessage) {
+        // Link poll to message
+        await db.update((await import("@shared/schema")).communityMessages)
+          .set({ pollId: poll.id })
+          .where(eq((await import("@shared/schema")).communityMessages.id, createdMessage.id));
+        const enriched = { ...createdMessage, pollId: poll.id, reactions: [], isAdmin: true };
+        broadcast({ type: "community_message", message: enriched });
+      } else if (data.parentType === "news") {
+        broadcast({ type: "poll_created", parentType: "news", parentId, pollId: poll.id });
+      }
+
+      const enriched = await enrichPoll(poll.id, user.id);
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/polls/:id", requireAuth, async (req, res) => {
+    try {
+      const enriched = await enrichPoll(req.params.id, req.session.userId!);
+      if (!enriched) return res.status(404).json({ error: "Poll not found" });
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/polls", requireAuth, async (req, res) => {
+    try {
+      const parentType = String(req.query.parentType || "");
+      const parentId = String(req.query.parentId || "");
+      if (!POLL_PARENT_TYPES.includes(parentType as any) || !parentId) {
+        return res.status(400).json({ error: "parentType and parentId required" });
+      }
+      const polls = await storage.getPollsForParent(parentType, [parentId]);
+      const userId = req.session.userId!;
+      const enriched = await Promise.all(polls.map(async p => ({
+        ...p,
+        userVotes: await storage.getUserPollVotes(p.id, userId),
+      })));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/polls/:id/vote", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const poll = await storage.getPollWithOptions(req.params.id);
+      if (!poll) return res.status(404).json({ error: "Poll not found" });
+      if (poll.closesAt && new Date(poll.closesAt) <= new Date()) {
+        return res.status(400).json({ error: "Poll is closed" });
+      }
+      const parsed = voteSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid vote" });
+      const optionIds = parsed.data.optionIds;
+      const validIds = new Set(poll.options.map(o => o.id));
+      for (const id of optionIds) {
+        if (!validIds.has(id)) return res.status(400).json({ error: "Invalid option" });
+      }
+      if (!poll.multiSelect && optionIds.length > 1) {
+        return res.status(400).json({ error: "Single-choice poll allows only one option" });
+      }
+      await storage.castPollVote(poll.id, userId, optionIds);
+      const enriched = await enrichPoll(poll.id, userId);
+      broadcast({ type: "poll_vote", pollId: poll.id, parentType: poll.parentType, parentId: poll.parentId });
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/polls/:id", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
+        return res.status(403).json({ error: "Only admins can delete polls" });
+      }
+      const poll = await storage.getPollWithOptions(req.params.id);
+      if (!poll) return res.status(404).json({ error: "Poll not found" });
+      await storage.deletePoll(req.params.id);
+      if (poll.parentType === "community") {
+        await storage.deleteCommunityMessage(poll.parentId);
+        broadcast({ type: "community_message_deleted", messageId: poll.parentId });
+      }
+      broadcast({ type: "poll_deleted", pollId: req.params.id, parentType: poll.parentType, parentId: poll.parentId });
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/community-chat/participants", requireAuth, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();

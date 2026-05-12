@@ -167,7 +167,6 @@ app.use((req, res, next) => {
       created_at TIMESTAMP DEFAULT NOW() NOT NULL
     )`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_news_reactions_story_id ON news_reactions (story_id)`);
-    // De-dupe any pre-existing rows before adding the unique index (safe no-op when none exist)
     await db.execute(sql`DELETE FROM news_reactions a USING news_reactions b
       WHERE a.ctid < b.ctid
         AND a.story_id = b.story_id
@@ -177,6 +176,41 @@ app.use((req, res, next) => {
       ON news_reactions (story_id, user_id, emoji)`);
   } catch (e) {
     console.error("Migration error (news_reactions):", e);
+  }
+
+  try {
+    await db.execute(sql`ALTER TABLE community_messages ADD COLUMN IF NOT EXISTS poll_id VARCHAR`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS polls (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      parent_type TEXT NOT NULL,
+      parent_id VARCHAR NOT NULL,
+      question TEXT NOT NULL,
+      multi_select BOOLEAN NOT NULL DEFAULT FALSE,
+      closes_at TIMESTAMP,
+      created_by VARCHAR NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS polls_parent_idx ON polls (parent_type, parent_id)`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS poll_options (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      poll_id VARCHAR NOT NULL,
+      text TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS poll_options_poll_idx ON poll_options (poll_id)`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS poll_votes (
+      poll_id VARCHAR NOT NULL,
+      option_id VARCHAR NOT NULL,
+      user_id VARCHAR NOT NULL,
+      is_single_choice BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+      PRIMARY KEY (poll_id, option_id, user_id)
+    )`);
+    await db.execute(sql`ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS is_single_choice BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS poll_votes_user_idx ON poll_votes (poll_id, user_id)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_single_choice_uq ON poll_votes (poll_id, user_id) WHERE is_single_choice = true`);
+  } catch (e) {
+    console.error("Migration error (polls):", e);
   }
 
   try {

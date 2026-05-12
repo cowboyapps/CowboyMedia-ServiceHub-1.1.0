@@ -16,7 +16,9 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2 } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3 } from "lucide-react";
+import { Poll } from "@/components/poll";
+import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
 import type { CommunityMessage } from "@shared/schema";
@@ -652,6 +654,7 @@ export default function CommunityChatPage() {
   const [mentionIndex, setMentionIndex] = useState(0);
   const [adminAction, setAdminAction] = useState<AdminAction>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [pollDialogOpen, setPollDialogOpen] = useState(false);
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -737,6 +740,12 @@ export default function CommunityChatPage() {
           }
           if (data.type === "community_reaction") {
             queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          }
+          if (data.type === "poll_vote" || data.type === "poll_deleted") {
+            if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
+            if (data.type === "poll_deleted" && data.parentType === "community") {
+              queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+            }
           }
           if (data.type === "community_typing" && data.userId !== user?.id) {
             setTypingUsers((prev) => {
@@ -1025,7 +1034,13 @@ export default function CommunityChatPage() {
                           )}
                           {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
                         </p>
-                        <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
+                        {msg.pollId ? (
+                          <div className="my-1 -mx-1">
+                            <Poll pollId={msg.pollId} onDeleted={() => queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] })} />
+                          </div>
+                        ) : (
+                          <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
+                        )}
                         <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
                           <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                             {format(msgDate, "h:mm a")}
@@ -1159,6 +1174,18 @@ export default function CommunityChatPage() {
               rows={1}
               data-testid="input-community-message"
             />
+            {isAdminUser && (
+              <Button
+                size="icon"
+                variant="outline"
+                className="flex-shrink-0 h-9 w-9"
+                onClick={() => setPollDialogOpen(true)}
+                data-testid="button-open-poll-composer"
+                title="Post a poll"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            )}
             <Button
               size="icon"
               className="flex-shrink-0 h-9 w-9"
@@ -1172,6 +1199,7 @@ export default function CommunityChatPage() {
         </div>
       )}
 
+      <PollComposerDialog open={pollDialogOpen} onOpenChange={setPollDialogOpen} parentType="community" />
       <UsernameSetupDialog open={showUsernameDialog} onComplete={handleUsernameComplete} />
       <UserProfileDialog
         userId={profileUserId}

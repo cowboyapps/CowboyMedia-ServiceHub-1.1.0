@@ -28,6 +28,7 @@ import AdminDashboard from "./admin-dashboard";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
+import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
 import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
@@ -1654,6 +1655,8 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
   const [editingStory, setEditingStory] = useState<NewsStory | null>(null);
   const [editImageFile, setEditImageFile] = useState<File | null>(null);
   const [removeImage, setRemoveImage] = useState(false);
+  const [attachPoll, setAttachPoll] = useState(false);
+  const [pollDraft, setPollDraft] = useState(emptyPollDraft());
 
   const { data: news, isLoading } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
@@ -1686,7 +1689,15 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
         credentials: "include",
       });
       if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      const story = await res.json();
+      if (attachPoll && isPollDraftValid(pollDraft)) {
+        try {
+          await submitPollDraft(pollDraft, "news", story.id);
+        } catch (err: any) {
+          toast({ title: "Story saved, but poll failed", description: err.message, variant: "destructive" });
+        }
+      }
+      return story;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/news"] });
@@ -1694,6 +1705,8 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
       setDialogOpen(false);
       form.reset();
       setImageFile(null);
+      setAttachPoll(false);
+      setPollDraft(emptyPollDraft());
       toast({ title: "News story published" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -1774,7 +1787,12 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
                   <label className="text-sm font-medium">Cover Image (optional)</label>
                   <Input type="file" accept="image/*" className="mt-1" onChange={(e) => setImageFile(e.target.files?.[0] || null)} data-testid="input-news-image" />
                 </div>
-                <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-news">
+                <div className="flex items-center gap-2">
+                  <Checkbox id="attach-poll" checked={attachPoll} onCheckedChange={(v) => setAttachPoll(!!v)} data-testid="checkbox-attach-poll" />
+                  <label htmlFor="attach-poll" className="text-sm cursor-pointer">Attach a poll</label>
+                </div>
+                {attachPoll && <PollEditor value={pollDraft} onChange={setPollDraft} />}
+                <Button type="submit" className="w-full" disabled={createMutation.isPending || (attachPoll && !isPollDraftValid(pollDraft))} data-testid="button-submit-news">
                   {createMutation.isPending ? "Publishing..." : "Publish Story"}
                 </Button>
               </form>

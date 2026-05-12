@@ -574,8 +574,59 @@ export const communityMessages = pgTable("community_messages", {
   userId: varchar("user_id").notNull(),
   chatUsername: text("chat_username").notNull(),
   content: text("content").notNull(),
+  pollId: varchar("poll_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const polls = pgTable("polls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  parentType: text("parent_type").notNull(),
+  parentId: varchar("parent_id").notNull(),
+  question: text("question").notNull(),
+  multiSelect: boolean("multi_select").notNull().default(false),
+  closesAt: timestamp("closes_at"),
+  createdBy: varchar("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const pollOptions = pgTable("poll_options", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  pollId: varchar("poll_id").notNull(),
+  text: text("text").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const pollVotes = pgTable("poll_votes", {
+  pollId: varchar("poll_id").notNull(),
+  optionId: varchar("option_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  isSingleChoice: boolean("is_single_choice").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.pollId, t.optionId, t.userId] }),
+}));
+
+export const POLL_PARENT_TYPES = ["news", "community"] as const;
+export type PollParentType = typeof POLL_PARENT_TYPES[number];
+
+export const insertPollSchema = z.object({
+  parentType: z.enum(POLL_PARENT_TYPES),
+  parentId: z.string().min(1).optional(),
+  question: z.string().min(1, "Question is required").max(500),
+  multiSelect: z.boolean().default(false),
+  closesAt: z.string().datetime().nullable().optional(),
+  options: z.array(z.string().trim().min(1, "Option text required").max(200)).min(2, "At least 2 options").max(6, "Up to 6 options"),
+});
+export type InsertPoll = z.infer<typeof insertPollSchema>;
+
+export type Poll = typeof polls.$inferSelect;
+export type PollOption = typeof pollOptions.$inferSelect;
+export type PollVote = typeof pollVotes.$inferSelect;
+
+export const voteSchema = z.object({
+  optionIds: z.array(z.string().min(1)).max(6),
+});
+export type VoteData = z.infer<typeof voteSchema>;
 
 export const communityReactions = pgTable("community_reactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

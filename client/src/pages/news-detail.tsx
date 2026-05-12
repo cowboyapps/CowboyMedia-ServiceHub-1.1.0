@@ -10,6 +10,9 @@ import { isHtmlContent } from "@/components/rich-text-editor";
 import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import DOMPurify from "dompurify";
 import type { NewsStory } from "@shared/schema";
+import { Poll } from "@/components/poll";
+import { queryClient } from "@/lib/queryClient";
+import { useEffect } from "react";
 
 export default function NewsDetail() {
   const params = useParams<{ id: string }>();
@@ -17,6 +20,31 @@ export default function NewsDetail() {
   const { data: story, isLoading } = useQuery<NewsStory>({
     queryKey: ["/api/news", params.id],
   });
+
+  const { data: polls } = useQuery<{ id: string }[]>({
+    queryKey: ["/api/polls", { parentType: "news", parentId: params.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/polls?parentType=news&parentId=${params.id}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!params.id,
+  });
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if ((data.type === "poll_vote" || data.type === "poll_created" || data.type === "poll_deleted") && data.parentType === "news" && data.parentId === params.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/polls", { parentType: "news", parentId: params.id }] });
+          if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
+        }
+      } catch {}
+    };
+    return () => ws.close();
+  }, [params.id]);
 
   if (isLoading) {
     return (
@@ -63,6 +91,14 @@ export default function NewsDetail() {
           <span>{format(new Date(story.createdAt), "MMMM d, yyyy 'at' h:mm a")}</span>
         </div>
       </div>
+
+      {polls && polls.length > 0 && (
+        <div className="space-y-3">
+          {polls.map((p) => (
+            <Poll key={p.id} pollId={p.id} />
+          ))}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-6">
