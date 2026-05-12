@@ -1,0 +1,124 @@
+root@greenest-ant:~# sudo -u servicehub -H bash -lc 'set -a && . /opt/servicehub/.env && set +a && psql "$DATABASE_URL" <<SQL
+> -- Add the missing totp column (the ones I added before are harmless leftovers)
+> ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled_at TIMESTAMP;
+> 
+> -- Verify the rest of the recent additions actually landed.
+> -- Each of these should print one row; if any are missing, the runtime
+> -- migrations in server/index.ts didn'"'"'t run, which means PM2 is on stale code.
+> \echo === users columns (expect avatar_url, bio, quiet_hours_*) ===
+> \d users
+> \echo === news_reactions table ===
+> \d news_reactions
+> \echo === polls / poll_options / poll_votes tables ===
+> \d polls
+> \d poll_options
+> \d poll_votes
+> \echo === community_messages.poll_id column ===
+> \d community_messages
+> SQL'
+ALTER TABLE
+=== users columns (expect avatar_url, bio, quiet_hours_*) ===
+                                         Table "public.users"
+            Column            |            Type             | Collation | Nullable |      Default      
+------------------------------+-----------------------------+-----------+----------+-------------------
+ id                           | character varying           |           | not null | gen_random_uuid()
+ username                     | text                        |           | not null | 
+ password                     | text                        |           | not null | 
+ email                        | text                        |           | not null | 
+ full_name                    | text                        |           | not null | 
+ role                         | text                        |           | not null | 'customer'::text
+ subscribed_services          | text[]                      |           |          | '{}'::text[]
+ theme                        | text                        |           | not null | 'light'::text
+ email_notifications          | boolean                     |           | not null | true
+ created_at                   | timestamp without time zone |           | not null | now()
+ setup_reminder_dismissed     | boolean                     |           | not null | false
+ setup_reminder_email_sent    | boolean                     |           | not null | false
+ admin_role_id                | character varying           |           |          | 
+ chat_username                | text                        |           |          | 
+ chat_notifications           | text                        |           |          | 'mentions'::text
+ chat_banned                  | boolean                     |           |          | false
+ notification_prefs           | jsonb                       |           | not null | '{}'::jsonb
+ onboarding_tour_completed_at | timestamp without time zone |           |          | 
+ avatar_url                   | text                        |           |          | 
+ bio                          | text                        |           |          | 
+ quiet_hours_enabled          | boolean                     |           | not null | false
+ quiet_hours_start            | text                        |           | not null | '22:00'::text
+ quiet_hours_end              | text                        |           | not null | '07:00'::text
+ quiet_hours_timezone         | text                        |           | not null | 'UTC'::text
+ quiet_hours_allow_critical   | boolean                     |           | not null | true
+ totp_secret                  | text                        |           |          | 
+ totp_enabled                 | boolean                     |           | not null | false
+ totp_pending_secret          | text                        |           |          | 
+ totp_enabled_at              | timestamp without time zone |           |          | 
+Indexes:
+    "users_pkey" PRIMARY KEY, btree (id)
+    "users_username_unique" UNIQUE CONSTRAINT, btree (username)
+
+=== news_reactions table ===
+                            Table "public.news_reactions"
+   Column   |            Type             | Collation | Nullable |      Default      
+------------+-----------------------------+-----------+----------+-------------------
+ id         | character varying           |           | not null | gen_random_uuid()
+ story_id   | character varying           |           | not null | 
+ user_id    | character varying           |           | not null | 
+ emoji      | text                        |           | not null | 
+ created_at | timestamp without time zone |           | not null | now()
+Indexes:
+    "news_reactions_pkey" PRIMARY KEY, btree (id)
+    "idx_news_reactions_story_id" btree (story_id)
+    "uq_news_reactions_story_user_emoji" UNIQUE, btree (story_id, user_id, emoji)
+
+=== polls / poll_options / poll_votes tables ===
+                                 Table "public.polls"
+    Column    |            Type             | Collation | Nullable |      Default      
+--------------+-----------------------------+-----------+----------+-------------------
+ id           | character varying           |           | not null | gen_random_uuid()
+ parent_type  | text                        |           | not null | 
+ parent_id    | character varying           |           | not null | 
+ question     | text                        |           | not null | 
+ multi_select | boolean                     |           | not null | false
+ closes_at    | timestamp without time zone |           |          | 
+ created_by   | character varying           |           | not null | 
+ created_at   | timestamp without time zone |           | not null | now()
+Indexes:
+    "polls_pkey" PRIMARY KEY, btree (id)
+    "polls_parent_idx" btree (parent_type, parent_id)
+
+                        Table "public.poll_options"
+   Column   |       Type        | Collation | Nullable |      Default      
+------------+-------------------+-----------+----------+-------------------
+ id         | character varying |           | not null | gen_random_uuid()
+ poll_id    | character varying |           | not null | 
+ text       | text              |           | not null | 
+ sort_order | integer           |           | not null | 0
+Indexes:
+    "poll_options_pkey" PRIMARY KEY, btree (id)
+    "poll_options_poll_idx" btree (poll_id)
+
+                            Table "public.poll_votes"
+      Column      |            Type             | Collation | Nullable | Default 
+------------------+-----------------------------+-----------+----------+---------
+ poll_id          | character varying           |           | not null | 
+ option_id        | character varying           |           | not null | 
+ user_id          | character varying           |           | not null | 
+ is_single_choice | boolean                     |           | not null | false
+ created_at       | timestamp without time zone |           | not null | now()
+Indexes:
+    "poll_votes_pkey" PRIMARY KEY, btree (poll_id, option_id, user_id)
+    "poll_votes_single_choice_uq" UNIQUE, btree (poll_id, user_id) WHERE is_single_choice = true
+    "poll_votes_user_idx" btree (poll_id, user_id)
+
+=== community_messages.poll_id column ===
+                           Table "public.community_messages"
+    Column     |            Type             | Collation | Nullable |      Default      
+---------------+-----------------------------+-----------+----------+-------------------
+ id            | character varying           |           | not null | gen_random_uuid()
+ user_id       | character varying           |           | not null | 
+ chat_username | text                        |           | not null | 
+ content       | text                        |           | not null | 
+ created_at    | timestamp without time zone |           | not null | now()
+ poll_id       | character varying           |           |          | 
+Indexes:
+    "community_messages_pkey" PRIMARY KEY, btree (id)
+
+root@greenest-ant:~# 
