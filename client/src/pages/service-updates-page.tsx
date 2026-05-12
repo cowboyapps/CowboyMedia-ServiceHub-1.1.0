@@ -1,20 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Trash2, Bell, Clock, ShieldAlert, X, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Bell, ShieldAlert, X } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import type { ServiceUpdate, Service } from "@shared/schema";
+import { groupServiceUpdates, type ServiceUpdateGroup } from "@shared/group-service-updates";
+
+type Group = ServiceUpdateGroup<ServiceUpdate>;
 
 export default function ServiceUpdatesPage() {
   const { user, isAdmin } = useAuth();
   const { toast } = useToast();
-  const [expandedUpdates, setExpandedUpdates] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [unlockedUpdates, setUnlockedUpdates] = useState<Set<string>>(new Set());
   const [pendingUnlock, setPendingUnlock] = useState<string | null>(null);
   const [pendingAdminDelete, setPendingAdminDelete] = useState<string | null>(null);
@@ -71,32 +73,21 @@ export default function ServiceUpdatesPage() {
     return services?.find(s => s.id === serviceId)?.name || "Unknown Service";
   };
 
-  const formatDate = (date: string | Date) => {
-    return new Date(date).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
-
   const isMatureHidden = (update: ServiceUpdate) => {
     return update.matureContent && !isAdmin && !unlockedUpdates.has(update.id);
   };
 
-  const toggleExpand = (update: ServiceUpdate) => {
-    if (isMatureHidden(update)) {
-      setPendingUnlock(update.id);
+  const groups = useMemo<Group[]>(() => groupServiceUpdates(updates), [updates]);
+
+  const toggleGroup = (group: Group) => {
+    if (group.items.length === 1 && isMatureHidden(group.head) && !expandedGroups.has(group.key)) {
+      setPendingUnlock(group.head.id);
       return;
     }
-    setExpandedUpdates(prev => {
+    setExpandedGroups(prev => {
       const next = new Set(prev);
-      if (next.has(update.id)) {
-        next.delete(update.id);
-      } else {
-        next.add(update.id);
-      }
+      if (next.has(group.key)) next.delete(group.key);
+      else next.add(group.key);
       return next;
     });
   };
@@ -110,11 +101,17 @@ export default function ServiceUpdatesPage() {
     }
   };
 
+  const handleRevealMature = (updateId: string) => {
+    setUnlockedUpdates(prev => new Set(prev).add(updateId));
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
-        {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)}
+        <div className="space-y-2 pl-5">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+        </div>
       </div>
     );
   }
@@ -130,7 +127,7 @@ export default function ServiceUpdatesPage() {
         <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm" data-testid="dialog-mature-warning">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-destructive" />
+              <ShieldAlert className="w-5 h-5 text-amber-500 dark:text-amber-400" />
               Mature Content Warning
             </AlertDialogTitle>
             <AlertDialogDescription>
@@ -142,8 +139,12 @@ export default function ServiceUpdatesPage() {
             <AlertDialogAction
               onClick={() => {
                 if (pendingUnlock) {
-                  setUnlockedUpdates(prev => new Set(prev).add(pendingUnlock));
-                  setExpandedUpdates(prev => new Set(prev).add(pendingUnlock));
+                  handleRevealMature(pendingUnlock);
+                  // also expand the group containing this update
+                  const grp = groups.find(g => g.items.some(i => i.id === pendingUnlock));
+                  if (grp) {
+                    setExpandedGroups(prev => new Set(prev).add(grp.key));
+                  }
                   setPendingUnlock(null);
                 }
               }}
@@ -193,76 +194,144 @@ export default function ServiceUpdatesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {!updates || updates.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Bell className="w-12 h-12 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground" data-testid="text-no-updates">No service updates yet</p>
-          </CardContent>
-        </Card>
+      {groups.length === 0 ? (
+        <div className="flex items-center gap-3 py-6 text-muted-foreground">
+          <Bell className="w-5 h-5 opacity-50" />
+          <p className="text-sm" data-testid="text-no-updates">No service updates yet</p>
+        </div>
       ) : (
-        updates.map((update) => {
-          const isExpanded = expandedUpdates.has(update.id);
-          return (
-            <Card
-              key={update.id}
-              className="cursor-pointer transition-colors hover:bg-muted/30"
-              onClick={() => toggleExpand(update)}
-              data-testid={`card-service-update-${update.id}`}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-lg flex items-center gap-2" data-testid={`text-update-title-${update.id}`}>
-                      {update.title}
-                      {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
-                    </CardTitle>
-                    <CardDescription className="flex items-center gap-2 mt-1 flex-wrap">
-                      <Badge variant="outline" data-testid={`badge-service-${update.id}`}>{getServiceName(update.serviceId)}</Badge>
-                      {update.matureContent && (
-                        <Badge variant="destructive" className="text-xs" data-testid={`badge-mature-${update.id}`}>
-                          <ShieldAlert className="w-3 h-3 mr-1" />
-                          Mature
-                        </Badge>
-                      )}
-                      <span className="flex items-center gap-1 text-xs">
-                        <Clock className="w-3 h-3" />
-                        {formatDate(update.createdAt)}
-                      </span>
-                    </CardDescription>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => handleDeleteClick(e, update.id)}
-                    disabled={deleteMutation.isPending}
-                    title={isAdmin ? "Delete update" : "Dismiss update"}
-                    data-testid={`button-delete-update-${update.id}`}
+        <div className="relative">
+          <div className="absolute left-[11px] top-3 bottom-3 w-px bg-border" aria-hidden />
+          <ul className="space-y-0.5">
+            {groups.map(group => {
+              const isExpanded = expandedGroups.has(group.key);
+              const extraCount = group.items.length - 1;
+              const headMature = group.head.matureContent;
+              const showSingleDescription = isExpanded && group.items.length === 1 && !isMatureHidden(group.head);
+              return (
+                <li key={group.key}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleGroup(group)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
+                    className="relative flex items-start gap-3 w-full pr-1 py-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors"
+                    data-testid={`row-service-update-${group.head.id}`}
                   >
-                    {isAdmin ? <Trash2 className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </CardHeader>
-              {isExpanded && (
-                <CardContent>
-                  {isMatureHidden(update) ? (
-                    <div
-                      className="flex flex-col items-center justify-center py-4 px-3 border border-dashed rounded-md bg-muted/30"
-                      data-testid={`mature-overlay-${update.id}`}
-                    >
-                      <ShieldAlert className="w-8 h-8 text-muted-foreground mb-2" />
-                      <p className="text-sm font-medium text-muted-foreground">This update contains mature content</p>
-                      <p className="text-xs text-muted-foreground mt-1">Click to view</p>
+                    <span className="relative z-10 flex-shrink-0 mt-1.5 ml-1.5">
+                      <span className="block w-2 h-2 rounded-full bg-muted-foreground/50 ring-[3px] ring-background" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-medium text-muted-foreground shrink-0 max-w-[40%] truncate" data-testid={`text-service-${group.head.id}`}>
+                          {getServiceName(group.serviceId)}
+                        </span>
+                        {extraCount > 0 && (
+                          <span
+                            className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full shrink-0"
+                            data-testid={`badge-group-count-${group.head.id}`}
+                          >
+                            +{extraCount}
+                          </span>
+                        )}
+                        <span className="text-muted-foreground/40 shrink-0">·</span>
+                        <span className="text-sm truncate flex-1 min-w-0" data-testid={`text-update-title-${group.head.id}`}>
+                          {group.head.title}
+                        </span>
+                        {headMature && (
+                          <span title="Contains mature content" className="shrink-0" data-testid={`mature-marker-${group.head.id}`}>
+                            <ShieldAlert className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground/70 shrink-0 hidden sm:inline">
+                          {formatDistanceToNow(new Date(group.head.createdAt), { addSuffix: true })}
+                        </span>
+                        <button
+                          onClick={(e) => handleDeleteClick(e, group.head.id)}
+                          disabled={deleteMutation.isPending}
+                          className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive shrink-0 tap-interactive"
+                          title={isAdmin ? "Delete update" : "Dismiss update"}
+                          data-testid={`button-delete-update-${group.head.id}`}
+                          aria-label={isAdmin ? "Delete update" : "Dismiss update"}
+                        >
+                          {isAdmin ? <Trash2 className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground/70 mt-0.5 sm:hidden">
+                        {formatDistanceToNow(new Date(group.head.createdAt), { addSuffix: true })}
+                      </div>
+
+                      {showSingleDescription && (
+                        <div className="mt-2 mb-1" onClick={(e) => e.stopPropagation()}>
+                          <p className="text-sm whitespace-pre-wrap text-foreground/90" data-testid={`text-update-desc-${group.head.id}`}>
+                            {group.head.description}
+                          </p>
+                        </div>
+                      )}
+
+                      {isExpanded && group.items.length === 1 && isMatureHidden(group.head) && (
+                        <div
+                          className="mt-2 mb-1 flex items-center gap-2 text-sm text-muted-foreground"
+                          onClick={(e) => { e.stopPropagation(); setPendingUnlock(group.head.id); }}
+                          data-testid={`mature-overlay-${group.head.id}`}
+                        >
+                          <ShieldAlert className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                          <span>Mature content — click to view</span>
+                        </div>
+                      )}
+
+                      {isExpanded && group.items.length > 1 && (
+                        <ul className="mt-2 space-y-2.5 border-l border-border/60 pl-3 ml-0.5" onClick={(e) => e.stopPropagation()}>
+                          {group.items.map((item) => {
+                            const itemMatureHidden = isMatureHidden(item);
+                            return (
+                              <li key={item.id} className="text-sm" data-testid={`subitem-update-${item.id}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-foreground/90 truncate flex-1 min-w-0">{item.title}</span>
+                                  {item.matureContent && (
+                                    <ShieldAlert className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                                  )}
+                                  <span className="text-xs text-muted-foreground/70 shrink-0">
+                                    {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                                  </span>
+                                  <button
+                                    onClick={(e) => handleDeleteClick(e, item.id)}
+                                    disabled={deleteMutation.isPending}
+                                    className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive shrink-0 tap-interactive"
+                                    title={isAdmin ? "Delete update" : "Dismiss update"}
+                                    data-testid={`button-delete-subitem-${item.id}`}
+                                    aria-label={isAdmin ? "Delete update" : "Dismiss update"}
+                                  >
+                                    {isAdmin ? <Trash2 className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                                {itemMatureHidden ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingUnlock(item.id)}
+                                    className="mt-1 flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+                                    data-testid={`mature-overlay-${item.id}`}
+                                  >
+                                    <ShieldAlert className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+                                    Mature content — click to view
+                                  </button>
+                                ) : (
+                                  <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-1" data-testid={`text-update-desc-${item.id}`}>
+                                    {item.description}
+                                  </p>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-sm whitespace-pre-wrap" data-testid={`text-update-desc-${update.id}`}>{update.description}</p>
-                  )}
-                </CardContent>
-              )}
-            </Card>
-          );
-        })
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </div>
   );

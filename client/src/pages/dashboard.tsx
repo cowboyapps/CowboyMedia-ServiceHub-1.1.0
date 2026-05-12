@@ -54,6 +54,13 @@ export default function Dashboard() {
     queryKey: ["/api/service-updates"],
   });
 
+  const { data: contentNotifData } = useQuery<Record<string, number>>({
+    queryKey: ["/api/content-notifications/counts"],
+    refetchInterval: 15000,
+    enabled: !!user,
+  });
+  const newServiceUpdatesCount = contentNotifData?.["service-updates"] ?? 0;
+
   const activeAlerts = alerts?.filter((a) => a.status !== "resolved") || [];
   const subscribedServices = services?.filter((s) =>
     user?.subscribedServices?.includes(s.id)
@@ -126,12 +133,12 @@ export default function Dashboard() {
         <Link href="/service-updates" data-testid="link-stat-service-updates">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-chart-3/10 flex items-center justify-center">
-                <Bell className="w-5 h-5 text-chart-3" />
+              <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
+                <Bell className="w-5 h-5 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-2xl font-bold" data-testid="text-service-updates-count">{serviceUpdatesLoading ? "-" : (serviceUpdates?.length || 0)}</p>
-                <p className="text-xs text-muted-foreground">Service Updates</p>
+                <p className="text-2xl font-bold" data-testid="text-service-updates-count">{serviceUpdatesLoading ? "-" : newServiceUpdatesCount}</p>
+                <p className="text-xs text-muted-foreground">New Updates</p>
               </div>
             </CardContent>
           </Card>
