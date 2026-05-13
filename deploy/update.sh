@@ -44,12 +44,94 @@ sudo -u "$APP_USER" git -C "$APP_DIR" fetch --all --tags --prune
 
 TARGET="${REF:-origin/main}"
 echo "==> Checking out $TARGET (was $PREV_SHA)..."
+TARGET_SHA="$(sudo -u "$APP_USER" git -C "$APP_DIR" rev-parse "$TARGET")"
 sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$TARGET"
 NEW_SHA="$(sudo -u "$APP_USER" git -C "$APP_DIR" rev-parse HEAD)"
+
+# HEAD-moved assertion. Catches the failure mode behind today's outage:
+# `git reset --hard` ran, exited 0, but the working tree HEAD never advanced
+# (silent fetch failure earlier had left origin/main itself stale, or a
+# disk/perms quirk left HEAD pinned). Without this check, the rest of the
+# script keeps going and pm2 reload happily reloads the same old build.
+if [[ "$NEW_SHA" != "$TARGET_SHA" ]]; then
+  echo "ERROR: git HEAD did not move to expected SHA after reset."
+  echo "       expected: $TARGET_SHA"
+  echo "       actual:   $NEW_SHA"
+  echo "       PM2 was NOT touched. Investigate the working tree on disk."
+  exit 1
+fi
 
 if [[ "$PREV_SHA" == "$NEW_SHA" ]]; then
   echo "==> Already at $NEW_SHA. Nothing to do."
   exit 0
+fi
+
+# Sanity check before we keep going: the running app's APP_VERSION is what
+# /api/health will report after restart, and we'll assert it matches the
+# version baked into the just-checked-out shared/version.ts. Capture it now.
+NEW_APP_VERSION="$(grep -E 'APP_VERSION\s*=' "$APP_DIR/shared/version.ts" \
+  | head -n1 | sed -E 's/.*=\s*"([^"]+)".*/\1/')"
+if [[ -z "$NEW_APP_VERSION" ]]; then
+  echo "ERROR: could not parse APP_VERSION from $APP_DIR/shared/version.ts."
+  echo "       Refusing to deploy without a known target version. Aborting."
+  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
+  exit 1
+fi
+echo "    target version: $NEW_APP_VERSION (sha $NEW_SHA)"
+
+echo "==> Schema column drift check (table-aware additive columns between $PREV_SHA and $NEW_SHA)..."
+# For every new (table, column) pair declared in shared/schema.ts between
+# PREV_SHA and NEW_SHA, verify the column actually exists ON THE RIGHT TABLE
+# in the live DB after db:push. Catches the failure mode where db:push
+# reports success but the column never landed (the original "is_internal
+# column does not exist" outage). Pure additive — only ADDITIONS are checked.
+#
+# Strategy: walk shared/schema.ts at each SHA tracking the enclosing
+# pgTable("<sql_name>", { ... }) block, emit "<table>:<column>" pairs,
+# then take the set difference. Far more reliable than diffing raw lines:
+# moving a column between tables, reordering, or whitespace changes don't
+# create false positives, and a missing column on table A doesn't pass just
+# because the same column name exists on table B.
+NEW_COLUMNS_FILE="$(mktemp)"
+trap 'rm -f "$NEW_COLUMNS_FILE"' EXIT
+
+extract_table_columns() {
+  local sha="$1"
+  sudo -u "$APP_USER" git -C "$APP_DIR" show "$sha:shared/schema.ts" 2>/dev/null | awk '
+    {
+      line = $0
+      # Track the enclosing table when we see pgTable("<name>",
+      tmp = line
+      if (match(tmp, /pgTable\("[a-zA-Z0-9_]+"/)) {
+        s = substr(tmp, RSTART, RLENGTH)
+        sub(/.*pgTable\("/, "", s)
+        sub(/"$/, "", s)
+        current = s
+      }
+      # Top-level }); ends the current table block
+      if (match(line, /^\}\)/)) current = ""
+      # Drizzle column: <ident>: <type>("<sql_name>")
+      if (current != "" && match(line, /(text|varchar|boolean|integer|timestamp|jsonb|uuid|serial|numeric|date|bigint|smallint|real|doublePrecision)\("[a-zA-Z0-9_]+"/)) {
+        col = substr(line, RSTART, RLENGTH)
+        sub(/.*\("/, "", col)
+        sub(/"$/, "", col)
+        print current ":" col
+      }
+    }
+  ' | sort -u
+}
+
+PREV_PAIRS="$(mktemp)"
+NEW_PAIRS="$(mktemp)"
+trap 'rm -f "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
+extract_table_columns "$PREV_SHA" > "$PREV_PAIRS"
+extract_table_columns "$NEW_SHA"  > "$NEW_PAIRS"
+# Pairs present in NEW but not in PREV = additive new columns to verify.
+comm -13 "$PREV_PAIRS" "$NEW_PAIRS" > "$NEW_COLUMNS_FILE"
+NEW_COL_COUNT="$(wc -l < "$NEW_COLUMNS_FILE" | tr -d ' ')"
+echo "    detected $NEW_COL_COUNT new (table:column) pair(s) in schema diff"
+if [[ "$NEW_COL_COUNT" -gt 0 ]]; then
+  sed 's/^/      + /' "$NEW_COLUMNS_FILE"
 fi
 
 echo "==> npm ci && npm run build..."
@@ -64,7 +146,7 @@ echo "==> Schema push (additive only — destructive prompt = abort)..."
 # or "No changes detected") before treating it as success. Anything else,
 # including the "stdin closed" / no-answer case, aborts the deploy.
 PUSH_LOG="$(mktemp)"
-trap 'rm -f "$PUSH_LOG"' EXIT
+trap 'rm -f "$PUSH_LOG" "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
 PUSH_RC=0
 sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push </dev/null" 2>&1 | tee "$PUSH_LOG" || PUSH_RC=$?
 
@@ -94,7 +176,7 @@ echo "==> Verifying schema is in sync (re-running push; expect 'No changes detec
 # emits a prompt (no marker), the first pass either lied about success or the
 # code+DB are still out of sync. Either way: abort before reloading PM2.
 VERIFY_LOG="$(mktemp)"
-trap 'rm -f "$PUSH_LOG" "$VERIFY_LOG"' EXIT
+trap 'rm -f "$PUSH_LOG" "$VERIFY_LOG" "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
 VERIFY_RC=0
 sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push </dev/null" 2>&1 | tee "$VERIFY_LOG" || VERIFY_RC=$?
 
@@ -129,20 +211,35 @@ echo "==> Reloading PM2 (zero downtime)..."
 sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
   pm2 reload servicehub --update-env && pm2 save"
 
-echo "==> Post-update health check..."
-sleep 5
+echo "==> Post-update health gate (sha + version must match what we just deployed)..."
+# Poll /api/health for up to 30s. Each pass must confirm:
+#   - ok:true and db:up                       (app reachable, DB reachable)
+#   - gitSha === NEW_SHA                      (the new code is the running code)
+#   - version === NEW_APP_VERSION             (matches shared/version.ts on disk)
+# Anything else after the timeout triggers a full rollback (code + data).
+# Override with FORCE_DEPLOY=1 only for genuine emergency hotfixes.
+sleep 3
 HEALTH_OK=0
-for i in 1 2 3 4 5; do
-  if curl -fsS "http://127.0.0.1:5000/api/health" | grep -q '"ok":true'; then
+HEALTH_BODY=""
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  HEALTH_BODY="$(curl -fsS "http://127.0.0.1:5000/api/health" || true)"
+  if [[ -n "$HEALTH_BODY" ]] \
+    && echo "$HEALTH_BODY" | grep -q '"ok":true' \
+    && echo "$HEALTH_BODY" | grep -q "\"gitSha\":\"$NEW_SHA\"" \
+    && echo "$HEALTH_BODY" | grep -q "\"version\":\"$NEW_APP_VERSION\""; then
     HEALTH_OK=1
     break
   fi
-  echo "   attempt $i: not ok yet, retrying..."
+  echo "   attempt $i: health not yet matching (sha=$NEW_SHA, version=$NEW_APP_VERSION)"
+  echo "             body: ${HEALTH_BODY:-<empty>}"
   sleep 3
 done
 
-if [[ "$HEALTH_OK" -ne 1 ]]; then
-  echo "ERROR: post-update health check failed. Rolling back code AND data."
+if [[ "$HEALTH_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
+  echo "ERROR: post-update health gate failed."
+  echo "       expected gitSha=$NEW_SHA version=$NEW_APP_VERSION"
+  echo "       last body:    ${HEALTH_BODY:-<empty>}"
+  echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
   sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
@@ -154,5 +251,61 @@ if [[ "$HEALTH_OK" -ne 1 ]]; then
   exit 1
 fi
 
-echo "==> Update complete: $PREV_SHA  ->  $NEW_SHA"
+echo "==> Schema column drift verification (new (table:column) pairs must exist on prod DB)..."
+# Table-aware verification: for every new (table, column) pair, query
+# information_schema.columns scoped to the target table. A column missing
+# on the right table fails even if the same column name exists elsewhere.
+COLUMN_DRIFT_OK=1
+MISSING_COLUMNS=()
+if [[ -s "$NEW_COLUMNS_FILE" ]]; then
+  LIVE_PAIRS="$(sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+    psql \"\$DATABASE_URL\" -At -F: -c \"SELECT table_name||':'||column_name FROM information_schema.columns WHERE table_schema='public'\"" 2>/dev/null | sort -u)"
+  while IFS= read -r pair; do
+    [[ -z "$pair" ]] && continue
+    if ! echo "$LIVE_PAIRS" | grep -qx "$pair"; then
+      COLUMN_DRIFT_OK=0
+      MISSING_COLUMNS+=("$pair")
+    fi
+  done < "$NEW_COLUMNS_FILE"
+fi
+
+if [[ "$COLUMN_DRIFT_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
+  echo "ERROR: schema column drift detected — db:push reported success but"
+  echo "       these new columns from shared/schema.ts are NOT present on prod:"
+  for c in "${MISSING_COLUMNS[@]}"; do echo "         - $c"; done
+  echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
+  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build"
+  sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+    pg_restore --clean --if-exists --no-owner --no-acl \
+      --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
+  sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+    pm2 reload servicehub --update-env && pm2 save"
+  echo "Rolled back to $PREV_SHA."
+  exit 1
+fi
+
+echo "==> Log-tail error gate (last 200 lines of pm2 logs)..."
+# Catches errors that don't fail /api/health but break user-facing routes.
+# E.g. a missing column on a non-health table will only show up in the logs
+# the first time a customer hits that route. We grep for known signatures
+# and abort if any hit.
+LOG_TAIL="$(sudo -u "$APP_USER" -H bash -lc "pm2 logs servicehub --lines 200 --nostream --raw" 2>/dev/null || true)"
+if echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" >/dev/null \
+   && [[ "${FORCE_DEPLOY:-0}" != "1" ]]; then
+  echo "ERROR: pm2 log tail contains schema/connection errors after restart:"
+  echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" | head -n 10
+  echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
+  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build"
+  sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+    pg_restore --clean --if-exists --no-owner --no-acl \
+      --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
+  sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
+    pm2 reload servicehub --update-env && pm2 save"
+  echo "Rolled back to $PREV_SHA."
+  exit 1
+fi
+
+echo "==> Update complete: $PREV_SHA  ->  $NEW_SHA  (version $NEW_APP_VERSION)"
 echo "    Snapshot kept at $SNAPSHOT (rollback: deploy/rollback.sh)"

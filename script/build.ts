@@ -1,7 +1,8 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile, writeFile } from "fs/promises";
+import { mkdir, rm, readFile, writeFile } from "fs/promises";
 import { randomBytes } from "crypto";
+import { execSync } from "child_process";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -51,6 +52,24 @@ async function buildAll() {
     console.log(`stamped service worker with build id: ${buildId}`);
   } catch (err) {
     console.warn(`could not stamp service worker (${swPath}):`, err);
+  }
+
+  // Stamp the build with the current git SHA so the running server can report
+  // it via /api/health without shelling out per request. deploy/update.sh
+  // diffs this against the SHA it just pushed to detect the "deploy ran but
+  // HEAD never moved" failure mode.
+  let gitSha = "";
+  try {
+    gitSha = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch (err) {
+    console.warn("could not capture git SHA for build:", err);
+  }
+  if (gitSha) {
+    await mkdir("dist", { recursive: true });
+    await writeFile("dist/.git-sha", gitSha + "\n", "utf-8");
+    console.log(`stamped build with git sha: ${gitSha}`);
   }
 
   console.log("building server...");

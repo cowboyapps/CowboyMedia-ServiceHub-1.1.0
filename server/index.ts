@@ -9,20 +9,73 @@ import { logError } from "./error-log";
 import { userWantsChannel } from "@shared/notification-categories";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
+import { execSync } from "child_process";
+import { APP_VERSION } from "@shared/version";
 
 const app = express();
 const httpServer = createServer(app);
 
+const PROCESS_START_MS = Date.now();
+
+// Resolve the git SHA of the running build ONCE at boot. Priority:
+//   1. dist/.git-sha   (written by `npm run build`, the production path)
+//   2. .git-sha        (root-level fallback)
+//   3. `git rev-parse HEAD` (dev only — fast, but shells out)
+//   4. null            (unknown — health endpoint will report null, deploy
+//                       script will treat that as a hard fail)
+function resolveGitSha(): string | null {
+  const candidates = [
+    join(process.cwd(), "dist", ".git-sha"),
+    join(process.cwd(), ".git-sha"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) {
+        const sha = readFileSync(p, "utf-8").trim();
+        if (sha) return sha;
+      }
+    } catch {}
+  }
+  try {
+    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim() || null;
+  } catch {
+    return null;
+  }
+}
+const GIT_SHA: string | null = resolveGitSha();
+
 app.get("/api/health", async (_req, res) => {
   let dbStatus: "up" | "down" = "down";
+  let migrationsApplied: number | null = null;
   try {
     await db.execute(sql`SELECT 1`);
     dbStatus = "up";
-  } catch (e) {
+    try {
+      const r: any = await db.execute(
+        sql`SELECT COUNT(*)::int AS c FROM "drizzle"."__drizzle_migrations"`,
+      );
+      const rows = (r?.rows ?? r) as any[];
+      const c = rows?.[0]?.c;
+      if (typeof c === "number") migrationsApplied = c;
+    } catch {
+      migrationsApplied = null;
+    }
+  } catch {
     dbStatus = "down";
   }
   const ok = dbStatus === "up";
-  res.status(ok ? 200 : 503).json({ ok, db: dbStatus });
+  res.status(ok ? 200 : 503).json({
+    ok,
+    db: dbStatus,
+    version: APP_VERSION,
+    gitSha: GIT_SHA,
+    uptime: Math.floor((Date.now() - PROCESS_START_MS) / 1000),
+    migrationsApplied,
+  });
 });
 
 declare module "http" {

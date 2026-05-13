@@ -70,6 +70,10 @@ I want iterative development.
 Ask before making major changes.
 When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, bottom nav, and the welcome popup all read from it) without further explanation.
 
+## Build artifacts
+
+- **`dist/.git-sha`**: Written by `npm run build` (see `script/build.ts`). The running server reads it once at boot to populate `gitSha` in `/api/health`. `deploy/update.sh` asserts `health.gitSha === $NEW_SHA` after every reload to catch the "deploy ran but HEAD never moved" failure mode. Do not commit; do not delete during runtime.
+
 ## Gotchas
 
 - **Email Template Protection**: Custom email templates are protected from being overwritten during updates.

@@ -209,6 +209,27 @@ Optional: change SSH port, restrict source IPs in UFW, enable unattended-upgrade
 
 ---
 
+## 8a. Deploy verification gates (`deploy/update.sh`)
+
+`update.sh` now self-verifies every deploy. Each gate below runs in order; any failure rolls back code + data and leaves the previous build serving. For a genuine emergency hotfix, `FORCE_DEPLOY=1` bypasses **only the post-restart gates (6, 7, 8)** — the pre-build / pre-push gates (1–5) always run because they protect against silently shipping the wrong code or schema in the first place.
+
+| # | Gate | What it checks | Failure mode it catches | How to bypass |
+| - | --- | --- | --- | --- |
+| 1 | **HEAD-moved assertion** | After `git reset --hard $TARGET`, asserts `git rev-parse HEAD == $TARGET_SHA`. | "Deploy ran but HEAD never moved" — the script reported success while pm2 reloaded the same old build (today's outage). | Not bypassable. If this fails, the working tree is broken; investigate by hand. |
+| 2 | **APP_VERSION parse** | Reads `APP_VERSION` from the just-checked-out `shared/version.ts`. | Corrupt or missing version file. | Not bypassable. |
+| 3 | **Schema column drift detection** | Walks `shared/schema.ts` at each SHA tracking the enclosing `pgTable("…", …)` block, emits `table:column` pairs, takes the set difference. | Records the (table, column) additions that gate 7 will verify after push. | n/a — informational. |
+| 4 | **db:push success sentinel** (existing) | Requires `Changes applied` or `No changes detected` in db:push output. | drizzle-kit hits a destructive-change prompt with closed stdin and silently skips (the original TOTP outage). | Not bypassable. |
+| 5 | **db:push verification re-run** (existing) | Re-runs `db:push`; requires `No changes detected` on the second pass. | First push lied about success; schema still drifted. | Not bypassable. |
+| 6 | **/api/health gate (sha + version)** | Polls `http://127.0.0.1:5000/api/health` for 30s; requires `gitSha === NEW_SHA` and `version === NEW_APP_VERSION`. | App started but is serving an older build (cached process, stale dist/). | `FORCE_DEPLOY=1` |
+| 7 | **Schema column drift verification (table-aware)** | For every new `table:column` pair from gate 3, asserts the column exists ON THE RIGHT TABLE in `information_schema.columns`. A missing column on `ticket_messages` fails even if the same column name exists on `tickets`. | `db:push` reported success but the column never landed on the target table (today's `is_internal` outage). | `FORCE_DEPLOY=1` |
+| 8 | **pm2 log-tail error gate** | Greps last 200 lines of pm2 logs for `Migration error`, `column ... does not exist`, `relation ... does not exist`, `ECONNREFUSED`. | Errors that don't fail /health but break user-facing routes the moment a customer hits them. | `FORCE_DEPLOY=1` |
+
+`/api/health` itself returns:
+```json
+{"ok":true,"db":"up","version":"5.1","gitSha":"abc123…","uptime":42,"migrationsApplied":17}
+```
+The `gitSha` is read once at server boot from `dist/.git-sha` (written by `npm run build`). Falls back to `git rev-parse HEAD` in dev. Never shells out per request.
+
 ## 9. Day-2 ops cheatsheet
 
 ```bash
