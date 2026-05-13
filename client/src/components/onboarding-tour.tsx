@@ -167,9 +167,15 @@ export function OnboardingTour() {
     if (user.role !== "customer") return;
     if (user.onboardingTourCompletedAt) return;
     if (autoTriggeredRef.current) return;
-    if (sessionStorage.getItem("onboarding-tour-shown") === "1") return;
+    // Key by user id so creating/switching to a different account in the same
+    // browser tab doesn't inherit a stale "already shown" flag from the
+    // previous user. sessionStorage persists across page reloads within the
+    // same tab, so an unkeyed flag silently swallowed the tour for every
+    // subsequent new account opened in the same tab.
+    const sessionKey = `onboarding-tour-shown:${user.id}`;
+    if (sessionStorage.getItem(sessionKey) === "1") return;
     autoTriggeredRef.current = true;
-    sessionStorage.setItem("onboarding-tour-shown", "1");
+    sessionStorage.setItem(sessionKey, "1");
     setPendingActivation(true);
     // small delay so layout settles after login
     const t = window.setTimeout(() => {
