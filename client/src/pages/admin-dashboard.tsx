@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { useAuth } from "@/lib/auth";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,7 @@ import {
   TrendingUp,
   Search,
   XCircle,
+  Activity,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { formatDistanceToNow } from "date-fns";
@@ -50,6 +52,13 @@ type DashboardMetrics = {
   users: { total: number; customers: number; admins: number; signupsToday: number; signupsThisWeek: number };
 };
 
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
+}
+
 function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <div>
@@ -73,12 +82,36 @@ const ticketChartConfig = {
   resolved: { label: "Resolved", color: "hsl(142 71% 45%)" },
 } as const;
 
+type SystemHealth = {
+  dbOk: boolean;
+  dbLatencyMs: number;
+  count5xxLast5Min: number;
+  recent: { id: string; severity: string; source: string; summary: string; createdAt: string; resolvedAt: string | null }[];
+};
+
+type AppHealth = { ok: boolean; db: string; version: string; gitSha: string | null; uptime: number };
+
 export default function AdminDashboard({ onNavigateSection }: { onNavigateSection?: (key: string) => void }) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const { isMasterAdmin } = useAuth();
   const { data, isLoading, error, dataUpdatedAt } = useQuery<DashboardMetrics>({
     queryKey: ["/api/admin/dashboard"],
     refetchInterval: 30_000,
+  });
+
+  // System Health tile (master_admin only) — polls every 30s alongside the
+  // main dashboard. Hidden entirely for non-master admins (the endpoint
+  // returns 403 for them anyway, but `enabled: false` skips the wasted call).
+  const { data: sysHealth } = useQuery<SystemHealth>({
+    queryKey: ["/api/admin/health/errors"],
+    refetchInterval: 30_000,
+    enabled: !!isMasterAdmin,
+  });
+  const { data: appHealth } = useQuery<AppHealth>({
+    queryKey: ["/api/health"],
+    refetchInterval: 60_000,
+    enabled: !!isMasterAdmin,
   });
 
   // Live refresh via websocket: invalidate the dashboard query when ticket
@@ -334,6 +367,50 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
             </div>
           </CardContent>
         </Card>
+
+        {/* System Health (master_admin only) — 5xx rate, DB latency, build SHA */}
+        {isMasterAdmin && (
+          <Card
+            className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
+            onClick={() => go("error-logs")}
+            data-testid="card-dashboard-system-health"
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Activity className={`w-4 h-4 ${sysHealth && sysHealth.count5xxLast5Min > 0 ? "text-red-500" : "text-green-500"}`} /> System Health
+                {sysHealth && sysHealth.count5xxLast5Min > 0 && (
+                  <Badge variant="destructive" className="ml-auto" data-testid="badge-system-health-alert">
+                    {sysHealth.count5xxLast5Min} error{sysHealth.count5xxLast5Min === 1 ? "" : "s"}
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Stat
+                  label="5xx (5min)"
+                  value={sysHealth ? sysHealth.count5xxLast5Min : "—"}
+                  sub={sysHealth && sysHealth.count5xxLast5Min === 0 ? "no errors" : "click to view"}
+                />
+                <Stat
+                  label="DB latency"
+                  value={sysHealth ? `${sysHealth.dbLatencyMs}ms` : "—"}
+                  sub={sysHealth?.dbOk === false ? <span className="text-red-500">DB down</span> : "SELECT 1 round-trip"}
+                />
+                <Stat
+                  label="Version"
+                  value={appHealth?.version ?? "—"}
+                  sub={appHealth?.gitSha ? <span className="font-mono text-[10px]">{appHealth.gitSha.slice(0, 7)}</span> : "no git sha"}
+                />
+                <Stat
+                  label="Uptime"
+                  value={appHealth ? formatUptime(appHealth.uptime) : "—"}
+                  sub={sysHealth?.recent.length ? `${sysHealth.recent.length} recent in log` : "log empty"}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-dashboard-updated">

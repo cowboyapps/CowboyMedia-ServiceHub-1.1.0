@@ -18,7 +18,7 @@ import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
 import { createQuickResponseHandlers } from "./quick-responses";
 import { z } from "zod";
-import { eq, isNotNull, isNull, and, notInArray } from "drizzle-orm";
+import { eq, isNotNull, isNull, and, notInArray, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import crypto from "crypto";
@@ -4261,6 +4261,97 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const count = await storage.countUnresolvedErrorLogsSince(since);
       res.json({ count });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // App-level settings (singleton). Currently exposes the auto-deploy
+  // kill-switch — read by the VPS webhook listener over HTTP before invoking
+  // update.sh, written from the admin UI to pause deploys during a
+  // maintenance window.
+  //
+  // Read-side accepts EITHER a master_admin session OR a bearer token that
+  // matches DEPLOY_GATE_TOKEN — the deploy webhook listener has no session
+  // context and needs to read this flag pre-deploy. Write-side stays
+  // session-only (operator action, must be attributable to a user).
+  app.get("/api/admin/app-settings", async (req, res) => {
+    try {
+      const gateToken = process.env.DEPLOY_GATE_TOKEN;
+      const auth = req.headers.authorization || "";
+      const bearerOk = !!gateToken && auth.startsWith("Bearer ") && auth.slice(7) === gateToken;
+      if (!bearerOk) {
+        // Fall through to session-based master_admin check.
+        const userId = (req as any).session?.userId;
+        if (!userId) return res.status(401).json({ message: "Unauthorized" });
+        const u = await storage.getUser(userId);
+        if (!u || u.role !== "master_admin") return res.status(403).json({ message: "Forbidden" });
+      }
+      const settings = await storage.getAppSettings();
+      res.json(settings);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/app-settings", requireMasterAdmin, async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId || null;
+      const body = req.body || {};
+      const patch: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null } = {};
+      if (typeof body.autoDeployEnabled === "boolean") {
+        patch.autoDeployEnabled = body.autoDeployEnabled;
+        patch.autoDeployPausedReason = body.autoDeployEnabled ? null : (body.autoDeployPausedReason ?? null);
+        patch.autoDeployPausedBy = body.autoDeployEnabled ? null : userId;
+      }
+      const updated = await storage.updateAppSettings(patch);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // System-health snapshot for the admin dashboard tile. Master-admin only —
+  // exposes raw error summaries and latency numbers that aren't safe for
+  // delegated admins. Designed to be cheap so the tile can poll on a 30s
+  // interval without straining the DB.
+  app.get("/api/admin/health/errors", requireMasterAdmin, async (_req, res) => {
+    try {
+      // 1) DB latency: single SELECT 1 round-trip in ms.
+      const t0 = Date.now();
+      let dbOk = true;
+      try {
+        await db.execute(sql`SELECT 1`);
+      } catch {
+        dbOk = false;
+      }
+      const dbLatencyMs = Date.now() - t0;
+
+      // 2) Last 20 error fingerprints — newest first, regardless of severity.
+      const recent = await storage.getErrorLogs({ limit: 20, page: 1 });
+
+      // 3) 5xx count over last 5 minutes. Pull the most recent 100 route
+      //    errors and bucket in JS — avoids a custom SQL helper for what is
+      //    almost always single-digit volume.
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+      const routeErrors = await storage.getErrorLogs({ source: "route", limit: 100, page: 1 });
+      const count5xxLast5Min = routeErrors.logs.filter(
+        (l) => new Date(l.createdAt).getTime() >= fiveMinAgo,
+      ).length;
+
+      res.json({
+        dbOk,
+        dbLatencyMs,
+        count5xxLast5Min,
+        recent: recent.logs.map((l) => ({
+          id: l.id,
+          severity: l.severity,
+          source: l.source,
+          summary: l.summary,
+          createdAt: l.createdAt,
+          resolvedAt: l.resolvedAt,
+        })),
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

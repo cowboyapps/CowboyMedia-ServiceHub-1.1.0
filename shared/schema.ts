@@ -697,6 +697,19 @@ export const discordSettings = pgTable("discord_settings", {
 
 export type DiscordSettings = typeof discordSettings.$inferSelect;
 
+// App-level operational settings (singleton row). Holds the kill-switch for
+// the GitHub→VPS auto-deploy webhook so a master_admin can pause production
+// deploys from the UI during a maintenance window without touching the VPS.
+export const appSettings = pgTable("app_settings", {
+  id: varchar("id").primaryKey().default("singleton"),
+  autoDeployEnabled: boolean("auto_deploy_enabled").notNull().default(true),
+  autoDeployPausedReason: text("auto_deploy_paused_reason"),
+  autoDeployPausedBy: varchar("auto_deploy_paused_by"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AppSettings = typeof appSettings.$inferSelect;
+
 export const businessHours = pgTable("business_hours", {
   id: varchar("id").primaryKey().default("singleton"),
   enabled: boolean("enabled").notNull().default(false),

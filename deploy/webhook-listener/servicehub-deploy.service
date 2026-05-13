@@ -1,0 +1,33 @@
+# /etc/systemd/system/servicehub-deploy.service
+#
+# GitHub → VPS deploy webhook listener. Runs as `servicehub` so it inherits
+# the deploy user's git/npm cache, but `sudo` is allowed for `bash
+# /opt/servicehub/deploy/update.sh` only (configured in
+# /etc/sudoers.d/servicehub-deploy — see deploy/webhook-listener/README.md).
+#
+# Restart on failure so a crashed listener self-heals; GitHub will retry the
+# delivery on its own once the socket is back.
+[Unit]
+Description=ServiceHub deploy webhook listener
+After=network.target
+
+[Service]
+Type=simple
+User=servicehub
+Group=servicehub
+WorkingDirectory=/opt/servicehub
+EnvironmentFile=/etc/servicehub-deploy.env
+ExecStart=/usr/bin/node /opt/servicehub/deploy/webhook-listener/server.mjs
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening — listener only needs to read its own dir + write logs.
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/log/servicehub-deploy
+
+[Install]
+WantedBy=multi-user.target

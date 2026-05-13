@@ -247,7 +247,95 @@ The first time `update.sh` runs the new build against the existing prod DB, `ser
 ```
 The `gitSha` is read once at server boot from `dist/.git-sha` (written by `npm run build`). Falls back to `git rev-parse HEAD` in dev. Never shells out per request.
 
-## 9. Day-2 ops cheatsheet
+## 9. GitHub → VPS auto-deploy webhook
+
+Push to `main` triggers a deploy automatically via a tiny Node listener
+that nginx proxies on `/_deploy`. Files live in
+`deploy/webhook-listener/` (`server.mjs`, `servicehub-deploy.service`,
+`README.md`). The listener:
+
+1. Validates the GitHub HMAC-SHA256 signature against
+   `GITHUB_WEBHOOK_SECRET`.
+2. Reads `app_settings.auto_deploy_enabled` over HTTP from the running app
+   (kill-switch — togglable from **Admin Portal → Deploy**). If paused,
+   the push is ack'd and dropped with a Discord `:no_entry:` notice.
+3. Spawns `sudo bash /opt/servicehub/deploy/update.sh --ref <sha>`.
+4. Posts deploy outcome to Discord (`:rocket:` start, `:white_check_mark:`
+   success, `:x:` failure with last-20-lines log tail).
+
+### One-time install
+
+Follow `deploy/webhook-listener/README.md`. Summary:
+
+```bash
+# 1. Env file (chmod 600 root)
+sudo install -m 600 /dev/stdin /etc/servicehub-deploy.env <<'EOF'
+GITHUB_WEBHOOK_SECRET=<long random string>
+APP_BASE_URL=https://your-domain.example
+DEPLOY_DISCORD_WEBHOOK=<discord webhook url>
+DEPLOY_GATE_TOKEN=<REQUIRED long random; MUST match DEPLOY_GATE_TOKEN in /opt/servicehub/.env — fail-closed if missing>
+EOF
+
+# 2. Sudoers — listener may run update.sh as root, no password
+sudo install -m 440 /dev/stdin /etc/sudoers.d/servicehub-deploy <<'EOF'
+servicehub ALL=(root) NOPASSWD: /usr/bin/bash /opt/servicehub/deploy/update.sh, /usr/bin/bash /opt/servicehub/deploy/update.sh --ref *
+EOF
+sudo visudo -c
+
+# 3. Log dir
+sudo mkdir -p /var/log/servicehub-deploy
+sudo chown servicehub:servicehub /var/log/servicehub-deploy
+
+# 4. Systemd unit + start
+sudo install -m 644 /opt/servicehub/deploy/webhook-listener/servicehub-deploy.service \
+  /etc/systemd/system/servicehub-deploy.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now servicehub-deploy
+
+# 5. Reload nginx (template now contains the /_deploy block)
+sudo nginx -t && sudo systemctl reload nginx
+
+# 6. Smoke test
+curl -sS http://127.0.0.1:5055/health
+```
+
+### GitHub side
+
+Repo → **Settings → Webhooks → Add webhook**
+
+- Payload URL: `https://your-domain.example/_deploy`
+- Content type: `application/json`
+- Secret: same as `GITHUB_WEBHOOK_SECRET`
+- Events: just the `push` event
+
+### Operations
+
+- **Pause deploys**: Admin Portal → Deploy → Pause (sets
+  `app_settings.auto_deploy_enabled=false`).
+- **Resume**: same screen → Resume. Next push deploys whatever HEAD is.
+- **Force a deploy of an arbitrary SHA**:
+  `sudo bash /opt/servicehub/deploy/update.sh --ref <sha>`.
+- **Listener logs**: `sudo journalctl -u servicehub-deploy -f`.
+- **Per-deploy logs**: `/var/log/servicehub-deploy/<deliveryId>.log`
+  (deliveryId = the `X-GitHub-Delivery` header GitHub sets).
+- **Replay a delivery**: GitHub → Webhooks → Recent Deliveries →
+  Redeliver.
+
+### Sentry observability
+
+When `SENTRY_DSN` is set:
+- Migration failures captured at `level=fatal, component=migration`
+  before the process exits (so the build will be visible in Sentry even
+  though pm2 won't flip to it).
+- Unhandled rejections + uncaught exceptions captured by Sentry's
+  default Node integrations.
+- 5xx responses captured in the express error handler with `method`/
+  `status` tags.
+- The **Admin Portal → Overview → System Health** tile (master_admin
+  only) shows the in-app `error_logs` table mirror: 5xx count over the
+  last 5 minutes, DB latency, version + git SHA, uptime.
+
+## 10. Day-2 ops cheatsheet
 
 ```bash
 # Tail app logs

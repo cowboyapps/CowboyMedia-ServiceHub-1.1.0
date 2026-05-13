@@ -23,9 +23,9 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
@@ -6710,6 +6710,112 @@ function AnnouncementsTab() {
   );
 }
 
+// Auto-deploy kill-switch. master_admin only. The toggle writes to
+// app_settings.auto_deploy_enabled, which the VPS webhook listener reads
+// over HTTP before invoking update.sh. Pausing here drops incoming pushes
+// at the listener with a Discord notice; the next push after re-enabling
+// will pick up whatever HEAD is on main at that point.
+function DeployTab() {
+  const { toast } = useToast();
+  const { data: settings, isLoading } = useQuery<{ autoDeployEnabled: boolean; autoDeployPausedReason: string | null; autoDeployPausedBy: string | null; updatedAt: string }>({
+    queryKey: ["/api/admin/app-settings"],
+  });
+  const [reason, setReason] = useState("");
+  useEffect(() => {
+    if (settings?.autoDeployPausedReason) setReason(settings.autoDeployPausedReason);
+  }, [settings?.autoDeployPausedReason]);
+
+  const toggleMutation = useMutation({
+    mutationFn: async (vars: { autoDeployEnabled: boolean; autoDeployPausedReason?: string | null }) => {
+      return apiRequest("PATCH", "/api/admin/app-settings", vars);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/app-settings"] });
+      toast({ title: "Saved", description: "Deploy settings updated." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Error", description: e?.message ?? "Failed to update.", variant: "destructive" });
+    },
+  });
+
+  if (isLoading || !settings) {
+    return <div className="text-sm text-muted-foreground" data-testid="text-deploy-loading">Loading…</div>;
+  }
+
+  const paused = !settings.autoDeployEnabled;
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h2 className="text-lg font-semibold flex items-center gap-2"><Rocket className="w-5 h-5 text-cyan-500" /> Deploy controls</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Pause or resume the GitHub → VPS auto-deploy pipeline. When paused, pushes to <code>main</code> are still
+          received by the webhook listener but are NOT deployed; they're acknowledged and dropped. The next push after
+          re-enabling will deploy whatever HEAD is on main at that point.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            {paused ? <Pause className="w-4 h-4 text-amber-500" /> : <Play className="w-4 h-4 text-green-500" />}
+            Auto-deploy from GitHub
+            <Badge variant={paused ? "destructive" : "default"} className="ml-auto" data-testid="badge-deploy-status">
+              {paused ? "PAUSED" : "ENABLED"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {paused && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm" data-testid="text-deploy-paused-banner">
+              <div className="font-medium text-amber-700 dark:text-amber-300">Pipeline paused</div>
+              {settings.autoDeployPausedReason && <div className="text-xs mt-1">Reason: {settings.autoDeployPausedReason}</div>}
+              <div className="text-xs mt-1 text-muted-foreground">Last changed {formatDistanceToNow(new Date(settings.updatedAt), { addSuffix: true })}</div>
+            </div>
+          )}
+
+          {!paused && (
+            <div className="space-y-2">
+              <Label htmlFor="pause-reason" className="text-xs">Pause reason (optional)</Label>
+              <Input
+                id="pause-reason"
+                placeholder="e.g. database migration in progress"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                data-testid="input-deploy-pause-reason"
+              />
+              <Button
+                variant="destructive"
+                onClick={() => toggleMutation.mutate({ autoDeployEnabled: false, autoDeployPausedReason: reason.trim() || null })}
+                disabled={toggleMutation.isPending}
+                data-testid="button-deploy-pause"
+              >
+                <Pause className="w-4 h-4 mr-2" /> Pause auto-deploy
+              </Button>
+            </div>
+          )}
+
+          {paused && (
+            <Button
+              onClick={() => toggleMutation.mutate({ autoDeployEnabled: true })}
+              disabled={toggleMutation.isPending}
+              data-testid="button-deploy-resume"
+            >
+              <Play className="w-4 h-4 mr-2" /> Resume auto-deploy
+            </Button>
+          )}
+
+          <div className="border-t pt-3 text-xs text-muted-foreground space-y-1">
+            <div><span className="font-mono">POST /_deploy</span> on the VPS — GitHub webhook target</div>
+            <div>Listener service: <span className="font-mono">systemctl status servicehub-deploy</span></div>
+            <div>Per-deploy logs: <span className="font-mono">/var/log/servicehub-deploy/&lt;deliveryId&gt;.log</span></div>
+            <div>Manual sync from Replit: <span className="font-mono">git push origin main</span></div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function DiscordTab() {
   const { toast } = useToast();
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -7607,6 +7713,7 @@ export default function AdminPortal() {
     { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10", group: "content" },
     { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true, group: "community" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true, group: "people" },
+    { key: "deploy", label: "Deploy", icon: Rocket, color: "text-cyan-500", bg: "bg-cyan-500/10", masterOnly: true, group: "system" },
   ];
 
   const sections = allSections.filter(s => {
@@ -7657,6 +7764,7 @@ export default function AdminPortal() {
       case "announcements": return <AnnouncementsTab />;
       case "knowledge-base": return <KnowledgeBaseTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab initialInnerTab={initialParams.section} /> : null;
+      case "deploy": return isMasterAdmin ? <DeployTab /> : null;
       case "online-users": return (user?.role === "admin" || user?.role === "master_admin") ? <OnlineUsersTab /> : null;
       default: return null;
     }

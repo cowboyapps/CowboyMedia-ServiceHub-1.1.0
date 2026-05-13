@@ -43,6 +43,8 @@ import {
   type TelegramSettings,
   discordSettings,
   type DiscordSettings,
+  appSettings,
+  type AppSettings,
   type BusinessHours,
   type UpdateBusinessHoursData,
   type Announcement,
@@ -342,6 +344,8 @@ export interface IStorage {
   updateTelegramSettings(data: { chatId?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<TelegramSettings>;
   getDiscordSettings(): Promise<DiscordSettings | undefined>;
   updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
+  getAppSettings(): Promise<AppSettings>;
+  updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null }): Promise<AppSettings>;
   getBusinessHours(): Promise<BusinessHours>;
   updateBusinessHours(data: UpdateBusinessHoursData): Promise<BusinessHours>;
 
@@ -1591,6 +1595,25 @@ export class DatabaseStorage implements IStorage {
   async getDiscordSettings(): Promise<DiscordSettings | undefined> {
     const [row] = await db.select().from(discordSettings).where(eq(discordSettings.id, "singleton"));
     return row;
+  }
+
+  async getAppSettings(): Promise<AppSettings> {
+    const [row] = await db.select().from(appSettings).where(eq(appSettings.id, "singleton"));
+    if (row) return row;
+    // Lazy-create the singleton on first read so the rest of the app can
+    // assume it always exists (e.g. webhook listener pre-deploy gate).
+    const [created] = await db.insert(appSettings).values({ id: "singleton" }).returning();
+    return created;
+  }
+
+  async updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null }): Promise<AppSettings> {
+    await this.getAppSettings(); // ensure row exists
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    if (data.autoDeployEnabled !== undefined) patch.autoDeployEnabled = data.autoDeployEnabled;
+    if (data.autoDeployPausedReason !== undefined) patch.autoDeployPausedReason = data.autoDeployPausedReason;
+    if (data.autoDeployPausedBy !== undefined) patch.autoDeployPausedBy = data.autoDeployPausedBy;
+    const [updated] = await db.update(appSettings).set(patch).where(eq(appSettings.id, "singleton")).returning();
+    return updated;
   }
 
   async updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings> {

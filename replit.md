@@ -20,6 +20,17 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
     - `SENDGRID_API_KEY`
     - `TELEGRAM_BOT_TOKEN` (optional)
     - `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (optional)
+    - `SENTRY_DSN` (optional — when unset, error capture is a no-op; when set, 5xx responses, unhandled rejections, uncaught exceptions, and migration failures ship to Sentry)
+    - `DEPLOY_GATE_TOKEN` (production only — long random string. Bearer token the VPS deploy webhook listener uses to read `app_settings.auto_deploy_enabled` over HTTP before invoking `update.sh`. Must match the value in `/etc/servicehub-deploy.env` on the VPS. If unset, the listener fails closed and refuses to deploy.)
+
+## Replit ↔ GitHub sync (manual)
+
+Replit does NOT auto-push to GitHub. The user-chosen workflow is:
+1. Make changes in Replit. Verify locally.
+2. From the Replit shell: `git add -A && git commit -m "<msg>" && git push origin main`.
+3. The push fires the GitHub webhook → VPS webhook listener (`deploy/webhook-listener/`) → `deploy/update.sh` → PM2 reload.
+4. Outcome posts to the deploy Discord channel (success ✅ / failure ❌ with last-20-lines log tail).
+5. To pause production deploys (e.g. during a maintenance window), use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; the listener checks it before running `update.sh`.
 
 ## Stack
 

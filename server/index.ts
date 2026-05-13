@@ -1,3 +1,6 @@
+// MUST be the very first import — Sentry's auto-instrumentation only patches
+// libraries loaded AFTER Sentry.init() runs.
+import { Sentry } from "./instrument";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, getWebSocketServer } from "./routes";
 import { serveStatic } from "./static";
@@ -140,7 +143,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await runMigrations();
+  try {
+    await runMigrations();
+  } catch (err) {
+    // Migration failures are catastrophic — surface them in Sentry with a
+    // dedicated tag so they're filterable in the dashboard, then re-throw
+    // so pm2 won't flip to a build whose schema didn't apply.
+    Sentry.captureException(err, { tags: { component: "migration" }, level: "fatal" });
+    await Sentry.flush(2000).catch(() => {});
+    throw err;
+  }
   await registerRoutes(httpServer, app);
 
   async function pruneOldErrorLogs() {
@@ -223,6 +235,13 @@ app.use((req, res, next) => {
   setTimeout(() => checkSetupReminders(), 10000);
   setInterval(() => checkSetupReminders(), 60 * 60 * 1000);
 
+  // Sentry's express error handler. The SDK prints a one-time warning at
+  // boot that "express is not instrumented" — that's about auto-tracing,
+  // which we deliberately disable (tracesSampleRate: 0). Error capture
+  // itself still works because we ALSO call Sentry.captureException
+  // explicitly below, so we don't depend on the auto-instrumentation.
+  Sentry.setupExpressErrorHandler(app);
+
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -230,6 +249,16 @@ app.use((req, res, next) => {
     console.error("Internal Server Error:", err);
 
     if (status >= 500) {
+      // Belt-and-suspenders: explicitly forward to Sentry with request
+      // context tags so issues are filterable by route/method in the
+      // dashboard. Doesn't double-fire because the express handler above
+      // dedupes on the same Error instance.
+      try {
+        Sentry.captureException(err, {
+          tags: { component: "route", method: req.method, status: String(status) },
+          extra: { path: req.path, userId: (req as any)?.session?.userId ?? null },
+        });
+      } catch {}
       try {
         logError("route", err, {
           severity: "error",
