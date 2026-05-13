@@ -138,8 +138,18 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({ ok: true }));
   }
 
-  // Tail of the most recent deploy log for Discord deep-link.
+  // Tail of the most recent deploy log for Discord deep-link. Gated on the
+  // same DEPLOY_GATE_TOKEN bearer used for the kill-switch read — deploy
+  // logs can include env-var names, file paths, npm install diagnostics,
+  // and other operational detail we don't want public. Fail-closed if no
+  // token is configured.
   if (req.method === "GET" && req.url?.startsWith("/log/")) {
+    const auth = req.headers.authorization || "";
+    const expected = process.env.DEPLOY_GATE_TOKEN;
+    if (!expected || auth !== `Bearer ${expected}`) {
+      res.writeHead(401);
+      return res.end("unauthorized");
+    }
     const id = req.url.slice(5).replace(/[^a-zA-Z0-9_-]/g, "");
     const p = path.join(LOG_DIR, `${id}.log`);
     if (!fs.existsSync(p)) {
