@@ -5,8 +5,7 @@ Day-to-day development happens in the dev environment. The VPS is **production**
 ## Golden rules
 
 1. **Schema migrations must be additive only.** Add tables, add nullable columns, add indexes. Never drop or rename. If you must rename, do it in two releases: add new column → backfill + dual-write → drop old column in the next release after verifying.
-2. **Never run `npm run db:push --force` on the VPS.** `update.sh` runs `db:push` without `--force` and pipes "No" to any prompt — it will fail loudly if drizzle wants to drop something. That failure is a **feature**: it forces you to handle destructive changes deliberately.
-   - `update.sh` parses the `db:push` output and requires one of the drizzle-kit success markers — `Changes applied` or `No changes detected` — before treating the push as successful, then re-runs `db:push` once more and requires `No changes detected` to confirm the schema is in sync. A zero exit code with no marker is treated as a SILENT SKIP and aborts the deploy. **If you upgrade `drizzle-kit` and it changes those exact strings, the deploy will start failing at the schema-push step** — adjust the regex in `deploy/update.sh` to match the new wording. This is intentionally fail-closed: a botched marker check breaks the deploy instead of letting another silent skip through.
+2. **Schema changes go through versioned drizzle migrations, not `db:push`.** Edit `shared/schema.ts`, run `npm run db:generate` locally, commit the new SQL file under `migrations/<idx>_<name>.sql` together with the regenerated `migrations/meta/` files. The in-process migrator (`server/migrate.ts`) applies them at app boot inside a transaction, before route registration. A failing migration aborts startup and pm2 keeps the previous build alive. `prebuild` runs `npm run db:check` (drift check) and CI runs the same check on PRs, so a schema edit committed without a generated migration fails the build long before it reaches the VPS.
 3. **Always cut a tag for non-trivial releases.** `git tag v1.2.3 && git push --tags`. Then `update.sh --ref v1.2.3`. Makes rollbacks unambiguous.
 4. **Watch logs after deploy.** `update.sh` does an automated health check and rolls back automatically if it fails, but a green health check doesn't catch every regression. `pm2 logs` for 5 minutes.
 
@@ -24,9 +23,8 @@ sudo bash /opt/servicehub/deploy/update.sh
 Done. `update.sh`:
 - Snapshots the DB to `/var/backups/servicehub/pre-update-<timestamp>.dump`.
 - Pulls and resets to `origin/main`.
-- `npm ci && npm run build`.
-- Pushes schema (refuses destructive changes).
-- `pm2 reload servicehub` (zero downtime — PM2 fork mode reload is graceful).
+- `npm ci && npm run build` (env sourced; `prebuild` runs `db:check` to refuse builds with un-generated schema changes).
+- `pm2 reload servicehub` (zero downtime — PM2 fork mode reload is graceful). The reloaded Node process runs `server/migrate.ts` before serving traffic; any failed migration aborts startup and pm2 keeps the previous build alive.
 - Health-checks `/api/health`. If it fails, automatically restores the snapshot and rolls back code.
 
 ## Hotfix a specific commit

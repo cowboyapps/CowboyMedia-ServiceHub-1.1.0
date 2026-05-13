@@ -154,11 +154,12 @@ write_env_kv() {
 chown "$APP_USER:$APP_USER" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-echo "==> Building app (npm ci && npm run build)..."
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build"
+echo "==> Building app (npm ci && npm run build — env sourced so prebuild's db:check sees DATABASE_URL)..."
+sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
 
-echo "==> Pushing schema (drizzle db:push)..."
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push"
+# Schema is no longer pushed here. The in-process drizzle migrator runs at
+# server startup (server/migrate.ts) inside a transaction, before route
+# registration. PM2 (started below) will block on it; failure aborts boot.
 
 echo "==> Starting PM2..."
 # Source $ENV_FILE before pm2 start so the spawned Node process inherits

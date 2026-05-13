@@ -1,7 +1,7 @@
 import { defineConfig } from "drizzle-kit";
 
 if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
+  throw new Error("DATABASE_URL is required for drizzle-kit (db:check, db:generate, prebuild). In deploy scripts, source $ENV_FILE before running `npm run build` (set -a && . $ENV_FILE && set +a). DATABASE_URL, ensure the database is provisioned");
 }
 
 export default defineConfig({
