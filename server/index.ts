@@ -49,25 +49,25 @@ function resolveGitSha(): string | null {
 const GIT_SHA: string | null = resolveGitSha();
 
 app.get("/api/health", async (_req, res) => {
-  let dbStatus: "up" | "down" = "down";
+  let dbStatus: "ok" | "down" = "down";
   let migrationsApplied: number | null = null;
   try {
     await db.execute(sql`SELECT 1`);
-    dbStatus = "up";
+    dbStatus = "ok";
     try {
-      const r: any = await db.execute(
+      const result = await db.execute<{ c: number }>(
         sql`SELECT COUNT(*)::int AS c FROM "drizzle"."__drizzle_migrations"`,
       );
-      const rows = (r?.rows ?? r) as any[];
-      const c = rows?.[0]?.c;
-      if (typeof c === "number") migrationsApplied = c;
+      const rows = Array.isArray(result) ? result : result.rows;
+      const first = rows?.[0];
+      if (first && typeof first.c === "number") migrationsApplied = first.c;
     } catch {
       migrationsApplied = null;
     }
   } catch {
     dbStatus = "down";
   }
-  const ok = dbStatus === "up";
+  const ok = dbStatus === "ok";
   res.status(ok ? 200 : 503).json({
     ok,
     db: dbStatus,

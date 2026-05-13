@@ -89,7 +89,7 @@ The script:
 Without changing DNS, hit the new server using `--resolve`:
 ```bash
 curl --resolve yourdomain.com:443:<vps-ip> https://yourdomain.com/api/health
-# expect: {"ok":true,"db":"up"}
+# expect: {"ok":true,"db":"ok",...}
 ```
 
 If you used HTTP-only (no cert yet), use `:80`. Or test against the temp subdomain you used in the dry run.
@@ -226,7 +226,7 @@ Optional: change SSH port, restrict source IPs in UFW, enable unattended-upgrade
 
 `/api/health` itself returns:
 ```json
-{"ok":true,"db":"up","version":"5.1","gitSha":"abc123…","uptime":42,"migrationsApplied":17}
+{"ok":true,"db":"ok","version":"5.1","gitSha":"abc123…","uptime":42,"migrationsApplied":17}
 ```
 The `gitSha` is read once at server boot from `dist/.git-sha` (written by `npm run build`). Falls back to `git rev-parse HEAD` in dev. Never shells out per request.
 
