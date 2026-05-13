@@ -9,6 +9,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Activity, AlertTriangle, BellRing, BookOpen, Download, MessageSquare, Settings as SettingsIcon, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { isPushSupported, isSubscribedToPush, subscribeToPush } from "@/lib/push-notifications";
+import { useModalSlot } from "@/lib/modal-queue";
 
 const REPLAY_EVENT = "onboarding:replay";
 const OPEN_NOTIF_PREFS_EVENT = "onboarding:open-notif-prefs";
@@ -139,11 +140,17 @@ export function OnboardingTour() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [active, setActive] = useState(false);
+  const [pendingActivation, setPendingActivation] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [pushAvailable, setPushAvailable] = useState(false);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const autoTriggeredRef = useRef(false);
+
+  // Claim the modal slot the moment we KNOW we'll show the tour (incl. the
+  // 600ms layout-settle delay) so the announcement / version-welcome dialogs
+  // don't briefly flash first and then get yanked away when the tour starts.
+  const isMine = useModalSlot("onboarding-tour", 70, active || pendingActivation);
 
   const completeMutation = useMutation({
     mutationFn: async () => {
@@ -163,12 +170,17 @@ export function OnboardingTour() {
     if (sessionStorage.getItem("onboarding-tour-shown") === "1") return;
     autoTriggeredRef.current = true;
     sessionStorage.setItem("onboarding-tour-shown", "1");
+    setPendingActivation(true);
     // small delay so layout settles after login
     const t = window.setTimeout(() => {
       setStepIndex(0);
       setActive(true);
+      setPendingActivation(false);
     }, 600);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      setPendingActivation(false);
+    };
   }, [user]);
 
   // Replay event listener.
@@ -287,7 +299,7 @@ export function OnboardingTour() {
     return { top, left, width: tooltipW };
   }, [rect, step, selector, isMobile]);
 
-  if (!active || !step) return null;
+  if (!active || !step || !isMine) return null;
 
   const isLast = stepIndex === STEPS.length - 1;
   const isCentered = !selector || !rect || !tooltipPosition;

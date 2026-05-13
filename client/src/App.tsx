@@ -59,6 +59,7 @@ import CommunityChatPage from "@/pages/community-chat-page";
 import KnowledgePage from "@/pages/knowledge-page";
 import WhatsNewPage from "@/pages/whats-new-page";
 import { VersionWelcomeDialog } from "@/components/version-welcome-dialog";
+import { useModalSlot } from "@/lib/modal-queue";
 
 function getRouteDepth(path: string): number {
   if (path === "/") return 0;
@@ -875,7 +876,13 @@ function AnnouncementPopup() {
     handleClose();
   };
 
-  if (!current) return null;
+  // Coordinated through the modal queue so a brand-new customer doesn't see
+  // this stacked on top of the onboarding tour. Tour (priority 70) shows
+  // first; this announcement (priority 60) takes its turn after tour ends;
+  // version-welcome (priority 50) goes last.
+  const isMine = useModalSlot("announcement", 60, open && !!current);
+
+  if (!current || !isMine) return null;
 
   const safeHtml = DOMPurify.sanitize(current.bodyHtml, {
     ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a"],

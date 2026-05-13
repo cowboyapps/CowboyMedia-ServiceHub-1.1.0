@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
 import { APP_VERSION, versionAnchor, shouldShowVersionWelcome } from "@shared/version";
+import { useModalSlot } from "@/lib/modal-queue";
 
 export function VersionWelcomeDialog() {
   const { user } = useAuth();
@@ -49,7 +50,11 @@ export function VersionWelcomeDialog() {
     navigate(`/whats-new#${versionAnchor(APP_VERSION)}`);
   };
 
-  if (!user || !open) return null;
+  // Coordinated through the modal queue so a brand-new customer doesn't
+  // see this stacked on top of the onboarding tour and announcement popup.
+  const isMine = useModalSlot("version-welcome", 50, open && !!user);
+
+  if (!user || !open || !isMine) return null;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
