@@ -142,7 +142,7 @@ echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration d
 # at server boot, inside a transaction, and aborts startup on failure. The
 # downstream /api/health gate (6) and table-aware column-drift check (7)
 # below still confirm the migrations actually landed on prod.
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
+sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
 
 echo "==> Reloading PM2 (zero downtime — migrator runs at startup before serving traffic)..."
 # Source $ENV_FILE so --update-env actually has fresh vars to propagate
@@ -181,7 +181,7 @@ if [[ "$HEALTH_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
   echo "       last body:    ${HEALTH_BODY:-<empty>}"
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
@@ -215,7 +215,7 @@ if [[ "$COLUMN_DRIFT_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
   for c in "${MISSING_COLUMNS[@]}"; do echo "         - $c"; done
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
@@ -237,7 +237,7 @@ if echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation
   echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" | head -n 10
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""

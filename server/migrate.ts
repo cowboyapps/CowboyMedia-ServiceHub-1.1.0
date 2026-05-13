@@ -131,8 +131,14 @@ async function bootstrapBaselineIfNeeded(folder: string): Promise<void> {
 export async function runMigrations(): Promise<void> {
   const folder = migrationsFolder();
   if (!existsSync(folder)) {
-    console.warn(`[migrate] migrations folder not found at ${folder} — skipping`);
-    return;
+    // Fail closed: a missing migrations/ folder means the build is broken
+    // (the directory is committed to git). Returning here would let the
+    // server boot with whatever schema happens to be on disk — exactly the
+    // silent-skip failure mode we just removed db:push to avoid.
+    throw new Error(
+      `[migrate] migrations folder not found at ${folder}. Refusing to start. ` +
+        `This usually means the build is missing committed files; do not bypass.`,
+    );
   }
   await bootstrapBaselineIfNeeded(folder);
   await migrate(db, { migrationsFolder: folder });

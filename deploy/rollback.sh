@@ -53,7 +53,7 @@ read -rp "Proceed? (yes/NO): " CONFIRM
 if [[ -n "$GIT_SHA" ]]; then
   sudo -u "$APP_USER" git -C "$APP_DIR" fetch --all --tags
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$GIT_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
 fi
 
 echo "==> Restoring DB..."

@@ -280,8 +280,8 @@ SQL
   chown "$APP_USER:$APP_USER" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 
-  echo "==> Building app (env sourced so prebuild's db:check sees DATABASE_URL)..."
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm ci && npm run build"
+  echo "==> Building app (npm ci first so devDependencies install regardless of .env's NODE_ENV; env sourced for build so prebuild's db:check sees DATABASE_URL)..."
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
 
   echo "==> Applying versioned drizzle migrations (initial schema)..."
   run_migrations_with_verify "initial schema migration"
