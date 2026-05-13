@@ -155,6 +155,14 @@ app.use((req, res, next) => {
   }
   await registerRoutes(httpServer, app);
 
+  // Start the in-app fallback alerter — independent of Sentry. Polls
+  // error_logs every 60s and posts to the alert Discord channel on fatal
+  // errors or 5xx bursts. This is what guarantees the "alerts within ~1
+  // minute" requirement; Sentry alert rules are the primary path but live
+  // outside this repo and can be misconfigured.
+  const { startErrorAlerter } = await import("./error-alerter");
+  startErrorAlerter();
+
   async function pruneOldErrorLogs() {
     try {
       const removed = await storage.deleteOldErrorLogs(30);

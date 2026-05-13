@@ -98,14 +98,37 @@ function runDeploy(ref, deliveryId) {
     const out = fs.createWriteStream(logPath);
     const args = ["bash", UPDATE_SCRIPT];
     if (ref) args.push("--ref", ref);
+    const startedAt = Date.now();
     const child = spawn("sudo", args, { stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.pipe(out);
     child.stderr.pipe(out);
     child.on("close", (code) => {
       out.end();
-      resolve({ code, logPath });
+      resolve({ code, logPath, durationMs: Date.now() - startedAt });
     });
   });
+}
+
+function fmtDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${s % 60}s`;
+}
+
+// update.sh prints "==> Health check OK" / "==> Update complete" lines on
+// success and a "Rolled back to <sha>" line on failure-with-rollback. We
+// echo the most informative of those into the Discord notification so the
+// reader can tell at a glance whether verification passed.
+function extractVerificationOutcome(logText) {
+  const lines = logText.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (/Update complete:|Health check OK|Rolled back to|gitSha matches|gitSha mismatch/.test(l)) {
+      return l.trim();
+    }
+  }
+  return null;
 }
 
 const server = http.createServer((req, res) => {
@@ -173,10 +196,13 @@ const server = http.createServer((req, res) => {
     const author = payload.head_commit?.author?.name || "unknown";
     const message = (payload.head_commit?.message || "").split("\n")[0];
 
-    // Kill-switch gate.
+    // Kill-switch gate. Behavior is DROP, not queue: the next push after
+    // re-enabling will deploy whatever HEAD is on `main` at that point,
+    // which is always at least as new as the dropped commit. Queueing
+    // would risk replaying a stale SHA after the operator has moved on.
     const gate = await isAutoDeployEnabled();
     if (!gate.ok) {
-      const note = `Auto-deploy paused${gate.reason ? `: ${gate.reason}` : ""}. SHA \`${sha.slice(0, 7)}\` was NOT deployed.`;
+      const note = `Auto-deploy paused${gate.reason ? `: ${gate.reason}` : ""}. SHA \`${sha.slice(0, 7)}\` was DROPPED (not queued — push again after resuming).`;
       console.log("[webhook] gated:", note);
       await notifyDiscord(`:no_entry: ${note}`);
       res.writeHead(202);
@@ -188,13 +214,17 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ deliveryId, sha }));
 
     await notifyDiscord(`:rocket: Deploying \`${sha.slice(0, 7)}\` by ${author}\n> ${message}`);
-    const { code, logPath } = await runDeploy(sha, deliveryId);
+    const { code, logPath, durationMs } = await runDeploy(sha, deliveryId);
+    const logText = fs.readFileSync(logPath, "utf8");
+    const verification = extractVerificationOutcome(logText) || "(no verification line found in log)";
     if (code === 0) {
-      await notifyDiscord(`:white_check_mark: Deploy \`${sha.slice(0, 7)}\` succeeded.`);
-    } else {
-      const tail = fs.readFileSync(logPath, "utf8").split("\n").slice(-20).join("\n");
       await notifyDiscord(
-        `:x: Deploy \`${sha.slice(0, 7)}\` FAILED (exit ${code}). Last 20 lines:\n\`\`\`\n${tail.slice(-1500)}\n\`\`\``,
+        `:white_check_mark: Deploy \`${sha.slice(0, 7)}\` succeeded in ${fmtDuration(durationMs)}.\nVerification: \`${verification}\``,
+      );
+    } else {
+      const tail = logText.split("\n").slice(-20).join("\n");
+      await notifyDiscord(
+        `:x: Deploy \`${sha.slice(0, 7)}\` FAILED (exit ${code}) after ${fmtDuration(durationMs)}.\nVerification: \`${verification}\`\nLast 20 lines:\n\`\`\`\n${tail.slice(-1400)}\n\`\`\``,
       );
     }
   });
