@@ -233,7 +233,13 @@ The first time `update.sh` runs the new build against the existing prod DB, `ser
 
 …and pre-inserts the baseline migration's hash into `drizzle.__drizzle_migrations`, so the migrator skips the baseline (which would otherwise fail with `relation "users" already exists`). Any genuine new migrations the journal grows over time apply normally on top.
 
-**Operator: nothing to do.** Just deploy normally. The startup log will show `[migrate] bootstrap: marked baseline (0000_baseline) as already-applied on existing DB` exactly once.
+**Operator: nothing to do** in the normal case. Just deploy normally. The startup log will show `[migrate] bootstrap: verified all <N> baseline tables present; marked baseline (0000_baseline) as already-applied on existing DB` exactly once.
+
+**If the first cutover hard-fails** with `[migrate] bootstrap aborted: __drizzle_migrations is empty AND the public schema is in a partial/ambiguous state. <k>/<N> baseline tables present; missing <m>: …`, the legacy prod DB is missing one or more tables that `shared/schema.ts` declares. This is intentional fail-closed behavior — pre-marking the baseline as applied in this state would lock in the missing tables forever. Operator options:
+
+1. **Restore from a clean dump** taken when the schema was complete (`deploy/migrate.sh --restore-only`) and re-deploy.
+2. **Hand-create the missing tables** by running the relevant CREATE TABLE statements from `migrations/0000_baseline.sql` against the live DB, then re-deploy. The bootstrap will see all baseline tables present and mark baseline as applied.
+3. **Wipe and let the migrator rebuild** if the DB has no data worth preserving (rare in prod): drop the schema, then deploy. The migrator will treat it as a virgin DB and run baseline normally.
 
 `/api/health` itself returns:
 ```json
