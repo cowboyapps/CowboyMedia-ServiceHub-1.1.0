@@ -90,8 +90,28 @@ app.use((req, res, next) => {
 
   try {
     await db.execute(sql`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS image_url TEXT`);
+    await db.execute(sql`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`);
   } catch (e) {
-    console.error("Migration error (ticket_messages.read_at):", e);
+    console.error("Migration error (ticket_messages.*):", e);
+  }
+
+  try {
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS image_url TEXT`);
+  } catch (e) {
+    console.error("Migration error (tickets.image_url):", e);
+  }
+
+  try {
+    await db.execute(sql`ALTER TABLE news_stories ADD COLUMN IF NOT EXISTS image_url TEXT`);
+  } catch (e) {
+    console.error("Migration error (news_stories.image_url):", e);
+  }
+
+  try {
+    await db.execute(sql`ALTER TABLE services ADD COLUMN IF NOT EXISTS discord_webhook_url TEXT`);
+  } catch (e) {
+    console.error("Migration error (services.discord_webhook_url):", e);
   }
 
   try {
