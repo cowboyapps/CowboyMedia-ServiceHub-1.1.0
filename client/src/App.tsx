@@ -508,6 +508,15 @@ function WelcomeDialog() {
     });
   }, []);
 
+  // Coordinated through the modal queue so the post-registration welcome
+  // doesn't render its Radix Dialog on top of the tour / announcement /
+  // version-welcome — two open Radix Dialogs collide on focus trapping and
+  // a dismissal can swallow the dialog underneath. Order on a brand-new
+  // signup: tour (70) → announcement (60) → this welcome (55) →
+  // version-welcome (50).
+  const isMineWelcome = useModalSlot("welcome", 55, showWelcome);
+  if (showWelcome && !isMineWelcome) return null;
+
   const handleEnablePush = async () => {
     setPushLoading(true);
     try {
