@@ -228,8 +228,28 @@ const server = http.createServer((req, res) => {
     res.writeHead(202, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ deliveryId, sha }));
 
-    await notifyDiscord(`:rocket: Deploying \`${sha.slice(0, 7)}\` by ${author}\n> ${message}`);
-    const { code, logPath, durationMs } = await runDeploy(sha, deliveryId);
+    // Single-flight lock: if a deploy is already running, chain this one to
+    // run after it. Without this, two pushes ~30s apart could both invoke
+    // update.sh concurrently, racing on the git working tree, pm2 reload,
+    // and the dist/.git-sha file. We chain rather than drop because the
+    // newer SHA must still ship; the in-flight deploy will finish first
+    // and the chained one will then build on top of an already-correct
+    // working tree (update.sh is idempotent on a clean checkout).
+    const runWhenFree = (deployInFlight ?? Promise.resolve()).then(async () => {
+      await notifyDiscord(`:rocket: Deploying \`${sha.slice(0, 7)}\` by ${author}\n> ${message}`);
+      return runDeploy(sha, deliveryId);
+    });
+    // Track this run as the current tail of the chain. A later push that
+    // arrives while runWhenFree is still pending will see this promise in
+    // `deployInFlight` and chain onto it. We only clear the slot if WE
+    // are still the tail when we settle (otherwise a newer push has
+    // already taken over the chain — leave its promise in place).
+    const slot = runWhenFree.catch(() => {});
+    deployInFlight = slot;
+    slot.finally(() => {
+      if (deployInFlight === slot) deployInFlight = null;
+    });
+    const { code, logPath, durationMs } = await runWhenFree;
     const logText = fs.readFileSync(logPath, "utf8");
     const verification = extractVerificationOutcome(logText) || "(no verification line found in log)";
     if (code === 0) {
@@ -244,6 +264,9 @@ const server = http.createServer((req, res) => {
     }
   });
 });
+
+// Module-level single-flight lock for deploy execution. See usage above.
+let deployInFlight = null;
 
 server.listen(PORT, HOST, () => {
   console.log(`[webhook] listening on ${HOST}:${PORT}`);

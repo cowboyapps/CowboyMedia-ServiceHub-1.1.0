@@ -362,6 +362,34 @@ still notifies operators:
      non-existent admin route does it) and confirming the Discord
      post arrives within ~60s.
 
+### Day-2 ops: alerts and secrets
+
+**Silence alerts during a planned maintenance window:**
+1. Admin Portal → Discord → temporarily blank the `alert` category
+   webhook (or change the channel to a quiet ops channel). Save.
+   Both the in-app fallback alerter and any Sentry → Discord rule
+   that uses the same channel will land in the new destination.
+2. Restore the original webhook URL when the window closes.
+3. For Sentry-only silencing, also use Sentry → Alerts → snooze the
+   matching rule for the window duration.
+
+**Rotate `GITHUB_WEBHOOK_SECRET`:**
+1. On VPS: edit `/etc/servicehub-deploy.env`, set the new secret,
+   `sudo systemctl restart servicehub-deploy`.
+2. GitHub → repo → Settings → Webhooks → edit the webhook → paste
+   the same new secret → Update webhook.
+3. Verify by clicking "Redeliver" on the most recent delivery — it
+   should now succeed (was failing with 401 between steps 1 and 2).
+4. Old secret is invalidated the moment step 1 lands; there is no
+   grace period, so do steps 1 and 2 back-to-back.
+
+**Rotate `DEPLOY_GATE_TOKEN`:**
+1. Update `/opt/servicehub/.env` AND `/etc/servicehub-deploy.env` to
+   the same new value.
+2. `pm2 reload servicehub && sudo systemctl restart servicehub-deploy`.
+3. Trigger a no-op push to verify (the gate check should succeed in
+   the listener log).
+
 ## 10. Day-2 ops cheatsheet
 
 ```bash
