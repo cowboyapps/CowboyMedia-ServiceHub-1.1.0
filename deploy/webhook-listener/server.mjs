@@ -192,6 +192,21 @@ const server = http.createServer((req, res) => {
       return res.end();
     }
 
+    // Defense-in-depth: even though the HMAC secret already proves the
+    // sender knows our shared secret, also pin the expected repository
+    // full_name. If the secret ever leaks to a fork or test repo, this
+    // stops a stray push from triggering a production deploy. Configurable
+    // via DEPLOY_REPO_FULL_NAME so non-prod test installs don't have to
+    // patch this file.
+    const expectedRepo = process.env.DEPLOY_REPO_FULL_NAME;
+    if (expectedRepo && payload.repository?.full_name !== expectedRepo) {
+      console.warn(
+        `[webhook] repo mismatch: expected ${expectedRepo}, got ${payload.repository?.full_name}`,
+      );
+      res.writeHead(403);
+      return res.end("repo mismatch");
+    }
+
     const sha = payload.after;
     const author = payload.head_commit?.author?.name || "unknown";
     const message = (payload.head_commit?.message || "").split("\n")[0];
