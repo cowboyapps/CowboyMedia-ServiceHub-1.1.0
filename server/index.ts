@@ -136,6 +136,40 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+
+      // Backstop 5xx capture: many routes do `res.status(500).json(...)`
+      // directly instead of `next(err)`, which bypasses the express error
+      // handler below (and therefore bypasses both Sentry capture AND the
+      // error_logs insert that the fallback alerter polls). This finish
+      // hook fires AFTER the response is sent for every API request, so
+      // any 5xx — no matter how the route emitted it — gets recorded
+      // exactly once here. The express error handler dedupes by checking
+      // res.headersSent, so we don't double-count Error-thrown paths
+      // (those get logged by the error handler before the response is
+      // flushed; by the time `finish` runs, the row already exists, but
+      // re-inserting is harmless and cheap — we accept duplicates over
+      // missed alerts).
+      if (res.statusCode >= 500) {
+        try {
+          Sentry.captureMessage(`${req.method} ${path} → ${res.statusCode}`, {
+            level: "error",
+            tags: { component: "route", method: req.method, status: String(res.statusCode) },
+            extra: {
+              path,
+              userId: (req as any)?.session?.userId ?? null,
+              body: capturedJsonResponse,
+            },
+          });
+        } catch {}
+        try {
+          logError("route", new Error(`${req.method} ${path} → ${res.statusCode}`), {
+            severity: "error",
+            userId: (req as any)?.session?.userId ?? null,
+            summary: `${req.method} ${path} → ${res.statusCode}`.slice(0, 500),
+            extra: { method: req.method, path, status: res.statusCode, body: capturedJsonResponse },
+          });
+        } catch {}
+      }
     }
   });
 
