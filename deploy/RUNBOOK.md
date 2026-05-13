@@ -217,12 +217,23 @@ Optional: change SSH port, restrict source IPs in UFW, enable unattended-upgrade
 | - | --- | --- | --- | --- |
 | 1 | **HEAD-moved assertion** | After `git reset --hard $TARGET`, asserts `git rev-parse HEAD == $TARGET_SHA`. | "Deploy ran but HEAD never moved" — the script reported success while pm2 reloaded the same old build (today's outage). | Not bypassable. If this fails, the working tree is broken; investigate by hand. |
 | 2 | **APP_VERSION parse** | Reads `APP_VERSION` from the just-checked-out `shared/version.ts`. | Corrupt or missing version file. | Not bypassable. |
-| 3 | **Schema column drift detection** | Walks `shared/schema.ts` at each SHA tracking the enclosing `pgTable("…", …)` block, emits `table:column` pairs, takes the set difference. | Records the (table, column) additions that gate 7 will verify after push. | n/a — informational. |
-| 4 | **db:push success sentinel** (existing) | Requires `Changes applied` or `No changes detected` in db:push output. | drizzle-kit hits a destructive-change prompt with closed stdin and silently skips (the original TOTP outage). | Not bypassable. |
-| 5 | **db:push verification re-run** (existing) | Re-runs `db:push`; requires `No changes detected` on the second pass. | First push lied about success; schema still drifted. | Not bypassable. |
-| 6 | **/api/health gate (sha + version)** | Polls `http://127.0.0.1:5000/api/health` for 30s; requires `gitSha === NEW_SHA` and `version === NEW_APP_VERSION`. | App started but is serving an older build (cached process, stale dist/). | `FORCE_DEPLOY=1` |
-| 7 | **Schema column drift verification (table-aware)** | For every new `table:column` pair from gate 3, asserts the column exists ON THE RIGHT TABLE in `information_schema.columns`. A missing column on `ticket_messages` fails even if the same column name exists on `tickets`. | `db:push` reported success but the column never landed on the target table (today's `is_internal` outage). | `FORCE_DEPLOY=1` |
+| 3 | **Schema column drift detection** | Walks `shared/schema.ts` at each SHA tracking the enclosing `pgTable("…", …)` block, emits `table:column` pairs, takes the set difference. | Records the (table, column) additions that gate 7 will verify after the in-process migrator runs. | n/a — informational. |
+| 4 | **`db:check` drift gate** (in `npm run build` via `prebuild`) | `drizzle-kit check` — refuses the build when `shared/schema.ts` has changed without a corresponding generated migration in `migrations/`. | A schema edit that was committed without `npm run db:generate` — the exact "I forgot to add it to the self-heal block" failure mode. CI runs the same check on PRs so it normally fails before code lands. | Not bypassable (would require committing without running build). |
+| 5 | **In-process drizzle migrator at startup** | `server/migrate.ts` runs `drizzle-orm`'s migrator in a transaction before `registerRoutes`. Records each applied migration in `drizzle.__drizzle_migrations` by sha256 hash. Bootstrap path pre-marks the baseline as applied if the DB already has the schema (one-shot, only on the first deploy with this change). | A migration that doesn't apply cleanly aborts the Node process; pm2 keeps the previous build alive. Replaces the legacy `db:push` push+verify pair which could silently skip. | Not bypassable (the process simply won't start). |
+| 6 | **/api/health gate (sha + version)** | Polls `http://127.0.0.1:5000/api/health` for 30s; requires `gitSha === NEW_SHA` and `version === NEW_APP_VERSION`. Also reports `migrationsApplied` count from `drizzle.__drizzle_migrations`. | App started but is serving an older build (cached process, stale dist/). | `FORCE_DEPLOY=1` |
+| 7 | **Schema column drift verification (table-aware)** | For every new `table:column` pair from gate 3, asserts the column exists ON THE RIGHT TABLE in `information_schema.columns`. A missing column on `ticket_messages` fails even if the same column name exists on `tickets`. | A generated migration that ran (gate 5 passed) but, due to a hand-edit or a bug, didn't actually create the column on the target table. | `FORCE_DEPLOY=1` |
 | 8 | **pm2 log-tail error gate** | Greps last 200 lines of pm2 logs for `Migration error`, `column ... does not exist`, `relation ... does not exist`, `ECONNREFUSED`. | Errors that don't fail /health but break user-facing routes the moment a customer hits them. | `FORCE_DEPLOY=1` |
+
+### One-time cutover (first deploy on a long-running prod after the migrations overhaul)
+
+The first time `update.sh` runs the new build against the existing prod DB, `server/migrate.ts` detects that:
+
+1. `drizzle.__drizzle_migrations` is empty (or doesn't exist), AND
+2. The `users` table already exists in `public`.
+
+…and pre-inserts the baseline migration's hash into `drizzle.__drizzle_migrations`, so the migrator skips the baseline (which would otherwise fail with `relation "users" already exists`). Any genuine new migrations the journal grows over time apply normally on top.
+
+**Operator: nothing to do.** Just deploy normally. The startup log will show `[migrate] bootstrap: marked baseline (0000_baseline) as already-applied on existing DB` exactly once.
 
 `/api/health` itself returns:
 ```json

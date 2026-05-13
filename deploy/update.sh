@@ -82,9 +82,10 @@ echo "    target version: $NEW_APP_VERSION (sha $NEW_SHA)"
 echo "==> Schema column drift check (table-aware additive columns between $PREV_SHA and $NEW_SHA)..."
 # For every new (table, column) pair declared in shared/schema.ts between
 # PREV_SHA and NEW_SHA, verify the column actually exists ON THE RIGHT TABLE
-# in the live DB after db:push. Catches the failure mode where db:push
-# reports success but the column never landed (the original "is_internal
-# column does not exist" outage). Pure additive — only ADDITIONS are checked.
+# in the live DB after the in-process drizzle migrator runs at startup.
+# Catches the failure mode where a migration silently failed to land the
+# column (the original "is_internal column does not exist" outage). Pure
+# additive — only ADDITIONS are checked.
 #
 # Strategy: walk shared/schema.ts at each SHA tracking the enclosing
 # pgTable("<sql_name>", { ... }) block, emit "<table>:<column>" pairs,
@@ -93,7 +94,9 @@ echo "==> Schema column drift check (table-aware additive columns between $PREV_
 # create false positives, and a missing column on table A doesn't pass just
 # because the same column name exists on table B.
 NEW_COLUMNS_FILE="$(mktemp)"
-trap 'rm -f "$NEW_COLUMNS_FILE"' EXIT
+PREV_PAIRS="$(mktemp)"
+NEW_PAIRS="$(mktemp)"
+trap 'rm -f "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
 
 extract_table_columns() {
   local sha="$1"
@@ -121,9 +124,6 @@ extract_table_columns() {
   ' | sort -u
 }
 
-PREV_PAIRS="$(mktemp)"
-NEW_PAIRS="$(mktemp)"
-trap 'rm -f "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
 extract_table_columns "$PREV_SHA" > "$PREV_PAIRS"
 extract_table_columns "$NEW_SHA"  > "$NEW_PAIRS"
 # Pairs present in NEW but not in PREV = additive new columns to verify.
@@ -134,77 +134,17 @@ if [[ "$NEW_COL_COUNT" -gt 0 ]]; then
   sed 's/^/      + /' "$NEW_COLUMNS_FILE"
 fi
 
-echo "==> npm ci && npm run build..."
+echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration drift)..."
+# `npm run build` chains prebuild → `npm run db:check && npm test`, so a
+# committed schema change without a matching migration file fails the build
+# here before PM2 is ever touched. The legacy db:push schema-push gates
+# (4 + 5 in the runbook) are gone — drizzle-orm's in-process migrator runs
+# at server boot, inside a transaction, and aborts startup on failure. The
+# downstream /api/health gate (6) and table-aware column-drift check (7)
+# below still confirm the migrations actually landed on prod.
 sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build"
 
-echo "==> Schema push (additive only — destructive prompt = abort)..."
-# drizzle-kit push prompts on destructive changes. We close stdin so any
-# prompt causes the interactive selector to immediately yield no answer.
-# Historically that exited 0 with no schema applied — a silent skip — which
-# caused at least one prod outage (missing TOTP column broke login). We now
-# capture the push output and require a positive sentinel ("Changes applied"
-# or "No changes detected") before treating it as success. Anything else,
-# including the "stdin closed" / no-answer case, aborts the deploy.
-PUSH_LOG="$(mktemp)"
-trap 'rm -f "$PUSH_LOG" "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
-PUSH_RC=0
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push </dev/null" 2>&1 | tee "$PUSH_LOG" || PUSH_RC=$?
-
-push_failed=0
-push_failure_reason=""
-if [[ "$PUSH_RC" -ne 0 ]]; then
-  push_failed=1
-  push_failure_reason="db:push exited non-zero ($PUSH_RC) — likely a destructive change requiring an interactive answer, or a config/connection error. See output above."
-elif ! grep -qE "(Changes applied|No changes detected)" "$PUSH_LOG"; then
-  push_failed=1
-  push_failure_reason="db:push exited 0 but produced no 'Changes applied' or 'No changes detected' marker. Treating as a SILENT SKIP — the schema was NOT pushed. This is the failure mode that caused the previous outage."
-fi
-
-if [[ "$push_failed" -eq 1 ]]; then
-  echo "ERROR: schema push did not complete cleanly."
-  echo "       $push_failure_reason"
-  echo "       Rolling back code to $PREV_SHA. PM2 was NOT reloaded; the previous build is still serving."
-  echo "       Snapshot kept on disk: $SNAPSHOT"
-  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build" || true
-  exit 1
-fi
-
-echo "==> Verifying schema is in sync (re-running push; expect 'No changes detected')..."
-# Second push pass: if the first one truly applied the schema, this one must
-# report "No changes detected". If it instead reports "Changes applied" or
-# emits a prompt (no marker), the first pass either lied about success or the
-# code+DB are still out of sync. Either way: abort before reloading PM2.
-VERIFY_LOG="$(mktemp)"
-trap 'rm -f "$PUSH_LOG" "$VERIFY_LOG" "$NEW_COLUMNS_FILE" "$PREV_PAIRS" "$NEW_PAIRS"' EXIT
-VERIFY_RC=0
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push </dev/null" 2>&1 | tee "$VERIFY_LOG" || VERIFY_RC=$?
-
-verify_failed=0
-verify_reason=""
-if [[ "$VERIFY_RC" -ne 0 ]]; then
-  verify_failed=1
-  verify_reason="verification db:push exited non-zero ($VERIFY_RC). Schema is not in the expected state."
-elif grep -q "Changes applied" "$VERIFY_LOG"; then
-  verify_failed=1
-  verify_reason="verification pass APPLIED additional changes — the first push was incomplete. Schema drift detected."
-elif ! grep -q "No changes detected" "$VERIFY_LOG"; then
-  verify_failed=1
-  verify_reason="verification pass produced no 'No changes detected' marker — db:push likely hit a prompt with closed stdin and silently skipped."
-fi
-
-if [[ "$verify_failed" -eq 1 ]]; then
-  echo "ERROR: post-push verification failed."
-  echo "       $verify_reason"
-  echo "       Rolling back code to $PREV_SHA. PM2 was NOT reloaded; the previous build is still serving."
-  echo "       Snapshot kept on disk: $SNAPSHOT"
-  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build" || true
-  exit 1
-fi
-echo "    schema verified in sync."
-
-echo "==> Reloading PM2 (zero downtime)..."
+echo "==> Reloading PM2 (zero downtime — migrator runs at startup before serving traffic)..."
 # Source $ENV_FILE so --update-env actually has fresh vars to propagate
 # (--update-env reads from the calling shell's environment, not from disk).
 # Re-save afterwards so PM2's resurrect dump matches running state.

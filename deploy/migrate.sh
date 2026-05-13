@@ -143,63 +143,25 @@ else
 fi
 # end of bundle-vs-bare-dump branch
 
-# Loud-failure wrapper around `npm run db:push` — mirrors deploy/update.sh.
-# drizzle-kit push prompts on destructive changes; we close stdin so any
-# prompt yields no answer. Historically that exited 0 with no schema applied
-# (silent skip — once caused a prod outage where a missing column broke
-# login). We capture the output and require a positive sentinel ("Changes
-# applied" or "No changes detected") on the first pass, then re-run and
-# require "No changes detected" on the verification pass. Anything else
-# aborts the script before PM2 is started/reloaded.
-run_db_push_with_verify() {
+# Apply versioned drizzle migrations against the live DB. The in-process
+# migrator (server/migrate.ts) also runs at startup, but during a fresh
+# install / restore we want migrations applied BEFORE pm2 spawns so a
+# malformed migration aborts the install instead of leaving a half-restored
+# DB behind a not-yet-started app. Failure here exits non-zero and aborts
+# the script before PM2 is started/reloaded.
+run_migrations_with_verify() {
   local label="$1"
-  local push_log verify_log push_rc=0 verify_rc=0
-
-  push_log="$(mktemp)"
-  verify_log="$(mktemp)"
-  # shellcheck disable=SC2064
-  trap "rm -f '$push_log' '$verify_log'" RETURN
-
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push </dev/null" 2>&1 | tee "$push_log" || push_rc=$?
-
-  local push_failed=0 push_reason=""
-  if [[ "$push_rc" -ne 0 ]]; then
-    push_failed=1
-    push_reason="db:push exited non-zero ($push_rc) — likely a destructive change requiring an interactive answer, or a config/connection error. See output above."
-  elif ! grep -qE "(Changes applied|No changes detected)" "$push_log"; then
-    push_failed=1
-    push_reason="db:push exited 0 but produced no 'Changes applied' or 'No changes detected' marker. Treating as a SILENT SKIP — the schema was NOT pushed. This is the failure mode that caused the previous outage."
-  fi
-
-  if [[ "$push_failed" -eq 1 ]]; then
-    echo "ERROR: $label did not complete cleanly."
-    echo "       $push_reason"
+  local rc=0
+  sudo -u "$APP_USER" -H bash -lc \
+    "cd $APP_DIR && set -a && . $ENV_FILE && set +a && \
+     node -e \"require('tsx/cjs'); require('./server/migrate').runMigrations().catch(e => { console.error(e); process.exit(1); })\"" \
+    || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    echo "ERROR: $label — drizzle migrator exited non-zero ($rc)."
     echo "       Aborting before PM2 is touched. Investigate and re-run."
     exit 1
   fi
-
-  echo "==> Verifying schema is in sync (re-running push; expect 'No changes detected')..."
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && npm run db:push </dev/null" 2>&1 | tee "$verify_log" || verify_rc=$?
-
-  local verify_failed=0 verify_reason=""
-  if [[ "$verify_rc" -ne 0 ]]; then
-    verify_failed=1
-    verify_reason="verification db:push exited non-zero ($verify_rc). Schema is not in the expected state."
-  elif grep -q "Changes applied" "$verify_log"; then
-    verify_failed=1
-    verify_reason="verification pass APPLIED additional changes — the first push was incomplete. Schema drift detected."
-  elif ! grep -q "No changes detected" "$verify_log"; then
-    verify_failed=1
-    verify_reason="verification pass produced no 'No changes detected' marker — db:push likely hit a prompt with closed stdin and silently skipped."
-  fi
-
-  if [[ "$verify_failed" -eq 1 ]]; then
-    echo "ERROR: post-push verification failed for $label."
-    echo "       $verify_reason"
-    echo "       Aborting before PM2 is touched. Investigate and re-run."
-    exit 1
-  fi
-  echo "    schema verified in sync."
+  echo "    migrations applied / schema verified."
 }
 
 if [[ "$MODE" == "full" ]]; then
@@ -321,8 +283,8 @@ SQL
   echo "==> Building app..."
   sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && npm run build"
 
-  echo "==> Pushing schema (additive-only guard: stdin closed, will fail on prompts)..."
-  run_db_push_with_verify "initial schema push"
+  echo "==> Applying versioned drizzle migrations (initial schema)..."
+  run_migrations_with_verify "initial schema migration"
 else
   # restore-only path. Two sub-modes:
   #   - bundle:   reconcile $ENV_FILE secrets with what came in the bundle
@@ -385,8 +347,8 @@ echo "==> Restoring database from $DUMP_FILE..."
 sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && set -a && . $ENV_FILE && set +a && \
   pg_restore --clean --if-exists --no-owner --no-acl --dbname=\"\$DATABASE_URL\" \"$DUMP_FILE\""
 
-echo "==> Re-running schema push (catch up any additive changes)..."
-run_db_push_with_verify "post-restore schema catch-up"
+echo "==> Applying versioned drizzle migrations (post-restore catch-up)..."
+run_migrations_with_verify "post-restore schema catch-up"
 
 if [[ "$MODE" == "full" ]]; then
   echo "==> Starting PM2..."

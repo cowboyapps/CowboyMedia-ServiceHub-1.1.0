@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      # Detect schema-vs-migration drift before anything else. If shared/schema.ts
+      # has changed without a corresponding generated migration, fail loudly.
+      - name: Drizzle drift check
+        run: npm run db:check
+
+      # Apply every committed migration cold against an empty Postgres. This
+      # is the canonical "fresh box" path that production bootstrap will hit
+      # the first time the migrator runs against a virgin DB. If any
+      # migration is malformed it fails here, not in prod.
+      - name: Apply migrations cold
+        run: npx tsx -e "import('./server/migrate').then(m => m.runMigrations()).catch(e => { console.error(e); process.exit(1); })"
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Tests + build
+        run: npm run build
