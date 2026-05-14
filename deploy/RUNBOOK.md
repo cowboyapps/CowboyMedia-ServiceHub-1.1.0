@@ -323,55 +323,32 @@ Repo → **Settings → Webhooks → Add webhook**
 
 ### Observability & alerting
 
-**Capture (Sentry, when `SENTRY_DSN` is set):**
-- Migration failures at `level=fatal, component=migration` (flushed
-  before exit so they're visible even though pm2 won't flip to that
-  build).
-- Unhandled rejections + uncaught exceptions via Sentry's default Node
-  integrations.
-- 5xx responses from the express error handler with `method`/`status`
-  tags.
+**Capture:**
+- 5xx responses from the express error handler insert a row into
+  `error_logs` (table mirror; also surfaces in Admin Portal → Overview).
+- Migration failures throw and re-throw so pm2 won't flip to a build
+  whose schema didn't apply.
 - The **Admin Portal → Overview → System Health** tile (master_admin
   only) shows the in-app `error_logs` table mirror: 5xx count over the
   last 5 minutes, DB latency, version + git SHA, uptime.
 
 **Alerting (~1 minute SLO):**
-There are TWO independent paths so a misconfiguration in either one
-still notifies operators:
+**In-app alerter** (`server/error-alerter.ts`, always on, no env
+required). Polls `error_logs` every 60s and posts to the `alert`
+Discord channel (configured in **Admin Portal → Discord**) when:
+- Any new row arrives with `severity='fatal'`, OR
+- 5+ new `source='route'` (5xx) rows arrive within the same minute.
 
-1. **In-app fallback alerter** (`server/error-alerter.ts`, always on,
-   no env required). Polls `error_logs` every 60s and posts to the
-   `alert` Discord channel (configured in **Admin Portal → Discord**)
-   when:
-   - Any new row arrives with `severity='fatal'`, OR
-   - 5+ new `source='route'` (5xx) rows arrive within the same minute.
-
-   Worst-case detection latency: 60s + Discord delivery. The alerter
-   seeds its cursor on the first poll so a process restart doesn't
-   replay history.
-
-2. **Sentry alert rules** (configure once in the Sentry UI):
-   - Sentry → **Settings → Alerts → Create Alert → Issues**.
-   - Rule A — fatal errors: "When an event matches `level:fatal` →
-     send a notification to Discord every time, no throttling".
-   - Rule B — 5xx burst: "When more than 5 events occur in 1 minute
-     for a project → notify Discord".
-   - Channel: Sentry → Settings → Integrations → **Discord** → Add
-     Installation → pick the same alert channel used by the fallback.
-   - Verify by triggering a test 5xx (any unauthenticated POST to a
-     non-existent admin route does it) and confirming the Discord
-     post arrives within ~60s.
+Worst-case detection latency: 60s + Discord delivery. The alerter seeds
+its cursor on the first poll so a process restart doesn't replay
+history.
 
 ### Day-2 ops: alerts and secrets
 
 **Silence alerts during a planned maintenance window:**
 1. Admin Portal → Discord → temporarily blank the `alert` category
    webhook (or change the channel to a quiet ops channel). Save.
-   Both the in-app fallback alerter and any Sentry → Discord rule
-   that uses the same channel will land in the new destination.
 2. Restore the original webhook URL when the window closes.
-3. For Sentry-only silencing, also use Sentry → Alerts → snooze the
-   matching rule for the window duration.
 
 **Rotate `GITHUB_WEBHOOK_SECRET`:**
 1. On VPS: edit `/etc/servicehub-deploy.env`, set the new secret,

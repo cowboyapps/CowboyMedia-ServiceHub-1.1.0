@@ -20,7 +20,6 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
     - `SENDGRID_API_KEY`
     - `TELEGRAM_BOT_TOKEN` (optional)
     - `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (optional)
-    - `SENTRY_DSN` (optional — when unset, error capture is a no-op; when set, 5xx responses, unhandled rejections, uncaught exceptions, and migration failures ship to Sentry)
     - `DEPLOY_GATE_TOKEN` (production only — long random string. Bearer token the VPS deploy webhook listener uses to read `app_settings.auto_deploy_enabled` over HTTP before invoking `update.sh`. Must match the value in `/etc/servicehub-deploy.env` on the VPS. If unset, the listener fails closed and refuses to deploy.)
 
 ## Replit ↔ GitHub sync (manual)

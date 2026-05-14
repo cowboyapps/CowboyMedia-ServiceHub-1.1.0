@@ -1,6 +1,3 @@
-// MUST be the very first import — Sentry's auto-instrumentation only patches
-// libraries loaded AFTER Sentry.init() runs.
-import { Sentry } from "./instrument";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, getWebSocketServer } from "./routes";
 import { serveStatic } from "./static";
@@ -139,28 +136,11 @@ app.use((req, res, next) => {
 
       // Backstop 5xx capture: many routes do `res.status(500).json(...)`
       // directly instead of `next(err)`, which bypasses the express error
-      // handler below (and therefore bypasses both Sentry capture AND the
-      // error_logs insert that the fallback alerter polls). This finish
-      // hook fires AFTER the response is sent for every API request, so
-      // any 5xx — no matter how the route emitted it — gets recorded
-      // exactly once here. The express error handler dedupes by checking
-      // res.headersSent, so we don't double-count Error-thrown paths
-      // (those get logged by the error handler before the response is
-      // flushed; by the time `finish` runs, the row already exists, but
-      // re-inserting is harmless and cheap — we accept duplicates over
-      // missed alerts).
+      // handler below (and therefore bypasses the error_logs insert that
+      // the fallback alerter polls). This finish hook fires AFTER the
+      // response is sent for every API request, so any 5xx — no matter
+      // how the route emitted it — gets recorded exactly once here.
       if (res.statusCode >= 500) {
-        try {
-          Sentry.captureMessage(`${req.method} ${path} → ${res.statusCode}`, {
-            level: "error",
-            tags: { component: "route", method: req.method, status: String(res.statusCode) },
-            extra: {
-              path,
-              userId: (req as any)?.session?.userId ?? null,
-              body: capturedJsonResponse,
-            },
-          });
-        } catch {}
         try {
           logError("route", new Error(`${req.method} ${path} → ${res.statusCode}`), {
             severity: "error",
@@ -177,23 +157,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  try {
-    await runMigrations();
-  } catch (err) {
-    // Migration failures are catastrophic — surface them in Sentry with a
-    // dedicated tag so they're filterable in the dashboard, then re-throw
-    // so pm2 won't flip to a build whose schema didn't apply.
-    Sentry.captureException(err, { tags: { component: "migration" }, level: "fatal" });
-    await Sentry.flush(2000).catch(() => {});
-    throw err;
-  }
+  await runMigrations();
   await registerRoutes(httpServer, app);
 
-  // Start the in-app fallback alerter — independent of Sentry. Polls
-  // error_logs every 60s and posts to the alert Discord channel on fatal
-  // errors or 5xx bursts. This is what guarantees the "alerts within ~1
-  // minute" requirement; Sentry alert rules are the primary path but live
-  // outside this repo and can be misconfigured.
+  // Start the in-app alerter. Polls error_logs every 60s and posts to the
+  // alert Discord channel on fatal errors or 5xx bursts.
   const { startErrorAlerter } = await import("./error-alerter");
   startErrorAlerter();
 
@@ -277,13 +245,6 @@ app.use((req, res, next) => {
   setTimeout(() => checkSetupReminders(), 10000);
   setInterval(() => checkSetupReminders(), 60 * 60 * 1000);
 
-  // Sentry's express error handler. The SDK prints a one-time warning at
-  // boot that "express is not instrumented" — that's about auto-tracing,
-  // which we deliberately disable (tracesSampleRate: 0). Error capture
-  // itself still works because we ALSO call Sentry.captureException
-  // explicitly below, so we don't depend on the auto-instrumentation.
-  Sentry.setupExpressErrorHandler(app);
-
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -291,16 +252,6 @@ app.use((req, res, next) => {
     console.error("Internal Server Error:", err);
 
     if (status >= 500) {
-      // Belt-and-suspenders: explicitly forward to Sentry with request
-      // context tags so issues are filterable by route/method in the
-      // dashboard. Doesn't double-fire because the express handler above
-      // dedupes on the same Error instance.
-      try {
-        Sentry.captureException(err, {
-          tags: { component: "route", method: req.method, status: String(status) },
-          extra: { path: req.path, userId: (req as any)?.session?.userId ?? null },
-        });
-      } catch {}
       try {
         logError("route", err, {
           severity: "error",

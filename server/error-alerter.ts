@@ -1,9 +1,7 @@
-// In-app fallback error alerter. Polls error_logs every 60s and posts a
-// Discord notification when fatal errors or a 5xx burst appear within the
-// last minute. This is the *guaranteed* alerting path — Sentry alert rules
-// are the primary, but they live outside this repo and can be misconfigured;
-// this fallback ensures master admins find out about a production regression
-// within ~1 minute regardless of Sentry state.
+// In-app error alerter. Polls error_logs every 60s and posts a Discord
+// notification when fatal errors or a 5xx burst appear within the last
+// minute. Ensures master admins find out about a production regression
+// within ~1 minute.
 //
 // Detection thresholds (intentionally simple, tunable later):
 //   - ANY new error_logs row with severity 'fatal' since last poll
