@@ -1,0 +1,81 @@
+root@greenest-ant:/opt/servicehub# sudo tail -80 /var/log/servicehub/err.log
+2026-05-13T16:22:20:   detail: undefined,
+2026-05-13T16:22:20:   hint: undefined,
+2026-05-13T16:22:20:   position: '75',
+2026-05-13T16:22:20:   internalPosition: undefined,
+2026-05-13T16:22:20:   internalQuery: undefined,
+2026-05-13T16:22:20:   where: undefined,
+2026-05-13T16:22:20:   schema: undefined,
+2026-05-13T16:22:20:   table: undefined,
+2026-05-13T16:22:20:   column: undefined,
+2026-05-13T16:22:20:   dataType: undefined,
+2026-05-13T16:22:20:   constraint: undefined,
+2026-05-13T16:22:20:   file: 'parse_relation.c',
+2026-05-13T16:22:20:   line: '3722',
+2026-05-13T16:22:20:   routine: 'errorMissingColumn'
+2026-05-13T16:22:20: }
+2026-05-13T16:22:20: [ErrorLog:route] GET /api/tickets/60b6b7a9-2473-4316-8fe4-4e0de949f929/messages → 500: column "is_internal" does not exist
+2026-05-13T16:22:22: Internal Server Error: error: column "is_internal" does not exist
+2026-05-13T16:22:22:     at /opt/servicehub/dist/index.cjs:74:13356
+2026-05-13T16:22:22:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-05-13T16:22:22:     at async /opt/servicehub/dist/index.cjs:74:28729
+2026-05-13T16:22:22:     at async /opt/servicehub/dist/index.cjs:399:8990 {
+2026-05-13T16:22:22:   length: 111,
+2026-05-13T16:22:22:   severity: 'ERROR',
+2026-05-13T16:22:22:   code: '42703',
+2026-05-13T16:22:22:   detail: undefined,
+2026-05-13T16:22:22:   hint: undefined,
+2026-05-13T16:22:22:   position: '75',
+2026-05-13T16:22:22:   internalPosition: undefined,
+2026-05-13T16:22:22:   internalQuery: undefined,
+2026-05-13T16:22:22:   where: undefined,
+2026-05-13T16:22:22:   schema: undefined,
+2026-05-13T16:22:22:   table: undefined,
+2026-05-13T16:22:22:   column: undefined,
+2026-05-13T16:22:22:   dataType: undefined,
+2026-05-13T16:22:22:   constraint: undefined,
+2026-05-13T16:22:22:   file: 'parse_relation.c',
+2026-05-13T16:22:22:   line: '3722',
+2026-05-13T16:22:22:   routine: 'errorMissingColumn'
+2026-05-13T16:22:22: }
+2026-05-13T16:22:22: [ErrorLog:route] GET /api/tickets/60b6b7a9-2473-4316-8fe4-4e0de949f929/messages → 500: column "is_internal" does not exist
+2026-05-13T16:58:16: Error: ENOENT: no such file or directory, stat '/opt/servicehub/dist/public/index.html'
+2026-05-13T16:58:18: Error: ENOENT: no such file or directory, stat '/opt/servicehub/dist/public/index.html'
+2026-05-13T16:59:33: Error: ENOENT: no such file or directory, stat '/opt/servicehub/dist/public/index.html'
+2026-05-14T00:17:09: Error: ENOENT: no such file or directory, stat '/opt/servicehub/dist/public/index.html'
+2026-05-14T00:17:09: Error: ENOENT: no such file or directory, stat '/opt/servicehub/dist/public/index.html'
+2026-05-14T21:36:18: Monitoring loop error: Error: connect ECONNREFUSED 127.0.0.1:5432
+2026-05-14T21:36:18:     at /opt/servicehub/dist/index.cjs:74:13356
+2026-05-14T21:36:18:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-05-14T21:36:18:     at async /opt/servicehub/dist/index.cjs:74:28729
+2026-05-14T21:36:18:     at async et (/opt/servicehub/dist/index.cjs:402:10135) {
+2026-05-14T21:36:18:   errno: -111,
+2026-05-14T21:36:18:   code: 'ECONNREFUSED',
+2026-05-14T21:36:18:   syscall: 'connect',
+2026-05-14T21:36:18:   address: '127.0.0.1',
+2026-05-14T21:36:18:   port: 5432
+2026-05-14T21:36:18: }
+2026-05-14T23:06:44: error: op ANY/ALL (array) requires array on right side
+2026-05-14T23:06:44:     at /opt/servicehub/dist/index.cjs:74:13356
+2026-05-14T23:06:44:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-05-14T23:06:44:     at async sfe (/opt/servicehub/dist/index.cjs:434:232)
+2026-05-14T23:06:44:     at async wF (/opt/servicehub/dist/index.cjs:442:367)
+2026-05-14T23:06:44:     at async /opt/servicehub/dist/index.cjs:442:2323 {
+2026-05-14T23:06:44:   length: 121,
+2026-05-14T23:06:44:   severity: 'ERROR',
+2026-05-14T23:06:44:   code: '42809',
+2026-05-14T23:06:44:   detail: undefined,
+2026-05-14T23:06:44:   hint: undefined,
+2026-05-14T23:06:44:   position: '126',
+2026-05-14T23:06:44:   internalPosition: undefined,
+2026-05-14T23:06:44:   internalQuery: undefined,
+2026-05-14T23:06:44:   where: undefined,
+2026-05-14T23:06:44:   schema: undefined,
+2026-05-14T23:06:44:   table: undefined,
+2026-05-14T23:06:44:   column: undefined,
+2026-05-14T23:06:44:   dataType: undefined,
+2026-05-14T23:06:44:   constraint: undefined,
+2026-05-14T23:06:44:   file: 'parse_oper.c',
+2026-05-14T23:06:44:   line: '814',
+2026-05-14T23:06:44:   routine: 'make_scalar_array_op'
+2026-05-14T23:06:44: }
