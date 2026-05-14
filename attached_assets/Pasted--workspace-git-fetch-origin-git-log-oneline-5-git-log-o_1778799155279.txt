@@ -1,0 +1,40 @@
+~/workspace$ git fetch origin
+git log --oneline -5
+git log --oneline origin/main -5
+git rev-list --left-right --count HEAD...origin/main
+error: cannot lock ref 'refs/remotes/origin/HEAD': Unable to create '/home/runner/workspace/.git/refs/remotes/origin/HEAD.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+5a0ec79 (HEAD -> main, gitsafe-backup/main) Remove Sentry error tracking and clean up related configurations
+ee9d9e1 Task #191: observability + GitHub→VPS auto-deploy
+65c73bc Task #191: observability + GitHub→VPS auto-deploy
+948eb53 Task #191: observability + GitHub→VPS auto-deploy
+109e7bd Task #191: observability + GitHub→VPS auto-deploy
+73c1a46 (origin/main, origin/HEAD) Fix error preventing users from sending messages or viewing ticket history
+b3939f0 Add missing columns to the database for improved service tracking
+da69260 Add missing database fields for service updates and message attachments
+0ded96f Add missing columns to database tables to support new features
+392c9ca Task #188: One-time version-welcome popup with changelog
+17  0
+~/workspace$ rm -f .git/refs/remotes/origin/HEAD.lock
+git fetch origin
+git rev-list --left-right --count HEAD...origin/main
+17  0
+~/workspace$ git fetch origin
+git log --oneline -5
+git log --oneline origin/main -5
+git rev-list --left-right --count HEAD...origin/main
+5a0ec79 (HEAD -> main, gitsafe-backup/main) Remove Sentry error tracking and clean up related configurations
+ee9d9e1 Task #191: observability + GitHub→VPS auto-deploy
+65c73bc Task #191: observability + GitHub→VPS auto-deploy
+948eb53 Task #191: observability + GitHub→VPS auto-deploy
+109e7bd Task #191: observability + GitHub→VPS auto-deploy
+73c1a46 (origin/main, origin/HEAD) Fix error preventing users from sending messages or viewing ticket history
+b3939f0 Add missing columns to the database for improved service tracking
+da69260 Add missing database fields for service updates and message attachments
+0ded96f Add missing columns to database tables to support new features
+392c9ca Task #188: One-time version-welcome popup with changelog
