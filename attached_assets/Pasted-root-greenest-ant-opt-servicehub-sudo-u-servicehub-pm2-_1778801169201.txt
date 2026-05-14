@@ -1,0 +1,54 @@
+root@greenest-ant:/opt/servicehub# sudo -u servicehub pm2 logs servicehub --lines 80 --nostream
+[TAILING] Tailing last 80 lines for [servicehub] process (change the value with --lines option)
+/home/servicehub/.pm2/logs/servicehub-out.log last 80 lines:
+/home/servicehub/.pm2/logs/servicehub-error.log last 80 lines:
+0|serviceh | error: op ANY/ALL (array) requires array on right side
+0|serviceh |     at /opt/servicehub/dist/index.cjs:74:13356
+0|serviceh |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|serviceh |     at async sfe (/opt/servicehub/dist/index.cjs:434:232)
+0|serviceh |     at async wF (/opt/servicehub/dist/index.cjs:442:367)
+0|serviceh |     at async /opt/servicehub/dist/index.cjs:442:2323 {
+0|serviceh |   length: 121,
+0|serviceh |   severity: 'ERROR',
+0|serviceh |   code: '42809',
+0|serviceh |   detail: undefined,
+0|serviceh |   hint: undefined,
+0|serviceh |   position: '126',
+0|serviceh |   internalPosition: undefined,
+0|serviceh |   internalQuery: undefined,
+0|serviceh |   where: undefined,
+0|serviceh |   schema: undefined,
+0|serviceh |   table: undefined,
+0|serviceh |   column: undefined,
+0|serviceh |   dataType: undefined,
+0|serviceh |   constraint: undefined,
+0|serviceh |   file: 'parse_oper.c',
+0|serviceh |   line: '814',
+0|serviceh |   routine: 'make_scalar_array_op'
+0|serviceh | }
+0|serviceh | error: op ANY/ALL (array) requires array on right side
+0|serviceh |     at /opt/servicehub/dist/index.cjs:74:13356
+0|serviceh |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|serviceh |     at async sfe (/opt/servicehub/dist/index.cjs:434:232)
+0|serviceh |     at async wF (/opt/servicehub/dist/index.cjs:442:367)
+0|serviceh |     at async /opt/servicehub/dist/index.cjs:442:2323 {
+0|serviceh |   length: 121,
+0|serviceh |   severity: 'ERROR',
+0|serviceh |   code: '42809',
+0|serviceh |   detail: undefined,
+0|serviceh |   hint: undefined,
+0|serviceh |   position: '126',
+0|serviceh |   internalPosition: undefined,
+0|serviceh |   internalQuery: undefined,
+0|serviceh |   where: undefined,
+0|serviceh |   schema: undefined,
+0|serviceh |   table: undefined,
+0|serviceh |   column: undefined,
+0|serviceh |   dataType: undefined,
+0|serviceh |   constraint: undefined,
+0|serviceh |   file: 'parse_oper.c',
+0|serviceh |   line: '814',
+0|serviceh |   routine: 'make_scalar_array_op'
+0|serviceh | }
+
+root@greenest-ant:/opt/servicehub# 

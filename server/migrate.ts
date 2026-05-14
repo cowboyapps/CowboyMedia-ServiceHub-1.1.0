@@ -79,14 +79,16 @@ async function bootstrapBaselineIfNeeded(folder: string): Promise<void> {
   const expectedTables = extractBaselineTables(baselineSql);
   if (expectedTables.length === 0) return; // pathological baseline; let migrator handle
 
-  // Count how many baseline tables actually exist in `public`. We unnest the
-  // expected list as a parameter array so a future schema change in baseline
-  // size doesn't require a code change here.
+  // Count how many baseline tables actually exist in `public`. We expand the
+  // expected list into individual parameters via sql.join so each name is its
+  // own bind value (avoids drizzle's sql-template array-inlining behavior,
+  // which would emit ANY('a', 'b', ...) and trip Postgres error 42809
+  // "op ANY/ALL (array) requires array on right side").
   const presentResult = await db.execute<{ name: string }>(sql`
     SELECT table_name AS name
       FROM information_schema.tables
      WHERE table_schema = 'public'
-       AND table_name = ANY(${expectedTables})
+       AND table_name IN (${sql.join(expectedTables.map((t) => sql`${t}`), sql`, `)})
   `);
   const presentRows = Array.isArray(presentResult) ? presentResult : presentResult.rows;
   const presentSet = new Set((presentRows ?? []).map((r) => r.name));
