@@ -195,7 +195,14 @@ echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration d
 # at server boot, inside a transaction, and aborts startup on failure. The
 # downstream /api/health gate (6) and table-aware column-drift check (7)
 # below still confirm the migrations actually landed on prod.
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
+#
+# NODE_ENV override: $ENV_FILE sets NODE_ENV=production, which would (a)
+# make the chained `npm test` load React's production build and crash on
+# `act() is not supported in production builds of React`, and (b) make any
+# future `npm install` fall back to --omit=dev. Override it back to `test`
+# JUST for `npm run build` — the production runtime constant is baked into
+# dist/ by esbuild's define in script/build.ts, independent of this var.
+sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
 
 echo "==> Reloading PM2 (zero downtime — migrator runs at startup before serving traffic)..."
 # Source $ENV_FILE so --update-env actually has fresh vars to propagate
