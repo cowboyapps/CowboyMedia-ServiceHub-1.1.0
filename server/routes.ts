@@ -39,9 +39,10 @@ import {
   composeNews as composeDiscordNews,
   composeDiscordTest,
 } from "./discord";
-import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema } from "@shared/schema";
+import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
+import { selectVersionWelcome } from "@shared/version-welcome";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import { shouldSuppressNotification } from "@shared/quiet-hours";
 import { updateQuietHoursSchema } from "@shared/schema";
@@ -1201,9 +1202,11 @@ export async function registerRoutes(
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(404).json({ message: "User not found" });
       const latest = await storage.getLatestPublishedChangelogEntry();
-      if (!latest) return res.json(null);
-      if ((user.lastVersionWelcomeSeen ?? "") === latest.version) return res.json(null);
-      res.json({ version: latest.version, title: latest.title || "" });
+      const selected = selectVersionWelcome(
+        latest ? { version: latest.version, title: latest.title } : null,
+        user.lastVersionWelcomeSeen,
+      );
+      res.json(selected);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -1254,9 +1257,10 @@ export async function registerRoutes(
 
   app.patch("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
     try {
-      const patch: any = {};
-      if (typeof req.body?.title === "string") patch.title = req.body.title;
-      if (typeof req.body?.bodyHtml === "string") patch.bodyHtml = sanitizeNewsContent(req.body.bodyHtml);
+      const body = req.body as { title?: unknown; bodyHtml?: unknown };
+      const patch: Partial<Pick<InsertChangelogEntry, "title" | "bodyHtml">> = {};
+      if (typeof body?.title === "string") patch.title = body.title;
+      if (typeof body?.bodyHtml === "string") patch.bodyHtml = sanitizeNewsContent(body.bodyHtml);
       const updated = await storage.updateChangelogEntry(req.params.version, patch);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);

@@ -2104,8 +2104,15 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async getAllChangelogEntries(): Promise<ChangelogEntry[]> {
+    // Admin contract: drafts first (newest createdAt first) so unfinished
+    // work surfaces at the top, then published entries (newest publishedAt
+    // first). A two-key sort with status='draft' winning the first key
+    // achieves both groupings in a single query.
     return db.select().from(changelogEntries)
-      .orderBy(desc(sql`COALESCE(${changelogEntries.publishedAt}, ${changelogEntries.createdAt})`));
+      .orderBy(
+        sql`CASE WHEN ${changelogEntries.status} = 'draft' THEN 0 ELSE 1 END`,
+        desc(sql`COALESCE(${changelogEntries.publishedAt}, ${changelogEntries.createdAt})`),
+      );
   }
   async getPublishedChangelogEntries(): Promise<ChangelogEntry[]> {
     return db.select().from(changelogEntries)
@@ -2123,10 +2130,17 @@ export class DatabaseStorage implements IStorage {
     const [created] = await db.insert(changelogEntries).values(entry).returning();
     return created;
   }
-  async updateChangelogEntry(version: string, patch: Partial<InsertChangelogEntry>): Promise<ChangelogEntry | undefined> {
-    // Strip primary key + immutable publish metadata from incoming patches —
-    // the publish endpoint is the only path that's allowed to set those.
-    const { version: _v, publishedAt: _pa, publishedBy: _pb, ...safe } = patch as any;
+  async updateChangelogEntry(
+    version: string,
+    patch: Partial<Pick<InsertChangelogEntry, "title" | "bodyHtml" | "status">>,
+  ): Promise<ChangelogEntry | undefined> {
+    // Allow-list approach: only title/bodyHtml/status are mutable through
+    // this path. The primary key and publish metadata are owned by their
+    // dedicated endpoints (publish / delete).
+    const safe: Partial<Pick<InsertChangelogEntry, "title" | "bodyHtml" | "status">> = {};
+    if (patch.title !== undefined) safe.title = patch.title;
+    if (patch.bodyHtml !== undefined) safe.bodyHtml = patch.bodyHtml;
+    if (patch.status !== undefined) safe.status = patch.status;
     const [updated] = await db.update(changelogEntries)
       .set({ ...safe, updatedAt: new Date() })
       .where(eq(changelogEntries.version, version))

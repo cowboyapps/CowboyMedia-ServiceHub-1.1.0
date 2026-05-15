@@ -67,8 +67,10 @@ export async function seedChangelogEntries(): Promise<{ inserted: number; skippe
   for (const s of sections) {
     const existing = await storage.getChangelogEntry(s.version);
     if (existing) { skipped++; continue; }
-    const sectionMd = `${s.heading}\n\n${s.body}`;
-    const html = renderChangelogToHtml(sectionMd);
+    // Body only — the Version heading is rendered by the frontend
+    // (whats-new-page.tsx and the welcome popup) for every entry, so
+    // including it here would duplicate it.
+    const html = renderChangelogToHtml(s.body);
     await storage.createChangelogEntry({
       version: s.version,
       title: "",
