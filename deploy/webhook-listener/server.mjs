@@ -79,6 +79,29 @@ async function isAutoDeployEnabled() {
   }
 }
 
+// Last-known Discord notification health, exposed via GET /notify-status so
+// the Admin Portal can show a green/red pill without anyone SSHing to read
+// journalctl. Updated on every notifyDiscord() call AND by the boot-time
+// validator. Kept in-memory only — resets on listener restart, which is
+// fine: a fresh boot will repopulate it within seconds via the validator.
+let lastDiscordAttempt = {
+  at: null,        // ISO timestamp string of the last attempt
+  ok: null,        // boolean: was it a 2xx (or boot-validator 400)?
+  status: null,    // HTTP status code, or null if network error
+  error: null,     // short error/body snippet, null on success
+  kind: null,      // "boot" | "notify" — which code path made the attempt
+  configured: !!DISCORD_URL,
+};
+
+function recordDiscordResult(partial) {
+  lastDiscordAttempt = {
+    ...lastDiscordAttempt,
+    ...partial,
+    at: new Date().toISOString(),
+    configured: !!DISCORD_URL,
+  };
+}
+
 async function notifyDiscord(content) {
   if (!DISCORD_URL) return;
   try {
@@ -100,9 +123,13 @@ async function notifyDiscord(content) {
       console.warn(
         `[discord] notify returned HTTP ${res.status} ${res.statusText}: ${body}`,
       );
+      recordDiscordResult({ ok: false, status: res.status, error: `HTTP ${res.status} ${res.statusText}: ${body}`.slice(0, 400), kind: "notify" });
+    } else {
+      recordDiscordResult({ ok: true, status: res.status, error: null, kind: "notify" });
     }
   } catch (e) {
     console.error("[discord] notify failed:", e?.message);
+    recordDiscordResult({ ok: false, status: null, error: `network error: ${e?.message || "unknown"}`, kind: "notify" });
   }
 }
 
@@ -115,6 +142,7 @@ async function notifyDiscord(content) {
 async function validateDiscordWebhookOnBoot() {
   if (!DISCORD_URL) {
     console.log("[discord] DEPLOY_DISCORD_WEBHOOK not set; deploy notifications disabled");
+    recordDiscordResult({ ok: false, status: null, error: "DEPLOY_DISCORD_WEBHOOK not set on listener", kind: "boot" });
     return;
   }
   // Cheap heuristic before we even hit the network — a typical Discord
@@ -136,6 +164,7 @@ async function validateDiscordWebhookOnBoot() {
     // 2xx-3xx is also fine. 401/404/etc means the URL is dead.
     if (res.ok || res.status === 400) {
       console.log(`[discord] webhook URL validated (HTTP ${res.status})`);
+      recordDiscordResult({ ok: true, status: res.status, error: null, kind: "boot" });
     } else {
       let body = "";
       try {
@@ -144,11 +173,13 @@ async function validateDiscordWebhookOnBoot() {
       console.error(
         `[discord] webhook URL is BAD: HTTP ${res.status} ${res.statusText}: ${body}. Deploy notifications will not be delivered until this is fixed.`,
       );
+      recordDiscordResult({ ok: false, status: res.status, error: `HTTP ${res.status} ${res.statusText}: ${body}`.slice(0, 400), kind: "boot" });
     }
   } catch (e) {
     console.error(
       `[discord] webhook URL unreachable on boot: ${e?.message || "error"}. Deploy notifications may not be delivered.`,
     );
+    recordDiscordResult({ ok: false, status: null, error: `network error: ${e?.message || "unknown"}`, kind: "boot" });
   }
 }
 
@@ -196,6 +227,29 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(JSON.stringify({ ok: true }));
+  }
+
+  // Last-known Discord notification health, for the Admin Portal Deploy
+  // page. Gated on the same DEPLOY_GATE_TOKEN bearer used for /log/ —
+  // exposes status codes and HTTP error bodies that aren't safe for
+  // unauthenticated callers. Fail-closed if no token is configured.
+  if (req.method === "GET" && req.url === "/notify-status") {
+    const auth = req.headers.authorization || "";
+    const expected = process.env.DEPLOY_GATE_TOKEN;
+    if (!expected || auth !== `Bearer ${expected}`) {
+      res.writeHead(401);
+      return res.end("unauthorized");
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    // Return both the internal short field names (at/status/error) AND the
+    // task-spec aliases (lastAttemptAt/lastStatus/lastError) so future
+    // consumers written against the task contract work without a rename.
+    return res.end(JSON.stringify({
+      ...lastDiscordAttempt,
+      lastAttemptAt: lastDiscordAttempt.at,
+      lastStatus: lastDiscordAttempt.status,
+      lastError: lastDiscordAttempt.error,
+    }));
   }
 
   // Tail of the most recent deploy log for Discord deep-link. Gated on the

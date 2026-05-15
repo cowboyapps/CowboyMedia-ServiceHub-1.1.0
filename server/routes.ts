@@ -4304,6 +4304,49 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Proxy to the VPS deploy listener's GET /notify-status endpoint. The
+  // listener lives on 127.0.0.1:5055 (nginx proxies /_deploy/* to it on
+  // prod), so the browser can't hit it directly; even if it could, the
+  // endpoint is gated on DEPLOY_GATE_TOKEN which is a server-side secret
+  // we don't want shipped to the client. This route attaches the bearer
+  // token server-side and returns the listener's last-known Discord
+  // notification health for the Admin Portal Deploy page.
+  app.get("/api/admin/deploy/notify-status", requireMasterAdmin, async (_req, res) => {
+    try {
+      const gateToken = process.env.DEPLOY_GATE_TOKEN;
+      if (!gateToken) {
+        return res.json({
+          available: false,
+          reason: "DEPLOY_GATE_TOKEN not configured on the app server",
+        });
+      }
+      const listenerUrl = process.env.DEPLOY_LISTENER_URL || "http://127.0.0.1:5055";
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 3000);
+      try {
+        const upstream = await fetch(`${listenerUrl}/notify-status`, {
+          headers: { Authorization: `Bearer ${gateToken}` },
+          signal: ctl.signal,
+        });
+        if (!upstream.ok) {
+          return res.json({
+            available: false,
+            reason: `listener returned HTTP ${upstream.status}`,
+          });
+        }
+        const status = await upstream.json();
+        return res.json({ available: true, ...status });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e: any) {
+      return res.json({
+        available: false,
+        reason: `listener unreachable: ${e?.message || "error"}`,
+      });
+    }
+  });
+
   app.patch("/api/admin/app-settings", requireMasterAdmin, async (req, res) => {
     try {
       const userId = (req as any).session?.userId || null;

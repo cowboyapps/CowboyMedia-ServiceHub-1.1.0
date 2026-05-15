@@ -6812,7 +6812,116 @@ function DeployTab() {
           </div>
         </CardContent>
       </Card>
+
+      <DeployNotifyHealthCard />
     </div>
+  );
+}
+
+// Surfaces the VPS deploy listener's last-known Discord notification health
+// inside the Admin Portal so a misconfigured webhook URL is visible without
+// SSHing to read journalctl. Refreshes on demand only — no polling, since
+// the listener's own boot-time validator + per-call recording mean the
+// status only changes when there's an actual deploy or restart.
+type DeployNotifyStatus = {
+  available: boolean;
+  reason?: string;
+  at?: string | null;
+  ok?: boolean | null;
+  status?: number | null;
+  error?: string | null;
+  kind?: "boot" | "notify" | null;
+  configured?: boolean;
+};
+
+function DeployNotifyHealthCard() {
+  const { data, isLoading, isFetching, refetch } = useQuery<DeployNotifyStatus>({
+    queryKey: ["/api/admin/deploy/notify-status"],
+    refetchOnWindowFocus: false,
+  });
+
+  const renderPill = () => {
+    if (isLoading) {
+      return <Badge variant="secondary" data-testid="badge-notify-status">Loading…</Badge>;
+    }
+    if (!data?.available) {
+      return <Badge variant="secondary" data-testid="badge-notify-status">Unavailable</Badge>;
+    }
+    if (data.configured === false) {
+      return <Badge variant="destructive" data-testid="badge-notify-status">Not configured</Badge>;
+    }
+    if (data.ok === true) {
+      return <Badge className="bg-green-600 hover:bg-green-600 text-white" data-testid="badge-notify-status">Healthy</Badge>;
+    }
+    if (data.ok === false) {
+      return <Badge variant="destructive" data-testid="badge-notify-status">Failing</Badge>;
+    }
+    return <Badge variant="secondary" data-testid="badge-notify-status">Unknown</Badge>;
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Bell className="w-4 h-4 text-cyan-500" />
+          Deploy Discord notifications
+          <span className="ml-auto flex items-center gap-2">
+            {renderPill()}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              data-testid="button-notify-status-refresh"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            </Button>
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-xs text-muted-foreground">
+          Last-known result of the VPS webhook listener posting to its Discord channel. Updated on listener boot
+          (URL validation) and on every deploy. If this shows red, the in-channel <code>:rocket:</code> /
+          <code>:white_check_mark:</code> deploy posts won't arrive — usually a revoked or malformed{" "}
+          <code>DEPLOY_DISCORD_WEBHOOK</code> in <code>/etc/servicehub-deploy.env</code>.
+        </p>
+
+        {!data?.available && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs" data-testid="text-notify-status-unavailable">
+            <div className="font-medium text-amber-700 dark:text-amber-300">Listener status unavailable</div>
+            <div className="mt-1 text-muted-foreground">{data?.reason || "Unknown reason."}</div>
+            <div className="mt-1 text-muted-foreground">
+              This is normal in the Replit dev environment — the deploy listener only runs on the VPS.
+            </div>
+          </div>
+        )}
+
+        {data?.available && (
+          <div className="space-y-2 text-xs">
+            <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
+              <div className="text-muted-foreground">Last attempt</div>
+              <div data-testid="text-notify-status-at">
+                {data.at ? `${formatDistanceToNow(new Date(data.at), { addSuffix: true })} (${new Date(data.at).toLocaleString()})` : "never"}
+              </div>
+              <div className="text-muted-foreground">Trigger</div>
+              <div data-testid="text-notify-status-kind">
+                {data.kind === "boot" ? "Listener boot validation" : data.kind === "notify" ? "Deploy notification" : "—"}
+              </div>
+              <div className="text-muted-foreground">HTTP status</div>
+              <div data-testid="text-notify-status-code">{data.status ?? "—"}</div>
+              <div className="text-muted-foreground">Configured</div>
+              <div data-testid="text-notify-status-configured">{data.configured ? "Yes" : "No (DEPLOY_DISCORD_WEBHOOK unset)"}</div>
+            </div>
+            {data.error && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-[11px] break-all" data-testid="text-notify-status-error">
+                {data.error}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
