@@ -38,6 +38,7 @@ import {
   type CommunityReaction, type InsertCommunityReaction,
   type NewsReaction,
   type Poll, type PollOption, type PollVote, type InsertPoll,
+  type ChangelogEntry, type InsertChangelogEntry,
   polls, pollOptions, pollVotes,
   type ChatWordFilter,
   type TelegramSettings,
@@ -55,7 +56,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -382,6 +383,16 @@ export interface IStorage {
   castPollVote(pollId: string, userId: string, optionIds: string[]): Promise<void>;
   deletePoll(id: string): Promise<void>;
   getPollsForParent(parentType: string, parentIds: string[]): Promise<(Poll & { options: PollOption[]; counts: Record<string, number>; totalVotes: number })[]>;
+
+  // Admin-editable changelog. See shared/schema.ts for table comment.
+  getChangelogEntry(version: string): Promise<ChangelogEntry | undefined>;
+  getAllChangelogEntries(): Promise<ChangelogEntry[]>;
+  getPublishedChangelogEntries(): Promise<ChangelogEntry[]>;
+  getLatestPublishedChangelogEntry(): Promise<ChangelogEntry | undefined>;
+  createChangelogEntry(entry: InsertChangelogEntry): Promise<ChangelogEntry>;
+  updateChangelogEntry(version: string, patch: Partial<InsertChangelogEntry>): Promise<ChangelogEntry | undefined>;
+  publishChangelogEntry(version: string, publishedBy: string): Promise<ChangelogEntry | undefined>;
+  deleteChangelogEntry(version: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2082,6 +2093,62 @@ export class DatabaseStorage implements IStorage {
       if (full) result.push(full);
     }
     return result;
+  }
+
+  // ---- changelog_entries ----
+  // Sort key for "newest" is publishedAt for published rows, createdAt for
+  // drafts (which have no publishedAt). Drizzle's coalesce keeps both buckets
+  // sortable in a single query.
+  async getChangelogEntry(version: string): Promise<ChangelogEntry | undefined> {
+    const [row] = await db.select().from(changelogEntries).where(eq(changelogEntries.version, version));
+    return row;
+  }
+  async getAllChangelogEntries(): Promise<ChangelogEntry[]> {
+    return db.select().from(changelogEntries)
+      .orderBy(desc(sql`COALESCE(${changelogEntries.publishedAt}, ${changelogEntries.createdAt})`));
+  }
+  async getPublishedChangelogEntries(): Promise<ChangelogEntry[]> {
+    return db.select().from(changelogEntries)
+      .where(eq(changelogEntries.status, "published"))
+      .orderBy(desc(changelogEntries.publishedAt));
+  }
+  async getLatestPublishedChangelogEntry(): Promise<ChangelogEntry | undefined> {
+    const [row] = await db.select().from(changelogEntries)
+      .where(eq(changelogEntries.status, "published"))
+      .orderBy(desc(changelogEntries.publishedAt))
+      .limit(1);
+    return row;
+  }
+  async createChangelogEntry(entry: InsertChangelogEntry): Promise<ChangelogEntry> {
+    const [created] = await db.insert(changelogEntries).values(entry).returning();
+    return created;
+  }
+  async updateChangelogEntry(version: string, patch: Partial<InsertChangelogEntry>): Promise<ChangelogEntry | undefined> {
+    // Strip primary key + immutable publish metadata from incoming patches —
+    // the publish endpoint is the only path that's allowed to set those.
+    const { version: _v, publishedAt: _pa, publishedBy: _pb, ...safe } = patch as any;
+    const [updated] = await db.update(changelogEntries)
+      .set({ ...safe, updatedAt: new Date() })
+      .where(eq(changelogEntries.version, version))
+      .returning();
+    return updated;
+  }
+  async publishChangelogEntry(version: string, publishedBy: string): Promise<ChangelogEntry | undefined> {
+    const existing = await this.getChangelogEntry(version);
+    if (!existing) return undefined;
+    if (existing.status === "published") return existing; // idempotent — don't bump publishedAt
+    const [updated] = await db.update(changelogEntries)
+      .set({ status: "published", publishedAt: new Date(), publishedBy, updatedAt: new Date() })
+      .where(eq(changelogEntries.version, version))
+      .returning();
+    return updated;
+  }
+  async deleteChangelogEntry(version: string): Promise<boolean> {
+    const existing = await this.getChangelogEntry(version);
+    if (!existing) return false;
+    if (existing.status === "published") return false; // refuse — only drafts deletable
+    await db.delete(changelogEntries).where(eq(changelogEntries.version, version));
+    return true;
   }
 }
 

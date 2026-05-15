@@ -188,6 +188,37 @@ app.use((req, res, next) => {
     console.error("Email template seed error:", e);
   }
 
+  // One-time import of legacy CHANGELOG.md into changelog_entries. Idempotent;
+  // a no-op on subsequent boots once every section already has a row.
+  try {
+    const { seedChangelogEntries } = await import("../script/seed-changelog");
+    const r = await seedChangelogEntries();
+    if (r.inserted > 0) log(`Changelog seed: imported ${r.inserted}, skipped ${r.skipped}`);
+  } catch (e) {
+    console.error("Changelog seed error:", e);
+  }
+
+  // Auto-create an empty draft row for the current APP_VERSION the moment a
+  // new build boots, so the admin portal's Changelog tab always has a row
+  // ready to write into. The popup stays silent until master_admin clicks
+  // Publish on this row.
+  try {
+    const existing = await storage.getChangelogEntry(APP_VERSION);
+    if (!existing) {
+      await storage.createChangelogEntry({
+        version: APP_VERSION,
+        title: "",
+        bodyHtml: "",
+        status: "draft",
+        publishedAt: null,
+        publishedBy: null,
+      });
+      log(`Changelog: created draft row for version ${APP_VERSION}`);
+    }
+  } catch (e) {
+    console.error("Changelog auto-draft error:", e);
+  }
+
   async function checkSetupReminders() {
     try {
       const allUsers = await storage.getAllUsers();

@@ -139,7 +139,7 @@ Reports any tables defined in `shared/schema.ts` that are missing from the DB (d
 I prefer detailed explanations.
 I want iterative development.
 Ask before making major changes.
-When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, bottom nav, and the welcome popup all read from it) without further explanation.
+When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, and bottom nav all read from it) without further explanation. The "Welcome to version X" popup is now decoupled: when the new version boots in production, the server auto-creates an empty draft changelog entry; the popup only fires once the user clicks **Publish** on it in Admin Portal → Changelog. Do NOT write changelog content yourself — that's a manual editorial step the user does in the admin portal.
 
 ## Build artifacts
 

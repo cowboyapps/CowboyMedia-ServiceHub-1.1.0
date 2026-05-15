@@ -15,6 +15,13 @@
       "when": 1778702844610,
       "tag": "0001_true_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778855135616,
+      "tag": "0002_misty_human_torch",
+      "breakpoints": true
     }
   ]
 }

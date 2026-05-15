@@ -710,6 +710,33 @@ export const appSettings = pgTable("app_settings", {
 
 export type AppSettings = typeof appSettings.$inferSelect;
 
+// Admin-editable release notes. One row per APP_VERSION. Created as a
+// "draft" by the boot-time auto-draft hook the moment a new version
+// goes live, then a master_admin writes notes in the admin portal and
+// flips status to "published" — which is the gate that makes the
+// "Welcome to version X" popup start firing for customers.
+//
+// Editing a row after publish does NOT bump publishedAt and does NOT
+// re-fire the popup for users who already dismissed that version.
+export const changelogEntries = pgTable("changelog_entries", {
+  version: varchar("version").primaryKey(),
+  title: text("title").notNull().default(""),
+  bodyHtml: text("body_html").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  publishedAt: timestamp("published_at"),
+  publishedBy: varchar("published_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertChangelogEntrySchema = createInsertSchema(changelogEntries).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ChangelogEntry = typeof changelogEntries.$inferSelect;
+export type InsertChangelogEntry = z.infer<typeof insertChangelogEntrySchema>;
+
 export const businessHours = pgTable("business_hours", {
   id: varchar("id").primaryKey().default("singleton"),
   enabled: boolean("enabled").notNull().default(false),

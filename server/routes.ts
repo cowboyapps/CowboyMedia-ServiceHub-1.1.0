@@ -39,7 +39,7 @@ import {
   composeNews as composeDiscordNews,
   composeDiscordTest,
 } from "./discord";
-import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema } from "@shared/schema";
+import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema } from "@shared/schema";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
@@ -1189,6 +1189,94 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // Latest published changelog entry the current user hasn't dismissed yet.
+  // Returns null when there's nothing to show (no published entries, or the
+  // newest one matches users.lastVersionWelcomeSeen). The admin-write side
+  // (publish flag) is the gate — bumping APP_VERSION alone never fires the
+  // popup; only Publish does.
+  app.get("/api/version-welcome", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const latest = await storage.getLatestPublishedChangelogEntry();
+      if (!latest) return res.json(null);
+      if ((user.lastVersionWelcomeSeen ?? "") === latest.version) return res.json(null);
+      res.json({ version: latest.version, title: latest.title || "" });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Customer-facing What's New page data — published entries only, newest
+  // first. Each row's bodyHtml was sanitized on write; we trust it on read.
+  app.get("/api/changelog", requireAuth, async (_req, res) => {
+    try {
+      const rows = await storage.getPublishedChangelogEntries();
+      res.json(rows.map(r => ({
+        version: r.version,
+        title: r.title,
+        bodyHtml: r.bodyHtml,
+        publishedAt: r.publishedAt,
+      })));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ---- Admin: changelog CRUD (master_admin only) ----
+  app.get("/api/admin/changelog", requireMasterAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getAllChangelogEntries());
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/changelog", requireMasterAdmin, async (req, res) => {
+    try {
+      const parsed = insertChangelogEntrySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid body", errors: parsed.error.flatten() });
+      const data = parsed.data;
+      // Force-create as draft regardless of incoming status — publish has its own endpoint.
+      const existing = await storage.getChangelogEntry(data.version);
+      if (existing) return res.status(409).json({ message: `Entry for version ${data.version} already exists` });
+      const created = await storage.createChangelogEntry({
+        version: data.version,
+        title: data.title ?? "",
+        bodyHtml: sanitizeNewsContent(data.bodyHtml ?? ""),
+        status: "draft",
+        publishedAt: null,
+        publishedBy: null,
+      });
+      res.status(201).json(created);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
+    try {
+      const patch: any = {};
+      if (typeof req.body?.title === "string") patch.title = req.body.title;
+      if (typeof req.body?.bodyHtml === "string") patch.bodyHtml = sanitizeNewsContent(req.body.bodyHtml);
+      const updated = await storage.updateChangelogEntry(req.params.version, patch);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/changelog/:version/publish", requireMasterAdmin, async (req, res) => {
+    try {
+      const updated = await storage.publishChangelogEntry(req.params.version, req.session.userId!);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
+    try {
+      const ok = await storage.deleteChangelogEntry(req.params.version);
+      if (!ok) return res.status(409).json({ message: "Cannot delete: entry not found or already published" });
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   app.patch("/api/auth/onboarding-complete", requireAuth, async (req, res) => {

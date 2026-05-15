@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -35,6 +35,7 @@ import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
+import { APP_VERSION } from "@shared/version";
 import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable } from "@shared/quick-response-vars";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
@@ -8073,6 +8074,7 @@ export default function AdminPortal() {
     { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true, group: "community" },
     { key: "admin-management", label: "Admin Management", icon: Crown, color: "text-yellow-500", bg: "bg-yellow-500/10", masterOnly: true, group: "people" },
     { key: "deploy", label: "Deploy", icon: Rocket, color: "text-cyan-500", bg: "bg-cyan-500/10", masterOnly: true, group: "system" },
+    { key: "changelog", label: "Changelog", icon: FileText, color: "text-cyan-500", bg: "bg-cyan-500/10", masterOnly: true, group: "content" },
   ];
 
   const sections = allSections.filter(s => {
@@ -8124,6 +8126,7 @@ export default function AdminPortal() {
       case "knowledge-base": return <KnowledgeBaseTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab initialInnerTab={initialParams.section} /> : null;
       case "deploy": return isMasterAdmin ? <DeployTab /> : null;
+      case "changelog": return isMasterAdmin ? <ChangelogTab /> : null;
       case "online-users": return (user?.role === "admin" || user?.role === "master_admin") ? <OnlineUsersTab /> : null;
       default: return null;
     }
@@ -8206,5 +8209,359 @@ export default function AdminPortal() {
         </div>
       )}
     </div>
+  );
+}
+
+// Admin-editable release notes. master_admin only. The boot-time auto-draft
+// hook in server/index.ts ensures every APP_VERSION already has a row here
+// the moment a new build deploys; this UI is just for writing the body and
+// flipping draft → published. Publishing is the gate that lets the
+// "Welcome to version X" popup start firing for customers.
+type ChangelogRow = {
+  version: string;
+  title: string;
+  bodyHtml: string;
+  status: "draft" | "published";
+  publishedAt: string | null;
+  publishedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function ChangelogTab() {
+  const { toast } = useToast();
+  const { data: rows, isLoading } = useQuery<ChangelogRow[]>({
+    queryKey: ["/api/admin/changelog"],
+  });
+  const [editing, setEditing] = useState<ChangelogRow | null>(null);
+  const [previewing, setPreviewing] = useState<ChangelogRow | null>(null);
+  const [confirmPublish, setConfirmPublish] = useState<ChangelogRow | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<ChangelogRow | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newVersion, setNewVersion] = useState("");
+
+  const missingForCurrent = useMemo(() => {
+    if (!rows) return false;
+    return !rows.some((r) => r.version === APP_VERSION);
+  }, [rows]);
+
+  const createMutation = useMutation({
+    mutationFn: async (version: string) => {
+      return apiRequest("POST", "/api/admin/changelog", { version, title: "", bodyHtml: "", status: "draft" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
+      setCreateOpen(false);
+      setNewVersion("");
+      toast({ title: "Draft created" });
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message ?? "", variant: "destructive" }),
+  });
+
+  const publishMutation = useMutation({
+    mutationFn: async (version: string) => apiRequest("POST", `/api/admin/changelog/${version}/publish`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
+      setConfirmPublish(null);
+      toast({ title: "Published", description: "Customers will see the popup the next time they open the app." });
+    },
+    onError: (e: any) => toast({ title: "Publish failed", description: e?.message ?? "", variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (version: string) => apiRequest("DELETE", `/api/admin/changelog/${version}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
+      setConfirmDelete(null);
+      toast({ title: "Draft deleted" });
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: e?.message ?? "", variant: "destructive" }),
+  });
+
+  if (isLoading || !rows) {
+    return <div className="text-sm text-muted-foreground" data-testid="text-changelog-loading">Loading…</div>;
+  }
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div>
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <FileText className="w-5 h-5 text-cyan-500" /> Changelog
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Write release notes here. The "Welcome to version X" popup stays silent until you click <strong>Publish</strong>.
+          Once published, every customer whose last-seen version differs sees the popup the next time they open the app.
+        </p>
+      </div>
+
+      {missingForCurrent && (
+        <div
+          className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+          data-testid="banner-changelog-missing"
+        >
+          <div>
+            <div className="font-medium text-amber-700 dark:text-amber-300">Version {APP_VERSION} is live but has no changelog entry yet</div>
+            <div className="text-xs mt-1 text-muted-foreground">Customers won't see a welcome popup until you create one and publish it.</div>
+          </div>
+          <Button onClick={() => createMutation.mutate(APP_VERSION)} data-testid="button-changelog-create-current">
+            Create draft for {APP_VERSION}
+          </Button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"}</div>
+        <Button variant="outline" size="sm" onClick={() => { setNewVersion(""); setCreateOpen(true); }} data-testid="button-changelog-new">
+          <Plus className="w-4 h-4 mr-1" /> New entry
+        </Button>
+      </div>
+
+      <div className="border rounded-md divide-y">
+        {rows.length === 0 && (
+          <div className="p-4 text-sm text-muted-foreground" data-testid="text-changelog-empty">No entries yet.</div>
+        )}
+        {rows.map((r) => (
+          <div key={r.version} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2" data-testid={`row-changelog-${r.version}`}>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-sm font-semibold" data-testid={`text-changelog-version-${r.version}`}>v{r.version}</span>
+                <Badge variant={r.status === "published" ? "default" : "secondary"} data-testid={`badge-changelog-status-${r.version}`}>
+                  {r.status === "published" ? "Published" : "Draft"}
+                </Badge>
+                {r.status === "published" && r.publishedAt && (
+                  <span className="text-xs text-muted-foreground">
+                    {format(new Date(r.publishedAt), "MMM d, yyyy")}
+                  </span>
+                )}
+              </div>
+              {r.title && <div className="text-sm mt-1 truncate" data-testid={`text-changelog-title-${r.version}`}>{r.title}</div>}
+              <div className="text-xs text-muted-foreground mt-1">
+                Updated {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 self-end sm:self-auto">
+              <Button variant="ghost" size="sm" onClick={() => setEditing(r)} data-testid={`button-changelog-edit-${r.version}`}>
+                <Edit className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setPreviewing(r)} data-testid={`button-changelog-preview-${r.version}`}>
+                <Eye className="w-4 h-4" />
+              </Button>
+              {r.status === "draft" && (
+                <Button variant="default" size="sm" onClick={() => setConfirmPublish(r)} data-testid={`button-changelog-publish-${r.version}`}>
+                  Publish
+                </Button>
+              )}
+              {r.status === "draft" && (
+                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(r)} data-testid={`button-changelog-delete-${r.version}`}>
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {editing && (
+        <ChangelogEditor
+          row={editing}
+          onClose={() => setEditing(null)}
+          onPreview={(draft) => setPreviewing(draft)}
+        />
+      )}
+
+      {previewing && (
+        <ChangelogPreviewDialog row={previewing} onClose={() => setPreviewing(null)} />
+      )}
+
+      <Dialog open={!!confirmPublish} onOpenChange={(o) => { if (!o) setConfirmPublish(null); }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-confirm-publish">
+          <DialogHeader>
+            <DialogTitle>Publish v{confirmPublish?.version}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Publishing will start showing the welcome popup to every customer the next time they open the app. Continue?
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmPublish(null)}>Cancel</Button>
+            <Button
+              onClick={() => confirmPublish && publishMutation.mutate(confirmPublish.version)}
+              disabled={publishMutation.isPending}
+              data-testid="button-confirm-publish"
+            >
+              Publish now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null); }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-confirm-delete-changelog">
+          <DialogHeader>
+            <DialogTitle>Delete draft for v{confirmDelete?.version}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">This cannot be undone. Only drafts can be deleted.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => confirmDelete && deleteMutation.mutate(confirmDelete.version)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete-changelog"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) setCreateOpen(false); }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-create-changelog">
+          <DialogHeader>
+            <DialogTitle>New changelog entry</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="new-cl-version" className="text-xs">Version</Label>
+            <Input
+              id="new-cl-version"
+              placeholder="e.g. 5.3"
+              value={newVersion}
+              onChange={(e) => setNewVersion(e.target.value)}
+              data-testid="input-changelog-new-version"
+            />
+            <p className="text-xs text-muted-foreground">Created as a draft. You'll write the body in the next step.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => createMutation.mutate(newVersion.trim())}
+              disabled={!newVersion.trim() || createMutation.isPending}
+              data-testid="button-confirm-create-changelog"
+            >
+              Create draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClose: () => void; onPreview: (draft: ChangelogRow) => void }) {
+  const { toast } = useToast();
+  const [title, setTitle] = useState(row.title);
+  const [bodyHtml, setBodyHtml] = useState(row.bodyHtml);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/admin/changelog/${row.version}`, { title, bodyHtml }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/changelog"] });
+      toast({ title: "Saved" });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: e?.message ?? "", variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-changelog-editor">
+        <DialogHeader>
+          <DialogTitle>
+            Edit v{row.version}
+            <Badge variant={row.status === "published" ? "default" : "secondary"} className="ml-2">
+              {row.status === "published" ? "Published" : "Draft"}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="cl-title" className="text-xs">Headline (shown in the popup)</Label>
+            <Input
+              id="cl-title"
+              placeholder="e.g. Smarter notifications & faster ticket replies"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              data-testid="input-changelog-title"
+            />
+            <p className="text-xs text-muted-foreground">Optional. Falls back to "Welcome to version {row.version}" if empty.</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Body (rich text — appears on /whats-new)</Label>
+            <RichTextEditor
+              value={bodyHtml}
+              onChange={setBodyHtml}
+              testIdPrefix="changelog-editor"
+              draftKey={`changelog:${row.version}`}
+            />
+          </div>
+          {row.status === "published" && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs">
+              This entry is already published. Editing it here updates the What's New page immediately, but does NOT re-fire the popup for customers who already dismissed it.
+            </div>
+          )}
+        </div>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <Button variant="outline" onClick={() => onPreview({ ...row, title, bodyHtml })} data-testid="button-changelog-preview-current">
+            <Eye className="w-4 h-4 mr-1" /> Preview
+          </Button>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-changelog-save">
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChangelogPreviewDialog({ row, onClose }: { row: ChangelogRow; onClose: () => void }) {
+  // Render exactly what the customer popup + /whats-new entry will look like.
+  // Reads from the in-memory row so unsaved edits in the editor preview correctly.
+  const sanitized = useMemo(() => {
+    if (typeof window === "undefined") return row.bodyHtml;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const DOMPurify = require("dompurify");
+    return DOMPurify.sanitize(row.bodyHtml, { ADD_ATTR: ["id"] });
+  }, [row.bodyHtml]);
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-changelog-preview">
+        <DialogHeader>
+          <DialogTitle>Preview v{row.version}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          <section>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Welcome popup</div>
+            <div className="rounded-md border p-4 max-w-sm mx-auto text-center" data-testid="preview-changelog-popup">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+                <Sparkles className="w-7 h-7 text-primary" />
+              </div>
+              <div className="text-xl font-semibold">Welcome to version {row.version}</div>
+              <p className="text-sm text-muted-foreground mt-2">
+                {row.title?.trim() || "Thanks for keeping the app up to date. Here\u2019s what\u2019s new in this release."}
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">What's New entry</div>
+            <article className="rounded-md border p-4" data-testid="preview-changelog-entry">
+              <h2 className="text-2xl font-bold">Version {row.version}</h2>
+              {row.title && <p className="text-base text-muted-foreground mt-1">{row.title}</p>}
+              <div
+                className="prose prose-sm max-w-none dark:prose-invert mt-3"
+                dangerouslySetInnerHTML={{ __html: sanitized }}
+              />
+            </article>
+          </section>
+        </div>
+
+        <DialogFooter>
+          <Button onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,19 +1,30 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
-import { APP_VERSION, versionAnchor, shouldShowVersionWelcome } from "@shared/version";
+import { versionAnchor } from "@shared/version";
 import { useModalSlot } from "@/lib/modal-queue";
+
+// Server tells us the version (and optional headline) the user hasn't seen
+// a published changelog for yet. Null = nothing to show. The popup is
+// completely decoupled from the APP_VERSION constant on the client now —
+// admin must publish a changelog entry for a version before this fires.
+type VersionWelcome = { version: string; title: string } | null;
 
 export function VersionWelcomeDialog() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+
+  const { data: welcome } = useQuery<VersionWelcome>({
+    queryKey: ["/api/version-welcome"],
+    enabled: !!user,
+  });
 
   // Reset per-user so account switching within the same SPA session still
   // surfaces the popup for the new user.
@@ -25,36 +36,37 @@ export function VersionWelcomeDialog() {
   useEffect(() => {
     if (!user) return;
     if (dismissedFor === user.id) return;
-    if (shouldShowVersionWelcome(user.lastVersionWelcomeSeen, APP_VERSION)) {
+    if (welcome) {
       setOpen(true);
     }
-  }, [user, dismissedFor]);
+  }, [user, welcome, dismissedFor]);
 
   const markSeen = useMutation({
-    mutationFn: async () => {
-      await apiRequest("PATCH", "/api/users/me/version-welcome-seen", { version: APP_VERSION });
+    mutationFn: async (version: string) => {
+      await apiRequest("PATCH", "/api/users/me/version-welcome-seen", { version });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/version-welcome"] });
     },
   });
 
   const close = () => {
     setOpen(false);
     if (user) setDismissedFor(user.id);
-    markSeen.mutate();
+    if (welcome) markSeen.mutate(welcome.version);
   };
 
   const goChangelog = () => {
+    const v = welcome?.version;
     close();
-    navigate(`/whats-new#${versionAnchor(APP_VERSION)}`);
+    if (v) navigate(`/whats-new#${versionAnchor(v)}`);
+    else navigate("/whats-new");
   };
 
-  // Coordinated through the modal queue so a brand-new customer doesn't
-  // see this stacked on top of the onboarding tour and announcement popup.
-  const isMine = useModalSlot("version-welcome", 50, open && !!user);
+  const isMine = useModalSlot("version-welcome", 50, open && !!user && !!welcome);
 
-  if (!user || !open || !isMine) return null;
+  if (!user || !open || !isMine || !welcome) return null;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
@@ -66,11 +78,13 @@ export function VersionWelcomeDialog() {
             </div>
           </div>
           <DialogTitle className="text-center text-xl" data-testid="text-version-welcome-title">
-            Welcome to version {APP_VERSION}
+            Welcome to version {welcome.version}
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground text-center" data-testid="text-version-welcome-body">
-          Thanks for keeping the app up to date. Here&apos;s what&apos;s new in this release.
+          {welcome.title?.trim()
+            ? welcome.title
+            : "Thanks for keeping the app up to date. Here\u2019s what\u2019s new in this release."}
         </p>
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
           <Button className="w-full" onClick={goChangelog} data-testid="button-version-welcome-changelog">
