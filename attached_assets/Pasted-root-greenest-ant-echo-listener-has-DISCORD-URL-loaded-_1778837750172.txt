@@ -1,0 +1,50 @@
+root@greenest-ant:~# echo "--- listener has DISCORD URL loaded? ---"; PID=$(systemctl show servicehub-deploy -p MainPID --value); tr '\0' '\n' < /proc/$PID/environ | grep -E "^DEPLOY_(DISCORD_WEBHOOK|GATE_TOKEN)=" | awk -F= '{print $1, length($2), "chars"}'; echo "--- env file (names + value lengths) ---"; awk -F= '{print $1, "=", length($0)-length($1)-1, "chars"}' /etc/servicehub-deploy.env; echo "--- listener internal log lines ---"; journalctl -u servicehub-deploy --no-pager -n 500 | grep -E "webhook|discord|listening|Error|FATAL" | tail -20; echo "--- latest deploy log tail ---"; ls -t /var/log/servicehub-deploy/*.log | head -1; ls -t /var/log/servicehub-deploy/*.log | head -1 | xargs tail -40
+--- listener has DISCORD URL loaded? ---
+DEPLOY_DISCORD_WEBHOOK 2044 chars
+DEPLOY_GATE_TOKEN 64 chars
+--- env file (names + value lengths) ---
+GITHUB_WEBHOOK_SECRET = 64 chars
+APP_BASE_URL = 21 chars
+DEPLOY_DISCORD_WEBHOOK = 2044 chars
+DEPLOY_GATE_TOKEN = 64 chars
+DEPLOY_REPO_FULL_NAME = 39 chars
+--- listener internal log lines ---
+May 15 09:17:57 greenest-ant.metalseed.io systemd[1]: Started ServiceHub deploy webhook listener.
+May 15 09:17:57 greenest-ant.metalseed.io node[917321]: [webhook] listening on 127.0.0.1:5055
+--- latest deploy log tail ---
+/var/log/servicehub-deploy/f2d358da-5040-11f1-8961-10e3d2d0a928.log
+==> Pre-update DB snapshot -> /var/backups/servicehub/pre-update-20260515-093211.dump
+bash: /home/servicehub/.bash_profile: Permission denied
+==> Fetching latest...
+Fetching origin
+From https://github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0
+   b6fc062..848056c  main       -> origin/main
+==> Checking out 848056c34fad9abc88210d02aa17bb07f9d19c53 (was b6fc062a97ba73223e1590007176a3aaa1097180)...
+warning: unable to access '/home/servicehub/.config/git/ignore': Permission denied
+warning: unable to access '/home/servicehub/.config/git/attributes': Permission denied
+warning: unable to access '/home/servicehub/.config/git/attributes': Permission denied
+warning: unable to access '/home/servicehub/.config/git/attributes': Permission denied
+HEAD is now at 848056c Update documentation for the auto-deploy system
+    target version: 5.1 (sha 848056c34fad9abc88210d02aa17bb07f9d19c53)
+==> Schema column drift check (table-aware additive columns between b6fc062a97ba73223e1590007176a3aaa1097180 and 848056c34fad9abc88210d02aa17bb07f9d19c53)...
+    detected 0 new (table:column) pair(s) in schema diff
+==> npm ci && npm run build (prebuild runs db:check for schema/migration drift)...
+bash: /home/servicehub/.bash_profile: Permission denied
+npm error code EACCES
+npm error syscall stat
+npm error path /home/servicehub/.npm/_cacache/content-v2/sha512/fa/11/2244888fa1b832b85944a239ea8c99e116f838aff8b772a81c9baede7a165ffd605a2b783a703d36614f66b5d571663bfc0b3080f67fd186bb37c8002f03
+npm error errno -13
+npm error
+npm error Your cache folder contains root-owned files, due to a bug in
+npm error previous versions of npm which has since been addressed.
+npm error
+npm error To permanently fix this problem, please run:
+npm error   sudo chown -R 998:998 "/home/servicehub/.npm"
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.14.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.14.1
+npm notice To update run: npm install -g npm@11.14.1
+npm notice
+npm error Log files were not written due to an error writing to the directory: /home/servicehub/.npm/_logs
+npm error You can rerun the command with `--loglevel=verbose` to see the logs in your terminal
+root@greenest-ant:~# 
