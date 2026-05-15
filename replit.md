@@ -139,7 +139,15 @@ Reports any tables defined in `shared/schema.ts` that are missing from the DB (d
 I prefer detailed explanations.
 I want iterative development.
 Ask before making major changes.
-When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, and bottom nav all read from it) without further explanation. The "Welcome to version X" popup is now decoupled: when the new version boots in production, the server auto-creates an empty draft changelog entry; the popup only fires once the user clicks **Publish** on it in Admin Portal → Changelog. Do NOT write changelog content yourself — that's a manual editorial step the user does in the admin portal.
+When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, and bottom nav all read from it) without further explanation. The "Welcome to version X" popup is decoupled: when the new version boots, the server auto-creates an empty draft changelog entry; the popup only fires once the user clicks **Publish** on it in Admin Portal → Changelog.
+
+**Auto-append the changelog as we work.** Whenever a change ships that a customer can see or interact with, append a single bullet to the **current** `APP_VERSION`'s draft entry by calling `POST /api/admin/changelog/:version/append` with `{ heading, bullet }`. Use the existing helper (`appendBulletToBody` in `shared/changelog-append.ts`) for any non-route call sites. Rules:
+- **What earns a bullet**: new user-visible features, fixes, UI/UX changes, and anything that meaningfully affects a function the customer interacts with (e.g. faster, clearer, more reliable, new option, new screen, new alert channel).
+- **What does NOT earn a bullet**: pure refactors, dev tooling, internal plumbing, test-only changes, comments, type-only changes, build/CI tweaks, schema changes that aren't user-visible.
+- **Heading buckets**: exactly three — `New` (brand new capability), `Improved` (existing thing got better/faster/clearer), `Fixed` (bug fix). Pick one per bullet.
+- **Tone**: customer-friendly plain English, like "Faster ticket replies on slow networks." Not engineer-speak ("Refactored useTickets hook to memoize selector"). One short sentence per bullet.
+- **Scope = current version only**. The moment `APP_VERSION` is bumped, switch to writing into the new version's draft and never touch any older entry (draft or published) again. The user is the only one who edits older entries.
+- The user proofreads + tweaks + clicks **Publish** when they're ready. Do not publish on the user's behalf.
 
 ## Build artifacts
 

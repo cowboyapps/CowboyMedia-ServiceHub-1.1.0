@@ -40,6 +40,7 @@ import {
   composeDiscordTest,
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
+import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { selectVersionWelcome } from "@shared/version-welcome";
@@ -1282,6 +1283,35 @@ export async function registerRoutes(
       if (typeof body?.bodyHtml === "string") patch.bodyHtml = sanitizeNewsContent(body.bodyHtml);
       const updated = await storage.updateChangelogEntry(req.params.version, patch);
       if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Agent-friendly bullet appender. The agent (and any other automated
+  // caller) sends one bullet at a time scoped to a heading bucket; the
+  // server merges it into the existing bodyHtml under the matching <h3>
+  // (creating the section if missing), re-sanitizes the result, and saves.
+  // Keeps agent edits small, atomic, and safe — and avoids the agent ever
+  // round-tripping the entire body, which would risk wiping editorial
+  // tweaks the user made between appends.
+  app.post("/api/admin/changelog/:version/append", requireMasterAdmin, async (req, res) => {
+    try {
+      const { heading, bullet } = (req.body || {}) as { heading?: unknown; bullet?: unknown };
+      if (!isBulletHeading(heading)) {
+        return res.status(400).json({ message: "heading must be one of: New, Improved, Fixed" });
+      }
+      if (typeof bullet !== "string" || !bullet.trim()) {
+        return res.status(400).json({ message: "bullet required" });
+      }
+      const existing = await storage.getChangelogEntry(req.params.version);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.status !== "draft") {
+        return res.status(409).json({ message: "Cannot append to a published entry" });
+      }
+      const merged = appendBulletToBody(existing.bodyHtml ?? "", heading, bullet);
+      const updated = await storage.updateChangelogEntry(req.params.version, {
+        bodyHtml: sanitizeNewsContent(merged),
+      });
       res.json(updated);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

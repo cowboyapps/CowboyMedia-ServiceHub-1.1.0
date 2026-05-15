@@ -33,14 +33,6 @@ export function VersionWelcomeDialog() {
     setOpen(false);
   }, [user?.id]);
 
-  useEffect(() => {
-    if (!user) return;
-    if (dismissedFor === user.id) return;
-    if (welcome) {
-      setOpen(true);
-    }
-  }, [user, welcome, dismissedFor]);
-
   const markSeen = useMutation({
     mutationFn: async (version: string) => {
       await apiRequest("PATCH", "/api/users/me/version-welcome-seen", { version });
@@ -51,10 +43,23 @@ export function VersionWelcomeDialog() {
     },
   });
 
+  // Mark seen the moment we surface the popup, not on close. This closes
+  // the "user reloaded mid-popup → re-shows next session" window. Local
+  // dismissedFor state guards against the effect re-firing for the same
+  // user before the server round-trip lands.
+  useEffect(() => {
+    if (!user) return;
+    if (dismissedFor === user.id) return;
+    if (!welcome) return;
+    setOpen(true);
+    setDismissedFor(user.id);
+    markSeen.mutate(welcome.version);
+    // markSeen is stable; including it would re-trigger on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, welcome, dismissedFor]);
+
   const close = () => {
     setOpen(false);
-    if (user) setDismissedFor(user.id);
-    if (welcome) markSeen.mutate(welcome.version);
   };
 
   const goChangelog = () => {

@@ -36,6 +36,7 @@ import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { APP_VERSION } from "@shared/version";
+import { countBulletsInBody } from "@shared/changelog-append";
 import DOMPurify from "dompurify";
 import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable } from "@shared/quick-response-vars";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -8240,11 +8241,40 @@ function ChangelogTab() {
   const [confirmDelete, setConfirmDelete] = useState<ChangelogRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newVersion, setNewVersion] = useState("");
+  const [filter, setFilter] = useState("");
 
   const missingForCurrent = useMemo(() => {
     if (!rows) return false;
     return !rows.some((r) => r.version === APP_VERSION);
   }, [rows]);
+
+  const currentDraft = useMemo(
+    () => rows?.find((r) => r.version === APP_VERSION && r.status === "draft") ?? null,
+    [rows],
+  );
+  const currentDraftBulletCount = useMemo(
+    () => (currentDraft ? countBulletsInBody(currentDraft.bodyHtml) : 0),
+    [currentDraft],
+  );
+
+  const filteredRows = useMemo(() => {
+    if (!rows) return [];
+    const q = filter.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        r.version.toLowerCase().includes(q) ||
+        (r.title ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, filter]);
+
+  // The only row that exposes Edit / Publish / Delete is the current
+  // APP_VERSION's *draft*. Every other row — older drafts, anything
+  // already published, including the current version once it's published —
+  // is read-only history. Older entries are owned by the user; agents
+  // never touch them.
+  const isEditableRow = (r: ChangelogRow) =>
+    r.version === APP_VERSION && r.status === "draft";
 
   const createMutation = useMutation({
     mutationFn: async (version: string) => {
@@ -8310,18 +8340,60 @@ function ChangelogTab() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"}</div>
-        <Button variant="outline" size="sm" onClick={() => { setNewVersion(""); setCreateOpen(true); }} data-testid="button-changelog-new">
-          <Plus className="w-4 h-4 mr-1" /> New entry
-        </Button>
+      {currentDraft && (
+        <div
+          className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+          data-testid="banner-changelog-current-draft"
+        >
+          <div>
+            <div className="font-medium text-cyan-700 dark:text-cyan-300">
+              Working on draft for v{APP_VERSION} — {currentDraftBulletCount} bullet{currentDraftBulletCount === 1 ? "" : "s"} so far
+            </div>
+            <div className="text-xs mt-1 text-muted-foreground">
+              Updated {formatDistanceToNow(new Date(currentDraft.updatedAt), { addSuffix: true })}. Proofread, then click Publish to fire the welcome popup for everyone.
+            </div>
+          </div>
+          <div className="flex gap-2 self-end sm:self-auto">
+            <Button variant="outline" size="sm" onClick={() => setEditing(currentDraft)} data-testid="button-changelog-edit-current">
+              <Edit className="w-4 h-4 mr-1" /> Edit draft
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Filter by version or headline…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="pl-8"
+            data-testid="input-changelog-filter"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-muted-foreground" data-testid="text-changelog-count">
+            {filteredRows.length} of {rows.length} entr{rows.length === 1 ? "y" : "ies"}
+          </div>
+          <Button variant="outline" size="sm" onClick={() => { setNewVersion(""); setCreateOpen(true); }} data-testid="button-changelog-new">
+            <Plus className="w-4 h-4 mr-1" /> New entry
+          </Button>
+        </div>
       </div>
 
       <div className="border rounded-md divide-y">
         {rows.length === 0 && (
           <div className="p-4 text-sm text-muted-foreground" data-testid="text-changelog-empty">No entries yet.</div>
         )}
-        {rows.map((r) => (
+        {rows.length > 0 && filteredRows.length === 0 && (
+          <div className="p-4 text-sm text-muted-foreground" data-testid="text-changelog-no-match">
+            No entries match "{filter}".
+          </div>
+        )}
+        {filteredRows.map((r) => {
+          const editable = isEditableRow(r);
+          return (
           <div key={r.version} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2" data-testid={`row-changelog-${r.version}`}>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -8329,6 +8401,16 @@ function ChangelogTab() {
                 <Badge variant={r.status === "published" ? "default" : "secondary"} data-testid={`badge-changelog-status-${r.version}`}>
                   {r.status === "published" ? "Published" : "Draft"}
                 </Badge>
+                {editable && (
+                  <Badge variant="outline" className="border-cyan-500/30 text-cyan-700 dark:text-cyan-300 text-[10px]" data-testid={`badge-changelog-current-${r.version}`}>
+                    Current
+                  </Badge>
+                )}
+                {!editable && (
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-changelog-readonly-${r.version}`}>
+                    Read-only
+                  </Badge>
+                )}
                 {r.status === "published" && r.publishedAt && (
                   <span className="text-xs text-muted-foreground">
                     {format(new Date(r.publishedAt), "MMM d, yyyy")}
@@ -8341,25 +8423,30 @@ function ChangelogTab() {
               </div>
             </div>
             <div className="flex items-center gap-1 self-end sm:self-auto">
-              <Button variant="ghost" size="sm" onClick={() => setEditing(r)} data-testid={`button-changelog-edit-${r.version}`}>
-                <Edit className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setPreviewing(r)} data-testid={`button-changelog-preview-${r.version}`}>
-                <Eye className="w-4 h-4" />
-              </Button>
-              {r.status === "draft" && (
-                <Button variant="default" size="sm" onClick={() => setConfirmPublish(r)} data-testid={`button-changelog-publish-${r.version}`}>
-                  Publish
-                </Button>
-              )}
-              {r.status === "draft" && (
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(r)} data-testid={`button-changelog-delete-${r.version}`}>
-                  <Trash2 className="w-4 h-4 text-destructive" />
+              {editable ? (
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(r)} data-testid={`button-changelog-edit-${r.version}`}>
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setPreviewing(r)} data-testid={`button-changelog-preview-${r.version}`}>
+                    <Eye className="w-4 h-4" />
+                  </Button>
+                  <Button variant="default" size="sm" onClick={() => setConfirmPublish(r)} data-testid={`button-changelog-publish-${r.version}`}>
+                    Publish
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(r)} data-testid={`button-changelog-delete-${r.version}`}>
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setPreviewing(r)} data-testid={`button-changelog-view-${r.version}`}>
+                  <Eye className="w-4 h-4 mr-1" /> View
                 </Button>
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {editing && (
