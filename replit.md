@@ -51,7 +51,7 @@ End-to-end verified: a real push from Replit to `main` posts `:rocket:` (start) 
 
 ### Recurring deploy gotchas (seen during install + worth knowing)
 
-- **`/home/servicehub/.npm` cache permissions drift to root.** Any time someone runs `npm` inside `/opt/servicehub` or `/home/servicehub` as `root` (e.g. an emergency manual recovery), the cache ends up partially root-owned and the next `servicehub`-user `npm ci` dies with `EACCES`. Fix: `sudo chown -R 998:998 /home/servicehub/.npm`. Avoid by always running `npm` via `sudo -u servicehub`, never as bare root.
+- **`/home/servicehub` permissions drift to root.** Any time someone runs `npm`, `pm2`, or anything else that writes under the app user's home as bare `root` (e.g. an emergency manual recovery), files under `/home/servicehub/.npm`, `~/.bash_profile`, `~/.npmrc`, etc. end up root-owned and the next `servicehub`-user `npm ci` dies with `EACCES`. `update.sh` now self-heals the **entire** `/home/servicehub` tree (not just `~/.npm`) at the very start of every deploy — before `pg_dump`, before `git fetch`, before `npm ci` — and aborts loudly if a recursive `chown` doesn't stick (immutable attr, broken mount, SELinux). Manual fix when it ever needs one: `sudo chown -R servicehub:servicehub /home/servicehub`. Avoid by **always** running `npm`/`pm2` via `sudo -u servicehub` or `sudo -u servicehub -H bash -lc '...'`, never as bare root. The `:x:` Discord failure embed now also appends a one-line remediation hint when this pattern is detected in the log tail (`EACCES` on `.npm` or `.bash_profile: Permission denied`), so on-call doesn't have to grep the runbook at 3am.
 - **The listener silently posts to bad Discord URLs.** `fetch()` only throws on network errors — not on HTTP 401/404 from Discord — so a malformed or revoked webhook URL produces zero log output. If you stop seeing Discord posts, sanity-check the URL with `curl -X POST -H "Content-Type: application/json" -d '{"content":"test"}' "<URL>"` (expect HTTP 204).
 - **Listener has no log line on the happy path.** `journalctl -u servicehub-deploy` only shows sudo audit lines and the listener's own startup message — successful incoming pushes are silent. Use the per-deploy log file under `/var/log/servicehub-deploy/` for actual deploy output.
 
@@ -62,10 +62,13 @@ The webhook listener fails closed when the app is down (it can't read `app_setti
 ```bash
 cd /opt/servicehub
 sudo -u servicehub git pull origin main
-# If `npm ci` dies with EACCES on /home/servicehub/.npm/_cacache, the cache
-# has root-owned files from an earlier root-run npm. One-line fix:
-#   sudo chown -R servicehub:servicehub /home/servicehub/.npm
-# (deploy/update.sh now does this automatically, but manual recoveries don't.)
+# If `npm ci` dies with EACCES on /home/servicehub/.npm/_cacache (or you
+# see `bash: /home/servicehub/.bash_profile: Permission denied`), the
+# home dir has root-owned files from an earlier root-run npm/pm2.
+# One-line fix (covers .npm, dotfiles, everything):
+#   sudo chown -R servicehub:servicehub /home/servicehub
+# (deploy/update.sh now does this automatically as the very first step
+#  of every webhook-triggered deploy, but manual recoveries don't.)
 sudo -u servicehub npm ci
 sudo -u servicehub npm run build
 sudo -u servicehub pm2 reload servicehub          # reload, NOT restart --update-env

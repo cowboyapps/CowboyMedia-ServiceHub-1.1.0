@@ -31,6 +31,59 @@ ENV_FILE="$APP_DIR/.env"
 BACKUP_DIR=/var/backups/servicehub
 TS="$(date -u +%Y%m%d-%H%M%S)"
 SNAPSHOT="$BACKUP_DIR/pre-update-$TS.dump"
+
+# ----------------------------------------------------------------------------
+# /home/$APP_USER permission self-heal (run FIRST, before any `bash -lc`).
+#
+# Every recurring deploy failure of the form `EACCES on /home/servicehub/.npm`
+# or `bash: /home/servicehub/.bash_profile: Permission denied` traces back to
+# files in the app user's home directory ending up root-owned — typically
+# because someone ran `npm` or `pm2` as bare root during a manual recovery,
+# or a forgotten cron/systemd-unit invokes a node tool as root. The previous
+# version of this script self-healed only `~/.npm`, and only AFTER pg_dump
+# and `git fetch` had already run a login shell as the app user (which is
+# what surfaces the `.bash_profile: Permission denied` warning).
+#
+# We now run the self-heal as the very first action AFTER arg parsing and
+# BEFORE any `sudo -u $APP_USER -H bash -lc ...`, so a bad dotfile can't
+# poison the login shell and a bad npm cache can't trip up a future
+# `npm ci`. We also widen the scope from `~/.npm` to the entire home dir,
+# since the offender list now includes `.bash_profile`, `.bashrc`, and
+# `.npmrc`.
+# ----------------------------------------------------------------------------
+HOME_DIR="/home/$APP_USER"
+echo "==> Self-heal: ensuring $APP_USER owns everything under $HOME_DIR..."
+if [[ -d "$HOME_DIR" ]]; then
+  # Count + show the first few offenders so the deploy log captures what
+  # was wrong (silent self-heal makes future incidents harder to debug).
+  OFFENDERS_FILE="$(mktemp)"
+  find "$HOME_DIR" -not -user "$APP_USER" -printf '%u %p\n' > "$OFFENDERS_FILE" 2>/dev/null || true
+  OFFENDER_COUNT="$(wc -l < "$OFFENDERS_FILE" | tr -d ' ')"
+  if [[ "$OFFENDER_COUNT" -gt 0 ]]; then
+    echo "    found $OFFENDER_COUNT non-$APP_USER-owned path(s); first 5:"
+    head -n 5 "$OFFENDERS_FILE" | sed 's/^/      /'
+    echo "    chowning $HOME_DIR -R to $APP_USER:$APP_USER..."
+    chown -R "$APP_USER:$APP_USER" "$HOME_DIR"
+    # Pre-flight assertion: if a recursive chown didn't stick, something
+    # weirder than perm drift is going on (immutable bit, broken mount,
+    # SELinux denial). Fail fast with a clear message rather than letting
+    # the next `bash -lc` produce a confusing EACCES.
+    REMAINING="$(find "$HOME_DIR" -not -user "$APP_USER" -print -quit 2>/dev/null || true)"
+    if [[ -n "$REMAINING" ]]; then
+      echo "ERROR: chown -R $APP_USER:$APP_USER $HOME_DIR did not stick."
+      echo "       still non-$APP_USER-owned: $REMAINING"
+      echo "       PM2 was NOT touched. Investigate (immutable attr? bad mount? SELinux?)."
+      rm -f "$OFFENDERS_FILE"
+      exit 1
+    fi
+  else
+    echo "    OK — all paths already owned by $APP_USER."
+  fi
+  rm -f "$OFFENDERS_FILE"
+else
+  echo "WARN: $HOME_DIR does not exist; skipping self-heal."
+fi
+
 PREV_SHA="$(sudo -u "$APP_USER" git -C "$APP_DIR" rev-parse HEAD)"
 
 echo "==> Pre-update DB snapshot -> $SNAPSHOT"
@@ -132,19 +185,6 @@ NEW_COL_COUNT="$(wc -l < "$NEW_COLUMNS_FILE" | tr -d ' ')"
 echo "    detected $NEW_COL_COUNT new (table:column) pair(s) in schema diff"
 if [[ "$NEW_COL_COUNT" -gt 0 ]]; then
   sed 's/^/      + /' "$NEW_COLUMNS_FILE"
-fi
-
-echo "==> Ensuring $APP_USER owns its npm cache (self-heals root-owned files from prior root-run npm)..."
-# Recurring footgun: any time someone runs `npm` inside /opt/servicehub or
-# /home/servicehub as root (e.g. a manual pm2 recovery), files under
-# /home/servicehub/.npm end up root-owned and the next `sudo -u servicehub
-# npm ci` dies with EACCES on _cacache. Cheap to check, cheap to fix.
-NPM_CACHE_DIR="/home/$APP_USER/.npm"
-if [[ -d "$NPM_CACHE_DIR" ]]; then
-  if find "$NPM_CACHE_DIR" -not -user "$APP_USER" -print -quit | grep -q .; then
-    echo "    found non-$APP_USER-owned files under $NPM_CACHE_DIR — chowning to $APP_USER:$APP_USER"
-    chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
-  fi
 fi
 
 echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration drift)..."

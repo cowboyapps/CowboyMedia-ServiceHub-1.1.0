@@ -235,6 +235,45 @@ function extractVerificationOutcome(logText) {
   return null;
 }
 
+// Pattern-match common deploy failures and return a one-line remediation
+// hint to append to the Discord :x: post. Saves the operator a runbook
+// lookup at 3am. Returns null if nothing matched — the failure embed
+// will just show the log tail.
+function suggestRemediation(logText) {
+  // /home/servicehub perm drift — npm cache or dotfile EACCES.
+  if (
+    /EACCES.*\/home\/servicehub\/\.npm/i.test(logText) ||
+    /\.bash_profile: Permission denied/i.test(logText) ||
+    /Your cache folder contains root-owned files/i.test(logText)
+  ) {
+    return (
+      "Likely cause: files under `/home/servicehub` got root-owned (e.g. " +
+      "from a manual `sudo npm`/`sudo pm2` recovery). Fix: " +
+      "`sudo chown -R servicehub:servicehub /home/servicehub` then " +
+      "`sudo FORCE_DEPLOY=1 bash /opt/servicehub/deploy/update.sh`."
+    );
+  }
+  // Self-heal hit the new pre-flight assertion (chown -R didn't stick).
+  if (/chown -R servicehub:servicehub .* did not stick/i.test(logText)) {
+    return (
+      "Self-heal couldn't fix the home dir — check for an immutable attribute " +
+      "(`lsattr /home/servicehub`), a stale mount, or SELinux denial."
+    );
+  }
+  // pg_dump cannot write the snapshot.
+  if (/pg_dump.*Permission denied|Permission denied.*pre-update-/.test(logText)) {
+    return (
+      "Pre-update DB snapshot failed. Check `/var/backups/servicehub` exists " +
+      "and is writable by the `servicehub` user."
+    );
+  }
+  // git fetch failed (e.g. SSH key, network).
+  if (/fatal: unable to access|fatal: could not read|Could not resolve host/i.test(logText)) {
+    return "git fetch failed — check the VPS's network and the deploy key/PAT.";
+  }
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   // Health probe for nginx + smoke checks.
   if (req.method === "GET" && req.url === "/health") {
@@ -466,8 +505,10 @@ const server = http.createServer((req, res) => {
       );
     } else {
       const tail = logText.split("\n").slice(-20).join("\n");
+      const hint = suggestRemediation(logText);
+      const hintLine = hint ? `\n:wrench: ${hint}` : "";
       await notifyDiscord(
-        `:x: Deploy \`${sha.slice(0, 7)}\` FAILED (exit ${code}) after ${fmtDuration(durationMs)}.\nVerification: \`${verification}\`\nLast 20 lines:\n\`\`\`\n${tail.slice(-1400)}\n\`\`\``,
+        `:x: Deploy \`${sha.slice(0, 7)}\` FAILED (exit ${code}) after ${fmtDuration(durationMs)}.\nVerification: \`${verification}\`\nLast 20 lines:\n\`\`\`\n${tail.slice(-1400)}\n\`\`\`${hintLine}`,
       );
     }
   });
