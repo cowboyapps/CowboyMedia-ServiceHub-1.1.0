@@ -134,6 +134,19 @@ if [[ "$NEW_COL_COUNT" -gt 0 ]]; then
   sed 's/^/      + /' "$NEW_COLUMNS_FILE"
 fi
 
+echo "==> Ensuring $APP_USER owns its npm cache (self-heals root-owned files from prior root-run npm)..."
+# Recurring footgun: any time someone runs `npm` inside /opt/servicehub or
+# /home/servicehub as root (e.g. a manual pm2 recovery), files under
+# /home/servicehub/.npm end up root-owned and the next `sudo -u servicehub
+# npm ci` dies with EACCES on _cacache. Cheap to check, cheap to fix.
+NPM_CACHE_DIR="/home/$APP_USER/.npm"
+if [[ -d "$NPM_CACHE_DIR" ]]; then
+  if find "$NPM_CACHE_DIR" -not -user "$APP_USER" -print -quit | grep -q .; then
+    echo "    found non-$APP_USER-owned files under $NPM_CACHE_DIR — chowning to $APP_USER:$APP_USER"
+    chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+  fi
+fi
+
 echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration drift)..."
 # `npm run build` chains prebuild → `npm run db:check && npm test`, so a
 # committed schema change without a matching migration file fails the build

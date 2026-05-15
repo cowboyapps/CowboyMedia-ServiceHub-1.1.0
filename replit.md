@@ -62,6 +62,10 @@ The webhook listener fails closed when the app is down (it can't read `app_setti
 ```bash
 cd /opt/servicehub
 sudo -u servicehub git pull origin main
+# If `npm ci` dies with EACCES on /home/servicehub/.npm/_cacache, the cache
+# has root-owned files from an earlier root-run npm. One-line fix:
+#   sudo chown -R servicehub:servicehub /home/servicehub/.npm
+# (deploy/update.sh now does this automatically, but manual recoveries don't.)
 sudo -u servicehub npm ci
 sudo -u servicehub npm run build
 sudo -u servicehub pm2 reload servicehub          # reload, NOT restart --update-env

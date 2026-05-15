@@ -93,6 +93,25 @@ listener fails CLOSED — every push is dropped with a Discord notice and
 nothing deploys. This is by design: a misconfigured listener must not
 silently bypass the Admin Portal pause toggle.
 
+## Don't run `npm` as root inside `/opt/servicehub` or `/home/servicehub`
+
+Always invoke npm via `sudo -u servicehub npm ...`, never as bare `root`.
+A root-run `npm` (even a one-off `npm install -g` or an emergency pm2
+recovery from inside the app dir) will leave root-owned files under
+`/home/servicehub/.npm/_cacache`, and the next deploy's `sudo -u
+servicehub npm ci` then dies with `EACCES` and crashes the whole deploy.
+
+`deploy/update.sh` now self-heals this by chowning the cache back to
+`servicehub:servicehub` before `npm ci`, but you should still avoid
+creating the mess in the first place — it'll bite any other tooling
+that touches the cache (e.g. `npx`, `npm audit`).
+
+If you ever do hit it manually, the one-line fix is:
+
+```bash
+sudo chown -R servicehub:servicehub /home/servicehub/.npm
+```
+
 ## Troubleshooting
 
 ```bash
