@@ -4347,6 +4347,84 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Proxy to the VPS deploy listener's GET /deploy-history endpoint.
+  // Same shape/rationale as the notify-status proxy above — DEPLOY_GATE_TOKEN
+  // stays server-side, browser hits this app route, and we shape the response
+  // into { available, deploys } so the Admin Portal can render an offline
+  // banner in the Replit dev environment without a thrown error.
+  app.get("/api/admin/deploy/history", requireMasterAdmin, async (_req, res) => {
+    try {
+      const gateToken = process.env.DEPLOY_GATE_TOKEN;
+      if (!gateToken) {
+        return res.json({
+          available: false,
+          reason: "DEPLOY_GATE_TOKEN not configured on the app server",
+          deploys: [],
+        });
+      }
+      const listenerUrl = process.env.DEPLOY_LISTENER_URL || "http://127.0.0.1:5055";
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 3000);
+      try {
+        const upstream = await fetch(`${listenerUrl}/deploy-history`, {
+          headers: { Authorization: `Bearer ${gateToken}` },
+          signal: ctl.signal,
+        });
+        if (!upstream.ok) {
+          return res.json({
+            available: false,
+            reason: `listener returned HTTP ${upstream.status}`,
+            deploys: [],
+          });
+        }
+        const body = await upstream.json();
+        return res.json({ available: true, deploys: body.deploys || [] });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e: any) {
+      return res.json({
+        available: false,
+        reason: `listener unreachable: ${e?.message || "error"}`,
+        deploys: [],
+      });
+    }
+  });
+
+  // Proxy to the VPS deploy listener's GET /log/<id> endpoint. Returns the
+  // raw plain-text per-deploy log so the Admin Portal can show the tail
+  // inside an expandable row. Delivery IDs are restricted to the same safe
+  // charset the listener uses, defense-in-depth against any path traversal
+  // attempt before the request even leaves this process.
+  app.get("/api/admin/deploy/log/:deliveryId", requireMasterAdmin, async (req, res) => {
+    try {
+      const safeId = String(req.params.deliveryId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      if (!safeId) return res.status(400).type("text/plain").send("bad delivery id");
+      const gateToken = process.env.DEPLOY_GATE_TOKEN;
+      if (!gateToken) {
+        return res.status(503).type("text/plain").send("DEPLOY_GATE_TOKEN not configured on the app server");
+      }
+      const listenerUrl = process.env.DEPLOY_LISTENER_URL || "http://127.0.0.1:5055";
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 5000);
+      try {
+        const upstream = await fetch(`${listenerUrl}/log/${safeId}`, {
+          headers: { Authorization: `Bearer ${gateToken}` },
+          signal: ctl.signal,
+        });
+        if (!upstream.ok) {
+          return res.status(upstream.status).type("text/plain").send(`listener returned HTTP ${upstream.status}`);
+        }
+        const text = await upstream.text();
+        return res.type("text/plain").send(text);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e: any) {
+      return res.status(502).type("text/plain").send(`listener unreachable: ${e?.message || "error"}`);
+    }
+  });
+
   app.patch("/api/admin/app-settings", requireMasterAdmin, async (req, res) => {
     try {
       const userId = (req as any).session?.userId || null;

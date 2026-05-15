@@ -6814,7 +6814,201 @@ function DeployTab() {
       </Card>
 
       <DeployNotifyHealthCard />
+
+      <DeployHistoryCard />
     </div>
+  );
+}
+
+// Recent deploy outcomes from the VPS listener's in-memory ring buffer.
+// Lets master_admins see "did the last 5 deploys succeed?" without scrolling
+// Discord or SSHing. Per-row log tail is fetched on expand via the same
+// proxy pattern as notify-status — DEPLOY_GATE_TOKEN never reaches the browser.
+type DeployHistoryEntry = {
+  deliveryId: string;
+  sha: string;
+  author: string;
+  message: string;
+  startedAt: string;
+  durationMs: number;
+  exitCode: number;
+  verificationLine: string | null;
+};
+type DeployHistoryResponse = {
+  available: boolean;
+  reason?: string;
+  deploys: DeployHistoryEntry[];
+};
+
+function formatDeployDuration(ms: number) {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${s % 60}s`;
+}
+
+function DeployHistoryRow({ entry }: { entry: DeployHistoryEntry }) {
+  const [open, setOpen] = useState(false);
+  const [logText, setLogText] = useState<string | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+
+  const succeeded = entry.exitCode === 0;
+  const Icon = succeeded ? CheckCircle2 : XIcon;
+  const pillClass = succeeded
+    ? "bg-green-600 hover:bg-green-600 text-white"
+    : "bg-red-600 hover:bg-red-600 text-white";
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && logText === null && !logLoading) {
+      setLogLoading(true);
+      setLogError(null);
+      try {
+        const res = await fetch(`/api/admin/deploy/log/${encodeURIComponent(entry.deliveryId)}`, {
+          credentials: "include",
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          setLogError(text || `HTTP ${res.status}`);
+        } else {
+          // Show only the tail — full log can be hundreds of lines.
+          const lines = text.split("\n");
+          setLogText(lines.slice(-80).join("\n"));
+        }
+      } catch (e: any) {
+        setLogError(e?.message || "Failed to fetch log");
+      } finally {
+        setLogLoading(false);
+      }
+    }
+  };
+
+  return (
+    <div className="border rounded-md" data-testid={`row-deploy-${entry.deliveryId}`}>
+      <button
+        type="button"
+        onClick={toggle}
+        className="w-full flex items-center gap-3 p-2 text-left hover-elevate active-elevate-2"
+        data-testid={`button-deploy-row-${entry.deliveryId}`}
+      >
+        <Badge className={pillClass} data-testid={`badge-deploy-status-${entry.deliveryId}`}>
+          <Icon className="w-3 h-3 mr-1" />
+          {succeeded ? "Success" : `Failed (${entry.exitCode})`}
+        </Badge>
+        <span className="font-mono text-xs" data-testid={`text-deploy-sha-${entry.deliveryId}`}>
+          {entry.sha.slice(0, 7)}
+        </span>
+        <span className="text-xs truncate flex-1" title={entry.message} data-testid={`text-deploy-message-${entry.deliveryId}`}>
+          {entry.message || "(no commit message)"}
+        </span>
+        <span className="text-xs text-muted-foreground hidden sm:inline" data-testid={`text-deploy-author-${entry.deliveryId}`}>
+          {entry.author}
+        </span>
+        <span className="text-xs text-muted-foreground" data-testid={`text-deploy-duration-${entry.deliveryId}`}>
+          {formatDeployDuration(entry.durationMs)}
+        </span>
+        <span className="text-xs text-muted-foreground hidden md:inline" data-testid={`text-deploy-when-${entry.deliveryId}`}>
+          {formatDistanceToNow(new Date(entry.startedAt), { addSuffix: true })}
+        </span>
+        {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      </button>
+      {open && (
+        <div className="border-t p-2 space-y-2">
+          {entry.verificationLine && (
+            <div className="text-xs">
+              <span className="text-muted-foreground">Verification: </span>
+              <span className="font-mono" data-testid={`text-deploy-verification-${entry.deliveryId}`}>
+                {entry.verificationLine}
+              </span>
+            </div>
+          )}
+          {logLoading && (
+            <div className="text-xs text-muted-foreground" data-testid={`text-deploy-log-loading-${entry.deliveryId}`}>
+              Loading log…
+            </div>
+          )}
+          {logError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs font-mono break-all" data-testid={`text-deploy-log-error-${entry.deliveryId}`}>
+              {logError}
+            </div>
+          )}
+          {logText !== null && (
+            <pre
+              className="rounded-md bg-muted p-2 text-[11px] font-mono whitespace-pre-wrap break-all max-h-80 overflow-auto"
+              data-testid={`text-deploy-log-${entry.deliveryId}`}
+            >
+              {logText || "(log is empty)"}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeployHistoryCard() {
+  const { data, isLoading, isFetching, refetch } = useQuery<DeployHistoryResponse>({
+    queryKey: ["/api/admin/deploy/history"],
+    refetchOnWindowFocus: false,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <ScrollText className="w-4 h-4 text-cyan-500" />
+          Recent deploys
+          <span className="ml-auto">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              data-testid="button-deploy-history-refresh"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            </Button>
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-xs text-muted-foreground">
+          Last few deploy outcomes from the VPS listener's in-memory ring buffer. Resets on listener restart —
+          durable per-deploy logs live under <code>/var/log/servicehub-deploy/</code>. Click a row to fetch the
+          last 80 lines of its log.
+        </p>
+
+        {isLoading && (
+          <div className="text-xs text-muted-foreground" data-testid="text-deploy-history-loading">Loading…</div>
+        )}
+
+        {!isLoading && !data?.available && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs" data-testid="text-deploy-history-unavailable">
+            <div className="font-medium text-amber-700 dark:text-amber-300">Deploy history unavailable</div>
+            <div className="mt-1 text-muted-foreground">{data?.reason || "Unknown reason."}</div>
+            <div className="mt-1 text-muted-foreground">
+              This is normal in the Replit dev environment — the deploy listener only runs on the VPS.
+            </div>
+          </div>
+        )}
+
+        {data?.available && data.deploys.length === 0 && (
+          <div className="text-xs text-muted-foreground" data-testid="text-deploy-history-empty">
+            No deploys recorded yet. The buffer resets when the listener restarts; push to <code>main</code> to populate it.
+          </div>
+        )}
+
+        {data?.available && data.deploys.length > 0 && (
+          <div className="space-y-2" data-testid="list-deploy-history">
+            {data.deploys.map((entry) => (
+              <DeployHistoryRow key={entry.deliveryId} entry={entry} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

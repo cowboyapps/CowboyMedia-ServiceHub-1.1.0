@@ -93,6 +93,19 @@ let lastDiscordAttempt = {
   configured: !!DISCORD_URL,
 };
 
+// In-memory ring buffer of recent deploy outcomes, surfaced via
+// GET /deploy-history for the Admin Portal "Recent deploys" card. Capped
+// at HISTORY_MAX so a long-running listener can't grow this unbounded.
+// Resets on listener restart — fine, since the per-deploy log files on
+// disk are the durable record; this list is just a quick "last N" view.
+const HISTORY_MAX = 25;
+const deployHistory = [];
+
+function recordDeployHistory(entry) {
+  deployHistory.unshift(entry);
+  if (deployHistory.length > HISTORY_MAX) deployHistory.length = HISTORY_MAX;
+}
+
 function recordDiscordResult(partial) {
   lastDiscordAttempt = {
     ...lastDiscordAttempt,
@@ -252,6 +265,21 @@ const server = http.createServer((req, res) => {
     }));
   }
 
+  // Recent deploy outcomes ring buffer, for the Admin Portal "Recent
+  // deploys" card. Same gating as /notify-status — these entries include
+  // commit messages, author names, and verification log lines that we
+  // don't want unauthenticated callers reading.
+  if (req.method === "GET" && req.url === "/deploy-history") {
+    const auth = req.headers.authorization || "";
+    const expected = process.env.DEPLOY_GATE_TOKEN;
+    if (!expected || auth !== `Bearer ${expected}`) {
+      res.writeHead(401);
+      return res.end("unauthorized");
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ deploys: deployHistory }));
+  }
+
   // Tail of the most recent deploy log for Discord deep-link. Gated on the
   // same DEPLOY_GATE_TOKEN bearer used for the kill-switch read — deploy
   // logs can include env-var names, file paths, npm install diagnostics,
@@ -381,8 +409,24 @@ const server = http.createServer((req, res) => {
       if (deployInFlight === slot) deployInFlight = null;
     });
     const { code, logPath, durationMs } = await runWhenFree;
+    // Reconstruct the actual deploy start time from durationMs (which
+    // runDeploy() measures from spawn() to close). Capturing startedAt
+    // before `await runWhenFree` would record webhook-acceptance time
+    // instead — wrong when the single-flight chain queued this run
+    // behind an earlier in-flight deploy.
+    const startedAtIso = new Date(Date.now() - durationMs).toISOString();
     const logText = fs.readFileSync(logPath, "utf8");
     const verification = extractVerificationOutcome(logText) || "(no verification line found in log)";
+    recordDeployHistory({
+      deliveryId,
+      sha,
+      author,
+      message,
+      startedAt: startedAtIso,
+      durationMs,
+      exitCode: code,
+      verificationLine: verification,
+    });
     if (code === 0) {
       await notifyDiscord(
         `:white_check_mark: Deploy \`${sha.slice(0, 7)}\` succeeded in ${fmtDuration(durationMs)}.\nVerification: \`${verification}\``,
