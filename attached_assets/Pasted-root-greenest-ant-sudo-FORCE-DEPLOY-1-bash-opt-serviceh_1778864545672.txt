@@ -1,0 +1,45 @@
+root@greenest-ant:~# sudo FORCE_DEPLOY=1 bash /opt/servicehub/deploy/update.sh
+==> Self-heal: ensuring servicehub owns everything under /home/servicehub...
+    OK — all paths already owned by servicehub.
+==> Pre-update DB snapshot -> /var/backups/servicehub/pre-update-20260515-170143.dump
+==> Fetching latest...
+Fetching origin
+==> Checking out origin/main (was cce46be63678d4a4224c939350d36e19a4e80455)...
+HEAD is now at cce46be Task #215: identify root cause of /home/servicehub perm drift, update runbook
+==> Already at cce46be63678d4a4224c939350d36e19a4e80455. Nothing to do.
+root@greenest-ant:~# sudo cat $(ls -t /var/log/servicehub-deploy/*.log | head -2 | tail -1)
+==> Self-heal: ensuring servicehub owns everything under /home/servicehub...
+WARN: /home/servicehub does not exist; skipping self-heal.
+==> Pre-update DB snapshot -> /var/backups/servicehub/pre-update-20260515-164721.dump
+bash: /home/servicehub/.bash_profile: Permission denied
+==> Fetching latest...
+Fetching origin
+From https://github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0
+   506c84d..3c1a3f7  main       -> origin/main
+==> Checking out 3c1a3f7b450e117494ad5166a8ffa3e80a2d5dab (was 506c84d25e37b9b47f5dcd8f963097f04d8cab64)...
+warning: unable to access '/home/servicehub/.config/git/ignore': Permission denied
+warning: unable to access '/home/servicehub/.config/git/attributes': Permission denied
+HEAD is now at 3c1a3f7 Add screenshot of Replit environment to project assets
+    target version: 5.1 (sha 3c1a3f7b450e117494ad5166a8ffa3e80a2d5dab)
+==> Schema column drift check (table-aware additive columns between 506c84d25e37b9b47f5dcd8f963097f04d8cab64 and 3c1a3f7b450e117494ad5166a8ffa3e80a2d5dab)...
+    detected 0 new (table:column) pair(s) in schema diff
+==> npm ci && npm run build (prebuild runs db:check for schema/migration drift)...
+bash: /home/servicehub/.bash_profile: Permission denied
+npm error code EACCES
+npm error syscall stat
+npm error path /home/servicehub/.npm/_cacache/content-v2/sha512/fa/11/2244888fa1b832b85944a239ea8c99e116f838aff8b772a81c9baede7a165ffd605a2b783a703d36614f66b5d571663bfc0b3080f67fd186bb37c8002f03
+npm error errno -13
+npm error
+npm error Your cache folder contains root-owned files, due to a bug in
+npm error previous versions of npm which has since been addressed.
+npm error
+npm error To permanently fix this problem, please run:
+npm error   sudo chown -R 998:998 "/home/servicehub/.npm"
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.14.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.14.1
+npm notice To update run: npm install -g npm@11.14.1
+npm notice
+npm error Log files were not written due to an error writing to the directory: /home/servicehub/.npm/_logs
+npm error You can rerun the command with `--loglevel=verbose` to see the logs in your terminal
+root@greenest-ant:~# 

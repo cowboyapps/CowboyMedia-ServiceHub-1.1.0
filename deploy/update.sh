@@ -53,36 +53,72 @@ SNAPSHOT="$BACKUP_DIR/pre-update-$TS.dump"
 # ----------------------------------------------------------------------------
 HOME_DIR="/home/$APP_USER"
 echo "==> Self-heal: ensuring $APP_USER owns everything under $HOME_DIR..."
-if [[ -d "$HOME_DIR" ]]; then
-  # Count + show the first few offenders so the deploy log captures what
-  # was wrong (silent self-heal makes future incidents harder to debug).
-  OFFENDERS_FILE="$(mktemp)"
-  find "$HOME_DIR" -not -user "$APP_USER" -printf '%u %p\n' > "$OFFENDERS_FILE" 2>/dev/null || true
-  OFFENDER_COUNT="$(wc -l < "$OFFENDERS_FILE" | tr -d ' ')"
-  if [[ "$OFFENDER_COUNT" -gt 0 ]]; then
-    echo "    found $OFFENDER_COUNT non-$APP_USER-owned path(s); first 5:"
-    head -n 5 "$OFFENDERS_FILE" | sed 's/^/      /'
-    echo "    chowning $HOME_DIR -R to $APP_USER:$APP_USER..."
-    chown -R "$APP_USER:$APP_USER" "$HOME_DIR"
-    # Pre-flight assertion: if a recursive chown didn't stick, something
-    # weirder than perm drift is going on (immutable bit, broken mount,
-    # SELinux denial). Fail fast with a clear message rather than letting
-    # the next `bash -lc` produce a confusing EACCES.
-    REMAINING="$(find "$HOME_DIR" -not -user "$APP_USER" -print -quit 2>/dev/null || true)"
-    if [[ -n "$REMAINING" ]]; then
-      echo "ERROR: chown -R $APP_USER:$APP_USER $HOME_DIR did not stick."
-      echo "       still non-$APP_USER-owned: $REMAINING"
-      echo "       PM2 was NOT touched. Investigate (immutable attr? bad mount? SELinux?)."
-      rm -f "$OFFENDERS_FILE"
-      exit 1
-    fi
-  else
-    echo "    OK — all paths already owned by $APP_USER."
-  fi
-  rm -f "$OFFENDERS_FILE"
-else
-  echo "WARN: $HOME_DIR does not exist; skipping self-heal."
+# Belt-and-braces: never silently skip the self-heal based on a single
+# shell test. The previous version used `if [[ -d "$HOME_DIR" ]]; then ...
+# else WARN; fi`, which produced a fatal-looking-but-non-fatal `WARN:
+# /home/servicehub does not exist; skipping self-heal` in a real outage
+# (May 2026) where `[[ -d ]]` returned false even though the directory
+# clearly existed (a later `bash -lc` successfully sourced .bash_profile
+# from inside it). Most likely culprits for that false-negative: the home
+# is a symlink to a momentarily-unreachable mount, SELinux/AppArmor
+# scoping, or a transient stat() error. Either way, the self-heal MUST
+# NOT bail out silently on a stale `-d` reading and let `npm ci` walk
+# straight into the EACCES wall it was meant to prevent.
+#
+# The new logic: (1) mkdir -p the home dir (idempotent — no-op if it's
+# really there, recreates it if it's not), (2) always run the offender
+# scan + chown, (3) treat ANY error from chown as fatal so on-call sees
+# a loud failure with the actual stat()/chown error instead of a
+# whitewashed "skipped" line.
+mkdir -p "$HOME_DIR"
+# If mkdir -p succeeded but the path STILL isn't a directory from a real
+# stat() (broken symlink, dangling mount), abort loudly. ls -ld surfaces
+# the underlying error from the kernel verbatim.
+if ! ls -ld "$HOME_DIR" >/dev/null 2>&1; then
+  echo "ERROR: $HOME_DIR is not stat-able after mkdir -p."
+  echo "       ls -ld output:"
+  ls -ld "$HOME_DIR" 2>&1 | sed 's/^/         /'
+  echo "       PM2 was NOT touched. Investigate (broken symlink? dangling mount? SELinux?)."
+  exit 1
 fi
+# Count + show the first few offenders so the deploy log captures what
+# was wrong (silent self-heal makes future incidents harder to debug).
+OFFENDERS_FILE="$(mktemp)"
+find "$HOME_DIR" -not -user "$APP_USER" -printf '%u %p\n' > "$OFFENDERS_FILE" 2>/dev/null || true
+OFFENDER_COUNT="$(wc -l < "$OFFENDERS_FILE" | tr -d ' ')"
+if [[ "$OFFENDER_COUNT" -gt 0 ]]; then
+  echo "    found $OFFENDER_COUNT non-$APP_USER-owned path(s); first 5:"
+  head -n 5 "$OFFENDERS_FILE" | sed 's/^/      /'
+  echo "    chowning $HOME_DIR -R to $APP_USER:$APP_USER..."
+  if ! chown -R "$APP_USER:$APP_USER" "$HOME_DIR"; then
+    echo "ERROR: chown -R $APP_USER:$APP_USER $HOME_DIR returned non-zero."
+    echo "       PM2 was NOT touched. Investigate (immutable attr? bad mount? SELinux?)."
+    rm -f "$OFFENDERS_FILE"
+    exit 1
+  fi
+  # Pre-flight assertion: even if chown returned 0, verify nothing slipped
+  # through (a partial walk, a hidden filesystem boundary, etc).
+  REMAINING="$(find "$HOME_DIR" -not -user "$APP_USER" -print -quit 2>/dev/null || true)"
+  if [[ -n "$REMAINING" ]]; then
+    echo "ERROR: chown -R $APP_USER:$APP_USER $HOME_DIR did not stick."
+    echo "       still non-$APP_USER-owned: $REMAINING"
+    echo "       PM2 was NOT touched. Investigate (immutable attr? bad mount? SELinux?)."
+    rm -f "$OFFENDERS_FILE"
+    exit 1
+  fi
+else
+  echo "    OK — all paths already owned by $APP_USER."
+fi
+# Belt-and-braces #2: explicitly chown the home dir itself + the two
+# dotfiles that have caused real outages, even when no offender was
+# found. Cheap insurance against a `find` that walks past a hidden
+# mount and reports "clean" while a root-owned .bash_profile sits at
+# the top level on a different filesystem.
+chown "$APP_USER:$APP_USER" "$HOME_DIR" 2>/dev/null || true
+for f in "$HOME_DIR/.bash_profile" "$HOME_DIR/.bashrc" "$HOME_DIR/.npmrc" "$HOME_DIR/.profile"; do
+  [[ -e "$f" ]] && chown "$APP_USER:$APP_USER" "$f" 2>/dev/null || true
+done
+rm -f "$OFFENDERS_FILE"
 
 PREV_SHA="$(sudo -u "$APP_USER" git -C "$APP_DIR" rev-parse HEAD)"
 
@@ -115,8 +151,26 @@ if [[ "$NEW_SHA" != "$TARGET_SHA" ]]; then
 fi
 
 if [[ "$PREV_SHA" == "$NEW_SHA" ]]; then
-  echo "==> Already at $NEW_SHA. Nothing to do."
-  exit 0
+  # Working tree is already at NEW_SHA — but that DOESN'T mean PM2 is
+  # serving NEW_SHA. A previous deploy can advance HEAD via `git reset
+  # --hard` and then fail before `pm2 reload` (e.g. the May 2026 perm-
+  # drift outage: HEAD moved to cce46be, npm ci EACCES'd, script exited,
+  # PM2 still serving the old build). The next deploy attempt would then
+  # see "Already at SHA" and exit without ever reloading — leaving prod
+  # stuck on the old build forever.
+  #
+  # Cross-check against the running app's /api/health.gitSha. If PM2 is
+  # already on NEW_SHA, we're truly done. If not, fall through and run
+  # the full pipeline so build artifacts + PM2 catch up. FORCE_DEPLOY=1
+  # always falls through.
+  RUNNING_SHA="$(curl -fsS http://127.0.0.1:5000/api/health 2>/dev/null \
+    | sed -nE 's/.*"gitSha":"([^"]+)".*/\1/p')"
+  if [[ "$RUNNING_SHA" == "$NEW_SHA" && "${FORCE_DEPLOY:-0}" != "1" ]]; then
+    echo "==> Already at $NEW_SHA (working tree + PM2). Nothing to do."
+    exit 0
+  fi
+  echo "==> Working tree at $NEW_SHA but PM2 reports gitSha=${RUNNING_SHA:-<unknown>}."
+  echo "    Continuing with full build + reload to bring PM2 in sync."
 fi
 
 # Sanity check before we keep going: the running app's APP_VERSION is what
