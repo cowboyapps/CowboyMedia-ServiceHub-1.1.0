@@ -24,9 +24,24 @@ StandardOutput=journal
 StandardError=journal
 
 # Security hardening — listener only needs to read its own dir + write logs.
+# CRITICAL: ProtectHome MUST be false. The listener spawns
+# `sudo bash /opt/servicehub/deploy/update.sh`, which needs to read,
+# write, and chown /home/servicehub (npm cache, dotfiles, etc).
+# systemd's mount-namespace isolation is inherited by every child of
+# this unit — including sudo'd subprocesses — so ProtectHome=true makes
+# /home/servicehub appear as an empty read-only tmpfs to update.sh,
+# which manifests as a chain of confusing errors: `[[ -d ]]` returns
+# false, `mkdir -p` fails with EROFS, `bash -lc` can't read .bash_profile
+# ("Permission denied"), and `npm ci` can't write its cache (EACCES).
+# This single setting was the root cause of every "perm drift" outage
+# we chased through Tasks #211, #214, #215, #216, and #217 — there was
+# never any actual perm drift on the host filesystem; the deploy script
+# was just looking at a phantom namespace where /home was empty.
+# Do NOT re-enable ProtectHome unless you also rework update.sh to run
+# in a separate systemd unit outside this namespace.
 NoNewPrivileges=false
 ProtectSystem=full
-ProtectHome=true
+ProtectHome=false
 ReadWritePaths=/var/log/servicehub-deploy
 
 [Install]

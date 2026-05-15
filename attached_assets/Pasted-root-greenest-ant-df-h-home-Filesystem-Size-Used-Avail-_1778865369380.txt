@@ -1,0 +1,81 @@
+root@greenest-ant:~# df -h /home /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda3       117G   12G   99G  11% /
+/dev/vda3       117G   12G   99G  11% /
+root@greenest-ant:~# dmesg | tail -100 | grep -iE 'error|read-only|remount|ro|sda|nvme|ext4|btrfs|xfs'
+[    5.628202] systemd[1]: Finished Monitoring of LVM2 mirrors, snapshots etc. using dmeventd or progress polling.
+[    5.630804] systemd[1]: modprobe@configfs.service: Deactivated successfully.
+[    5.634219] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[    5.649289] systemd[1]: modprobe@fuse.service: Deactivated successfully.
+[    5.662064] systemd[1]: Mounting FUSE Control File System...
+[    5.665267] systemd[1]: modprobe@efi_pstore.service: Deactivated successfully.
+[    5.668884] systemd[1]: Mounted FUSE Control File System.
+[    5.670072] EXT4-fs (vda3): re-mounted. Opts: (null). Quota mode: none.
+[    5.673054] systemd[1]: Finished Remount Root and Kernel File Systems.
+[    5.675779] systemd[1]: Starting Device-Mapper Multipath Device Controller...
+[    5.900541] loop0: detected capacity change from 0 to 126760
+[    5.906991] loop1: detected capacity change from 0 to 163736
+[    5.907496] loop2: detected capacity change from 0 to 130592
+[    5.911432] loop3: detected capacity change from 0 to 183096
+[    5.917369] loop4: detected capacity change from 0 to 103976
+[    6.020095] audit: type=1400 audit(1776895837.384:2): apparmor="STATUS" operation="profile_load" profile="unconfined" name="lsb_release" pid=459 comm="apparmor_parser"
+[    6.021909] audit: type=1400 audit(1776895837.388:3): apparmor="STATUS" operation="profile_load" profile="unconfined" name="nvidia_modprobe" pid=460 comm="apparmor_parser"
+[    6.021924] audit: type=1400 audit(1776895837.388:4): apparmor="STATUS" operation="profile_load" profile="unconfined" name="nvidia_modprobe//kmod" pid=460 comm="apparmor_parser"
+[    6.045144] audit: type=1400 audit(1776895837.408:5): apparmor="STATUS" operation="profile_load" profile="unconfined" name="ubuntu_pro_apt_news" pid=465 comm="apparmor_parser"
+[    6.061707] audit: type=1400 audit(1776895837.424:6): apparmor="STATUS" operation="profile_load" profile="unconfined" name="/usr/lib/NetworkManager/nm-dhcp-client.action" pid=464 comm="apparmor_parser"
+[    6.061714] audit: type=1400 audit(1776895837.424:7): apparmor="STATUS" operation="profile_load" profile="unconfined" name="/usr/lib/NetworkManager/nm-dhcp-helper" pid=464 comm="apparmor_parser"
+[    6.061716] audit: type=1400 audit(1776895837.424:8): apparmor="STATUS" operation="profile_load" profile="unconfined" name="/usr/lib/connman/scripts/dhclient-script" pid=464 comm="apparmor_parser"
+[    6.061719] audit: type=1400 audit(1776895837.424:9): apparmor="STATUS" operation="profile_load" profile="unconfined" name="/{,usr/}sbin/dhclient" pid=464 comm="apparmor_parser"
+[    6.068901] audit: type=1400 audit(1776895837.432:10): apparmor="STATUS" operation="profile_load" profile="unconfined" name="/usr/bin/man" pid=474 comm="apparmor_parser"
+[    6.068907] audit: type=1400 audit(1776895837.432:11): apparmor="STATUS" operation="profile_load" profile="unconfined" name="man_filter" pid=474 comm="apparmor_parser"
+[    6.883014] Adding 2097148k swap on /dev/vda2.  Priority:-2 extents:1 across:2097148k FS
+[    7.966817] loop5: detected capacity change from 0 to 8
+[20113.532054] loop5: detected capacity change from 0 to 100888
+[20113.991109] audit: type=1400 audit(1776915945.855:48): apparmor="STATUS" operation="profile_load" profile="unconfined" name="/snap/snapd/26865/usr/lib/snapd/snap-confine" pid=6362 comm="apparmor_parser"
+[20114.019544] audit: type=1400 audit(1776915945.883:49): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap-update-ns.lxd" pid=6365 comm="apparmor_parser"
+[20114.032798] audit: type=1400 audit(1776915945.895:50): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.activate" pid=6366 comm="apparmor_parser"
+[20114.046885] audit: type=1400 audit(1776915945.911:51): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.benchmark" pid=6367 comm="apparmor_parser"
+[20114.062361] audit: type=1400 audit(1776915945.923:52): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.buginfo" pid=6368 comm="apparmor_parser"
+[20114.074575] audit: type=1400 audit(1776915945.939:53): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.check-kernel" pid=6369 comm="apparmor_parser"
+[20114.089496] audit: type=1400 audit(1776915945.951:54): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.daemon" pid=6370 comm="apparmor_parser"
+[20114.103751] audit: type=1400 audit(1776915945.967:55): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.hook.configure" pid=6371 comm="apparmor_parser"
+[20114.113930] audit: type=1400 audit(1776915945.975:56): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.hook.install" pid=6372 comm="apparmor_parser"
+[20114.125535] audit: type=1400 audit(1776915945.987:57): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="snap.lxd.hook.remove" pid=6373 comm="apparmor_parser"
+[20118.971108] loop6: detected capacity change from 0 to 8
+[20119.421138] audit: type=1400 audit(1776915951.283:63): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="/snap/snapd/26865/usr/lib/snapd/snap-confine" pid=6522 comm="apparmor_parser"
+[20119.439289] audit: type=1400 audit(1776915951.303:64): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap-update-ns.lxd" pid=6524 comm="apparmor_parser"
+[20119.622797] audit: type=1400 audit(1776915951.487:65): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.activate" pid=6525 comm="apparmor_parser"
+[20119.795145] audit: type=1400 audit(1776915951.659:66): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.benchmark" pid=6526 comm="apparmor_parser"
+[20119.967166] audit: type=1400 audit(1776915951.831:67): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.buginfo" pid=6527 comm="apparmor_parser"
+[20120.139128] audit: type=1400 audit(1776915952.003:68): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.check-kernel" pid=6528 comm="apparmor_parser"
+[20120.369133] audit: type=1400 audit(1776915952.231:69): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.daemon" pid=6529 comm="apparmor_parser"
+[20120.587220] audit: type=1400 audit(1776915952.451:70): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.hook.configure" pid=6530 comm="apparmor_parser"
+[20120.733371] audit: type=1400 audit(1776915952.595:71): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.hook.install" pid=6531 comm="apparmor_parser"
+[20120.907030] audit: type=1400 audit(1776915952.771:72): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.hook.remove" pid=6532 comm="apparmor_parser"
+[75627.893373] loop6: detected capacity change from 0 to 187752
+[75629.284240] audit: type=1400 audit(1776971461.172:78): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="/snap/snapd/26865/usr/lib/snapd/snap-confine" pid=22080 comm="apparmor_parser"
+[75629.485050] audit: type=1400 audit(1776971461.376:79): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.activate" pid=22082 comm="apparmor_parser"
+[75629.661677] audit: type=1400 audit(1776971461.552:80): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.benchmark" pid=22093 comm="apparmor_parser"
+[75629.850229] audit: type=1400 audit(1776971461.740:81): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.buginfo" pid=22094 comm="apparmor_parser"
+[75630.033161] audit: type=1400 audit(1776971461.924:82): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.check-kernel" pid=22120 comm="apparmor_parser"
+[75630.253239] audit: type=1400 audit(1776971462.144:83): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.daemon" pid=22121 comm="apparmor_parser"
+[75630.475588] audit: type=1400 audit(1776971462.364:84): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.hook.configure" pid=22122 comm="apparmor_parser"
+[75630.624133] audit: type=1400 audit(1776971462.512:85): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.hook.install" pid=22123 comm="apparmor_parser"
+[75630.796935] audit: type=1400 audit(1776971462.684:86): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.hook.remove" pid=22124 comm="apparmor_parser"
+[75630.970389] audit: type=1400 audit(1776971462.860:87): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="snap.lxd.lxc" pid=22125 comm="apparmor_parser"
+[139828.879473] loop1: detected capacity change from 0 to 130616
+[516343.997801] audit: type=1400 audit(1777412176.090:93): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="ubuntu_pro_apt_news" pid=163076 comm="apparmor_parser"
+[516344.808763] audit: type=1400 audit(1777412176.902:94): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache" pid=163079 comm="apparmor_parser"
+[516344.830772] audit: type=1400 audit(1777412176.922:95): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache//apt_methods" pid=163079 comm="apparmor_parser"
+[516344.834277] audit: type=1400 audit(1777412176.926:96): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache//apt_methods_gpgv" pid=163079 comm="apparmor_parser"
+[516344.838346] audit: type=1400 audit(1777412176.930:97): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache//cloud_id" pid=163079 comm="apparmor_parser"
+[516344.839930] audit: type=1400 audit(1777412176.934:98): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache//dpkg" pid=163079 comm="apparmor_parser"
+[516344.842866] audit: type=1400 audit(1777412176.934:99): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache//ps" pid=163079 comm="apparmor_parser"
+[516344.844520] audit: type=1400 audit(1777412176.938:100): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache//ubuntu_distro_info" pid=163079 comm="apparmor_parser"
+[516344.846107] audit: type=1400 audit(1777412176.938:101): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache_systemctl" pid=163079 comm="apparmor_parser"
+[516344.847809] audit: type=1400 audit(1777412176.942:102): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="ubuntu_pro_esm_cache_systemd_detect_virt" pid=163079 comm="apparmor_parser"
+[1747827.070574] loop0: detected capacity change from 0 to 130624
+root@greenest-ant:~# touch /tmp/test-write && echo "/ is writable" || echo "/ is READ-ONLY"
+/ is writable
+root@greenest-ant:~# sudo -u servicehub touch /home/servicehub/test-write 2>&1 || echo "/home/servicehub is READ-ONLY"
+root@greenest-ant:~# 
