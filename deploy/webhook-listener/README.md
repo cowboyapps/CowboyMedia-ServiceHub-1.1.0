@@ -27,7 +27,7 @@ GITHUB_WEBHOOK_SECRET=<paste a long random string; reuse on the GH side>
 APP_BASE_URL=https://your-domain.example
 DEPLOY_DISCORD_WEBHOOK=<optional Discord webhook URL for deploy notifications>
 DEPLOY_GATE_TOKEN=<REQUIRED long random string; MUST match DEPLOY_GATE_TOKEN in /opt/servicehub/.env>
-DEPLOY_REPO_FULL_NAME=cowboymedia/CowboyMedia-ServiceHub-1.1.0  # defense-in-depth: rejects pushes from any other repo even if HMAC validates
+DEPLOY_REPO_FULL_NAME=cowboyapps/CowboyMedia-ServiceHub-1.1.0  # defense-in-depth: rejects pushes from any other repo even if HMAC validates
 EOF
 
 # 2) Sudoers: allow the servicehub user to run update.sh as root, no pw
