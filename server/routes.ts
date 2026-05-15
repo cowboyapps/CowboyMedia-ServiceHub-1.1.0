@@ -41,6 +41,7 @@ import {
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
+import { APP_VERSION } from "@shared/version";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { selectVersionWelcome } from "@shared/version-welcome";
@@ -1302,6 +1303,14 @@ export async function registerRoutes(
       }
       if (typeof bullet !== "string" || !bullet.trim()) {
         return res.status(400).json({ message: "bullet required" });
+      }
+      // Enforce the "current version only" invariant on the server too —
+      // not just by agent discipline. Prevents accidental writes to an
+      // older draft if APP_VERSION has moved on.
+      if (req.params.version !== APP_VERSION) {
+        return res.status(409).json({
+          message: `Can only append to the current APP_VERSION (${APP_VERSION})`,
+        });
       }
       const existing = await storage.getChangelogEntry(req.params.version);
       if (!existing) return res.status(404).json({ message: "Not found" });
