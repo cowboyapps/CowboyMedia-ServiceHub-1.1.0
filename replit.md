@@ -34,17 +34,26 @@ Replit does NOT auto-push to GitHub. The user-chosen workflow is:
 4. Outcome posts to the deploy Discord channel: `:rocket:` on start, `:white_check_mark:` on success (with verification line + duration), `:x:` on failure (with exit code + last-20-lines log tail), `:no_entry:` if dropped because auto-deploy is paused.
 5. To pause production deploys (e.g. during a maintenance window), use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; the listener checks it via `GET /api/admin/app-settings` (gated by `DEPLOY_GATE_TOKEN` bearer) before running `update.sh`. Pushes during a pause are DROPPED, not queued — push again after resuming and the latest commit will deploy.
 
-### VPS deploy listener — install layout (one-time, already done on greenest-ant)
+### VPS deploy listener — install layout (greenest-ant)
+
+End-to-end verified: a real push from Replit to `main` posts `:rocket:` (start) and `:white_check_mark:` (success with verification line + duration) into the configured Discord channel. Two install-time gotchas found and fixed during the smoke test — see "Recurring deploy gotchas" below.
 
 - **Service**: `systemctl status servicehub-deploy` (systemd unit at `/etc/systemd/system/servicehub-deploy.service`, source-of-truth copy in `deploy/webhook-listener/servicehub-deploy.service`).
 - **Live logs**: `sudo journalctl -u servicehub-deploy -f`
-- **Per-deploy logs**: `/var/log/servicehub-deploy/<github-delivery-id>.log` (also tail-able via `GET /_deploy/log/<id>` with the `DEPLOY_GATE_TOKEN` bearer).
+- **Per-deploy logs**: `/var/log/servicehub-deploy/<github-delivery-id>.log` (also tail-able via `GET /_deploy/log/<id>` with the `DEPLOY_GATE_TOKEN` bearer). Open the latest with `ls -t /var/log/servicehub-deploy/*.log | head -1 | xargs tail -60`.
 - **Listener env file**: `/etc/servicehub-deploy.env` (mode 600, root-only). Contains `GITHUB_WEBHOOK_SECRET`, `APP_BASE_URL` (`http://127.0.0.1:5000`), `DEPLOY_DISCORD_WEBHOOK`, `DEPLOY_GATE_TOKEN`, `DEPLOY_REPO_FULL_NAME=cowboyapps/CowboyMedia-ServiceHub-1.1.0`. After editing, `sudo systemctl restart servicehub-deploy`.
 - **Sudoers entry**: `/etc/sudoers.d/servicehub-deploy` allows the `servicehub` user to run only `bash /opt/servicehub/deploy/update.sh` (with optional `--ref <sha>`) as root with no password. Validate edits with `sudo visudo -c`.
-- **Nginx**: `location = /_deploy` and `location ^~ /_deploy/` blocks in `/etc/nginx/sites-enabled/servicehub` proxy to `127.0.0.1:5055`. Health probe: `curl https://cowboyhub.app/_deploy/health` → `{"ok":true}`.
+- **Nginx**: `location = /_deploy` and `location ^~ /_deploy/` blocks in `/etc/nginx/sites-enabled/servicehub` proxy to `127.0.0.1:5055`. Health probe: `curl https://cowboyhub.app/_deploy/health` → `{"ok":true}`. **Gotcha**: nginx reads every file in `sites-enabled/` — never leave config backups (`servicehub.bak-*`) in that dir or it'll fail with "duplicate upstream". Move them to `/root/`.
 - **Rotating the Discord webhook URL**: edit `/etc/servicehub-deploy.env` → change `DEPLOY_DISCORD_WEBHOOK=...` → `sudo systemctl restart servicehub-deploy`. The app itself doesn't store this URL (different from the in-app news/alerts Discord webhook, which is in the DB).
+- **Rotating `GITHUB_WEBHOOK_SECRET`**: generate a new value with `openssl rand -hex 32`, replace it in `/etc/servicehub-deploy.env`, `sudo systemctl restart servicehub-deploy`, **then** paste the same value into the GitHub webhook config (Settings → Webhooks → edit the webhook → Secret → Update). Both sides must match or HMAC validation fails and every push is rejected with HTTP 401.
 - **Force a redeploy of the current `main` head** (e.g. after a config change, or to retry a stuck deploy): `sudo FORCE_DEPLOY=1 bash /opt/servicehub/deploy/update.sh`. `FORCE_DEPLOY=1` bypasses the post-update health gates and the column-drift check — only use it when you've already root-caused why those gates would fail.
 - **Replay a webhook delivery** instead of force-pushing: GitHub repo → Settings → Webhooks → click the webhook → Recent Deliveries → pick one → Redeliver.
+
+### Recurring deploy gotchas (seen during install + worth knowing)
+
+- **`/home/servicehub/.npm` cache permissions drift to root.** Any time someone runs `npm` inside `/opt/servicehub` or `/home/servicehub` as `root` (e.g. an emergency manual recovery), the cache ends up partially root-owned and the next `servicehub`-user `npm ci` dies with `EACCES`. Fix: `sudo chown -R 998:998 /home/servicehub/.npm`. Avoid by always running `npm` via `sudo -u servicehub`, never as bare root.
+- **The listener silently posts to bad Discord URLs.** `fetch()` only throws on network errors — not on HTTP 401/404 from Discord — so a malformed or revoked webhook URL produces zero log output. If you stop seeing Discord posts, sanity-check the URL with `curl -X POST -H "Content-Type: application/json" -d '{"content":"test"}' "<URL>"` (expect HTTP 204).
+- **Listener has no log line on the happy path.** `journalctl -u servicehub-deploy` only shows sudo audit lines and the listener's own startup message — successful incoming pushes are silent. Use the per-deploy log file under `/var/log/servicehub-deploy/` for actual deploy output.
 
 ## Manual deploy (when auto-deploy can't fire)
 
