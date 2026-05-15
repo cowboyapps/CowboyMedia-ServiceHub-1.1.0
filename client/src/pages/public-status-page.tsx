@@ -9,8 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { format } from "date-fns";
-import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck, ChevronRight } from "lucide-react";
+import { format, formatDistanceToNow } from "date-fns";
+import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck, ChevronRight, Megaphone } from "lucide-react";
 import { Link } from "wouter";
 
 type PublicAlert = {
@@ -36,10 +36,25 @@ type PublicService = {
   dailyBuckets?: DailyBucket[];
 };
 
+type PublicServiceUpdate = {
+  id: string;
+  title: string;
+  description: string;
+  serviceName: string;
+  createdAt: string | null;
+};
+
 type PublicStatusResponse = {
   services: PublicService[];
   alerts: PublicAlert[];
+  updates: PublicServiceUpdate[];
 };
+
+function truncate(text: string, max: number): string {
+  const plain = text.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  if (plain.length <= max) return plain;
+  return plain.slice(0, max).trimEnd() + "…";
+}
 
 function bucketColor(state: string): string {
   switch (state) {
@@ -198,6 +213,7 @@ export default function PublicStatusPage() {
 
   const services = data?.services || [];
   const alerts = data?.alerts || [];
+  const updates = data?.updates || [];
   const banner = useMemo(() => computeBanner(services), [services]);
 
   const grouped = useMemo(() => {
@@ -376,6 +392,44 @@ export default function PublicStatusPage() {
             </CardContent>
           )}
         </Card>
+
+        {!isLoading && updates.length > 0 && (
+          <Card data-testid="card-recent-updates">
+            <CardHeader><CardTitle>Recent service updates</CardTitle></CardHeader>
+            <CardContent>
+              <ul className="space-y-4">
+                {updates.map((u) => (
+                  <li key={u.id} data-testid={`item-update-${u.id}`} className="border rounded-lg p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <Megaphone className="h-4 w-4 text-blue-500" />
+                          <span className="font-medium">{u.title}</span>
+                          <span className="inline-flex items-center rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                            Update
+                          </span>
+                        </div>
+                        {u.description && (
+                          <p className="text-sm text-muted-foreground mb-1" data-testid={`text-update-snippet-${u.id}`}>
+                            {truncate(u.description, 200)}
+                          </p>
+                        )}
+                        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+                          <span>{u.serviceName}</span>
+                          {u.createdAt && (
+                            <span data-testid={`text-update-time-${u.id}`}>
+                              {formatDistanceToNow(new Date(u.createdAt), { addSuffix: true })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
       </main>
 

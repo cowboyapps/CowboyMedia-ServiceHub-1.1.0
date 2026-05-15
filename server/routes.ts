@@ -843,10 +843,11 @@ export async function registerRoutes(
   app.get("/api/public/status", async (_req, res) => {
     try {
       const { computeUptime } = await import("./uptime");
-      const [services, alerts, monitors] = await Promise.all([
+      const [services, alerts, monitors, allUpdates] = await Promise.all([
         storage.getAllServices(),
         storage.getAllAlerts(),
         storage.getAllUrlMonitors(),
+        storage.getAllServiceUpdates(),
       ]);
       const monitorsByService = new Map<string, typeof monitors>();
       for (const m of monitors) {
@@ -906,6 +907,21 @@ export async function registerRoutes(
           resolvedAt: a.resolvedAt,
           lastUpdateAt: updatesByAlert.get(a.id) || a.resolvedAt || a.createdAt,
         })),
+        updates: (() => {
+          const THIRTY_DAYS = 30 * 86400000;
+          const updateCutoff = Date.now() - THIRTY_DAYS;
+          return allUpdates
+            .filter((u) => !u.matureContent && (u.createdAt?.getTime?.() || 0) >= updateCutoff)
+            .sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
+            .slice(0, 10)
+            .map((u) => ({
+              id: u.id,
+              title: u.title,
+              description: u.description,
+              serviceName: serviceMap.get(u.serviceId) || "Service",
+              createdAt: u.createdAt,
+            }));
+        })(),
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
