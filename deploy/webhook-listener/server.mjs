@@ -280,6 +280,39 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({ deploys: deployHistory }));
   }
 
+  // Manually trigger a benign Discord post so an admin can verify a freshly
+  // rotated DEPLOY_DISCORD_WEBHOOK end-to-end without having to push a real
+  // commit (or SSH in to restart the listener for the boot validator). Same
+  // DEPLOY_GATE_TOKEN bearer auth as /notify-status and /log/. Returns the
+  // recorded result so the proxy can surface it in a toast.
+  if (req.method === "POST" && req.url === "/notify-test") {
+    const auth = req.headers.authorization || "";
+    const expected = process.env.DEPLOY_GATE_TOKEN;
+    if (!expected || auth !== `Bearer ${expected}`) {
+      res.writeHead(401);
+      return res.end("unauthorized");
+    }
+    if (!DISCORD_URL) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      recordDiscordResult({ ok: false, status: null, error: "DEPLOY_DISCORD_WEBHOOK not set on listener", kind: "notify" });
+      return res.end(JSON.stringify({
+        ...lastDiscordAttempt,
+        lastAttemptAt: lastDiscordAttempt.at,
+        lastStatus: lastDiscordAttempt.status,
+        lastError: lastDiscordAttempt.error,
+      }));
+    }
+    return notifyDiscord(":mag: Test from Admin Portal").then(() => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        ...lastDiscordAttempt,
+        lastAttemptAt: lastDiscordAttempt.at,
+        lastStatus: lastDiscordAttempt.status,
+        lastError: lastDiscordAttempt.error,
+      }));
+    });
+  }
+
   // Tail of the most recent deploy log for Discord deep-link. Gated on the
   // same DEPLOY_GATE_TOKEN bearer used for the kill-switch read — deploy
   // logs can include env-var names, file paths, npm install diagnostics,

@@ -7029,9 +7029,55 @@ type DeployNotifyStatus = {
 };
 
 function DeployNotifyHealthCard() {
+  const { toast } = useToast();
   const { data, isLoading, isFetching, refetch } = useQuery<DeployNotifyStatus>({
     queryKey: ["/api/admin/deploy/notify-status"],
     refetchOnWindowFocus: false,
+  });
+
+  const sendTest = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/deploy/notify-test");
+      return (await res.json()) as DeployNotifyStatus;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/deploy/notify-status"] });
+      if (!result.available) {
+        toast({
+          title: "Test notification not sent",
+          description: result.reason || "Listener unavailable.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (result.configured === false) {
+        toast({
+          title: "Discord webhook not configured",
+          description: "DEPLOY_DISCORD_WEBHOOK is unset on the listener.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (result.ok) {
+        toast({
+          title: "Test notification sent",
+          description: `Discord accepted the post (HTTP ${result.status ?? "—"}). Check the deploy channel.`,
+        });
+      } else {
+        toast({
+          title: "Discord rejected the test",
+          description: result.error || `HTTP ${result.status ?? "?"}`,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Test notification failed",
+        description: e?.message || "Unknown error",
+        variant: "destructive",
+      });
+    },
   });
 
   const renderPill = () => {
@@ -7061,6 +7107,16 @@ function DeployNotifyHealthCard() {
           Deploy Discord notifications
           <span className="ml-auto flex items-center gap-2">
             {renderPill()}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => sendTest.mutate()}
+              disabled={sendTest.isPending}
+              data-testid="button-notify-test"
+            >
+              <Send className={`w-3.5 h-3.5 mr-1.5 ${sendTest.isPending ? "animate-pulse" : ""}`} />
+              {sendTest.isPending ? "Sending…" : "Send test"}
+            </Button>
             <Button
               size="sm"
               variant="ghost"

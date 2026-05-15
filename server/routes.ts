@@ -4391,6 +4391,50 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Proxy to the VPS deploy listener's POST /notify-test endpoint. Lets a
+  // master_admin fire a benign Discord post end-to-end to verify a freshly
+  // rotated DEPLOY_DISCORD_WEBHOOK without having to push a real commit.
+  // Same fail-soft semantics as the GET /notify-status proxy: if the gate
+  // token isn't configured or the listener is unreachable, return a JSON
+  // body describing why instead of a 5xx — the dev environment legitimately
+  // has no listener, and we want the toast to explain that.
+  app.post("/api/admin/deploy/notify-test", requireMasterAdmin, async (_req, res) => {
+    try {
+      const gateToken = process.env.DEPLOY_GATE_TOKEN;
+      if (!gateToken) {
+        return res.json({
+          available: false,
+          reason: "DEPLOY_GATE_TOKEN not configured on the app server",
+        });
+      }
+      const listenerUrl = process.env.DEPLOY_LISTENER_URL || "http://127.0.0.1:5055";
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 5000);
+      try {
+        const upstream = await fetch(`${listenerUrl}/notify-test`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${gateToken}` },
+          signal: ctl.signal,
+        });
+        if (!upstream.ok) {
+          return res.json({
+            available: false,
+            reason: `listener returned HTTP ${upstream.status}`,
+          });
+        }
+        const status = await upstream.json();
+        return res.json({ available: true, ...status });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e: any) {
+      return res.json({
+        available: false,
+        reason: `listener unreachable: ${e?.message || "error"}`,
+      });
+    }
+  });
+
   // Proxy to the VPS deploy listener's GET /log/<id> endpoint. Returns the
   // raw plain-text per-deploy log so the Admin Portal can show the tail
   // inside an expandable row. Delivery IDs are restricted to the same safe
