@@ -8539,7 +8539,7 @@ function ChangelogPreviewDialog({ row, onClose }: { row: ChangelogRow; onClose: 
               </div>
               <div className="text-xl font-semibold">Welcome to version {row.version}</div>
               <p className="text-sm text-muted-foreground mt-2">
-                {row.title?.trim() || "Thanks for keeping the app up to date. Here\u2019s what\u2019s new in this release."}
+                {row.title?.trim() || `What\u2019s new in ${row.version}`}
               </p>
             </div>
           </section>

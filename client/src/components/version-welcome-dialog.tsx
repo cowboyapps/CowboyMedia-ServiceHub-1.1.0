@@ -84,7 +84,7 @@ export function VersionWelcomeDialog() {
         <p className="text-sm text-muted-foreground text-center" data-testid="text-version-welcome-body">
           {welcome.title?.trim()
             ? welcome.title
-            : "Thanks for keeping the app up to date. Here\u2019s what\u2019s new in this release."}
+            : `What\u2019s new in ${welcome.version}`}
         </p>
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
           <Button className="w-full" onClick={goChangelog} data-testid="button-version-welcome-changelog">
