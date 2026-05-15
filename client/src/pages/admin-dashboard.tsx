@@ -20,7 +20,17 @@ import {
   Search,
   XCircle,
   Activity,
+  FileText,
 } from "lucide-react";
+import { APP_VERSION } from "@shared/version";
+import { countBulletsInBody } from "@shared/changelog-append";
+
+type ChangelogDraftRow = {
+  version: string;
+  status: "draft" | "published";
+  bodyHtml: string;
+  updatedAt: string;
+};
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { formatDistanceToNow } from "date-fns";
 
@@ -113,6 +123,21 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
     refetchInterval: 60_000,
     enabled: !!isMasterAdmin,
   });
+
+  // Changelog draft activity (master_admin only). Surfaces the count of
+  // bullets queued under the current APP_VERSION's draft so the user
+  // sees agent-appended notes piling up without having to open the
+  // Changelog tab. Reuses the existing list endpoint — no new route.
+  const { data: changelogRows } = useQuery<ChangelogDraftRow[]>({
+    queryKey: ["/api/admin/changelog"],
+    enabled: !!isMasterAdmin,
+  });
+  const currentDraft = changelogRows?.find(
+    (r) => r.version === APP_VERSION && r.status === "draft",
+  );
+  const currentDraftBulletCount = currentDraft
+    ? countBulletsInBody(currentDraft.bodyHtml)
+    : 0;
 
   // Live refresh via websocket: invalidate the dashboard query when ticket
   // or alert events fire so the counters react instantly instead of waiting
@@ -406,6 +431,69 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                   label="Uptime"
                   value={appHealth ? formatUptime(appHealth.uptime) : "—"}
                   sub={sysHealth?.recent.length ? `${sysHealth.recent.length} recent in log` : "log empty"}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Changelog draft (master_admin only) — visibility into how many
+            agent-appended bullets are queued for the current release before
+            the user opens the Changelog tab to proofread + publish. */}
+        {isMasterAdmin && (
+          <Card
+            className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
+            onClick={() => go("changelog")}
+            data-testid="card-dashboard-changelog-draft"
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="w-4 h-4 text-cyan-500" /> Changelog draft
+                {currentDraft && currentDraftBulletCount > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-auto"
+                    data-testid="badge-changelog-draft-count"
+                  >
+                    {currentDraftBulletCount} bullet{currentDraftBulletCount === 1 ? "" : "s"}
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Stat
+                  label="Working on"
+                  value={<span className="font-mono">v{APP_VERSION}</span>}
+                  sub={currentDraft ? "draft — not yet published" : "no draft yet"}
+                />
+                <Stat
+                  label="Bullets queued"
+                  value={currentDraft ? currentDraftBulletCount : "—"}
+                  sub={
+                    currentDraft && currentDraftBulletCount > 0
+                      ? "click to proofread + publish"
+                      : currentDraft
+                        ? "agent will append as we ship"
+                        : "create one in Changelog"
+                  }
+                />
+                <Stat
+                  label="Last updated"
+                  value={
+                    currentDraft
+                      ? formatDistanceToNow(new Date(currentDraft.updatedAt), { addSuffix: true })
+                      : "—"
+                  }
+                />
+                <Stat
+                  label="Status"
+                  value={currentDraft ? "Draft" : "Missing"}
+                  sub={
+                    currentDraft
+                      ? "popup stays silent until you publish"
+                      : <span className="text-amber-600 dark:text-amber-400">welcome popup is off</span>
+                  }
                 />
               </div>
             </CardContent>
