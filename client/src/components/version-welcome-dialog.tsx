@@ -1,13 +1,46 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
 import { versionAnchor } from "@shared/version";
+import {
+  versionWelcomeMarkerKey,
+  shouldSuppressFromMarker,
+} from "@shared/version-welcome-marker";
 import { useModalSlot } from "@/lib/modal-queue";
+
+// Send the seen-PATCH in a way the browser will deliver even if the page
+// is unloading (e.g. user reloads moments after the popup renders). We
+// prefer fetch with `keepalive: true`; sendBeacon is the legacy fallback.
+// Both are best-effort — the localStorage marker (written synchronously
+// before this call) is the durable guarantee that we don't re-show the
+// popup on the next load even if the network call is dropped.
+function sendSeenBeacon(version: string): void {
+  const url = "/api/users/me/version-welcome-seen";
+  const body = JSON.stringify({ version });
+  try {
+    void fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body,
+      credentials: "include",
+      keepalive: true,
+    });
+  } catch {
+    try {
+      navigator.sendBeacon?.(
+        url,
+        new Blob([body], { type: "application/json" }),
+      );
+    } catch {
+      // Best-effort only — the localStorage marker already protects us.
+    }
+  }
+}
 
 // Server tells us the version (and optional headline) the user hasn't seen
 // a published changelog for yet. Null = nothing to show. The popup is
@@ -33,28 +66,59 @@ export function VersionWelcomeDialog() {
     setOpen(false);
   }, [user?.id]);
 
-  const markSeen = useMutation({
-    mutationFn: async (version: string) => {
-      await apiRequest("PATCH", "/api/users/me/version-welcome-seen", { version });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/version-welcome"] });
-    },
-  });
+  const invalidateAfterSeen = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/version-welcome"] });
+  };
 
-  // Mark seen the moment we surface the popup, not on close. This closes
-  // the "user reloaded mid-popup → re-shows next session" window. Local
-  // dismissedFor state guards against the effect re-firing for the same
-  // user before the server round-trip lands.
+  // Mark seen the moment we surface the popup, not on close, with three
+  // layers of defence so the popup never re-fires across a reload:
+  //   1) localStorage marker (durable, synchronous, written BEFORE any
+  //      network call) — survives reloads even if the PATCH is aborted.
+  //   2) PATCH with `keepalive: true` (or sendBeacon fallback) so the
+  //      server still records the seen state if the user reloads
+  //      immediately after render.
+  //   3) Local `dismissedFor` state so the effect doesn't re-fire within
+  //      the same render cycle.
   useEffect(() => {
     if (!user) return;
     if (dismissedFor === user.id) return;
     if (!welcome) return;
+
+    // Suppress the popup entirely if a marker for this exact version
+    // already exists from a prior session — bypass even setOpen.
+    let storedMarker: string | null = null;
+    try {
+      storedMarker = window.localStorage.getItem(versionWelcomeMarkerKey(user.id));
+    } catch {
+      // localStorage can throw in private modes / disabled storage —
+      // treat as "no marker", we still have the in-memory guard.
+    }
+    if (shouldSuppressFromMarker(storedMarker, welcome.version)) {
+      setDismissedFor(user.id);
+      // Reconcile server state in the background; we already know the
+      // user has seen this version locally.
+      sendSeenBeacon(welcome.version);
+      invalidateAfterSeen();
+      return;
+    }
+
+    // Write the durable marker BEFORE the network call. If the user
+    // reloads in the next tick, this is what protects us.
+    try {
+      window.localStorage.setItem(
+        versionWelcomeMarkerKey(user.id),
+        welcome.version,
+      );
+    } catch {
+      // ignore — see above
+    }
+
     setOpen(true);
     setDismissedFor(user.id);
-    markSeen.mutate(welcome.version);
-    // markSeen is stable; including it would re-trigger on every render.
+    sendSeenBeacon(welcome.version);
+    invalidateAfterSeen();
+    // queryClient is stable across renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, welcome, dismissedFor]);
 
