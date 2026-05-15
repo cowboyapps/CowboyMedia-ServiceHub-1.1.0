@@ -1499,31 +1499,36 @@ export async function registerRoutes(
   });
 
   app.get("/api/tickets/:id", requireAuth, async (req, res) => {
-    const ticket = await storage.getTicket(req.params.id);
-    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-    const user = await storage.getUser(req.session.userId!);
-    if (!user) return res.status(401).json({ message: "Unauthorized" });
-    if (user.role !== "admin" && user.role !== "master_admin" && ticket.customerId !== user.id) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-    if (user.role === "admin" && ticket.categoryId) {
-      const accessibleCategoryIds = await getAdminCategoryAccess(user.id);
-      if (!accessibleCategoryIds.includes("*") && !accessibleCategoryIds.includes(ticket.categoryId)) {
-        return res.status(403).json({ message: "No access to this ticket category" });
+    try {
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      if (user.role !== "admin" && user.role !== "master_admin" && ticket.customerId !== user.id) {
+        return res.status(403).json({ message: "Forbidden" });
       }
-    }
-    if (user.role === "admin" && ticket.claimedBy && ticket.claimedBy !== user.id) {
-      const pendingTransfer = await storage.getPendingTransferByTicketId(ticket.id);
-      if (!pendingTransfer || pendingTransfer.toAdminId !== user.id) {
-        return res.status(403).json({ message: "This ticket is claimed by another admin" });
+      if (user.role === "admin" && ticket.categoryId) {
+        const accessibleCategoryIds = await getAdminCategoryAccess(user.id);
+        if (!accessibleCategoryIds.includes("*") && !accessibleCategoryIds.includes(ticket.categoryId)) {
+          return res.status(403).json({ message: "No access to this ticket category" });
+        }
       }
+      if (user.role === "admin" && ticket.claimedBy && ticket.claimedBy !== user.id) {
+        const pendingTransfer = await storage.getPendingTransferByTicketId(ticket.id);
+        if (!pendingTransfer || pendingTransfer.toAdminId !== user.id) {
+          return res.status(403).json({ message: "This ticket is claimed by another admin" });
+        }
+      }
+      let claimedByName: string | null = null;
+      if (ticket.claimedBy) {
+        const claimedAdmin = await storage.getUser(ticket.claimedBy);
+        claimedByName = claimedAdmin?.fullName || "Unknown";
+      }
+      res.json({ ...ticket, claimedByName });
+    } catch (e: any) {
+      if (e?.code === "22P02") return res.status(404).json({ message: "Ticket not found" });
+      throw e;
     }
-    let claimedByName: string | null = null;
-    if (ticket.claimedBy) {
-      const claimedAdmin = await storage.getUser(ticket.claimedBy);
-      claimedByName = claimedAdmin?.fullName || "Unknown";
-    }
-    res.json({ ...ticket, claimedByName });
   });
 
   app.post("/api/tickets", requireAuth, bypassRateLimitForAdmins, createTicketLimiter(), upload.single("image"), async (req, res) => {
@@ -2067,6 +2072,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   app.get("/api/tickets/:id/messages", requireAuth, async (req, res) => {
+   try {
     const ticket = await storage.getTicket(req.params.id);
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
     const user = await storage.getUser(req.session.userId!);
@@ -2123,6 +2129,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
     }));
     res.json(enriched);
+   } catch (e: any) {
+     if (e?.code === "22P02") return res.status(404).json({ message: "Ticket not found" });
+     throw e;
+   }
   });
 
   app.get("/api/admin/customers/:customerId/tickets", requireAuth, async (req, res) => {
