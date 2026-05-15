@@ -1,0 +1,1 @@
+ALTER TABLE "changelog_entries" ADD CONSTRAINT "changelog_entries_published_by_users_id_fk" FOREIGN KEY ("published_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;

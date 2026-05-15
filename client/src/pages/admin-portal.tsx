@@ -36,6 +36,7 @@ import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { APP_VERSION } from "@shared/version";
+import DOMPurify from "dompurify";
 import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable } from "@shared/quick-response-vars";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
@@ -8517,12 +8518,10 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
 function ChangelogPreviewDialog({ row, onClose }: { row: ChangelogRow; onClose: () => void }) {
   // Render exactly what the customer popup + /whats-new entry will look like.
   // Reads from the in-memory row so unsaved edits in the editor preview correctly.
-  const sanitized = useMemo(() => {
-    if (typeof window === "undefined") return row.bodyHtml;
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const DOMPurify = require("dompurify");
-    return DOMPurify.sanitize(row.bodyHtml, { ADD_ATTR: ["id"] });
-  }, [row.bodyHtml]);
+  const sanitized = useMemo(
+    () => DOMPurify.sanitize(row.bodyHtml, { ADD_ATTR: ["id"] }),
+    [row.bodyHtml],
+  );
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>

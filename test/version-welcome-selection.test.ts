@@ -31,6 +31,9 @@ test("selectVersionWelcome: empty-string lastSeen behaves like null", () => {
 });
 
 test("selectVersionWelcome: missing title coerces to empty string", () => {
-  const r = selectVersionWelcome({ version: "5.1", title: undefined as any }, null);
+  // Simulate a server-side row whose title field is null/undefined — the
+  // selector is the contract that normalizes it to "" for the popup.
+  const malformed = { version: "5.1", title: undefined as unknown as string };
+  const r = selectVersionWelcome(malformed, null);
   assert.deepEqual(r, { version: "5.1", title: "" });
 });

@@ -724,7 +724,10 @@ export const changelogEntries = pgTable("changelog_entries", {
   bodyHtml: text("body_html").notNull().default(""),
   status: text("status").notNull().default("draft"),
   publishedAt: timestamp("published_at"),
-  publishedBy: varchar("published_by"),
+  // Set on publish to the master_admin user.id who flipped the switch.
+  // ON DELETE SET NULL keeps the changelog row intact when an admin account
+  // is later deleted — we don't want history to disappear with the user.
+  publishedBy: varchar("published_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
