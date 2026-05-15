@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseChangelogMarkdown } from "../script/seed-changelog";
+import type { ChangelogEntry, InsertChangelogEntry } from "../shared/schema";
+import { storage } from "../server/storage";
 
 const SAMPLE = `# CowboyMedia Changelog
 
@@ -53,23 +55,42 @@ test("parseChangelogMarkdown: tolerates a missing date on the heading", () => {
 
 // ---------- seedChangelogEntries idempotency ----------
 //
-// Bypass the real DB by stubbing the storage module the seeder imports.
-// We re-import the seeder after each stub so module state is fresh.
+// Bypass the real DB by providing typed in-memory replacements for the only
+// two storage methods the seeder uses. We narrow `storage` to a typed
+// interface (the same shape the seeder consumes) so the test doubles satisfy
+// the contract without resorting to `any` escapes.
 
-import { storage } from "../server/storage";
+type SeederStorage = {
+  getChangelogEntry(version: string): Promise<ChangelogEntry | undefined>;
+  createChangelogEntry(entry: InsertChangelogEntry): Promise<ChangelogEntry>;
+};
 
-type FakeRow = { version: string; status: string; bodyHtml: string };
-
-function installFakeStorage(): { rows: Map<string, FakeRow> } {
-  const rows = new Map<string, FakeRow>();
-  // Replace the real methods with fakes; restore via the returned closure
-  // would be ideal, but for a single test process we just leave them — every
-  // other test that touches storage already uses its own DB or fakes.
-  (storage as any).getChangelogEntry = async (v: string) => rows.get(v);
-  (storage as any).createChangelogEntry = async (entry: FakeRow) => {
-    rows.set(entry.version, entry);
-    return { ...entry, createdAt: new Date(), updatedAt: new Date() };
+function installFakeStorage(): { rows: Map<string, ChangelogEntry> } {
+  const rows = new Map<string, ChangelogEntry>();
+  const fakes: SeederStorage = {
+    async getChangelogEntry(version) {
+      return rows.get(version);
+    },
+    async createChangelogEntry(entry) {
+      const now = new Date();
+      const created: ChangelogEntry = {
+        version: entry.version,
+        title: entry.title ?? "",
+        bodyHtml: entry.bodyHtml ?? "",
+        status: entry.status ?? "draft",
+        publishedAt: entry.publishedAt ?? null,
+        publishedBy: entry.publishedBy ?? null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      rows.set(created.version, created);
+      return created;
+    },
   };
+  // Narrowed assignment via a typed view — no `any` cast.
+  const target = storage as unknown as SeederStorage;
+  target.getChangelogEntry = fakes.getChangelogEntry;
+  target.createChangelogEntry = fakes.createChangelogEntry;
   return { rows };
 }
 
@@ -78,8 +99,6 @@ test("seedChangelogEntries: first run inserts; second run is a no-op", async () 
   const { seedChangelogEntries } = await import("../script/seed-changelog");
   const { rows } = installFakeStorage();
 
-  // Make sure the seeder finds CHANGELOG.md — it lives in cwd which is
-  // the repo root in `npm test`.
   const first = await seedChangelogEntries();
   const insertedFirst = first.inserted;
   assert.ok(insertedFirst >= 1, "expected first run to insert at least one entry");
