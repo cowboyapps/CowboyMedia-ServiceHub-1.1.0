@@ -82,13 +82,73 @@ async function isAutoDeployEnabled() {
 async function notifyDiscord(content) {
   if (!DISCORD_URL) return;
   try {
-    await fetch(DISCORD_URL, {
+    const res = await fetch(DISCORD_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     });
+    // fetch() only throws on network errors, NOT on HTTP 4xx/5xx. Without
+    // this check, a malformed/revoked/rate-limited webhook URL silently
+    // swallows every deploy notification and we only notice when someone
+    // says "hey, where did the Discord posts go?". Log the body snippet
+    // so the operator has something to grep for.
+    if (!res.ok) {
+      let body = "";
+      try {
+        body = (await res.text()).slice(0, 300);
+      } catch {}
+      console.warn(
+        `[discord] notify returned HTTP ${res.status} ${res.statusText}: ${body}`,
+      );
+    }
   } catch (e) {
     console.error("[discord] notify failed:", e?.message);
+  }
+}
+
+// Boot-time sanity check on the Discord webhook URL. We POST an empty-body
+// JSON payload (no `content`) which Discord rejects with HTTP 400
+// "Cannot send an empty message" if the URL is valid, or 401/404 if not.
+// Either way, a 2xx or 400 means the URL is real; anything else is a
+// configuration smell worth logging. Non-fatal: Discord notifications are
+// nice-to-have, not gate-required.
+async function validateDiscordWebhookOnBoot() {
+  if (!DISCORD_URL) {
+    console.log("[discord] DEPLOY_DISCORD_WEBHOOK not set; deploy notifications disabled");
+    return;
+  }
+  // Cheap heuristic before we even hit the network — a typical Discord
+  // webhook URL is ~120 chars. If we got handed something an order of
+  // magnitude bigger, it's almost certainly clipboard noise (e.g. a whole
+  // page of HTML pasted in by mistake — the exact bug from Task #197).
+  if (DISCORD_URL.length > 300) {
+    console.warn(
+      `[discord] DEPLOY_DISCORD_WEBHOOK is suspiciously long (${DISCORD_URL.length} chars); expected ~120. Likely clipboard noise.`,
+    );
+  }
+  try {
+    const res = await fetch(DISCORD_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    // 400 = URL is valid, Discord just refused the empty payload. Anything
+    // 2xx-3xx is also fine. 401/404/etc means the URL is dead.
+    if (res.ok || res.status === 400) {
+      console.log(`[discord] webhook URL validated (HTTP ${res.status})`);
+    } else {
+      let body = "";
+      try {
+        body = (await res.text()).slice(0, 300);
+      } catch {}
+      console.error(
+        `[discord] webhook URL is BAD: HTTP ${res.status} ${res.statusText}: ${body}. Deploy notifications will not be delivered until this is fixed.`,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `[discord] webhook URL unreachable on boot: ${e?.message || "error"}. Deploy notifications may not be delivered.`,
+    );
   }
 }
 
@@ -234,6 +294,13 @@ const server = http.createServer((req, res) => {
       return res.end("paused");
     }
 
+    // One breadcrumb per accepted push so journalctl shows we received and
+    // validated the delivery — without this, the happy path is silent and
+    // future debug sessions hit the same dead end as Task #198.
+    console.log(
+      `[webhook] accepted push ${sha.slice(0, 7)} by ${author} -> deploy ${deliveryId}`,
+    );
+
     // Ack immediately — GitHub times out at 10s and update.sh takes minutes.
     res.writeHead(202, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ deliveryId, sha }));
@@ -280,4 +347,7 @@ let deployInFlight = null;
 
 server.listen(PORT, HOST, () => {
   console.log(`[webhook] listening on ${HOST}:${PORT}`);
+  // Fire-and-forget; logs its own outcome. Non-fatal — listener still
+  // serves deploys even if Discord notifications are misconfigured.
+  validateDiscordWebhookOnBoot();
 });
