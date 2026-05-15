@@ -26,13 +26,25 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 
 Replit does NOT auto-push to GitHub. The user-chosen workflow is:
 1. Make changes in Replit. Verify locally.
-2. From the Replit shell: `git add -A && git commit -m "<msg>" && git push origin main`.
+2. From the Replit shell: `git add -A && git commit -m "<msg>" && git push origin main`. The canonical remote is `https://github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0.git`.
    - **If the push errors with "OAuth App lacks workflow scope"** (happens when the change touches `.github/workflows/`), use a PAT URL instead:
      `git push https://cowboyapps:<PAT>@github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0.git main`.
      The PAT must have `repo` + `workflow` scopes. Run `git config --global credential.helper store` once so the credential is remembered.
-3. The push fires the GitHub webhook → VPS webhook listener (`deploy/webhook-listener/`) → `deploy/update.sh` → PM2 reload.
-4. Outcome posts to the deploy Discord channel (success ✅ / failure ❌ with last-20-lines log tail).
-5. To pause production deploys (e.g. during a maintenance window), use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; the listener checks it before running `update.sh`.
+3. The push fires the GitHub webhook (configured at https://github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0/settings/hooks → `https://cowboyhub.app/_deploy`) → VPS listener (`servicehub-deploy.service`, `127.0.0.1:5055`) → `deploy/update.sh` → PM2 reload.
+4. Outcome posts to the deploy Discord channel: `:rocket:` on start, `:white_check_mark:` on success (with verification line + duration), `:x:` on failure (with exit code + last-20-lines log tail), `:no_entry:` if dropped because auto-deploy is paused.
+5. To pause production deploys (e.g. during a maintenance window), use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; the listener checks it via `GET /api/admin/app-settings` (gated by `DEPLOY_GATE_TOKEN` bearer) before running `update.sh`. Pushes during a pause are DROPPED, not queued — push again after resuming and the latest commit will deploy.
+
+### VPS deploy listener — install layout (one-time, already done on greenest-ant)
+
+- **Service**: `systemctl status servicehub-deploy` (systemd unit at `/etc/systemd/system/servicehub-deploy.service`, source-of-truth copy in `deploy/webhook-listener/servicehub-deploy.service`).
+- **Live logs**: `sudo journalctl -u servicehub-deploy -f`
+- **Per-deploy logs**: `/var/log/servicehub-deploy/<github-delivery-id>.log` (also tail-able via `GET /_deploy/log/<id>` with the `DEPLOY_GATE_TOKEN` bearer).
+- **Listener env file**: `/etc/servicehub-deploy.env` (mode 600, root-only). Contains `GITHUB_WEBHOOK_SECRET`, `APP_BASE_URL` (`http://127.0.0.1:5000`), `DEPLOY_DISCORD_WEBHOOK`, `DEPLOY_GATE_TOKEN`, `DEPLOY_REPO_FULL_NAME=cowboyapps/CowboyMedia-ServiceHub-1.1.0`. After editing, `sudo systemctl restart servicehub-deploy`.
+- **Sudoers entry**: `/etc/sudoers.d/servicehub-deploy` allows the `servicehub` user to run only `bash /opt/servicehub/deploy/update.sh` (with optional `--ref <sha>`) as root with no password. Validate edits with `sudo visudo -c`.
+- **Nginx**: `location = /_deploy` and `location ^~ /_deploy/` blocks in `/etc/nginx/sites-enabled/servicehub` proxy to `127.0.0.1:5055`. Health probe: `curl https://cowboyhub.app/_deploy/health` → `{"ok":true}`.
+- **Rotating the Discord webhook URL**: edit `/etc/servicehub-deploy.env` → change `DEPLOY_DISCORD_WEBHOOK=...` → `sudo systemctl restart servicehub-deploy`. The app itself doesn't store this URL (different from the in-app news/alerts Discord webhook, which is in the DB).
+- **Force a redeploy of the current `main` head** (e.g. after a config change, or to retry a stuck deploy): `sudo FORCE_DEPLOY=1 bash /opt/servicehub/deploy/update.sh`. `FORCE_DEPLOY=1` bypasses the post-update health gates and the column-drift check — only use it when you've already root-caused why those gates would fail.
+- **Replay a webhook delivery** instead of force-pushing: GitHub repo → Settings → Webhooks → click the webhook → Recent Deliveries → pick one → Redeliver.
 
 ## Manual deploy (when auto-deploy can't fire)
 
