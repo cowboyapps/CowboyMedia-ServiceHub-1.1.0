@@ -1217,10 +1217,13 @@ export async function registerRoutes(
   app.get("/api/changelog", requireAuth, async (_req, res) => {
     try {
       const rows = await storage.getPublishedChangelogEntries();
+      // Defense-in-depth: sanitize on read too, in case a row was inserted by
+      // a path that bypassed the write-side sanitizer (legacy seed, manual
+      // SQL, future migration).
       res.json(rows.map(r => ({
         version: r.version,
         title: r.title,
-        bodyHtml: r.bodyHtml,
+        bodyHtml: sanitizeNewsContent(r.bodyHtml),
         publishedAt: r.publishedAt,
       })));
     } catch (e: any) {
