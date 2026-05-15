@@ -27,9 +27,41 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 Replit does NOT auto-push to GitHub. The user-chosen workflow is:
 1. Make changes in Replit. Verify locally.
 2. From the Replit shell: `git add -A && git commit -m "<msg>" && git push origin main`.
+   - **If the push errors with "OAuth App lacks workflow scope"** (happens when the change touches `.github/workflows/`), use a PAT URL instead:
+     `git push https://cowboyapps:<PAT>@github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0.git main`.
+     The PAT must have `repo` + `workflow` scopes. Run `git config --global credential.helper store` once so the credential is remembered.
 3. The push fires the GitHub webhook → VPS webhook listener (`deploy/webhook-listener/`) → `deploy/update.sh` → PM2 reload.
 4. Outcome posts to the deploy Discord channel (success ✅ / failure ❌ with last-20-lines log tail).
 5. To pause production deploys (e.g. during a maintenance window), use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; the listener checks it before running `update.sh`.
+
+## Manual deploy (when auto-deploy can't fire)
+
+The webhook listener fails closed when the app is down (it can't read `app_settings.auto_deploy_enabled` from a dead app). When that happens, recover by hand on the VPS:
+
+```bash
+cd /opt/servicehub
+sudo -u servicehub git pull origin main
+sudo -u servicehub npm ci
+sudo -u servicehub npm run build
+sudo -u servicehub pm2 reload servicehub          # reload, NOT restart --update-env
+sleep 12 && curl -s http://localhost:5000/api/health
+```
+
+Critical: **never use `pm2 restart --update-env`** unless you have first sourced `/opt/servicehub/.env` into your shell. The `--update-env` flag overwrites pm2's saved environment with the current shell's env, which silently blanks `DATABASE_URL` and crash-loops the app with `SASL: client password must be a string`. If you ever need to relaunch from scratch, do it like this:
+
+```bash
+sudo -u servicehub pm2 delete servicehub
+sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; cd /opt/servicehub && pm2 start dist/index.cjs --name servicehub'
+sudo -u servicehub pm2 save
+```
+
+To audit DB schema drift against `shared/schema.ts`:
+
+```bash
+sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx script/audit-schema.ts'
+```
+
+Reports any tables defined in `shared/schema.ts` that are missing from the DB (drift caused by a schema edit without a corresponding migration apply) or extra tables in the DB that aren't declared in schema.ts (orphans from removed features). Returns exit code 1 if drift is found, so it's safe to wire into CI later.
 
 ## Stack
 
