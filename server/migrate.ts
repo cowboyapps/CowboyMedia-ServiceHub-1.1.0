@@ -22,6 +22,33 @@ function extractBaselineTables(baselineSqlText: string): string[] {
   return [...out].sort();
 }
 
+// Parse every column name out of every CREATE TABLE in the baseline. Used to
+// detect column-level drift before we declare the baseline already-applied —
+// otherwise a DB that has all the right TABLES but is missing one of the
+// COLUMNS the baseline would have created (e.g. a column added via legacy
+// db:push that never made it to this DB) would silently get marked as
+// already-baselined and the missing column would never get added.
+//
+// Column lines in drizzle-kit-emitted baselines all start with `"colname"` at
+// the start of the line (after trim). Constraint lines start with bare
+// `CONSTRAINT` / `PRIMARY KEY` / `FOREIGN KEY`, so the leading-quote anchor
+// excludes them cleanly.
+function extractBaselineColumns(baselineSqlText: string): Map<string, Set<string>> {
+  const tableRe = /CREATE TABLE "([a-zA-Z0-9_]+)"\s*\(([\s\S]*?)\);/g;
+  const out = new Map<string, Set<string>>();
+  for (const m of baselineSqlText.matchAll(tableRe)) {
+    const table = m[1];
+    const body = m[2];
+    const cols = new Set<string>();
+    for (const line of body.split("\n")) {
+      const c = line.trim().match(/^"([a-zA-Z0-9_]+)"\s+/);
+      if (c) cols.add(c[1]);
+    }
+    out.set(table, cols);
+  }
+  return out;
+}
+
 // Bootstrap path: when this code first lands on a long-running prod database
 // that already has every table defined in shared/schema.ts (because the old
 // db:push + self-heal block created them ages ago), the drizzle migrator
@@ -116,15 +143,54 @@ async function bootstrapBaselineIfNeeded(folder: string): Promise<void> {
     );
   }
 
-  // All expected baseline tables present → existing prod DB. Safe to skip.
+  // All expected baseline tables present. Before we declare the baseline
+  // already-applied, verify that every baseline COLUMN is present too. The
+  // motivating bug (May 2026): a long-running prod DB had every quick_responses
+  // table from db:push but was missing the `category_id` and `usage_count`
+  // columns added in Task #110. Bootstrap saw the table list match, marked
+  // baseline applied, and the missing columns silently never got added —
+  // every "create quick response" admin click 500'd until an operator
+  // hand-applied ALTER TABLE on prod. Fail closed instead.
+  const expectedColumns = extractBaselineColumns(baselineSql);
+  const colResult = await db.execute<{ table_name: string; column_name: string }>(sql`
+    SELECT table_name, column_name
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name IN (${sql.join(expectedTables.map((t) => sql`${t}`), sql`, `)})
+  `);
+  const colRows = Array.isArray(colResult) ? colResult : colResult.rows;
+  const actualColumns = new Map<string, Set<string>>();
+  for (const r of colRows ?? []) {
+    if (!actualColumns.has(r.table_name)) actualColumns.set(r.table_name, new Set());
+    actualColumns.get(r.table_name)!.add(r.column_name);
+  }
+  const missingColumns: string[] = [];
+  for (const [table, cols] of expectedColumns) {
+    const have = actualColumns.get(table) ?? new Set<string>();
+    for (const c of cols) {
+      if (!have.has(c)) missingColumns.push(`${table}.${c}`);
+    }
+  }
+  if (missingColumns.length > 0) {
+    throw new Error(
+      `[migrate] bootstrap aborted: all ${expectedTables.length} baseline tables exist, ` +
+        `but ${missingColumns.length} baseline column(s) are missing from the DB: ` +
+        `${missingColumns.slice(0, 20).join(", ")}` +
+        `${missingColumns.length > 20 ? `, … (+${missingColumns.length - 20} more)` : ""}. ` +
+        `Pre-marking the baseline as applied would lock in these missing columns. ` +
+        `Operator action: hand-apply ALTER TABLE ... ADD COLUMN IF NOT EXISTS for each, then restart. ` +
+        `Run \`npx tsx script/audit-columns.ts\` for a full drift report.`,
+    );
+  }
+
   const baselineHash = crypto.createHash("sha256").update(baselineSql).digest("hex");
   await db.execute(sql`
     INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
     VALUES (${baselineHash}, ${baseline.when})
   `);
   console.log(
-    `[migrate] bootstrap: verified all ${expectedTables.length} baseline tables present; ` +
-      `marked baseline (${baseline.tag}) as already-applied on existing DB`,
+    `[migrate] bootstrap: verified all ${expectedTables.length} baseline tables and ` +
+      `all baseline columns present; marked baseline (${baseline.tag}) as already-applied on existing DB`,
   );
 }
 

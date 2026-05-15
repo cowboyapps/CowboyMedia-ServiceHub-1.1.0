@@ -9,6 +9,14 @@ async function main() {
     process.exit(1);
   }
 
+  // Columns that intentionally exist in the DB without a corresponding
+  // shared/schema.ts declaration. Drizzle's type system doesn't model these
+  // well (e.g. Postgres tsvector for full-text search), so we manage them via
+  // raw SQL in storage.ts and exclude them from the drift check.
+  const KNOWN_UNDECLARED_COLUMNS: Record<string, Set<string>> = {
+    kb_articles: new Set(["search_vector"]),
+  };
+
   const expected = new Map<string, Set<string>>();
   for (const value of Object.values(schema)) {
     if (!(value instanceof PgTable)) continue;
@@ -42,7 +50,8 @@ async function main() {
     }
     const missing = [...expectedCols].filter((c) => !actualCols.has(c)).sort();
     if (missing.length > 0) missingCols.push({ table, columns: missing });
-    const extra = [...actualCols].filter((c) => !expectedCols.has(c)).sort();
+    const allowed = KNOWN_UNDECLARED_COLUMNS[table] ?? new Set<string>();
+    const extra = [...actualCols].filter((c) => !expectedCols.has(c) && !allowed.has(c)).sort();
     if (extra.length > 0) extraCols.push({ table, columns: extra });
   }
 
