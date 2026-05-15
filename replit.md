@@ -69,10 +69,21 @@ sudo -u servicehub git pull origin main
 #   sudo chown -R servicehub:servicehub /home/servicehub
 # (deploy/update.sh now does this automatically as the very first step
 #  of every webhook-triggered deploy, but manual recoveries don't.)
-sudo -u servicehub npm ci
-sudo -u servicehub npm run build
-sudo -u servicehub pm2 reload servicehub          # reload, NOT restart --update-env
-sleep 12 && curl -s http://localhost:5000/api/health
+#
+# IMPORTANT: do NOT source .env before `npm ci`/`npm run build`. .env
+# contains NODE_ENV=production, which makes (a) `npm ci` skip
+# devDependencies (drizzle-kit, vite, etc → "drizzle-kit: not found"
+# during prebuild's db:check), and (b) `npm test` load React's
+# production bundle (which strips `act()` → tests crash with "act(...)
+# is not supported in production builds of React"). The all-in-one
+# formula below scopes both fixes correctly:
+sudo -u servicehub bash -lc 'cd /opt/servicehub && \
+  npm ci --include=dev && \
+  set -a; source .env; set +a; \
+  NODE_ENV=test npm run build && \
+  pm2 reload servicehub --update-env && \
+  pm2 save'
+sleep 12 && curl -s http://localhost:5000/api/health | jq '{ok,gitSha,version}'
 ```
 
 Critical: **never use `pm2 restart --update-env`** unless you have first sourced `/opt/servicehub/.env` into your shell. The `--update-env` flag overwrites pm2's saved environment with the current shell's env, which silently blanks `DATABASE_URL` and crash-loops the app with `SASL: client password must be a string`. If you ever need to relaunch from scratch, do it like this:
