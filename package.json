@@ -5,14 +5,14 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "prebuild": "npm run db:check && npm run db:check:columns && npm test",
+    "prebuild": "NODE_ENV=test npm run db:check && NODE_ENV=test npm run db:check:columns && NODE_ENV=test npm test",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
     "db:check:columns": "tsx script/audit-columns.ts",
-    "test": "tsx --test --test-reporter=spec $(find test shared server -name '*.test.ts')"
+    "test": "NODE_ENV=test tsx --test --test-reporter=spec $(find test shared server -name '*.test.ts')"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
