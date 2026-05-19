@@ -33,6 +33,29 @@ TS="$(date -u +%Y%m%d-%H%M%S)"
 SNAPSHOT="$BACKUP_DIR/pre-update-$TS.dump"
 
 # ----------------------------------------------------------------------------
+# Single source of truth for `npm ci && npm run build` as the app user.
+#
+# Called 4x (primary deploy + 3 rollback paths). Task #218 had to fix three
+# of these at once because they had silently drifted out of sync with the
+# primary path — the NODE_ENV=test override was added to the primary but
+# missed on the rollbacks, turning recoverable rollbacks into hard deploy
+# failures. Task #219 extracted the helper so the next env tweak (a new
+# override, a different bash flag, an extra step) only has to land in one
+# place.
+#
+# NODE_ENV override rationale: $ENV_FILE sets NODE_ENV=production, which
+# would (a) make the chained `npm test` load React's production build and
+# crash on `act() is not supported in production builds of React`, and (b)
+# make any future `npm install` fall back to --omit=dev. Override it back
+# to `test` JUST for `npm run build` — the production runtime constant is
+# baked into dist/ by esbuild's define in script/build.ts, independent of
+# this var.
+# ----------------------------------------------------------------------------
+run_build_as_app_user() {
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
+}
+
+# ----------------------------------------------------------------------------
 # /home/$APP_USER permission self-heal (run FIRST, before any `bash -lc`).
 #
 # Every recurring deploy failure of the form `EACCES on /home/servicehub/.npm`
@@ -250,13 +273,9 @@ echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration d
 # downstream /api/health gate (6) and table-aware column-drift check (7)
 # below still confirm the migrations actually landed on prod.
 #
-# NODE_ENV override: $ENV_FILE sets NODE_ENV=production, which would (a)
-# make the chained `npm test` load React's production build and crash on
-# `act() is not supported in production builds of React`, and (b) make any
-# future `npm install` fall back to --omit=dev. Override it back to `test`
-# JUST for `npm run build` — the production runtime constant is baked into
-# dist/ by esbuild's define in script/build.ts, independent of this var.
-sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
+# See run_build_as_app_user() near the top for the NODE_ENV override
+# rationale and the single source of truth for this invocation.
+run_build_as_app_user
 
 echo "==> Reloading PM2 (zero downtime — migrator runs at startup before serving traffic)..."
 # Source $ENV_FILE so --update-env actually has fresh vars to propagate
@@ -295,11 +314,7 @@ if [[ "$HEALTH_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
   echo "       last body:    ${HEALTH_BODY:-<empty>}"
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  # NODE_ENV=test override: same reason as the primary build call above —
-  # without it, prebuild's `npm test` loads React's production bundle and
-  # crashes on `act() is not supported in production builds of React`,
-  # turning a recoverable health-gate rollback into a hard deploy failure.
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
+  run_build_as_app_user
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
@@ -333,8 +348,7 @@ if [[ "$COLUMN_DRIFT_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
   for c in "${MISSING_COLUMNS[@]}"; do echo "         - $c"; done
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  # NODE_ENV=test override: see primary build call for rationale.
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
+  run_build_as_app_user
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
@@ -356,8 +370,7 @@ if echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation
   echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" | head -n 10
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  # NODE_ENV=test override: see primary build call for rationale.
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
+  run_build_as_app_user
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
