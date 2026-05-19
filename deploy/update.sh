@@ -295,7 +295,11 @@ if [[ "$HEALTH_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
   echo "       last body:    ${HEALTH_BODY:-<empty>}"
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
+  # NODE_ENV=test override: same reason as the primary build call above —
+  # without it, prebuild's `npm test` loads React's production bundle and
+  # crashes on `act() is not supported in production builds of React`,
+  # turning a recoverable health-gate rollback into a hard deploy failure.
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
@@ -329,7 +333,8 @@ if [[ "$COLUMN_DRIFT_OK" -ne 1 && "${FORCE_DEPLOY:-0}" != "1" ]]; then
   for c in "${MISSING_COLUMNS[@]}"; do echo "         - $c"; done
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
+  # NODE_ENV=test override: see primary build call for rationale.
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
@@ -351,7 +356,8 @@ if echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation
   echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" | head -n 10
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && npm run build"
+  # NODE_ENV=test override: see primary build call for rationale.
+  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
   sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
     pg_restore --clean --if-exists --no-owner --no-acl \
       --dbname=\"\$DATABASE_URL\" \"$SNAPSHOT\""
