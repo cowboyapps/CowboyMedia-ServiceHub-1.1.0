@@ -1924,7 +1924,11 @@ export class DatabaseStorage implements IStorage {
         WHERE first_admin_minutes >= 0
       `),
       db.select().from(services),
-      db.select({ c: sql<number>`count(*)::int` }).from(serviceAlerts).where(isNull(serviceAlerts.resolvedAt)),
+      // Active = status != 'resolved'. Must stay aligned with the alerts page
+      // (client/src/pages/alerts-page.tsx) so the dashboard count matches what
+      // the user sees there. Filtering on resolved_at can drift when a row has
+      // status='resolved' but resolved_at IS NULL (or vice versa).
+      db.select({ c: sql<number>`count(*)::int` }).from(serviceAlerts).where(ne(serviceAlerts.status, "resolved")),
       db.select().from(serviceAlerts).orderBy(desc(serviceAlerts.createdAt)).limit(3),
       db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "push"), eq(adminActivityLogs.action, "push_sent"), gte(adminActivityLogs.createdAt, start24h))),
       db.select({ c: sql<number>`count(*)::int` }).from(adminActivityLogs).where(and(eq(adminActivityLogs.category, "push"), eq(adminActivityLogs.action, "push_failed"), gte(adminActivityLogs.createdAt, start24h))),
