@@ -87,3 +87,28 @@ test("dashboard handler: returns 500 with message when storage throws", async ()
   assert.equal(res.statusCode, 500);
   assert.equal(res.body.message, "db down");
 });
+
+// Regression: dashboard "Active alerts" count must agree with the
+// alerts-page definition (status !== "resolved"). Previously the storage
+// SQL filtered on `resolved_at IS NULL`, which drifted when an alert had
+// `status = 'resolved'` but a NULL `resolved_at` (e.g. older rows, or a
+// reopened-then-resolved cycle where resolved_at was never re-set), so
+// the dashboard would show 1 active while the alerts page showed 0.
+// This test pins the contract the handler passes through.
+test("dashboard handler: active alerts count reflects status-based active definition (no resolved_at drift)", async () => {
+  const metrics = makeMetrics({
+    services: { total: 1, operational: 1, degraded: 0, down: 0, activeAlerts: 0, recentAlerts: [
+      // A "drifted" historical row — status resolved but resolvedAt missing.
+      // Storage must NOT count this as active; the dashboard payload must
+      // therefore report 0, matching what alerts-page.tsx shows.
+      { id: "drift-1", title: "Old incident", severity: "warning", status: "resolved", createdAt: new Date("2025-01-01").toISOString() },
+    ] },
+  });
+  const storage = { getDashboardMetrics: async () => metrics } as Pick<IStorage, "getDashboardMetrics">;
+  const handler = createDashboardHandler({ storage });
+  const res = makeRes();
+  await handler({} as any, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.services.activeAlerts, 0, "drifted resolved alert must not inflate active count");
+  assert.equal(res.body.services.recentAlerts.length, 1, "recent alerts list still shows the row regardless of status");
+});

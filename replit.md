@@ -95,6 +95,18 @@ sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; cd /opt
 sudo -u servicehub pm2 save
 ```
 
+### Service-alert column drift cleanup (one-off, May 2026)
+
+The dashboard "Active alerts" counter used to filter on `resolved_at IS NULL`; it now filters on `status != 'resolved'` to match the alerts page. Historical rows where the two fields disagreed are harmless going forward, but you can reconcile them on prod with:
+
+```sql
+UPDATE service_alerts
+SET resolved_at = COALESCE(resolved_at, created_at)
+WHERE status = 'resolved' AND resolved_at IS NULL;
+```
+
+Safe to run repeatedly. Not required for correct counts (the dashboard no longer reads `resolved_at`), but keeps the two columns coherent so future code can rely on either.
+
 To audit DB schema drift against `shared/schema.ts`:
 
 ```bash
