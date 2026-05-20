@@ -27,58 +27,44 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 Replit does NOT auto-push to GitHub. The user-chosen workflow is:
 1. Make changes in Replit. Verify locally.
 2. From the Replit shell: `git add -A && git commit -m "<msg>" && git push origin main`. The canonical remote is `https://github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0.git`.
-   - **If the push errors with "OAuth App lacks workflow scope"** (happens when the change touches `.github/workflows/`), use a PAT URL instead:
-     `git push https://cowboyapps:<PAT>@github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0.git main`.
-     The PAT must have `repo` + `workflow` scopes. Run `git config --global credential.helper store` once so the credential is remembered.
-3. The push fires the GitHub webhook (configured at https://github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0/settings/hooks → `https://cowboyhub.app/_deploy`) → VPS listener (`servicehub-deploy.service`, `127.0.0.1:5055`) → `deploy/update.sh` → PM2 reload.
+   - **If the push errors with "OAuth App lacks workflow scope"** (touches `.github/workflows/`), use a PAT URL: `git push https://cowboyapps:<PAT>@github.com/cowboyapps/CowboyMedia-ServiceHub-1.1.0.git main`. PAT needs `repo` + `workflow` scopes. Run `git config --global credential.helper store` once so it's remembered.
+3. The push fires the GitHub webhook (`https://cowboyhub.app/_deploy`) → VPS listener (`servicehub-deploy.service`, `127.0.0.1:5055`) → `deploy/update.sh` → PM2 reload.
 4. Outcome posts to the deploy Discord channel: `:rocket:` on start, `:white_check_mark:` on success (with verification line + duration), `:x:` on failure (with exit code + last-20-lines log tail), `:no_entry:` if dropped because auto-deploy is paused.
-5. To pause production deploys (e.g. during a maintenance window), use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; the listener checks it via `GET /api/admin/app-settings` (gated by `DEPLOY_GATE_TOKEN` bearer) before running `update.sh`. Pushes during a pause are DROPPED, not queued — push again after resuming and the latest commit will deploy.
+5. To pause production deploys, use **Admin Portal → Deploy → Pause auto-deploy**. The flag lives in `app_settings.auto_deploy_enabled`; listener checks it via `GET /api/admin/app-settings` (gated by `DEPLOY_GATE_TOKEN` bearer) before running `update.sh`. Pushes during a pause are DROPPED, not queued — push again after resuming.
 
 ### VPS deploy listener — install layout (greenest-ant)
 
-End-to-end verified: a real push from Replit to `main` posts `:rocket:` (start) and `:white_check_mark:` (success with verification line + duration) into the configured Discord channel. Two install-time gotchas found and fixed during the smoke test — see "Recurring deploy gotchas" below.
-
-- **Service**: `systemctl status servicehub-deploy` (systemd unit at `/etc/systemd/system/servicehub-deploy.service`, source-of-truth copy in `deploy/webhook-listener/servicehub-deploy.service`).
+- **Service**: `systemctl status servicehub-deploy` (unit at `/etc/systemd/system/servicehub-deploy.service`, source-of-truth in `deploy/webhook-listener/servicehub-deploy.service`).
 - **Live logs**: `sudo journalctl -u servicehub-deploy -f`
-- **Per-deploy logs**: `/var/log/servicehub-deploy/<github-delivery-id>.log` (also tail-able via `GET /_deploy/log/<id>` with the `DEPLOY_GATE_TOKEN` bearer). Open the latest with `ls -t /var/log/servicehub-deploy/*.log | head -1 | xargs tail -60`.
-- **Listener env file**: `/etc/servicehub-deploy.env` (mode 600, root-only). Contains `GITHUB_WEBHOOK_SECRET`, `APP_BASE_URL` (`http://127.0.0.1:5000`), `DEPLOY_DISCORD_WEBHOOK`, `DEPLOY_GATE_TOKEN`, `DEPLOY_REPO_FULL_NAME=cowboyapps/CowboyMedia-ServiceHub-1.1.0`. After editing, `sudo systemctl restart servicehub-deploy`.
+- **Per-deploy logs**: `/var/log/servicehub-deploy/<delivery-id>.log` (also via `GET /_deploy/log/<id>` with `DEPLOY_GATE_TOKEN` bearer). Latest: `ls -t /var/log/servicehub-deploy/*.log | head -1 | xargs tail -60`.
+- **Listener env file**: `/etc/servicehub-deploy.env` (mode 600, root-only). Contains `GITHUB_WEBHOOK_SECRET`, `APP_BASE_URL` (`http://127.0.0.1:5000`), `DEPLOY_DISCORD_WEBHOOK`, `DEPLOY_GATE_TOKEN`, `DEPLOY_REPO_FULL_NAME=cowboyapps/CowboyMedia-ServiceHub-1.1.0`. After editing: `sudo systemctl restart servicehub-deploy`.
 - **Sudoers entry**: `/etc/sudoers.d/servicehub-deploy` allows the `servicehub` user to run only `bash /opt/servicehub/deploy/update.sh` (with optional `--ref <sha>`) as root with no password. Validate edits with `sudo visudo -c`.
-- **Nginx**: `location = /_deploy` and `location ^~ /_deploy/` blocks in `/etc/nginx/sites-enabled/servicehub` proxy to `127.0.0.1:5055`. Health probe: `curl https://cowboyhub.app/_deploy/health` → `{"ok":true}`. **Gotcha**: nginx reads every file in `sites-enabled/` — never leave config backups (`servicehub.bak-*`) in that dir or it'll fail with "duplicate upstream". Move them to `/root/`.
-- **Rotating the Discord webhook URL**: edit `/etc/servicehub-deploy.env` → change `DEPLOY_DISCORD_WEBHOOK=...` → `sudo systemctl restart servicehub-deploy`. The app itself doesn't store this URL (different from the in-app news/alerts Discord webhook, which is in the DB).
-- **Rotating `GITHUB_WEBHOOK_SECRET`**: generate a new value with `openssl rand -hex 32`, replace it in `/etc/servicehub-deploy.env`, `sudo systemctl restart servicehub-deploy`, **then** paste the same value into the GitHub webhook config (Settings → Webhooks → edit the webhook → Secret → Update). Both sides must match or HMAC validation fails and every push is rejected with HTTP 401.
-- **Force a redeploy of the current `main` head** (e.g. after a config change, or to retry a stuck deploy): `sudo FORCE_DEPLOY=1 bash /opt/servicehub/deploy/update.sh`. `FORCE_DEPLOY=1` bypasses the post-update health gates and the column-drift check — only use it when you've already root-caused why those gates would fail.
-- **Replay a webhook delivery** instead of force-pushing: GitHub repo → Settings → Webhooks → click the webhook → Recent Deliveries → pick one → Redeliver.
+- **Nginx**: `location = /_deploy` and `location ^~ /_deploy/` blocks in `/etc/nginx/sites-enabled/servicehub` proxy to `127.0.0.1:5055`. Health: `curl https://cowboyhub.app/_deploy/health` → `{"ok":true}`. Never leave config backups in `sites-enabled/` (nginx reads every file → "duplicate upstream" failure); move them to `/root/`.
+- **Rotating the deploy Discord webhook**: edit `DEPLOY_DISCORD_WEBHOOK` in `/etc/servicehub-deploy.env`, restart the listener. (Different webhook from the in-app news/alerts Discord webhook, which lives in the DB.)
+- **Rotating `GITHUB_WEBHOOK_SECRET`**: `openssl rand -hex 32` → update `/etc/servicehub-deploy.env` → restart listener → paste the same value into GitHub (Settings → Webhooks → Secret). Mismatch = every push rejected with HTTP 401.
+- **Force a redeploy of the current `main` head**: `sudo FORCE_DEPLOY=1 bash /opt/servicehub/deploy/update.sh`. Bypasses post-update health gates + column-drift check — only use when you've root-caused why those gates would fail.
+- **Replay a webhook delivery** instead of force-pushing: GitHub repo → Settings → Webhooks → Recent Deliveries → Redeliver.
 
-### Recurring deploy gotchas (seen during install + worth knowing)
+### Recurring deploy gotchas
 
-- **`/home/servicehub` "permission drift" was actually systemd `ProtectHome=true` (Task #217, May 2026 — definitive root cause).** Every "perm drift" outage from Tasks #211 → #217 had the same real cause and it had nothing to do with permissions. The webhook listener's systemd unit (`deploy/webhook-listener/servicehub-deploy.service`) had `ProtectHome=true`, which mounts `/home`, `/root`, and `/run/user` as empty inaccessible tmpfs for the listener and **every child process it spawns** — including the `sudo bash /opt/servicehub/deploy/update.sh` it launches. systemd's mount-namespace isolation is inherited by sudo'd subprocesses; sudo does NOT escape it. So inside `update.sh`, `/home/servicehub` appeared as an empty read-only tmpfs: `[[ -d /home/servicehub ]]` returned false, `mkdir -p` failed with EROFS, `sudo -u servicehub -H bash -lc` couldn't see its own `.bash_profile` ("Permission denied"), and `npm ci` couldn't write its cache (EACCES). The actual on-disk filesystem was healthy and writable the entire time — proven by `sudo -u servicehub touch /home/servicehub/test-write` succeeding silently from a normal shell while the same operation failed inside the listener-spawned namespace. **Fix**: `ProtectHome=false` in the listener unit (do NOT re-enable unless you rework update.sh to run in a separate systemd unit outside this namespace — see the comment block in the .service file). **The `update.sh` self-heal block and the gitSha-aware "Already at SHA" cross-check are still kept** — they're sound defensive code and will catch a real EROFS / a real PM2-lag situation if one ever occurs. They were just firing against a phantom filesystem before. **Retracted theories**: Task #215's "manual root-shell recoveries" conclusion was wrong (the diagnostic ran outside the namespace so it saw a clean filesystem); Task #214's "external cron" theory was wrong (no automated source ever existed). Operators can resume running `npm`/`pm2` as `servicehub` from a normal shell freely — the warning below is still good hygiene but it was never the cause of the outages.
-- **Defensive code in `deploy/update.sh` (kept, but rarely fires now that the namespace bug is gone)**: (1) the self-heal block at the top of the script chowns `/home/servicehub` recursively before `npm ci` and aborts loudly on EROFS / immutable-attr / mount errors with the kernel's real errno — useful if a real perm-drift incident ever happens, plus the `:x:` Discord failure embed appends a remediation hint when `EACCES` on `.npm` or `.bash_profile: Permission denied` is detected in the log tail; (2) the "Already at SHA" short-circuit cross-checks `/api/health.gitSha` against working-tree HEAD before exiting — catches the case where a previous deploy advanced HEAD via `git reset --hard` then crashed before `pm2 reload`, leaving prod stuck on the old build. Operator hygiene rule still worth following: when running anything that touches `/home/servicehub` from a root shell, prefix it with `sudo -u servicehub -H bash -lc '...'` (the `-H` sets `HOME` correctly so new dotfiles land with the right owner).
-- **The listener silently posts to bad Discord URLs.** `fetch()` only throws on network errors — not on HTTP 401/404 from Discord — so a malformed or revoked webhook URL produces zero log output. If you stop seeing Discord posts, sanity-check the URL with `curl -X POST -H "Content-Type: application/json" -d '{"content":"test"}' "<URL>"` (expect HTTP 204).
-- **Listener has no log line on the happy path.** `journalctl -u servicehub-deploy` only shows sudo audit lines and the listener's own startup message — successful incoming pushes are silent. Use the per-deploy log file under `/var/log/servicehub-deploy/` for actual deploy output.
-- **Rollback paths in `update.sh` need the same `NODE_ENV=test` override as the primary build (Task #218, May 2026).** All four `npm run build` invocations in `deploy/update.sh` (primary on line 259 + three rollback paths on ~305/340/363) now prefix with `NODE_ENV=test`. Without it, a rollback's prebuild loads React's production bundle and crashes with `act(...) is not supported in production builds of React` in `test/template-message-editor.test.ts`, turning a recoverable health-gate or column-drift rollback into a hard deploy failure. If you ever add a new `npm run build` call site in this script, copy the override too.
+- **`update.sh` self-modifies mid-run.** `git reset --hard $NEW_SHA` replaces the script on disk while bash is still reading it. The script body is wrapped in `{ ... } && exit` so bash parses the entire compound command into the in-memory AST before executing line 1 — DO NOT unwrap. Without the wrap, bash keeps reading the old inode via its open FD and any fix shipped to update.sh doesn't take effect until the deploy AFTER the one that ships it (and can cause stuck-loop failures where rollback restores the broken on-disk version).
+- **Two self-heal blocks at the top of `update.sh` chown root-owned paths back to `servicehub` before they break the build.** (1) `/home/servicehub` (covers `.npm`, `.bash_profile`, `.bashrc`, `.npmrc`) — fixes `EACCES on /home/servicehub/.npm/_cacache` and `bash: .bash_profile: Permission denied`. (2) `$APP_DIR/.git` — fixes `insufficient permission for adding an object to repository database .git/objects` during `git fetch`. Both fail loudly on chown errors; PM2 is not touched if they can't recover.
+- **All four `npm run build` invocations in `update.sh` need `NODE_ENV=test` prefix** (primary deploy + 3 rollback paths). `.env` sets `NODE_ENV=production`, which makes the chained `npm test` load React's production bundle and crash on `act() is not supported in production builds of React`. If you add a new `npm run build` call site here, copy the override.
+- **The listener silently posts to bad Discord URLs.** `fetch()` only throws on network errors, not HTTP 401/404. If posts stop appearing, sanity-check: `curl -X POST -H "Content-Type: application/json" -d '{"content":"test"}' "<URL>"` (expect HTTP 204).
+- **Listener is silent on the happy path.** `journalctl -u servicehub-deploy` only shows sudo audit lines + startup. Use per-deploy log files under `/var/log/servicehub-deploy/`.
+- **Retracted "permission drift" theories (Tasks #211–#217, May 2026).** Multiple outages were misdiagnosed as filesystem permission drift, root-shell recoveries, or external cron jobs. Real cause: the listener's systemd unit had `ProtectHome=true`, mounting `/home`, `/root`, `/run/user` as empty tmpfs for the listener AND every sudo'd child (mount namespaces are inherited; sudo doesn't escape them). Fix: `ProtectHome=false` in the listener unit. The home-dir self-heal in update.sh is kept regardless — defends against real perm drift if it ever happens.
 
 ## Manual deploy (when auto-deploy can't fire)
 
-The webhook listener fails closed when the app is down (it can't read `app_settings.auto_deploy_enabled` from a dead app). When that happens, recover by hand on the VPS:
+The listener fails closed when the app is down (can't read `app_settings.auto_deploy_enabled` from a dead app). Recover by hand on the VPS:
 
 ```bash
 cd /opt/servicehub
 sudo -u servicehub git pull origin main
-# If `npm ci` dies with EACCES on /home/servicehub/.npm/_cacache (or you
-# see `bash: /home/servicehub/.bash_profile: Permission denied`), the
-# home dir has root-owned files from an earlier root-run npm/pm2.
-# One-line fix (covers .npm, dotfiles, everything):
+# If you hit EACCES on .npm or "Permission denied" on .bash_profile:
 #   sudo chown -R servicehub:servicehub /home/servicehub
-# (deploy/update.sh now does this automatically as the very first step
-#  of every webhook-triggered deploy, but manual recoveries don't.)
-#
-# IMPORTANT: do NOT source .env before `npm ci`/`npm run build`. .env
-# contains NODE_ENV=production, which makes (a) `npm ci` skip
-# devDependencies (drizzle-kit, vite, etc → "drizzle-kit: not found"
-# during prebuild's db:check), and (b) `npm test` load React's
-# production bundle (which strips `act()` → tests crash with "act(...)
-# is not supported in production builds of React"). The all-in-one
-# formula below scopes both fixes correctly:
+# (update.sh does this automatically on webhook-triggered deploys, but
+#  manual recoveries don't.)
 sudo -u servicehub bash -lc 'cd /opt/servicehub && \
   npm ci --include=dev && \
   set -a; source .env; set +a; \
@@ -88,7 +74,9 @@ sudo -u servicehub bash -lc 'cd /opt/servicehub && \
 sleep 12 && curl -s http://localhost:5000/api/health | jq '{ok,gitSha,version}'
 ```
 
-Critical: **never use `pm2 restart --update-env`** unless you have first sourced `/opt/servicehub/.env` into your shell. The `--update-env` flag overwrites pm2's saved environment with the current shell's env, which silently blanks `DATABASE_URL` and crash-loops the app with `SASL: client password must be a string`. If you ever need to relaunch from scratch, do it like this:
+**Why the env tricks**: `--include=dev` is needed because `.env` sets `NODE_ENV=production` which would skip devDependencies (drizzle-kit, vite). `NODE_ENV=test` on the build is needed because prebuild's `npm test` loads React, and React's production bundle strips `act()` → tests crash. Both are scoped: production runtime constant is baked into `dist/` by esbuild's define at build time, independent of these vars.
+
+**Never use `pm2 restart --update-env`** unless you've first sourced `/opt/servicehub/.env`. The flag overwrites pm2's saved environment with the current shell's env, silently blanking `DATABASE_URL` and crash-looping the app with `SASL: client password must be a string`. To relaunch from scratch:
 
 ```bash
 sudo -u servicehub pm2 delete servicehub
@@ -96,25 +84,13 @@ sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; cd /opt
 sudo -u servicehub pm2 save
 ```
 
-### Service-alert column drift cleanup (one-off, May 2026)
-
-The dashboard "Active alerts" counter used to filter on `resolved_at IS NULL`; it now filters on `status != 'resolved'` to match the alerts page. Historical rows where the two fields disagreed are harmless going forward, but you can reconcile them on prod with:
-
-```sql
-UPDATE service_alerts
-SET resolved_at = COALESCE(resolved_at, created_at)
-WHERE status = 'resolved' AND resolved_at IS NULL;
-```
-
-Safe to run repeatedly. Not required for correct counts (the dashboard no longer reads `resolved_at`), but keeps the two columns coherent so future code can rely on either.
-
-To audit DB schema drift against `shared/schema.ts`:
+**Audit DB schema drift against `shared/schema.ts`**:
 
 ```bash
 sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx script/audit-schema.ts'
 ```
 
-Reports any tables defined in `shared/schema.ts` that are missing from the DB (drift caused by a schema edit without a corresponding migration apply) or extra tables in the DB that aren't declared in schema.ts (orphans from removed features). Returns exit code 1 if drift is found, so it's safe to wire into CI later.
+Reports tables defined in `shared/schema.ts` missing from the DB, or extra tables in the DB not declared in schema.ts. Exit code 1 on drift, safe to wire into CI later.
 
 ## Stack
 
@@ -122,7 +98,6 @@ Reports any tables defined in `shared/schema.ts` that are missing from the DB (d
 - **Backend**: Express.js
 - **Database**: PostgreSQL
 - **ORM**: Drizzle ORM
-- **Validation**: _Populate as you build_
 - **Build Tool**: Vite
 - **Real-time**: WebSockets
 
@@ -141,26 +116,26 @@ Reports any tables defined in `shared/schema.ts` that are missing from the DB (d
 
 ## Architecture decisions
 
-- **PWA First**: Emphasizes native app-like experience with installability, offline support, and push notifications.
-- **Real-time Everything**: WebSockets are used extensively for chat, admin communications, and instant updates.
-- **Role-Based Access**: Granular permissions system for admin users ensures secure access control.
-- **Rich Content Editing**: TipTap editor used for news and knowledge base articles, ensuring rich text formatting.
-- **Optimistic UI Updates**: Implemented in support ticketing for a smoother user experience, particularly with message sending.
-- **Business Hours Logic**: Centralized configuration and server-side calculation for customer interactions and auto-responses, accounting for timezones and DST.
-- **AI Integration**: Optional AI features for canned response suggestions and drafting replies, integrated with OpenAI.
-- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side by side via fire-and-forget helpers. Discord supports per-service webhook overrides (services.discord_webhook_url) for alert / alert update / resolve / service update fan-outs; news still uses the global webhook.
+- **PWA First**: Native app-like experience with installability, offline support, push notifications.
+- **Real-time Everything**: WebSockets used extensively for chat, admin communications, instant updates.
+- **Role-Based Access**: Granular permissions system for admin users.
+- **Rich Content Editing**: TipTap editor for news and knowledge base articles.
+- **Optimistic UI Updates**: Used in support ticketing for smoother message sending.
+- **Business Hours Logic**: Centralized configuration + server-side calculation for customer interactions and auto-responses, accounting for timezones and DST.
+- **AI Integration**: Optional AI features for canned response suggestions and drafting replies, via OpenAI.
+- **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side-by-side via fire-and-forget helpers. Discord supports per-service webhook overrides (`services.discord_webhook_url`) for alert / alert update / resolve / service update fan-outs; news still uses the global webhook.
 
 ## Product
 
-- **Service Status Monitoring**: Real-time service health tracking, alerts, and incident management.
-- **Support Ticketing System**: Category-based tickets, real-time messaging, and admin tools.
-- **Customer Engagement**: News feed, unified notification center, community chat, and downloadable content.
-- **Admin Portal**: Comprehensive tools for user, service, alert, and content management.
-- **PWA Features**: Offline support, push notifications, and app badge management.
-- **Knowledge Base**: Searchable articles with rich text, helpfulness feedback, and suggested articles for new tickets.
-- **Customer Onboarding Tour**: Interactive tour for first-time customers highlighting key features.
+- **Service Status Monitoring**: Real-time service health tracking, alerts, incident management.
+- **Support Ticketing**: Category-based tickets, real-time messaging, admin tools.
+- **Customer Engagement**: News feed, unified notification center, community chat, downloadable content.
+- **Admin Portal**: Tools for user, service, alert, and content management.
+- **PWA Features**: Offline support, push notifications, app badge management.
+- **Knowledge Base**: Searchable articles with rich text, helpfulness feedback, suggested articles for new tickets.
+- **Customer Onboarding Tour**: Interactive tour for first-time customers.
 - **Admin Announcements**: Popup announcements for customers with rich text and optional in-app links.
-- **Public Status Page**: Unauthenticated `/status` page with live service health, 30-day uptime % + 90-day sparkline (when monitor linked), recent incidents, and per-service email "Follow" with confirm/unsubscribe via tokenised links.
+- **Public Status Page**: Unauthenticated `/status` page with live service health, 30-day uptime % + 90-day sparkline (when monitor linked), recent incidents, per-service email "Follow" with confirm/unsubscribe via tokenised links.
 
 ## User preferences
 
@@ -179,8 +154,8 @@ When the user says "change the version to...", update the `APP_VERSION` constant
 
 ## Build artifacts
 
-- **`dist/.git-sha`**: Written by `npm run build` (see `script/build.ts`). The running server reads it once at boot to populate `gitSha` in `/api/health`. `deploy/update.sh` asserts `health.gitSha === $NEW_SHA` after every reload to catch the "deploy ran but HEAD never moved" failure mode. Do not commit; do not delete during runtime.
-- **`migrations/`**: Versioned SQL migration files generated by `drizzle-kit generate` from `shared/schema.ts`, plus `migrations/meta/` (drizzle's journal + per-migration snapshots). Committed to git. Applied at app boot by `server/migrate.ts`. The `migrations/legacy/` subfolder holds the pre-drizzle hand-written SQL files, kept for historical reference only — never executed.
+- **`dist/.git-sha`**: Written by `npm run build` (see `script/build.ts`). Server reads it once at boot to populate `gitSha` in `/api/health`. `deploy/update.sh` asserts `health.gitSha === $NEW_SHA` after every reload to catch the "deploy ran but HEAD never moved" failure mode. Do not commit; do not delete during runtime.
+- **`migrations/`**: Versioned SQL files generated by `drizzle-kit generate` from `shared/schema.ts`, plus `migrations/meta/` (drizzle's journal + per-migration snapshots). Committed to git. Applied at app boot by `server/migrate.ts`. The `migrations/legacy/` subfolder holds pre-drizzle hand-written SQL files for historical reference only — never executed.
 
 ## Gotchas
 
@@ -188,16 +163,17 @@ When the user says "change the version to...", update the `APP_VERSION` constant
 - **Telegram Integration**: Requires `TELEGRAM_BOT_TOKEN` secret; failures are non-blocking.
 - **Discord Integration**: Webhook URL stored in DB (no env var); set via Admin Portal → Discord. Failures are non-blocking and never block customer notifications.
 - **AI Integrations**: Requires `AI_INTEGRATIONS_OPENAI_BASE_URL` and `AI_INTEGRATIONS_OPENAI_API_KEY` for AI features to be active.
-- **Rate Limits** (`server/rate-limits.ts`): Mounted on a few abuse-prone routes only. Login: 5 failures / minute / (IP+username). Register: 10 / hour / IP. Forgot- and reset-password: 3 / hour / IP. Ticket POST: 10 / hour / user. Report submission POST: 10 / minute / user. Community-chat post: 10 / minute / user. Community-chat reactions: 60 / minute / user. Admin and master_admin sessions bypass every limiter via `bypassRateLimitForAdmins`. Limits are enforced by `express-rate-limit` with an in-process memory store, so they reset on restart and are per-process — fine for current single-instance deployment, but document/replace if we ever run multi-process. Limit hits respond with JSON `{ error, retryAfterSeconds }` and a `Retry-After` header so the frontend can show a friendly toast.
+- **Rate Limits** (`server/rate-limits.ts`): Mounted on abuse-prone routes only. Login: 5 failures / min / (IP+username). Register: 10 / hr / IP. Forgot- and reset-password: 3 / hr / IP (shared budget). Ticket POST: 10 / hr / user. Report POST: 10 / min / user. Community-chat post: 10 / min / user. Community-chat reactions: 60 / min / user. Admin and master_admin sessions bypass every limiter via `bypassRateLimitForAdmins`. Enforced by `express-rate-limit` with an in-process memory store (resets on restart, per-process — fine for single-instance, document/replace if we ever go multi-process). Limit hits respond with JSON `{ error, retryAfterSeconds }` + `Retry-After` header so the frontend can toast it.
+- **`service_alerts.resolved_at` may disagree with `status='resolved'` on historical rows.** The dashboard "Active alerts" counter used to filter on `resolved_at IS NULL` but now filters on `status != 'resolved'` (matches the alerts page). One-off reconcile if desired: `UPDATE service_alerts SET resolved_at = COALESCE(resolved_at, created_at) WHERE status = 'resolved' AND resolved_at IS NULL;` — safe to run repeatedly, not required for correct counts.
 
 ## Pointers
 
-- **React Documentation**: `https://react.dev/`
-- **TailwindCSS Documentation**: `https://tailwindcss.com/docs`
-- **Drizzle ORM Documentation**: `https://orm.drizzle.team/docs/overview`
-- **Vite Documentation**: `https://vitejs.dev/guide/`
-- **Wouter Documentation**: `https://docs.wouter.com/`
-- **Shadcn UI Documentation**: `https://ui.shadcn.com/docs`
-- **Web Push API**: `https://developer.mozilla.org/en-US/docs/Web/API/Push_API`
-- **date-fns-tz**: `https://date-fns.org/v2.30.0/docs/timezone`
-- **DOMPurify**: `https://github.com/cure53/DOMPurify`
+- React: `https://react.dev/`
+- TailwindCSS: `https://tailwindcss.com/docs`
+- Drizzle ORM: `https://orm.drizzle.team/docs/overview`
+- Vite: `https://vitejs.dev/guide/`
+- Wouter: `https://docs.wouter.com/`
+- Shadcn UI: `https://ui.shadcn.com/docs`
+- Web Push API: `https://developer.mozilla.org/en-US/docs/Web/API/Push_API`
+- date-fns-tz: `https://date-fns.org/v2.30.0/docs/timezone`
+- DOMPurify: `https://github.com/cure53/DOMPurify`
