@@ -9,7 +9,28 @@
 #   - Takes a pre-update DB snapshot to /var/backups/servicehub/pre-update-<ts>.dump
 #   - Fails loudly (no destructive prompts answered "y") if drizzle wants to drop columns
 #   - On post-update health check failure: rolls back code + restores snapshot
-
+#
+# IMPORTANT — why the entire body is wrapped in `{ ... } && exit`:
+#
+# This script does `git reset --hard $NEW_SHA` partway through, which
+# atomically replaces /opt/servicehub/deploy/update.sh on disk with the
+# version from the new commit. WITHOUT this brace wrap, bash holds an
+# open file descriptor to the OLD inode (now unlinked but kept alive by
+# the FD) and continues reading the pre-deploy script content from there
+# — so any edits to update.sh in the new commit DON'T TAKE EFFECT until
+# the NEXT deploy, AND if the new commit's gates would have passed but
+# the old commit's gates would have failed, you get a permanent
+# stuck-loop (rollback resets disk back to the old version, next deploy
+# fails the same way, forever).
+#
+# Wrapping the executable body in a `{ ... }` compound command forces
+# bash to read all the way to the matching `}` before executing line 1,
+# slurping the entire script into the in-memory AST. After that, on-disk
+# changes to update.sh are irrelevant for the current execution — but
+# they DO land on disk in time for the NEXT deploy.
+#
+# Lost a deploy to this on 20-May-2026. Don't unwrap it.
+{
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
@@ -393,3 +414,10 @@ fi
 
 echo "==> Update complete: $PREV_SHA  ->  $NEW_SHA  (version $NEW_APP_VERSION)"
 echo "    Snapshot kept at $SNAPSHOT (rollback: deploy/rollback.sh)"
+
+# Matching `}` for the opening brace at the top of the file (see comment
+# block there for why). The trailing `exit 0` is inside the block so bash
+# never tries to read past `}` — defends against EOF mid-parse if the
+# file gets truncated by a concurrent edit.
+exit 0
+}
