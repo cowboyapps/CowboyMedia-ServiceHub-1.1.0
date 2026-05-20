@@ -172,6 +172,40 @@ sudo -u "$APP_USER" -H bash -lc "set -a && . $ENV_FILE && set +a && \
   pg_dump --format=custom --no-owner --no-acl --clean --if-exists \
     --dbname=\"\$DATABASE_URL\" --file=\"$SNAPSHOT\""
 
+# ----------------------------------------------------------------------------
+# Self-heal #2: .git object-store ownership.
+#
+# Symmetric to the $HOME_DIR self-heal above, but for $APP_DIR/.git. A
+# root-run git operation anywhere in $APP_DIR (e.g. a manual `sudo git
+# pull` during recovery, a forgotten cron that runs `git fsck` as root,
+# or even a `sudo bash update.sh` with FORCE_DEPLOY=1 that hits an old
+# rollback path) can leave root-owned blobs/packs under .git/objects/.
+# The next `sudo -u servicehub git fetch` then dies with:
+#   error: insufficient permission for adding an object to repository
+#   database .git/objects
+#   fatal: failed to write object
+#   fatal: unpack-objects failed
+# and the deploy aborts BEFORE reaching the snapshot, so there's nothing
+# to roll back to — just a stuck deploy until someone SSHes in and
+# chowns by hand. Lost a deploy to this on 20-May-2026.
+#
+# Scope is intentionally $APP_DIR/.git only (not the whole $APP_DIR) to
+# keep the chown cheap: the rest of $APP_DIR is owned correctly already
+# (npm ci, vite build, etc. all run as $APP_USER), and a recursive
+# chown on the full tree would walk through node_modules/ for no reason.
+# ----------------------------------------------------------------------------
+if [[ -d "$APP_DIR/.git" ]]; then
+  GIT_OFFENDER="$(find "$APP_DIR/.git" -not -user "$APP_USER" -print -quit 2>/dev/null || true)"
+  if [[ -n "$GIT_OFFENDER" ]]; then
+    echo "==> Self-heal: chowning $APP_DIR/.git to $APP_USER (found root-owned: $GIT_OFFENDER)..."
+    if ! chown -R "$APP_USER:$APP_USER" "$APP_DIR/.git"; then
+      echo "ERROR: chown -R $APP_USER:$APP_USER $APP_DIR/.git returned non-zero."
+      echo "       git fetch would fail. PM2 was NOT touched. Investigate."
+      exit 1
+    fi
+  fi
+fi
+
 echo "==> Fetching latest..."
 sudo -u "$APP_USER" git -C "$APP_DIR" fetch --all --tags --prune
 
