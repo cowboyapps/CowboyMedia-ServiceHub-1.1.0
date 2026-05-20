@@ -363,11 +363,22 @@ echo "==> Log-tail error gate (last 200 lines of pm2 logs)..."
 # E.g. a missing column on a non-health table will only show up in the logs
 # the first time a customer hits that route. We grep for known signatures
 # and abort if any hit.
+#
+# IMPORTANT: strip the express request-logger lines (prefixed `[express]`)
+# BEFORE grepping. Those lines include the HTTP response body for short
+# JSON responses (e.g. `GET /api/admin/health/errors` returns the admin
+# error history, which itself contains old "column ... does not exist"
+# strings as resolved error summaries). Without this filter, a single
+# admin dashboard poll during the post-deploy window rolls a perfectly
+# healthy deploy. Real crashes print as unprefixed `console.error`
+# output (see server/index.ts: "Internal Server Error:", "Seed error:",
+# etc.) so dropping `[express]` lines costs us no real signal.
 LOG_TAIL="$(sudo -u "$APP_USER" -H bash -lc "pm2 logs servicehub --lines 200 --nostream --raw" 2>/dev/null || true)"
-if echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" >/dev/null \
+LOG_TAIL_FILTERED="$(echo "$LOG_TAIL" | grep -v "\[express\]" || true)"
+if echo "$LOG_TAIL_FILTERED" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" >/dev/null \
    && [[ "${FORCE_DEPLOY:-0}" != "1" ]]; then
   echo "ERROR: pm2 log tail contains schema/connection errors after restart:"
-  echo "$LOG_TAIL" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" | head -n 10
+  echo "$LOG_TAIL_FILTERED" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" | head -n 10
   echo "       Rolling back code AND data. Snapshot: $SNAPSHOT"
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
   run_build_as_app_user
