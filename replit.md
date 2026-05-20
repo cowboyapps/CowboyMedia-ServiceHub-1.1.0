@@ -104,11 +104,11 @@ Reports tables defined in `shared/schema.ts` missing from the DB, or extra table
 ## Where things live
 
 - **Frontend Source**: `client/src/`
-- **Backend Source**: `server/src/`
-- **Database Schema**: `db/schema.ts`
+- **Backend Source**: `server/` (flat — no `src/` subfolder)
+- **Database Schema**: `shared/schema.ts`
 - **Migrations**: `migrations/`
 - **Shared Utilities**: `shared/`
-- **API Routes**: `server/src/routes.ts`
+- **API Routes**: `server/routes.ts`
 - **Notification Categories**: `shared/notification-categories.ts`
 - **Knowledge Base Helpers**: `shared/kb.ts`
 - **Announcement Routes Allowlist**: `shared/announcement-routes.ts`
