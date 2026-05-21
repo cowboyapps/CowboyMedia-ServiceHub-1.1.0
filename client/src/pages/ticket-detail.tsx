@@ -1439,6 +1439,26 @@ export default function TicketDetail() {
                     && (msgDate.getTime() - (prevDate?.getTime() ?? 0)) < 2 * 60 * 1000;
                   const isFirstInRun = !sameRunAsPrev;
 
+                  const nextMsg = idx + 1 < allMessages.length ? allMessages[idx + 1] : null;
+                  const nextDate = nextMsg ? new Date(nextMsg.createdAt) : null;
+                  const nextIsInternal = nextMsg ? (!!nextMsg.isInternal) : false;
+                  const nextDateSep = !!nextDate && nextDate.toDateString() !== msgDate.toDateString();
+                  const sameRunAsNext = !!nextMsg
+                    && !nextDateSep
+                    && nextMsg.senderId === msg.senderId
+                    && nextIsInternal === isInternal
+                    && ((nextDate?.getTime() ?? 0) - msgDate.getTime()) < 2 * 60 * 1000;
+                  const isLastInRun = !sameRunAsNext;
+
+                  // Tail rounding: on a run, reduce the corner on the sender's
+                  // side that's adjacent to the next/prev bubble in the run.
+                  // Customer bubbles align right (isMe), support align left.
+                  const tailClass = isInternal
+                    ? `${!isFirstInRun ? " rounded-tl-md" : ""}${!isLastInRun ? " rounded-bl-md" : ""}`
+                    : isMe
+                      ? `${!isFirstInRun ? " rounded-tr-md" : ""}${!isLastInRun ? " rounded-br-md" : ""}`
+                      : `${!isFirstInRun ? " rounded-tl-md" : ""}${!isLastInRun ? " rounded-bl-md" : ""}`;
+
                   // Animate only messages that arrived after first mount; skip
                   // the initial historical paint to avoid a wave of bubbles.
                   const isNewSinceMount = initialMessageIdsRef.current
@@ -1498,7 +1518,7 @@ export default function TicketDetail() {
                               </div>
                             )}
                             <div
-                              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500 ${
+                              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500${tailClass} ${
                                 isFailed
                                   ? "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
                                   : isSending
@@ -1654,7 +1674,7 @@ export default function TicketDetail() {
                             </div>
                           )}
                           <div
-                            className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden ${
+                            className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden${tailClass} ${
                               isFailed
                                 ? "bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
                                 : isSending

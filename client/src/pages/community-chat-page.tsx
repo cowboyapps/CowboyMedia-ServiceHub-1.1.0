@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -643,6 +643,155 @@ function MentionAutocomplete({
   );
 }
 
+interface CommunityRowProps {
+  msg: CommunityMessage;
+  isMe: boolean;
+  msgIsAdmin: boolean;
+  isFirstInRun: boolean;
+  isLastInRun: boolean;
+  tailClass: string;
+  isNewSinceMount: boolean;
+  showSeparator: boolean;
+  dateSepLabel: string;
+  rowGap: string;
+  rowExtra: string;
+  msgDate: Date;
+  isAdminUser: boolean;
+  isActiveEmojiPicker: boolean;
+  currentUserId: string;
+  onProfileClick: (userId: string) => void;
+  onAdminMenu: (a: { type: "menu"; messageId: string; userId: string; username: string }) => void;
+  onToggleEmojiPicker: (id: string) => void;
+  onCloseEmojiPicker: () => void;
+  onReact: (messageId: string, emoji: string) => void;
+  onPollDeleted: () => void;
+}
+
+const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRowProps) {
+  const {
+    msg, isMe, msgIsAdmin, isFirstInRun, isLastInRun: _ignored, tailClass,
+    isNewSinceMount, showSeparator, dateSepLabel, rowGap, rowExtra, msgDate,
+    isAdminUser, isActiveEmojiPicker, currentUserId,
+    onProfileClick, onAdminMenu, onToggleEmojiPicker, onCloseEmojiPicker,
+    onReact, onPollDeleted,
+  } = props;
+  const animClass = isNewSinceMount ? " chat-msg-enter" : "";
+  return (
+    <div data-testid={`community-message-${msg.id}`} className={`${animClass}`.trim() || undefined}>
+      {showSeparator && (
+        <div className="flex items-center justify-center my-3">
+          <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{dateSepLabel}</span>
+        </div>
+      )}
+      <div className={`flex ${isMe ? "justify-end" : "justify-start"} ${rowGap}${rowExtra} gap-2`}>
+        {!isMe && (
+          isFirstInRun ? (
+            <button
+              type="button"
+              onClick={() => onProfileClick(msg.userId)}
+              className="flex-shrink-0 self-end mb-1 rounded-full hover:opacity-80 transition-opacity"
+              data-testid={`button-avatar-${msg.id}`}
+            >
+              <Avatar className="w-7 h-7">
+                {msg.avatarUrl && <AvatarImage src={msg.avatarUrl} alt={msg.chatUsername} />}
+                <AvatarFallback className="text-[10px]">{msg.chatUsername?.[0]?.toUpperCase() || "?"}</AvatarFallback>
+              </Avatar>
+            </button>
+          ) : (
+            <div className="w-7 flex-shrink-0" aria-hidden="true" />
+          )
+        )}
+        <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
+          <div className={`rounded-2xl px-3 py-2${tailClass} ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            {isFirstInRun && (
+              <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
+                {!isMe ? (
+                  <button
+                    className="truncate underline decoration-dotted underline-offset-2 hover:opacity-80 transition-opacity"
+                    onClick={() => {
+                      if (isAdminUser && !msgIsAdmin) {
+                        onAdminMenu({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername });
+                      } else {
+                        onProfileClick(msg.userId);
+                      }
+                    }}
+                    data-testid={`button-username-${msg.id}`}
+                  >
+                    {msg.chatUsername}
+                  </button>
+                ) : (
+                  <span className="truncate">{msg.chatUsername}</span>
+                )}
+                {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
+              </p>
+            )}
+            {msg.pollId ? (
+              <div className="my-1 -mx-1">
+                <Poll pollId={msg.pollId} onDeleted={onPollDeleted} />
+              </div>
+            ) : (
+              <>
+                {msg.imageUrl && (
+                  <div className="my-1 -mx-1 max-w-[280px]" data-testid={`img-community-msg-${msg.id}`}>
+                    <ClickableImage
+                      src={msg.imageUrl}
+                      alt="Attached image"
+                      className="max-h-[280px] w-auto rounded-md object-contain"
+                    />
+                  </div>
+                )}
+                {msg.content && (
+                  <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
+                )}
+                {msg.kbArticle && (
+                  <Link href={`/knowledge/${msg.kbArticle.slug}`}>
+                    <div
+                      className={`mt-1.5 -mx-0.5 rounded-md border p-2 cursor-pointer hover-elevate tap-interactive ${isMe ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-background/60"}`}
+                      data-testid={`card-kb-article-msg-${msg.id}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <BookOpen className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isMe ? "text-primary-foreground/80" : "text-primary"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-sm font-medium truncate ${isMe ? "text-primary-foreground" : ""}`}>{msg.kbArticle.title}</p>
+                          {msg.kbArticle.categoryName && (
+                            <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{msg.kbArticle.categoryName}</p>
+                          )}
+                          {msg.kbArticle.summary && (
+                            <p className={`text-xs mt-1 line-clamp-2 ${isMe ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{msg.kbArticle.summary}</p>
+                          )}
+                        </div>
+                        <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 mt-1 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+                      </div>
+                    </div>
+                  </Link>
+                )}
+              </>
+            )}
+            <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
+              <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                {format(msgDate, "h:mm a")}
+              </p>
+              <div className="relative flex-shrink-0">
+                <button
+                  onClick={() => onToggleEmojiPicker(msg.id)}
+                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-primary-foreground/80" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
+                  data-testid={`button-react-${msg.id}`}
+                >
+                  <Smile className="w-3 h-3" />
+                </button>
+                {isActiveEmojiPicker && (
+                  <EmojiPicker onSelect={(emoji) => onReact(msg.id, emoji)} onClose={onCloseEmojiPicker} alignRight={isMe} />
+                )}
+              </div>
+            </div>
+          </div>
+          <ReactionBadges reactions={msg.reactions} userId={currentUserId} onToggle={(emoji) => onReact(msg.id, emoji)} />
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function CommunityChatPage() {
   const { user, isAdmin } = useAuth();
   const { toast } = useToast();
@@ -901,6 +1050,19 @@ export default function CommunityChatPage() {
     }, 0);
   }, [message, scrollToBottom, toast]);
 
+  const handleProfileClick = useCallback((userId: string) => {
+    setProfileUserId(userId);
+  }, []);
+  const handleToggleEmojiPicker = useCallback((id: string) => {
+    setActiveEmojiPicker((curr) => (curr === id ? null : id));
+  }, []);
+  const handleCloseEmojiPicker = useCallback(() => {
+    setActiveEmojiPicker(null);
+  }, []);
+  const handlePollDeleted = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+  }, []);
+
   const handleReaction = useCallback(async (messageId: string, emoji: string) => {
     try {
       await fetch(`/api/community-chat/messages/${messageId}/reactions`, {
@@ -1061,127 +1223,53 @@ export default function CommunityChatPage() {
                 && (msgDate.getTime() - (prevDate?.getTime() ?? 0)) < 2 * 60 * 1000;
               const isFirstInRun = !sameRunAsPrev;
 
+              const nextMsg = idx + 1 < messages.length ? messages[idx + 1] : null;
+              const nextDate = nextMsg ? new Date(nextMsg.createdAt) : null;
+              const nextDateSep = !!nextDate && formatDateSeparator(nextDate) !== formatDateSeparator(msgDate);
+              const sameRunAsNext = !!nextMsg
+                && !nextDateSep
+                && nextMsg.userId === msg.userId
+                && ((nextDate?.getTime() ?? 0) - msgDate.getTime()) < 2 * 60 * 1000;
+              const isLastInRun = !sameRunAsNext;
+
+              // Tail rounding: shrink the corner on the sender side that
+              // touches the adjacent bubble in the run.
+              const tailClass = isMe
+                ? `${!isFirstInRun ? " rounded-tr-md" : ""}${!isLastInRun ? " rounded-br-md" : ""}`
+                : `${!isFirstInRun ? " rounded-tl-md" : ""}${!isLastInRun ? " rounded-bl-md" : ""}`;
+
               const isNewSinceMount = initialMessageIdsRef.current
                 ? !initialMessageIdsRef.current.has(msg.id)
                 : false;
 
               const rowGap = isFirstInRun ? "mb-1" : "mb-0";
               const rowExtra = !isFirstInRun ? " -mt-0.5" : "";
-              const animClass = isNewSinceMount ? " chat-msg-enter" : "";
 
               return (
-                <div key={msg.id} data-testid={`community-message-${msg.id}`} className={`${animClass}`.trim() || undefined}>
-                  {showSeparator && (
-                    <div className="flex items-center justify-center my-3">
-                      <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{formatDateSeparator(msgDate)}</span>
-                    </div>
-                  )}
-                  <div className={`flex ${isMe ? "justify-end" : "justify-start"} ${rowGap}${rowExtra} gap-2`}>
-                    {!isMe && (
-                      isFirstInRun ? (
-                        <button
-                          type="button"
-                          onClick={() => setProfileUserId(msg.userId)}
-                          className="flex-shrink-0 self-end mb-1 rounded-full hover:opacity-80 transition-opacity"
-                          data-testid={`button-avatar-${msg.id}`}
-                        >
-                          <Avatar className="w-7 h-7">
-                            {msg.avatarUrl && <AvatarImage src={msg.avatarUrl} alt={msg.chatUsername} />}
-                            <AvatarFallback className="text-[10px]">{msg.chatUsername?.[0]?.toUpperCase() || "?"}</AvatarFallback>
-                          </Avatar>
-                        </button>
-                      ) : (
-                        <div className="w-7 flex-shrink-0" aria-hidden="true" />
-                      )
-                    )}
-                    <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
-                      <div className={`rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                        {isFirstInRun && (
-                        <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
-                          {!isMe ? (
-                            <button
-                              className="truncate underline decoration-dotted underline-offset-2 hover:opacity-80 transition-opacity"
-                              onClick={() => {
-                                if (isAdminUser && !msgIsAdmin) {
-                                  setAdminAction({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername });
-                                } else {
-                                  setProfileUserId(msg.userId);
-                                }
-                              }}
-                              data-testid={`button-username-${msg.id}`}
-                            >
-                              {msg.chatUsername}
-                            </button>
-                          ) : (
-                            <span className="truncate">{msg.chatUsername}</span>
-                          )}
-                          {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
-                        </p>
-                        )}
-                        {msg.pollId ? (
-                          <div className="my-1 -mx-1">
-                            <Poll pollId={msg.pollId} onDeleted={() => queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] })} />
-                          </div>
-                        ) : (
-                          <>
-                            {msg.imageUrl && (
-                              <div className="my-1 -mx-1 max-w-[280px]" data-testid={`img-community-msg-${msg.id}`}>
-                                <ClickableImage
-                                  src={msg.imageUrl}
-                                  alt="Attached image"
-                                  className="max-h-[280px] w-auto rounded-md object-contain"
-                                />
-                              </div>
-                            )}
-                            {msg.content && (
-                              <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
-                            )}
-                            {msg.kbArticle && (
-                              <Link href={`/knowledge/${msg.kbArticle.slug}`}>
-                                <div
-                                  className={`mt-1.5 -mx-0.5 rounded-md border p-2 cursor-pointer hover-elevate tap-interactive ${isMe ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-background/60"}`}
-                                  data-testid={`card-kb-article-msg-${msg.id}`}
-                                >
-                                  <div className="flex items-start gap-2">
-                                    <BookOpen className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isMe ? "text-primary-foreground/80" : "text-primary"}`} />
-                                    <div className="min-w-0 flex-1">
-                                      <p className={`text-sm font-medium truncate ${isMe ? "text-primary-foreground" : ""}`}>{msg.kbArticle.title}</p>
-                                      {msg.kbArticle.categoryName && (
-                                        <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{msg.kbArticle.categoryName}</p>
-                                      )}
-                                      {msg.kbArticle.summary && (
-                                        <p className={`text-xs mt-1 line-clamp-2 ${isMe ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{msg.kbArticle.summary}</p>
-                                      )}
-                                    </div>
-                                    <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 mt-1 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
-                                  </div>
-                                </div>
-                              </Link>
-                            )}
-                          </>
-                        )}
-                        <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
-                          <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
-                            {format(msgDate, "h:mm a")}
-                          </p>
-                          <div className="relative flex-shrink-0">
-                            <button
-                              onClick={() => setActiveEmojiPicker(activeEmojiPicker === msg.id ? null : msg.id)}
-                              className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-primary-foreground/80" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
-                              data-testid={`button-react-${msg.id}`}
-                            >
-                              <Smile className="w-3 h-3" />
-                            </button>
-                            {activeEmojiPicker === msg.id && (
-                              <EmojiPicker onSelect={(emoji) => handleReaction(msg.id, emoji)} onClose={() => setActiveEmojiPicker(null)} alignRight={isMe} />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <ReactionBadges reactions={msg.reactions} userId={user?.id || ""} onToggle={(emoji) => handleReaction(msg.id, emoji)} />
-                    </div>
-                  </div>
-                </div>
+                <CommunityMessageRow
+                  key={msg.id}
+                  msg={msg}
+                  isMe={isMe}
+                  msgIsAdmin={msgIsAdmin}
+                  isFirstInRun={isFirstInRun}
+                  isLastInRun={isLastInRun}
+                  tailClass={tailClass}
+                  isNewSinceMount={isNewSinceMount}
+                  showSeparator={showSeparator}
+                  dateSepLabel={formatDateSeparator(msgDate)}
+                  rowGap={rowGap}
+                  rowExtra={rowExtra}
+                  msgDate={msgDate}
+                  isAdminUser={isAdminUser}
+                  isActiveEmojiPicker={activeEmojiPicker === msg.id}
+                  currentUserId={user?.id || ""}
+                  onProfileClick={handleProfileClick}
+                  onAdminMenu={setAdminAction}
+                  onToggleEmojiPicker={handleToggleEmojiPicker}
+                  onCloseEmojiPicker={handleCloseEmojiPicker}
+                  onReact={handleReaction}
+                  onPollDeleted={handlePollDeleted}
+                />
               );
             })}
             <div ref={messagesEndRef} />
