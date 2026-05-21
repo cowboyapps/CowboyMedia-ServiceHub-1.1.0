@@ -575,6 +575,7 @@ export const communityMessages = pgTable("community_messages", {
   userId: varchar("user_id").notNull(),
   chatUsername: text("chat_username").notNull(),
   content: text("content").notNull(),
+  imageUrl: text("image_url"),
   pollId: varchar("poll_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

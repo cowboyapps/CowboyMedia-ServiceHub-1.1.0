@@ -16,8 +16,9 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3 } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus } from "lucide-react";
 import { Poll } from "@/components/poll";
+import { ClickableImage } from "@/components/image-lightbox";
 import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
@@ -655,6 +656,22 @@ export default function CommunityChatPage() {
   const [adminAction, setAdminAction] = useState<AdminAction>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [pollDialogOpen, setPollDialogOpen] = useState(false);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  // We mirror pendingImage into a ref so handleSend (a memoised callback)
+  // can read the freshest file value without us having to take the file
+  // as a dep — pulling pendingImage into handleSend's deps would also pull
+  // every other consumer of handleSend's identity into a rerender storm.
+  const pendingImageRef = useRef<File | null>(null);
+  const imagePreviewUrl = useMemo(() => {
+    if (!pendingImage) return null;
+    return URL.createObjectURL(pendingImage);
+  }, [pendingImage]);
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -820,21 +837,30 @@ export default function CommunityChatPage() {
 
   const handleSend = useCallback(async () => {
     const content = message.trim();
-    if (!content) return;
+    const file = pendingImageRef.current;
+    if (!content && !file) return;
     setMessage("");
+    setPendingImage(null);
+    pendingImageRef.current = null;
     setMentionQuery(null);
     mentionStartRef.current = null;
     try {
+      const formData = new FormData();
+      formData.append("content", content);
+      if (file) formData.append("image", file);
       const res = await fetch("/api/community-chat/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: formData,
         credentials: "include",
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         toast({ title: "Failed to send", description: data.error, variant: "destructive" });
         setMessage(content);
+        if (file) {
+          setPendingImage(file);
+          pendingImageRef.current = file;
+        }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
@@ -842,6 +868,10 @@ export default function CommunityChatPage() {
     } catch {
       toast({ title: "Failed to send message", variant: "destructive" });
       setMessage(content);
+      if (file) {
+        setPendingImage(file);
+        pendingImageRef.current = file;
+      }
     }
     setTimeout(() => {
       const el = messageInputRef.current;
@@ -1039,7 +1069,20 @@ export default function CommunityChatPage() {
                             <Poll pollId={msg.pollId} onDeleted={() => queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] })} />
                           </div>
                         ) : (
-                          <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
+                          <>
+                            {msg.imageUrl && (
+                              <div className="my-1 -mx-1 max-w-[280px]" data-testid={`img-community-msg-${msg.id}`}>
+                                <ClickableImage
+                                  src={msg.imageUrl}
+                                  alt="Attached image"
+                                  className="max-h-[280px] w-auto rounded-md object-contain"
+                                />
+                              </div>
+                            )}
+                            {msg.content && (
+                              <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
+                            )}
+                          </>
                         )}
                         <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
                           <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
@@ -1099,6 +1142,51 @@ export default function CommunityChatPage() {
               <BouncingDots />
             </div>
           )}
+          {pendingImage && imagePreviewUrl && (
+            <div className="mb-2 inline-flex items-center gap-2 rounded-md border bg-muted/40 p-1.5 pr-2" data-testid="container-pending-image">
+              <img
+                src={imagePreviewUrl}
+                alt="Pending attachment"
+                className="h-12 w-12 rounded object-cover"
+              />
+              <span className="text-xs text-muted-foreground max-w-[140px] truncate">{pendingImage.name}</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 flex-shrink-0"
+                onClick={() => {
+                  setPendingImage(null);
+                  pendingImageRef.current = null;
+                }}
+                data-testid="button-remove-pending-image"
+                title="Remove image"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+          <input
+            ref={imageFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            data-testid="input-community-image-file"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              if (!file.type.startsWith("image/")) {
+                toast({ title: "Only images can be attached", variant: "destructive" });
+                return;
+              }
+              if (file.size > 25 * 1024 * 1024) {
+                toast({ title: "Image is too large (max 25 MB)", variant: "destructive" });
+                return;
+              }
+              setPendingImage(file);
+              pendingImageRef.current = file;
+            }}
+          />
           <div className="flex items-end gap-2 relative">
             {mentionQuery !== null && participants && (
               <MentionAutocomplete
@@ -1174,6 +1262,16 @@ export default function CommunityChatPage() {
               rows={1}
               data-testid="input-community-message"
             />
+            <Button
+              size="icon"
+              variant="outline"
+              className="flex-shrink-0 h-9 w-9"
+              onClick={() => imageFileInputRef.current?.click()}
+              data-testid="button-attach-community-image"
+              title="Attach an image"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </Button>
             {isAdminUser && (
               <Button
                 size="icon"
@@ -1190,7 +1288,7 @@ export default function CommunityChatPage() {
               size="icon"
               className="flex-shrink-0 h-9 w-9"
               onClick={handleSend}
-              disabled={!message.trim()}
+              disabled={!message.trim() && !pendingImage}
               data-testid="button-send-community-message"
             >
               <Send className="w-4 h-4" />

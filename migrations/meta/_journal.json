@@ -29,6 +29,13 @@
       "when": 1778855904505,
       "tag": "0003_stale_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779367575519,
+      "tag": "0004_same_meteorite",
+      "breakpoints": true
     }
   ]
 }

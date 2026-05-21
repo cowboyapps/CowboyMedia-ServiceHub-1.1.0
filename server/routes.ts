@@ -5243,23 +5243,29 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/community-chat/messages", requireAuth, bypassRateLimitForAdmins, createCommunityChatPostLimiter(), async (req, res) => {
+  app.post("/api/community-chat/messages", requireAuth, bypassRateLimitForAdmins, createCommunityChatPostLimiter(), upload.single("image"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ error: "User not found" });
       if (user.chatBanned) {
         return res.status(403).json({ error: "You have been banned from community chat" });
       }
-      const { content } = req.body;
-      if (!content || typeof content !== "string" || !content.trim()) {
+      const rawContent = typeof req.body?.content === "string" ? req.body.content : "";
+      const hasImage = !!req.file;
+      // Image-only messages are allowed; require text only when no image is attached.
+      if (!hasImage && !rawContent.trim()) {
         return res.status(400).json({ error: "Content is required" });
       }
-      if (content.length > 2000) {
+      if (rawContent.length > 2000) {
         return res.status(400).json({ error: "Message too long (max 2000 characters)" });
       }
+      if (req.file && !req.file.mimetype.startsWith("image/")) {
+        return res.status(400).json({ error: "Only image attachments are supported" });
+      }
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
       const isAdminUser = user.role === "admin" || user.role === "master_admin";
       const chatUsername = isAdminUser ? user.fullName : (user.chatUsername || "Anonymous");
-      let trimmedContent = content.trim();
+      let trimmedContent = rawContent.trim();
 
       const hasEveryone = /@everyone\b/i.test(trimmedContent);
       if (hasEveryone && !isAdminUser) {
@@ -5281,6 +5287,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         userId: user.id,
         chatUsername,
         content: trimmedContent,
+        imageUrl,
       });
       broadcast({
         type: "community_message",
@@ -5300,9 +5307,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             }
           }
 
+          const bodyText = trimmedContent
+            ? (trimmedContent.length > 100 ? trimmedContent.slice(0, 100) + "…" : trimmedContent)
+            : (imageUrl ? "📷 Sent an image" : "");
           const pushPayload = {
             title: `💬 ${chatUsername} in Community Chat`,
-            body: trimmedContent.length > 100 ? trimmedContent.slice(0, 100) + "…" : trimmedContent,
+            body: bodyText,
             url: "/community",
             tag: "community-chat",
           };
