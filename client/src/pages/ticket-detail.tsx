@@ -204,6 +204,9 @@ export default function TicketDetail() {
   const [onlineViewers, setOnlineViewers] = useState<Map<string, string>>(new Map());
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
   const isNearBottomRef = useRef(true);
+  // Tracks message IDs present on first render so we only fade-in messages
+  // that arrived after mount (initial paint stays jank-free).
+  const initialMessageIdsRef = useRef<Set<string> | null>(null);
   const searchParams = new URLSearchParams(window.location.search);
   const originTicketId = searchParams.get("from");
   const originTicketSubject = searchParams.get("fromSubject");
@@ -699,6 +702,14 @@ export default function TicketDetail() {
     const pending = optimisticMessages.filter((m) => !realIds.has(m.id));
     return [...real, ...pending.map((m) => ({ ...m, _optimistic: true as const }))];
   }, [messages, optimisticMessages]);
+
+  // Snapshot the IDs present on the very first non-loading render so that
+  // every subsequent message (new poll result, optimistic send, push, etc.)
+  // is treated as "new" and gets the fade-in. Without this, the initial
+  // paint would animate every historical bubble.
+  if (initialMessageIdsRef.current === null && !messagesLoading && allMessages.length >= 0) {
+    initialMessageIdsRef.current = new Set(allMessages.map((m) => m.id));
+  }
 
   const internalNotes = useMemo(
     () => allMessages.filter((m) => !!m.isInternal),
@@ -1397,7 +1408,7 @@ export default function TicketDetail() {
             ) : allMessages.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">No messages yet. Start the conversation below.</p>
             ) : (
-              <div className="space-y-3 sm:space-y-4">
+              <div>
                 {allMessages.map((msg, idx) => {
                   const isMe = msg.senderId === user?.id;
                   const isAdminSender = msg.senderRole === "admin";
@@ -1418,8 +1429,33 @@ export default function TicketDetail() {
                   const canEditNote = isAdmin && isInternal && isMe && !isOptimistic && noteAgeMs < 5 * 60 * 1000;
                   const isEditingThis = editingNoteId === msg.id;
 
+                  // Group consecutive bubbles from the same sender within ~2min.
+                  // Internal notes never group with regular messages (different layout).
+                  const prevIsInternal = prevMsg ? (!!prevMsg.isInternal) : false;
+                  const sameRunAsPrev = !!prevMsg
+                    && !showDateSep
+                    && prevMsg.senderId === msg.senderId
+                    && prevIsInternal === isInternal
+                    && (msgDate.getTime() - (prevDate?.getTime() ?? 0)) < 2 * 60 * 1000;
+                  const isFirstInRun = !sameRunAsPrev;
+
+                  // Animate only messages that arrived after first mount; skip
+                  // the initial historical paint to avoid a wave of bubbles.
+                  const isNewSinceMount = initialMessageIdsRef.current
+                    ? !initialMessageIdsRef.current.has(msg.id)
+                    : false;
+
+                  const rowSpacing = idx === 0
+                    ? ""
+                    : showDateSep
+                      ? ""
+                      : isFirstInRun
+                        ? "mt-3 sm:mt-4"
+                        : "mt-0.5";
+                  const rowClass = `${rowSpacing}${isNewSinceMount ? " chat-msg-enter" : ""}`.trim();
+
                   return (
-                    <div key={msg.id}>
+                    <div key={msg.id} className={rowClass || undefined}>
                       {showDateSep && (
                         <div className="flex items-center gap-3 my-3 sm:my-4" data-testid={`date-separator-${msg.id}`}>
                           <div className="flex-1 h-px bg-border" />
@@ -1429,32 +1465,38 @@ export default function TicketDetail() {
                       )}
                       {isInternal ? (
                         <div className="flex gap-2" data-testid={`message-${msg.id}`} data-internal="true">
-                          <button
-                            type="button"
-                            onClick={() => setProfileUserId(msg.senderId)}
-                            className="flex-shrink-0 mt-0.5 rounded-full hover:opacity-80 transition-opacity"
-                            data-testid={`button-avatar-internal-${msg.id}`}
-                          >
-                            <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
-                              {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />}
-                              <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
-                                {msg.senderName?.[0] || "A"}
-                              </AvatarFallback>
-                            </Avatar>
-                          </button>
+                          {isFirstInRun ? (
+                            <button
+                              type="button"
+                              onClick={() => setProfileUserId(msg.senderId)}
+                              className="flex-shrink-0 mt-0.5 rounded-full hover:opacity-80 transition-opacity"
+                              data-testid={`button-avatar-internal-${msg.id}`}
+                            >
+                              <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                                {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />}
+                                <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
+                                  {msg.senderName?.[0] || "A"}
+                                </AvatarFallback>
+                              </Avatar>
+                            </button>
+                          ) : (
+                            <div className="w-7 sm:w-8 flex-shrink-0" aria-hidden="true" />
+                          )}
                           <div className="max-w-[90%] min-w-0 space-y-0.5 flex-1">
-                            <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
-                              <Lock className="w-3 h-3" />
-                              <button
-                                type="button"
-                                onClick={() => setProfileUserId(msg.senderId)}
-                                className="text-xs font-medium hover:underline underline-offset-2"
-                                data-testid={`text-chat-sender-${msg.id}`}
-                              >
-                                {displayName}
-                              </button>
-                              <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
-                            </div>
+                            {isFirstInRun && (
+                              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                                <Lock className="w-3 h-3" />
+                                <button
+                                  type="button"
+                                  onClick={() => setProfileUserId(msg.senderId)}
+                                  className="text-xs font-medium hover:underline underline-offset-2"
+                                  data-testid={`text-chat-sender-${msg.id}`}
+                                >
+                                  {displayName}
+                                </button>
+                                <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
+                              </div>
+                            )}
                             <div
                               className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500 ${
                                 isFailed
@@ -1569,42 +1611,48 @@ export default function TicketDetail() {
                         </div>
                       ) : (
                       <div className={`flex gap-2 ${isMe ? "flex-row-reverse" : ""}`} data-testid={`message-${msg.id}`}>
-                        <button
-                          type="button"
-                          onClick={() => !isMe && setProfileUserId(msg.senderId)}
-                          disabled={isMe}
-                          className={`flex-shrink-0 mt-0.5 rounded-full ${isMe ? "" : "hover:opacity-80 transition-opacity"}`}
-                          data-testid={`button-avatar-msg-${msg.id}`}
-                        >
-                          <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
-                            {isMe ? (
-                              user?.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />
-                            ) : (
-                              msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />
-                            )}
-                            <AvatarFallback className="text-xs">
-                              {isMe ? (user?.fullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
-                            </AvatarFallback>
-                          </Avatar>
-                        </button>
+                        {isFirstInRun ? (
+                          <button
+                            type="button"
+                            onClick={() => !isMe && setProfileUserId(msg.senderId)}
+                            disabled={isMe}
+                            className={`flex-shrink-0 mt-0.5 rounded-full ${isMe ? "" : "hover:opacity-80 transition-opacity"}`}
+                            data-testid={`button-avatar-msg-${msg.id}`}
+                          >
+                            <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                              {isMe ? (
+                                user?.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />
+                              ) : (
+                                msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />
+                              )}
+                              <AvatarFallback className="text-xs">
+                                {isMe ? (user?.fullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
+                              </AvatarFallback>
+                            </Avatar>
+                          </button>
+                        ) : (
+                          <div className="w-7 sm:w-8 flex-shrink-0" aria-hidden="true" />
+                        )}
                         <div className={`max-w-[80%] sm:max-w-[70%] min-w-0 space-y-0.5 ${isMe ? "items-end" : ""}`}>
-                          <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
-                            {isMe ? (
-                              <p className="text-xs font-medium">{displayName}</p>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setProfileUserId(msg.senderId)}
-                                className="text-xs font-medium hover:underline underline-offset-2"
-                                data-testid={`button-sender-name-${msg.id}`}
-                              >
-                                {displayName}
-                              </button>
-                            )}
-                            {isAdminSender && !isMe && (
-                              <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
-                            )}
-                          </div>
+                          {isFirstInRun && (
+                            <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
+                              {isMe ? (
+                                <p className="text-xs font-medium">{displayName}</p>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setProfileUserId(msg.senderId)}
+                                  className="text-xs font-medium hover:underline underline-offset-2"
+                                  data-testid={`button-sender-name-${msg.id}`}
+                                >
+                                  {displayName}
+                                </button>
+                              )}
+                              {isAdminSender && !isMe && (
+                                <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
+                              )}
+                            </div>
+                          )}
                           <div
                             className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden ${
                               isFailed

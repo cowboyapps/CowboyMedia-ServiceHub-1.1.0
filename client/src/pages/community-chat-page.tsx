@@ -652,6 +652,9 @@ export default function CommunityChatPage() {
   const [chatNotifPref, setChatNotifPref] = useState("mentions");
   const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
+  // Tracks message IDs present on first load so only newly-arrived messages
+  // get the fade-in animation (initial history paints instantly).
+  const initialMessageIdsRef = useRef<Set<string> | null>(null);
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -1033,36 +1036,67 @@ export default function CommunityChatPage() {
           </div>
         ) : (
           <>
+            {(() => {
+              // Only snapshot once we actually have the loaded list; if we
+              // snapshot during isLoading (empty array) the real history
+              // would animate when it arrives.
+              if (initialMessageIdsRef.current === null && !isLoading && messages) {
+                initialMessageIdsRef.current = new Set(messages.map((m) => m.id));
+              }
+              return null;
+            })()}
             {messages.map((msg, idx) => {
               const isMe = msg.userId === user?.id;
               const msgDate = new Date(msg.createdAt);
-              const prevDate = idx > 0 ? new Date(messages[idx - 1].createdAt) : null;
+              const prevMsg = idx > 0 ? messages[idx - 1] : null;
+              const prevDate = prevMsg ? new Date(prevMsg.createdAt) : null;
               const showSeparator = !prevDate || formatDateSeparator(msgDate) !== formatDateSeparator(prevDate);
               const msgIsAdmin = msg.isAdmin || false;
 
+              // Consecutive bubbles from same user within 2min collapse: hide
+              // avatar + name on continuation rows, tighter spacing.
+              const sameRunAsPrev = !!prevMsg
+                && !showSeparator
+                && prevMsg.userId === msg.userId
+                && (msgDate.getTime() - (prevDate?.getTime() ?? 0)) < 2 * 60 * 1000;
+              const isFirstInRun = !sameRunAsPrev;
+
+              const isNewSinceMount = initialMessageIdsRef.current
+                ? !initialMessageIdsRef.current.has(msg.id)
+                : false;
+
+              const rowGap = isFirstInRun ? "mb-1" : "mb-0";
+              const rowExtra = !isFirstInRun ? " -mt-0.5" : "";
+              const animClass = isNewSinceMount ? " chat-msg-enter" : "";
+
               return (
-                <div key={msg.id} data-testid={`community-message-${msg.id}`}>
+                <div key={msg.id} data-testid={`community-message-${msg.id}`} className={`${animClass}`.trim() || undefined}>
                   {showSeparator && (
                     <div className="flex items-center justify-center my-3">
                       <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{formatDateSeparator(msgDate)}</span>
                     </div>
                   )}
-                  <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1 gap-2`}>
+                  <div className={`flex ${isMe ? "justify-end" : "justify-start"} ${rowGap}${rowExtra} gap-2`}>
                     {!isMe && (
-                      <button
-                        type="button"
-                        onClick={() => setProfileUserId(msg.userId)}
-                        className="flex-shrink-0 self-end mb-1 rounded-full hover:opacity-80 transition-opacity"
-                        data-testid={`button-avatar-${msg.id}`}
-                      >
-                        <Avatar className="w-7 h-7">
-                          {msg.avatarUrl && <AvatarImage src={msg.avatarUrl} alt={msg.chatUsername} />}
-                          <AvatarFallback className="text-[10px]">{msg.chatUsername?.[0]?.toUpperCase() || "?"}</AvatarFallback>
-                        </Avatar>
-                      </button>
+                      isFirstInRun ? (
+                        <button
+                          type="button"
+                          onClick={() => setProfileUserId(msg.userId)}
+                          className="flex-shrink-0 self-end mb-1 rounded-full hover:opacity-80 transition-opacity"
+                          data-testid={`button-avatar-${msg.id}`}
+                        >
+                          <Avatar className="w-7 h-7">
+                            {msg.avatarUrl && <AvatarImage src={msg.avatarUrl} alt={msg.chatUsername} />}
+                            <AvatarFallback className="text-[10px]">{msg.chatUsername?.[0]?.toUpperCase() || "?"}</AvatarFallback>
+                          </Avatar>
+                        </button>
+                      ) : (
+                        <div className="w-7 flex-shrink-0" aria-hidden="true" />
+                      )
                     )}
                     <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
                       <div className={`rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                        {isFirstInRun && (
                         <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
                           {!isMe ? (
                             <button
@@ -1083,6 +1117,7 @@ export default function CommunityChatPage() {
                           )}
                           {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
                         </p>
+                        )}
                         {msg.pollId ? (
                           <div className="my-1 -mx-1">
                             <Poll pollId={msg.pollId} onDeleted={() => queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] })} />
