@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Bell, X, Mail, MessageSquare, AlertTriangle, Newspaper, Activity, FileText, RefreshCw, CheckCheck, UserPlus, MonitorX, MonitorCheck } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDistanceToNow } from "date-fns";
@@ -46,6 +48,14 @@ function getIcon(type: string) {
   return typeIcons[type] || Bell;
 }
 
+const RELATED_BADGE_KEYS = [
+  "/api/notifications/unread-count",
+  "/api/ticket-notifications/unread-count",
+  "/api/message-threads/unread-count",
+  "/api/report-notifications/unread-count",
+  "/api/content-notifications/counts",
+];
+
 function invalidateRelatedBadges(type: string) {
   const keys: string[] = ["/api/notifications/unread-count"];
   if (type === "ticket_update" || type === "new_ticket") keys.push("/api/ticket-notifications/unread-count");
@@ -59,26 +69,41 @@ function invalidateRelatedBadges(type: string) {
 
 function NotificationList({ onNavigate }: { onNavigate: (url: string) => void }) {
   const [hasSyncedBadges, setHasSyncedBadges] = useState(false);
+  const { toast } = useToast();
   const { data: notifications = [], isLoading } = useQuery<UserNotification[]>({
     queryKey: ["/api/notifications"],
     refetchInterval: 30000,
   });
 
-  const markReadMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await apiRequest("PATCH", `/api/notifications/${id}/read`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
-    },
-  });
-
   const dismissMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await apiRequest("PATCH", `/api/notifications/${id}/dismiss`);
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(
+        ids.map((id) => apiRequest("PATCH", `/api/notifications/${id}/dismiss`)),
+      );
     },
-    onSuccess: () => {
+    onMutate: async (ids: string[]) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/notifications"] });
+      await queryClient.cancelQueries({ queryKey: ["/api/notifications/unread-count"] });
+      const prevList = queryClient.getQueryData<UserNotification[]>(["/api/notifications"]);
+      const prevCount = queryClient.getQueryData<{ count: number }>(["/api/notifications/unread-count"]);
+      const idSet = new Set(ids);
+      const removedUnread = (prevList ?? []).filter((n) => idSet.has(n.id) && !n.readAt).length;
+      queryClient.setQueryData<UserNotification[]>(["/api/notifications"], (old) =>
+        (old ?? []).filter((n) => !idSet.has(n.id)),
+      );
+      if (removedUnread > 0) {
+        queryClient.setQueryData<{ count: number }>(["/api/notifications/unread-count"], (old) => ({
+          count: Math.max(0, (old?.count ?? 0) - removedUnread),
+        }));
+      }
+      return { prevList, prevCount };
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prevList) queryClient.setQueryData(["/api/notifications"], ctx.prevList);
+      if (ctx?.prevCount) queryClient.setQueryData(["/api/notifications/unread-count"], ctx.prevCount);
+      toast({ title: "Couldn't dismiss notification", description: "We'll put it back. Try again in a moment.", variant: "destructive" });
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
     },
@@ -88,13 +113,28 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
     mutationFn: async () => {
       await apiRequest("POST", "/api/notifications/mark-all-read");
     },
-    onSuccess: () => {
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["/api/notifications"] });
+      await queryClient.cancelQueries({ queryKey: ["/api/notifications/unread-count"] });
+      const prevList = queryClient.getQueryData<UserNotification[]>(["/api/notifications"]);
+      const prevCount = queryClient.getQueryData<{ count: number }>(["/api/notifications/unread-count"]);
+      const now = new Date().toISOString();
+      queryClient.setQueryData<UserNotification[]>(["/api/notifications"], (old) =>
+        (old ?? []).map((n) => (n.readAt ? n : { ...n, readAt: now })),
+      );
+      queryClient.setQueryData<{ count: number }>(["/api/notifications/unread-count"], { count: 0 });
+      return { prevList, prevCount };
+    },
+    onError: (_err, _v, ctx) => {
+      if (ctx?.prevList) queryClient.setQueryData(["/api/notifications"], ctx.prevList);
+      if (ctx?.prevCount) queryClient.setQueryData(["/api/notifications/unread-count"], ctx.prevCount);
+      toast({ title: "Couldn't clear notifications", description: "Please try again.", variant: "destructive" });
+    },
+    onSettled: () => {
+      for (const key of RELATED_BADGE_KEYS) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/ticket-notifications/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/report-notifications/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
     },
   });
 
@@ -108,11 +148,9 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
       setHasSyncedBadges(true);
       apiRequest("POST", "/api/notifications/mark-all-read")
         .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/ticket-notifications/unread-count"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/report-notifications/unread-count"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/content-notifications/counts"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+          for (const key of RELATED_BADGE_KEYS) {
+            queryClient.invalidateQueries({ queryKey: [key] });
+          }
         })
         .catch(() => {});
     }
@@ -167,17 +205,15 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
   const handleDismissGroup = (e: React.MouseEvent, group: GroupedNotification) => {
     e.stopPropagation();
     hapticLight();
-    for (const notif of group.notifications) {
-      dismissMutation.mutate(notif.id);
-    }
+    const ids = group.notifications.map((n) => n.id);
+    dismissMutation.mutate(ids);
     invalidateRelatedBadges(group.latest.type);
   };
 
   const handleTapGroup = (group: GroupedNotification) => {
     hapticLight();
-    for (const notif of group.notifications) {
-      dismissMutation.mutate(notif.id);
-    }
+    const ids = group.notifications.map((n) => n.id);
+    dismissMutation.mutate(ids);
     invalidateRelatedBadges(group.latest.type);
     if (group.latest.url) {
       onNavigate(group.latest.url);
@@ -194,7 +230,6 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
             size="sm"
             className="text-xs h-7 gap-1"
             onClick={handleMarkAllRead}
-            disabled={markAllReadMutation.isPending}
             data-testid="button-mark-all-read"
           >
             <CheckCheck className="w-3.5 h-3.5" />
@@ -210,49 +245,59 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
           </div>
         ) : (
           <div className="divide-y">
-            {groupedNotifications.map(group => {
-              const notif = group.latest;
-              const Icon = getIcon(notif.type);
-              const isUnread = group.notifications.some(n => !n.readAt);
-              return (
-                <div
-                  key={group.key}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleTapGroup(group)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTapGroup(group); } }}
-                  className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${isUnread ? "bg-primary/5" : ""}`}
-                  data-testid={`notification-item-${notif.id}`}
-                >
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-0.5 ${isUnread ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className={`text-sm leading-tight ${isUnread ? "font-medium" : "text-muted-foreground"}`}>{notif.title}</p>
-                      {group.count > 1 && (
-                        <span className="flex-shrink-0 text-[10px] font-medium bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                          {group.count}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                      {group.count > 1 ? `${group.count} new messages` : notif.body}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground/60 mt-1">
-                      {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
-                    </p>
-                  </div>
-                  <button
-                    onClick={(e) => handleDismissGroup(e, group)}
-                    className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
-                    data-testid={`button-dismiss-${group.key}`}
+            <AnimatePresence initial={false}>
+              {groupedNotifications.map(group => {
+                const notif = group.latest;
+                const Icon = getIcon(notif.type);
+                const isUnread = group.notifications.some(n => !n.readAt);
+                return (
+                  <motion.div
+                    key={group.key}
+                    layout
+                    initial={false}
+                    exit={{ opacity: 0, x: 32, height: 0, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 }}
+                    transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: "hidden" }}
                   >
-                    <X className="w-3.5 h-3.5 text-muted-foreground" />
-                  </button>
-                </div>
-              );
-            })}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleTapGroup(group)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTapGroup(group); } }}
+                      className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${isUnread ? "bg-primary/5" : ""}`}
+                      data-testid={`notification-item-${notif.id}`}
+                    >
+                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-0.5 ${isUnread ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className={`text-sm leading-tight ${isUnread ? "font-medium" : "text-muted-foreground"}`}>{notif.title}</p>
+                          {group.count > 1 && (
+                            <span className="flex-shrink-0 text-[10px] font-medium bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                              {group.count}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                          {group.count > 1 ? `${group.count} new messages` : notif.body}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/60 mt-1">
+                          {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => handleDismissGroup(e, group)}
+                        className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
+                        data-testid={`button-dismiss-${group.key}`}
+                      >
+                        <X className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
       </ScrollArea>
@@ -301,7 +346,10 @@ export function NotificationCenter() {
       <>
         {bellButton}
         <Sheet open={open} onOpenChange={setOpen}>
-          <SheetContent side="bottom" className="rounded-t-2xl px-0 pt-3 pb-4 max-h-[80vh]">
+          <SheetContent
+            side="bottom"
+            className="rounded-t-2xl px-0 pt-3 pb-4 max-h-[80vh] data-[state=open]:duration-200 data-[state=closed]:duration-150"
+          >
             <VisuallyHidden>
               <SheetTitle>Notifications</SheetTitle>
             </VisuallyHidden>
