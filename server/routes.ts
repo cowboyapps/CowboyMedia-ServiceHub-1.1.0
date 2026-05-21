@@ -5230,11 +5230,26 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const u = await storage.getUser(uid);
         if (u) usersMap.set(uid, { role: u.role, avatarUrl: u.avatarUrl || null });
       }
+      // Enrich KB article references — one lookup per unique slug, not per message.
+      const kbSlugs = [...new Set(messages.map(m => m.kbArticleSlug).filter((s): s is string => !!s))];
+      const kbBySlug = new Map<string, { slug: string; title: string; categoryName: string | null; summary: string | null }>();
+      for (const slug of kbSlugs) {
+        const article = await storage.getKbArticleBySlug(slug);
+        if (!article || !article.published) continue;
+        const category = await storage.getKbCategory(article.categoryId);
+        kbBySlug.set(slug, {
+          slug: article.slug,
+          title: article.title,
+          categoryName: category?.name ?? null,
+          summary: article.summary ?? null,
+        });
+      }
       const enriched = messages.map(m => ({
         ...m,
         reactions: reactionsByMessage[m.id] || [],
         isAdmin: ["admin", "master_admin"].includes(usersMap.get(m.userId)?.role || ""),
         avatarUrl: usersMap.get(m.userId)?.avatarUrl || null,
+        kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
       }));
       enriched.reverse();
       res.json(enriched);
@@ -5252,8 +5267,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const rawContent = typeof req.body?.content === "string" ? req.body.content : "";
       const hasImage = !!req.file;
-      // Image-only messages are allowed; require text only when no image is attached.
-      if (!hasImage && !rawContent.trim()) {
+      const rawKbSlug = typeof req.body?.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
+      const hasKbArticle = rawKbSlug.length > 0;
+      // Image-only or KB-link-only messages are allowed; require text only when nothing else is attached.
+      if (!hasImage && !hasKbArticle && !rawContent.trim()) {
         return res.status(400).json({ error: "Content is required" });
       }
       if (rawContent.length > 2000) {
@@ -5262,8 +5279,28 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (req.file && !req.file.mimetype.startsWith("image/")) {
         return res.status(400).json({ error: "Only image attachments are supported" });
       }
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
       const isAdminUser = user.role === "admin" || user.role === "master_admin";
+      // KB article links are admin-only — mirrors the @everyone gating pattern below.
+      let kbArticleSlug: string | null = null;
+      let kbArticleInfo: { slug: string; title: string; categoryName: string | null; summary: string | null } | null = null;
+      if (hasKbArticle) {
+        if (!isAdminUser) {
+          return res.status(403).json({ error: "Only admins can attach knowledge base articles" });
+        }
+        const article = await storage.getKbArticleBySlug(rawKbSlug);
+        if (!article || !article.published) {
+          return res.status(400).json({ error: "Knowledge base article not found" });
+        }
+        const category = await storage.getKbCategory(article.categoryId);
+        kbArticleSlug = article.slug;
+        kbArticleInfo = {
+          slug: article.slug,
+          title: article.title,
+          categoryName: category?.name ?? null,
+          summary: article.summary ?? null,
+        };
+      }
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
       const chatUsername = isAdminUser ? user.fullName : (user.chatUsername || "Anonymous");
       let trimmedContent = rawContent.trim();
 
@@ -5288,12 +5325,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         chatUsername,
         content: trimmedContent,
         imageUrl,
+        kbArticleSlug,
       });
+      const enriched = { ...msg, reactions: [], isAdmin: isAdminUser, kbArticle: kbArticleInfo };
       broadcast({
         type: "community_message",
-        message: { ...msg, reactions: [], isAdmin: isAdminUser },
+        message: enriched,
       });
-      res.json({ ...msg, reactions: [], isAdmin: isAdminUser });
+      res.json(enriched);
 
       (async () => {
         try {

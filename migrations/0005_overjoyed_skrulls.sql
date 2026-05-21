@@ -1,0 +1,1 @@
+ALTER TABLE "community_messages" ADD COLUMN "kb_article_slug" text;

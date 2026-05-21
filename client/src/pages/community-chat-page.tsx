@@ -16,9 +16,11 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search } from "lucide-react";
+import { Link } from "wouter";
 import { Poll } from "@/components/poll";
 import { ClickableImage } from "@/components/image-lightbox";
+import type { KbArticle, KbCategory } from "@shared/schema";
 import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
@@ -32,9 +34,115 @@ type AdminAction =
   | null;
 
 type ReactionGroup = { emoji: string; userIds: string[] };
-type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null };
+type KbArticleRef = { slug: string; title: string; categoryName: string | null; summary: string | null };
+type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null };
 
 const EMOJI_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
+
+function KbArticlePickerDialog({
+  open,
+  onOpenChange,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (article: KbArticleRef) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const { data: articles = [], isLoading } = useQuery<KbArticle[]>({
+    queryKey: ["/api/kb/articles"],
+    enabled: open,
+  });
+  const { data: categories = [] } = useQuery<KbCategory[]>({
+    queryKey: ["/api/kb/categories"],
+    enabled: open,
+  });
+  const categoryNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) m.set(c.id, c.name);
+    return m;
+  }, [categories]);
+  const filtered = useMemo(() => {
+    const published = articles.filter((a) => a.published);
+    const q = search.trim().toLowerCase();
+    if (!q) return published;
+    return published.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        (a.summary ?? "").toLowerCase().includes(q) ||
+        (categoryNameById.get(a.categoryId) ?? "").toLowerCase().includes(q),
+    );
+  }, [articles, search, categoryNameById]);
+
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[80vh] flex flex-col" data-testid="dialog-kb-picker">
+        <DialogHeader>
+          <DialogTitle>Link a knowledge base article</DialogTitle>
+        </DialogHeader>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search articles..."
+            className="pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-kb-picker-search"
+            autoFocus
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto -mx-2 px-2">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Loading articles...</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-kb-picker-empty">
+              {search.trim() ? `No articles match "${search}".` : "No published articles available."}
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {filtered.map((a) => {
+                const categoryName = categoryNameById.get(a.categoryId) ?? null;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() =>
+                      onSelect({
+                        slug: a.slug,
+                        title: a.title,
+                        categoryName,
+                        summary: a.summary ?? null,
+                      })
+                    }
+                    className="w-full text-left p-2.5 rounded-md border hover-elevate tap-interactive"
+                    data-testid={`button-kb-pick-${a.id}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <BookOpen className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{a.title}</p>
+                        {categoryName && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{categoryName}</p>
+                        )}
+                        {a.summary && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{a.summary}</p>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function BouncingDots() {
   return (
@@ -672,6 +780,11 @@ export default function CommunityChatPage() {
     };
   }, [imagePreviewUrl]);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingKbArticle, setPendingKbArticle] = useState<KbArticleRef | null>(null);
+  // Same ref-mirror trick as pendingImage — handleSend reads it without
+  // needing to take pendingKbArticle as a dep.
+  const pendingKbArticleRef = useRef<KbArticleRef | null>(null);
+  const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -838,16 +951,20 @@ export default function CommunityChatPage() {
   const handleSend = useCallback(async () => {
     const content = message.trim();
     const file = pendingImageRef.current;
-    if (!content && !file) return;
+    const kbArticle = pendingKbArticleRef.current;
+    if (!content && !file && !kbArticle) return;
     setMessage("");
     setPendingImage(null);
     pendingImageRef.current = null;
+    setPendingKbArticle(null);
+    pendingKbArticleRef.current = null;
     setMentionQuery(null);
     mentionStartRef.current = null;
     try {
       const formData = new FormData();
       formData.append("content", content);
       if (file) formData.append("image", file);
+      if (kbArticle) formData.append("kbArticleSlug", kbArticle.slug);
       const res = await fetch("/api/community-chat/messages", {
         method: "POST",
         body: formData,
@@ -861,6 +978,10 @@ export default function CommunityChatPage() {
           setPendingImage(file);
           pendingImageRef.current = file;
         }
+        if (kbArticle) {
+          setPendingKbArticle(kbArticle);
+          pendingKbArticleRef.current = kbArticle;
+        }
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
@@ -871,6 +992,10 @@ export default function CommunityChatPage() {
       if (file) {
         setPendingImage(file);
         pendingImageRef.current = file;
+      }
+      if (kbArticle) {
+        setPendingKbArticle(kbArticle);
+        pendingKbArticleRef.current = kbArticle;
       }
     }
     setTimeout(() => {
@@ -1082,6 +1207,28 @@ export default function CommunityChatPage() {
                             {msg.content && (
                               <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
                             )}
+                            {msg.kbArticle && (
+                              <Link href={`/knowledge/${msg.kbArticle.slug}`}>
+                                <div
+                                  className={`mt-1.5 -mx-0.5 rounded-md border p-2 cursor-pointer hover-elevate tap-interactive ${isMe ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-background/60"}`}
+                                  data-testid={`card-kb-article-msg-${msg.id}`}
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <BookOpen className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isMe ? "text-primary-foreground/80" : "text-primary"}`} />
+                                    <div className="min-w-0 flex-1">
+                                      <p className={`text-sm font-medium truncate ${isMe ? "text-primary-foreground" : ""}`}>{msg.kbArticle.title}</p>
+                                      {msg.kbArticle.categoryName && (
+                                        <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{msg.kbArticle.categoryName}</p>
+                                      )}
+                                      {msg.kbArticle.summary && (
+                                        <p className={`text-xs mt-1 line-clamp-2 ${isMe ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{msg.kbArticle.summary}</p>
+                                      )}
+                                    </div>
+                                    <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 mt-1 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+                                  </div>
+                                </div>
+                              </Link>
+                            )}
                           </>
                         )}
                         <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
@@ -1160,6 +1307,30 @@ export default function CommunityChatPage() {
                 }}
                 data-testid="button-remove-pending-image"
                 title="Remove image"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+          {pendingKbArticle && (
+            <div className="mb-2 inline-flex items-center gap-2 rounded-md border bg-muted/40 p-1.5 pr-2 max-w-full" data-testid="container-pending-kb-article">
+              <BookOpen className="w-4 h-4 text-primary flex-shrink-0 ml-1" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium truncate">{pendingKbArticle.title}</p>
+                {pendingKbArticle.categoryName && (
+                  <p className="text-[10px] text-muted-foreground truncate">{pendingKbArticle.categoryName}</p>
+                )}
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 flex-shrink-0"
+                onClick={() => {
+                  setPendingKbArticle(null);
+                  pendingKbArticleRef.current = null;
+                }}
+                data-testid="button-remove-pending-kb-article"
+                title="Remove article link"
               >
                 <X className="w-3 h-3" />
               </Button>
@@ -1273,22 +1444,34 @@ export default function CommunityChatPage() {
               <ImagePlus className="w-4 h-4" />
             </Button>
             {isAdminUser && (
-              <Button
-                size="icon"
-                variant="outline"
-                className="flex-shrink-0 h-9 w-9"
-                onClick={() => setPollDialogOpen(true)}
-                data-testid="button-open-poll-composer"
-                title="Post a poll"
-              >
-                <BarChart3 className="w-4 h-4" />
-              </Button>
+              <>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="flex-shrink-0 h-9 w-9"
+                  onClick={() => setKbPickerOpen(true)}
+                  data-testid="button-attach-kb-article"
+                  title="Link a knowledge base article"
+                >
+                  <BookOpen className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="flex-shrink-0 h-9 w-9"
+                  onClick={() => setPollDialogOpen(true)}
+                  data-testid="button-open-poll-composer"
+                  title="Post a poll"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                </Button>
+              </>
             )}
             <Button
               size="icon"
               className="flex-shrink-0 h-9 w-9"
               onClick={handleSend}
-              disabled={!message.trim() && !pendingImage}
+              disabled={!message.trim() && !pendingImage && !pendingKbArticle}
               data-testid="button-send-community-message"
             >
               <Send className="w-4 h-4" />
@@ -1298,6 +1481,15 @@ export default function CommunityChatPage() {
       )}
 
       <PollComposerDialog open={pollDialogOpen} onOpenChange={setPollDialogOpen} parentType="community" />
+      <KbArticlePickerDialog
+        open={kbPickerOpen}
+        onOpenChange={setKbPickerOpen}
+        onSelect={(article) => {
+          setPendingKbArticle(article);
+          pendingKbArticleRef.current = article;
+          setKbPickerOpen(false);
+        }}
+      />
       <UsernameSetupDialog open={showUsernameDialog} onComplete={handleUsernameComplete} />
       <UserProfileDialog
         userId={profileUserId}
