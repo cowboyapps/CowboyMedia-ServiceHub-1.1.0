@@ -11,7 +11,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Codegen**: `npm run codegen`
 - **DB Migrations**:
     - **Generate**: `npm run db:generate` after editing `shared/schema.ts` — produces `migrations/<idx>_<name>.sql`. Commit the SQL + the regenerated `migrations/meta/` files together.
-    - **Apply**: automatic on app start (`server/migrate.ts` calls drizzle's migrator inside a transaction before `registerRoutes`). pm2 will not flip to a build whose migrations failed.
+    - **Apply**: automatic on app start (`server/migrate.ts` calls drizzle's migrator inside a transaction before `registerRoutes`). pm2 will not flip to a build whose migrations failed. Also applied during `prebuild` via `npm run db:migrate` (same `runMigrations()` entry point, just invoked from `script/migrate.ts`) so the column-drift audit that runs immediately after sees the new shape — without this the gate would fail closed on every new-column deploy.
     - **Drift check**: `npm run db:check` — also runs as part of `prebuild` and in CI. Fails when `shared/schema.ts` and `migrations/` disagree.
     - **How to add a column**: edit `shared/schema.ts`, run `npm run db:generate`, commit the new SQL + meta files, push. The migrator applies it on the next boot. Do NOT hand-write `ALTER TABLE` in `server/index.ts`.
 - **Environment Variables**:
