@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -156,6 +156,270 @@ function FileAttachment({ url, className }: { url: string; className?: string })
     </a>
   );
 }
+
+interface TicketRowProps {
+  msg: any;
+  isMe: boolean;
+  isAdminSender: boolean;
+  displayName: string;
+  isOptimistic: boolean;
+  optimisticData: any | null;
+  isFailed: boolean;
+  isSending: boolean;
+  msgDate: Date;
+  showDateSep: boolean;
+  dateSepLabel: string;
+  isInternal: boolean;
+  canEditNote: boolean;
+  isEditingThis: boolean;
+  editingNoteText: string;
+  isFirstInRun: boolean;
+  tailClass: string;
+  rowClass: string;
+  isAdmin: boolean;
+  userAvatarUrl: string | null | undefined;
+  userFullName: string | undefined;
+  editNotePending: boolean;
+  deleteNotePending: boolean;
+  onProfileClick: (id: string) => void;
+  onStartEdit: (id: string, text: string) => void;
+  onCancelEdit: () => void;
+  onEditingTextChange: (text: string) => void;
+  onSaveEdit: (id: string, text: string) => void;
+  onDeleteNote: (id: string) => void;
+  onRetry: (opt: any) => void;
+}
+
+const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
+  const {
+    msg, isMe, isAdminSender, displayName, isOptimistic, optimisticData,
+    isFailed, isSending, msgDate, showDateSep, dateSepLabel, isInternal,
+    canEditNote, isEditingThis, editingNoteText, isFirstInRun, tailClass,
+    rowClass, isAdmin, userAvatarUrl, userFullName,
+    editNotePending, deleteNotePending,
+    onProfileClick, onStartEdit, onCancelEdit, onEditingTextChange,
+    onSaveEdit, onDeleteNote, onRetry,
+  } = props;
+  return (
+    <div className={rowClass || undefined}>
+      {showDateSep && (
+        <div className="flex items-center gap-3 my-3 sm:my-4" data-testid={`date-separator-${msg.id}`}>
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-muted-foreground font-medium px-2">{dateSepLabel}</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+      )}
+      {isInternal ? (
+        <div className="flex gap-2" data-testid={`message-${msg.id}`} data-internal="true">
+          {isFirstInRun ? (
+            <button
+              type="button"
+              onClick={() => onProfileClick(msg.senderId)}
+              className="flex-shrink-0 mt-0.5 rounded-full hover:opacity-80 transition-opacity"
+              data-testid={`button-avatar-internal-${msg.id}`}
+            >
+              <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />}
+                <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
+                  {msg.senderName?.[0] || "A"}
+                </AvatarFallback>
+              </Avatar>
+            </button>
+          ) : (
+            <div className="w-7 sm:w-8 flex-shrink-0" aria-hidden="true" />
+          )}
+          <div className="max-w-[90%] min-w-0 space-y-0.5 flex-1">
+            {isFirstInRun && (
+              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                <Lock className="w-3 h-3" />
+                <button
+                  type="button"
+                  onClick={() => onProfileClick(msg.senderId)}
+                  className="text-xs font-medium hover:underline underline-offset-2"
+                  data-testid={`text-chat-sender-${msg.id}`}
+                >
+                  {displayName}
+                </button>
+                <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
+              </div>
+            )}
+            <div
+              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500${tailClass} ${
+                isFailed
+                  ? "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
+                  : isSending
+                    ? "bg-amber-100/60 dark:bg-amber-900/30 opacity-70"
+                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100"
+              }`}
+              style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+              data-testid={`internal-note-${msg.id}`}
+            >
+              {isEditingThis ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={editingNoteText}
+                    onChange={(e) => onEditingTextChange(e.target.value)}
+                    className="min-h-[60px] text-sm bg-background"
+                    data-testid={`input-edit-note-${msg.id}`}
+                  />
+                  <div className="flex gap-1.5 justify-end">
+                    <Button type="button" size="sm" variant="ghost" onClick={onCancelEdit} data-testid={`button-cancel-edit-${msg.id}`}>Cancel</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const trimmed = editingNoteText.trim();
+                        if (!trimmed) return;
+                        onSaveEdit(msg.id, trimmed);
+                      }}
+                      disabled={editNotePending || !editingNoteText.trim()}
+                      data-testid={`button-save-edit-${msg.id}`}
+                    >
+                      <Check className="w-3 h-3 mr-1" /> Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {msg.message}
+                  {msg.imageUrl && <FileAttachment url={msg.imageUrl} />}
+                  {isOptimistic && optimisticData?.imageFile && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs opacity-70">
+                      <Paperclip className="w-3 h-3" />
+                      <span className="truncate">{optimisticData.imageFile.name}</span>
+                    </div>
+                  )}
+                  {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
+                    <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} />
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              {isSending && (
+                <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
+              )}
+              {isFailed && (
+                <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
+                  <AlertCircle className="w-3 h-3 text-red-500" />
+                  <span className="text-[10px] text-red-500">Failed to send</span>
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700" onClick={() => onRetry(optimisticData!)} data-testid={`button-retry-${msg.id}`}>
+                    <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                  </Button>
+                </div>
+              )}
+              {!isOptimistic && (
+                <p className="text-[10px] sm:text-xs text-muted-foreground">{format(msgDate, "h:mm a")}</p>
+              )}
+              {canEditNote && !isEditingThis && (
+                <>
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => onStartEdit(msg.id, msg.message)} data-testid={`button-edit-note-${msg.id}`}>
+                    <Pencil className="w-3 h-3 mr-0.5" /> Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
+                    onClick={() => { if (window.confirm("Delete this internal note?")) onDeleteNote(msg.id); }}
+                    disabled={deleteNotePending}
+                    data-testid={`button-delete-note-${msg.id}`}
+                  >
+                    <Trash2 className="w-3 h-3 mr-0.5" /> Delete
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={`flex gap-2 ${isMe ? "flex-row-reverse" : ""}`} data-testid={`message-${msg.id}`}>
+          {isFirstInRun ? (
+            <button
+              type="button"
+              onClick={() => !isMe && onProfileClick(msg.senderId)}
+              disabled={isMe}
+              className={`flex-shrink-0 mt-0.5 rounded-full ${isMe ? "" : "hover:opacity-80 transition-opacity"}`}
+              data-testid={`button-avatar-msg-${msg.id}`}
+            >
+              <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                {isMe ? (
+                  userAvatarUrl && <AvatarImage src={userAvatarUrl} alt={userFullName} />
+                ) : (
+                  msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />
+                )}
+                <AvatarFallback className="text-xs">
+                  {isMe ? (userFullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
+                </AvatarFallback>
+              </Avatar>
+            </button>
+          ) : (
+            <div className="w-7 sm:w-8 flex-shrink-0" aria-hidden="true" />
+          )}
+          <div className={`max-w-[80%] sm:max-w-[70%] min-w-0 space-y-0.5 ${isMe ? "items-end" : ""}`}>
+            {isFirstInRun && (
+              <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
+                {isMe ? (
+                  <p className="text-xs font-medium">{displayName}</p>
+                ) : (
+                  <button type="button" onClick={() => onProfileClick(msg.senderId)} className="text-xs font-medium hover:underline underline-offset-2" data-testid={`button-sender-name-${msg.id}`}>
+                    {displayName}
+                  </button>
+                )}
+                {isAdminSender && !isMe && (
+                  <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
+                )}
+              </div>
+            )}
+            <div
+              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden${tailClass} ${
+                isFailed
+                  ? "bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
+                  : isSending
+                    ? "bg-primary/70 text-primary-foreground opacity-70"
+                    : isMe
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-accent"
+              }`}
+              style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+            >
+              {msg.message}
+              {msg.imageUrl && <FileAttachment url={msg.imageUrl} />}
+              {isOptimistic && optimisticData?.imageFile && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs opacity-70">
+                  <Paperclip className="w-3 h-3" />
+                  <span className="truncate">{optimisticData.imageFile.name}</span>
+                </div>
+              )}
+              {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
+                <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} onBubble />
+              )}
+            </div>
+            <div className={`flex items-center gap-1.5 ${isMe ? "justify-end" : ""}`}>
+              {isSending && (
+                <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
+              )}
+              {isFailed && (
+                <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
+                  <AlertCircle className="w-3 h-3 text-red-500" />
+                  <span className="text-[10px] text-red-500">Failed to send</span>
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => onRetry(optimisticData!)} data-testid={`button-retry-${msg.id}`}>
+                    <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                  </Button>
+                </div>
+              )}
+              {!isOptimistic && (
+                <p className="text-[10px] sm:text-xs text-muted-foreground">
+                  {format(new Date(msg.createdAt), "h:mm a")}
+                  {isAdmin && isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function TicketDetail() {
   const params = useParams<{ id: string }>();
@@ -665,6 +929,24 @@ export default function TicketDetail() {
     setPendingPlaceholderSend(null);
     performSend(pending.msgText, pending.imgFile, pending.internal, pending.kb);
   }, [pendingPlaceholderSend, performSend]);
+
+  const handleProfileClick = useCallback((id: string) => setProfileUserId(id), []);
+  const handleStartEdit = useCallback((id: string, text: string) => {
+    setEditingNoteId(id);
+    setEditingNoteText(text);
+  }, []);
+  const handleCancelEdit = useCallback(() => {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }, []);
+  const handleSaveEdit = useCallback((id: string, text: string) => {
+    editNoteMutation.mutate({ id, text });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleDeleteNote = useCallback((id: string) => {
+    deleteNoteMutation.mutate(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
     doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null);
@@ -1475,260 +1757,39 @@ export default function TicketDetail() {
                   const rowClass = `${rowSpacing}${isNewSinceMount ? " chat-msg-enter" : ""}`.trim();
 
                   return (
-                    <div key={msg.id} className={rowClass || undefined}>
-                      {showDateSep && (
-                        <div className="flex items-center gap-3 my-3 sm:my-4" data-testid={`date-separator-${msg.id}`}>
-                          <div className="flex-1 h-px bg-border" />
-                          <span className="text-xs text-muted-foreground font-medium px-2">{formatDateSeparator(msgDate)}</span>
-                          <div className="flex-1 h-px bg-border" />
-                        </div>
-                      )}
-                      {isInternal ? (
-                        <div className="flex gap-2" data-testid={`message-${msg.id}`} data-internal="true">
-                          {isFirstInRun ? (
-                            <button
-                              type="button"
-                              onClick={() => setProfileUserId(msg.senderId)}
-                              className="flex-shrink-0 mt-0.5 rounded-full hover:opacity-80 transition-opacity"
-                              data-testid={`button-avatar-internal-${msg.id}`}
-                            >
-                              <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
-                                {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />}
-                                <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
-                                  {msg.senderName?.[0] || "A"}
-                                </AvatarFallback>
-                              </Avatar>
-                            </button>
-                          ) : (
-                            <div className="w-7 sm:w-8 flex-shrink-0" aria-hidden="true" />
-                          )}
-                          <div className="max-w-[90%] min-w-0 space-y-0.5 flex-1">
-                            {isFirstInRun && (
-                              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
-                                <Lock className="w-3 h-3" />
-                                <button
-                                  type="button"
-                                  onClick={() => setProfileUserId(msg.senderId)}
-                                  className="text-xs font-medium hover:underline underline-offset-2"
-                                  data-testid={`text-chat-sender-${msg.id}`}
-                                >
-                                  {displayName}
-                                </button>
-                                <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
-                              </div>
-                            )}
-                            <div
-                              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500${tailClass} ${
-                                isFailed
-                                  ? "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
-                                  : isSending
-                                    ? "bg-amber-100/60 dark:bg-amber-900/30 opacity-70"
-                                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100"
-                              }`}
-                              style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-                              data-testid={`internal-note-${msg.id}`}
-                            >
-                              {isEditingThis ? (
-                                <div className="space-y-2">
-                                  <Textarea
-                                    value={editingNoteText}
-                                    onChange={(e) => setEditingNoteText(e.target.value)}
-                                    className="min-h-[60px] text-sm bg-background"
-                                    data-testid={`input-edit-note-${msg.id}`}
-                                  />
-                                  <div className="flex gap-1.5 justify-end">
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => { setEditingNoteId(null); setEditingNoteText(""); }}
-                                      data-testid={`button-cancel-edit-${msg.id}`}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      onClick={() => {
-                                        const trimmed = editingNoteText.trim();
-                                        if (!trimmed) return;
-                                        editNoteMutation.mutate({ id: msg.id, text: trimmed });
-                                      }}
-                                      disabled={editNoteMutation.isPending || !editingNoteText.trim()}
-                                      data-testid={`button-save-edit-${msg.id}`}
-                                    >
-                                      <Check className="w-3 h-3 mr-1" /> Save
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  {msg.message}
-                                  {msg.imageUrl && <FileAttachment url={msg.imageUrl} />}
-                                  {isOptimistic && optimisticData?.imageFile && (
-                                    <div className="mt-1 flex items-center gap-1.5 text-xs opacity-70">
-                                      <Paperclip className="w-3 h-3" />
-                                      <span className="truncate">{optimisticData.imageFile.name}</span>
-                                    </div>
-                                  )}
-                                  {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
-                                    <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} />
-                                  )}
-                                </>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {isSending && (
-                                <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
-                              )}
-                              {isFailed && (
-                                <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
-                                  <AlertCircle className="w-3 h-3 text-red-500" />
-                                  <span className="text-[10px] text-red-500">Failed to send</span>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
-                                    onClick={() => retryMessage(optimisticData!)}
-                                    data-testid={`button-retry-${msg.id}`}
-                                  >
-                                    <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
-                                  </Button>
-                                </div>
-                              )}
-                              {!isOptimistic && (
-                                <p className="text-[10px] sm:text-xs text-muted-foreground">
-                                  {format(msgDate, "h:mm a")}
-                                </p>
-                              )}
-                              {canEditNote && !isEditingThis && (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 px-1.5 text-[10px]"
-                                    onClick={() => { setEditingNoteId(msg.id); setEditingNoteText(msg.message); }}
-                                    data-testid={`button-edit-note-${msg.id}`}
-                                  >
-                                    <Pencil className="w-3 h-3 mr-0.5" /> Edit
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
-                                    onClick={() => {
-                                      if (window.confirm("Delete this internal note?")) deleteNoteMutation.mutate(msg.id);
-                                    }}
-                                    disabled={deleteNoteMutation.isPending}
-                                    data-testid={`button-delete-note-${msg.id}`}
-                                  >
-                                    <Trash2 className="w-3 h-3 mr-0.5" /> Delete
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                      <div className={`flex gap-2 ${isMe ? "flex-row-reverse" : ""}`} data-testid={`message-${msg.id}`}>
-                        {isFirstInRun ? (
-                          <button
-                            type="button"
-                            onClick={() => !isMe && setProfileUserId(msg.senderId)}
-                            disabled={isMe}
-                            className={`flex-shrink-0 mt-0.5 rounded-full ${isMe ? "" : "hover:opacity-80 transition-opacity"}`}
-                            data-testid={`button-avatar-msg-${msg.id}`}
-                          >
-                            <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
-                              {isMe ? (
-                                user?.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />
-                              ) : (
-                                msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />
-                              )}
-                              <AvatarFallback className="text-xs">
-                                {isMe ? (user?.fullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
-                              </AvatarFallback>
-                            </Avatar>
-                          </button>
-                        ) : (
-                          <div className="w-7 sm:w-8 flex-shrink-0" aria-hidden="true" />
-                        )}
-                        <div className={`max-w-[80%] sm:max-w-[70%] min-w-0 space-y-0.5 ${isMe ? "items-end" : ""}`}>
-                          {isFirstInRun && (
-                            <div className={isMe ? "text-right" : ""} data-testid={`text-chat-sender-${msg.id}`}>
-                              {isMe ? (
-                                <p className="text-xs font-medium">{displayName}</p>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setProfileUserId(msg.senderId)}
-                                  className="text-xs font-medium hover:underline underline-offset-2"
-                                  data-testid={`button-sender-name-${msg.id}`}
-                                >
-                                  {displayName}
-                                </button>
-                              )}
-                              {isAdminSender && !isMe && (
-                                <p className="text-[10px] text-muted-foreground">CowboyMedia Support</p>
-                              )}
-                            </div>
-                          )}
-                          <div
-                            className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden${tailClass} ${
-                              isFailed
-                                ? "bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
-                                : isSending
-                                  ? "bg-primary/70 text-primary-foreground opacity-70"
-                                  : isMe
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-accent"
-                            }`}
-                            style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-                          >
-                            {msg.message}
-                            {msg.imageUrl && (
-                              <FileAttachment url={msg.imageUrl} />
-                            )}
-                            {isOptimistic && optimisticData?.imageFile && (
-                              <div className="mt-1 flex items-center gap-1.5 text-xs opacity-70">
-                                <Paperclip className="w-3 h-3" />
-                                <span className="truncate">{optimisticData.imageFile.name}</span>
-                              </div>
-                            )}
-                            {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
-                              <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} onBubble />
-                            )}
-                          </div>
-                          <div className={`flex items-center gap-1.5 ${isMe ? "justify-end" : ""}`}>
-                            {isSending && (
-                              <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
-                            )}
-                            {isFailed && (
-                              <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
-                                <AlertCircle className="w-3 h-3 text-red-500" />
-                                <span className="text-[10px] text-red-500">Failed to send</span>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                                  onClick={() => retryMessage(optimisticData!)}
-                                  data-testid={`button-retry-${msg.id}`}
-                                >
-                                  <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
-                                </Button>
-                              </div>
-                            )}
-                            {!isOptimistic && (
-                              <p className="text-[10px] sm:text-xs text-muted-foreground">
-                                {format(new Date(msg.createdAt), "h:mm a")}
-                                {isAdmin && isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      )}
-                    </div>
+                    <TicketMessageRow
+                      key={msg.id}
+                      msg={msg}
+                      isMe={isMe}
+                      isAdminSender={isAdminSender}
+                      displayName={displayName}
+                      isOptimistic={!!isOptimistic}
+                      optimisticData={optimisticData}
+                      isFailed={!!isFailed}
+                      isSending={!!isSending}
+                      msgDate={msgDate}
+                      showDateSep={showDateSep}
+                      dateSepLabel={formatDateSeparator(msgDate)}
+                      isInternal={isInternal}
+                      canEditNote={canEditNote}
+                      isEditingThis={isEditingThis}
+                      editingNoteText={isEditingThis ? editingNoteText : ""}
+                      isFirstInRun={isFirstInRun}
+                      tailClass={tailClass}
+                      rowClass={rowClass}
+                      isAdmin={isAdmin}
+                      userAvatarUrl={user?.avatarUrl}
+                      userFullName={user?.fullName}
+                      editNotePending={editNoteMutation.isPending}
+                      deleteNotePending={deleteNoteMutation.isPending}
+                      onProfileClick={handleProfileClick}
+                      onStartEdit={handleStartEdit}
+                      onCancelEdit={handleCancelEdit}
+                      onEditingTextChange={setEditingNoteText}
+                      onSaveEdit={handleSaveEdit}
+                      onDeleteNote={handleDeleteNote}
+                      onRetry={retryMessage}
+                    />
                   );
                 })}
                 <div ref={messagesEndRef} />
