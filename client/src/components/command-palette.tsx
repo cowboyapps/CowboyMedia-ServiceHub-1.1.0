@@ -23,7 +23,68 @@ import {
   FileText,
   Shield,
   ArrowRight,
+  Clock,
 } from "lucide-react";
+
+const RECENT_VISITS_KEY_PREFIX = "command-palette-recent-visits:";
+const RECENT_VISITS_MAX = 20;
+const RECENT_VISITS_SHOWN = 5;
+
+export interface RecentVisit {
+  key: string;
+  kind: ResultGroupKey;
+  title: string;
+  url: string;
+  ts: number;
+}
+
+// Scope recents per authenticated user so titles/URLs from one account
+// never leak to another account that signs in on the same browser
+// (e.g. admin → customer, or customer A → customer B). Without a userId
+// the helpers are no-ops.
+function storageKeyFor(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  return `${RECENT_VISITS_KEY_PREFIX}${userId}`;
+}
+
+export function readRecentVisits(userId: string | null | undefined): RecentVisit[] {
+  const key = storageKeyFor(userId);
+  if (!key) return [];
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (v): v is RecentVisit =>
+        v && typeof v.key === "string" && typeof v.title === "string" && typeof v.url === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function recordRecentVisit(userId: string | null | undefined, visit: Omit<RecentVisit, "ts">): void {
+  const key = storageKeyFor(userId);
+  if (!key) return;
+  try {
+    const existing = readRecentVisits(userId).filter((v) => v.key !== visit.key);
+    const next = [{ ...visit, ts: Date.now() }, ...existing].slice(0, RECENT_VISITS_MAX);
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {}
+}
+
+// Strip recents the current user is not permitted to see — defends
+// against a stored URL whose visibility changed (e.g. an admin who
+// later got their adminRoleId revoked still has admin URLs in their
+// own recents key).
+function filterRecentsForRole(recents: RecentVisit[], isAdmin: boolean): RecentVisit[] {
+  return recents.filter((r) => {
+    if (!isAdmin && r.kind === "users") return false;
+    if (!isAdmin && r.url.startsWith("/admin")) return false;
+    return true;
+  });
+}
 
 export interface SearchResult {
   id: string;
@@ -209,14 +270,31 @@ export function CommandPalette() {
     [isAdmin, debounced],
   );
 
-  const navigate = (url: string) => {
+  const navigate = (url: string, record?: { kind: ResultGroupKey; id: string; title: string }) => {
     setOpen(false);
+    if (record && user?.id) {
+      recordRecentVisit(user.id, {
+        key: `${record.kind}:${record.id}`,
+        kind: record.kind,
+        title: record.title,
+        url,
+      });
+    }
     if (url.startsWith("http")) {
       window.location.href = url;
       return;
     }
     setLocation(url);
   };
+
+  const [recents, setRecents] = useState<RecentVisit[]>([]);
+  useEffect(() => {
+    if (open && user?.id) {
+      setRecents(filterRecentsForRole(readRecentVisits(user.id), isAdmin));
+    } else if (!open) {
+      setRecents([]);
+    }
+  }, [open, user?.id, isAdmin]);
 
   const visibleGroups = useMemo(
     () => buildVisibleGroups(results, isAdmin),
@@ -234,24 +312,41 @@ export function CommandPalette() {
       />
       <CommandList>
         {showQuickActions ? (
-          <CommandGroup heading="Quick actions">
-            {quickActions.length === 0 ? (
-              <CommandEmpty>No actions match.</CommandEmpty>
-            ) : (
-              quickActions.map((a) => (
-                <CommandItem
-                  key={a.id}
-                  value={a.id}
-                  onSelect={() => navigate(a.url)}
-                  data-testid={`command-action-${a.id}`}
-                >
-                  <a.icon className="text-muted-foreground" />
-                  <span>{a.label}</span>
-                  <ArrowRight className="ml-auto opacity-50" />
-                </CommandItem>
-              ))
+          <>
+            {debounced.trim().length === 0 && recents.length > 0 && (
+              <CommandGroup heading="Recent">
+                {recents.slice(0, RECENT_VISITS_SHOWN).map((r) => (
+                  <CommandItem
+                    key={r.key}
+                    value={`recent-${r.key}`}
+                    onSelect={() => navigate(r.url, { kind: r.kind, id: r.key.split(":").slice(1).join(":"), title: r.title })}
+                    data-testid={`command-recent-${r.key}`}
+                  >
+                    <Clock className="text-muted-foreground" />
+                    <span className="truncate">{r.title}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
             )}
-          </CommandGroup>
+            <CommandGroup heading="Quick actions">
+              {quickActions.length === 0 ? (
+                <CommandEmpty>No actions match.</CommandEmpty>
+              ) : (
+                quickActions.map((a) => (
+                  <CommandItem
+                    key={a.id}
+                    value={a.id}
+                    onSelect={() => navigate(a.url)}
+                    data-testid={`command-action-${a.id}`}
+                  >
+                    <a.icon className="text-muted-foreground" />
+                    <span>{a.label}</span>
+                    <ArrowRight className="ml-auto opacity-50" />
+                  </CommandItem>
+                ))
+              )}
+            </CommandGroup>
+          </>
         ) : isFetching && totalResults === 0 ? (
           <div className="p-3 space-y-2" data-testid="command-skeleton">
             <Skeleton className="h-6 w-full" />
@@ -268,7 +363,7 @@ export function CommandPalette() {
                 heading={GROUP_META[group.key].heading}
                 items={group.items}
                 icon={GROUP_META[group.key].icon}
-                onSelect={navigate}
+                onSelect={(url, item) => navigate(url, { kind: group.key, id: item.id, title: item.title })}
                 testIdPrefix={GROUP_META[group.key].testIdPrefix}
               />
             </div>
@@ -283,7 +378,7 @@ interface ResultGroupProps {
   heading: string;
   items: SearchResult[];
   icon: React.ComponentType<{ className?: string }>;
-  onSelect: (url: string) => void;
+  onSelect: (url: string, item: SearchResult) => void;
   testIdPrefix: string;
 }
 
@@ -294,7 +389,7 @@ function ResultGroup({ heading, items, icon: Icon, onSelect, testIdPrefix }: Res
         <CommandItem
           key={item.id}
           value={`${testIdPrefix}-${item.id}-${item.title}`}
-          onSelect={() => onSelect(item.url)}
+          onSelect={() => onSelect(item.url, item)}
           data-testid={`${testIdPrefix}-${item.id}`}
         >
           <Icon className="text-muted-foreground" />
