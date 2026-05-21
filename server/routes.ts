@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
+import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
 import session from "express-session";
@@ -5231,19 +5232,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (u) usersMap.set(uid, { role: u.role, avatarUrl: u.avatarUrl || null });
       }
       // Enrich KB article references — one lookup per unique slug, not per message.
-      const kbSlugs = [...new Set(messages.map(m => m.kbArticleSlug).filter((s): s is string => !!s))];
-      const kbBySlug = new Map<string, { slug: string; title: string; categoryName: string | null; summary: string | null }>();
-      for (const slug of kbSlugs) {
-        const article = await storage.getKbArticleBySlug(slug);
-        if (!article || !article.published) continue;
-        const category = await storage.getKbCategory(article.categoryId);
-        kbBySlug.set(slug, {
-          slug: article.slug,
-          title: article.title,
-          categoryName: category?.name ?? null,
-          summary: article.summary ?? null,
-        });
-      }
+      const kbBySlug = await enrichKbArticlesForMessages(messages, storage);
       const enriched = messages.map(m => ({
         ...m,
         reactions: reactionsByMessage[m.id] || [],
@@ -5282,23 +5271,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const isAdminUser = user.role === "admin" || user.role === "master_admin";
       // KB article links are admin-only — mirrors the @everyone gating pattern below.
       let kbArticleSlug: string | null = null;
-      let kbArticleInfo: { slug: string; title: string; categoryName: string | null; summary: string | null } | null = null;
+      let kbArticleInfo: KbArticleEnvelope | null = null;
       if (hasKbArticle) {
-        if (!isAdminUser) {
-          return res.status(403).json({ error: "Only admins can attach knowledge base articles" });
+        const resolved = await resolveKbArticleAttachment(rawKbSlug, isAdminUser, storage);
+        if (!resolved.ok) {
+          return res.status(resolved.status).json({ error: resolved.error });
         }
-        const article = await storage.getKbArticleBySlug(rawKbSlug);
-        if (!article || !article.published) {
-          return res.status(400).json({ error: "Knowledge base article not found" });
-        }
-        const category = await storage.getKbCategory(article.categoryId);
-        kbArticleSlug = article.slug;
-        kbArticleInfo = {
-          slug: article.slug,
-          title: article.title,
-          categoryName: category?.name ?? null,
-          summary: article.summary ?? null,
-        };
+        kbArticleSlug = resolved.slug;
+        kbArticleInfo = resolved.info;
       }
       const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
       const chatUsername = isAdminUser ? user.fullName : (user.chatUsername || "Anonymous");
