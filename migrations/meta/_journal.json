@@ -50,6 +50,13 @@
       "when": 1779371102377,
       "tag": "0006_short_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779375255470,
+      "tag": "0007_melodic_violations",
+      "breakpoints": true
     }
   ]
 }

@@ -1184,11 +1184,12 @@ export async function registerRoutes(
 
   app.patch("/api/auth/settings", requireAuth, async (req, res) => {
     try {
-      const { subscribedServices, fullName, setupReminderDismissed } = req.body;
+      const { subscribedServices, fullName, setupReminderDismissed, servicesPickerDismissed } = req.body;
       const updateData: any = {};
       if (subscribedServices !== undefined) updateData.subscribedServices = subscribedServices;
       if (fullName !== undefined) updateData.fullName = fullName?.trim();
       if (setupReminderDismissed !== undefined) updateData.setupReminderDismissed = setupReminderDismissed;
+      if (servicesPickerDismissed !== undefined) updateData.servicesPickerDismissed = !!servicesPickerDismissed;
       const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));

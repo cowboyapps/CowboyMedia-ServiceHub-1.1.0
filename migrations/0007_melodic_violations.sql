@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "services_picker_dismissed" boolean DEFAULT false NOT NULL;

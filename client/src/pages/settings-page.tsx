@@ -682,6 +682,46 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <Card data-testid="card-service-subscriptions">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="w-4 h-4" />
+            Service notifications
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">Choose which services you want to hear about. We'll only alert you about the ones you pick here.</p>
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
+            </div>
+          ) : !services || services.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No services available</p>
+          ) : (
+            <div className="space-y-3">
+              {services.map((service) => (
+                <div key={service.id} className="flex items-center gap-3" data-testid={`checkbox-service-${service.id}`}>
+                  <Checkbox
+                    id={service.id}
+                    checked={selectedServices.includes(service.id)}
+                    onCheckedChange={() => toggleService(service.id)}
+                  />
+                  <Label htmlFor={service.id} className="text-sm cursor-pointer flex-1">
+                    {service.name}
+                    {service.description && (
+                      <span className="text-muted-foreground ml-1">- {service.description}</span>
+                    )}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button onClick={savePreferences} disabled={updateMutation.isPending} data-testid="button-save-preferences">
+            {updateMutation.isPending ? "Saving..." : "Save Preferences"}
+          </Button>
+        </CardContent>
+      </Card>
+
       {(user.role === "admin" || user.role === "master_admin") && <TwoFactorSecurityCard />}
 
       <NotificationPreferencesDialog
@@ -722,46 +762,6 @@ export default function SettingsPage() {
       </AlertDialog>
 
       <ActiveSessionsCard />
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Bell className="w-4 h-4" />
-            Service Subscriptions
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">Select which services you want to receive alerts for</p>
-          {isLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
-            </div>
-          ) : !services || services.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No services available</p>
-          ) : (
-            <div className="space-y-3">
-              {services.map((service) => (
-                <div key={service.id} className="flex items-center gap-3" data-testid={`checkbox-service-${service.id}`}>
-                  <Checkbox
-                    id={service.id}
-                    checked={selectedServices.includes(service.id)}
-                    onCheckedChange={() => toggleService(service.id)}
-                  />
-                  <Label htmlFor={service.id} className="text-sm cursor-pointer flex-1">
-                    {service.name}
-                    {service.description && (
-                      <span className="text-muted-foreground ml-1">- {service.description}</span>
-                    )}
-                  </Label>
-                </div>
-              ))}
-            </div>
-          )}
-          <Button onClick={savePreferences} disabled={updateMutation.isPending} data-testid="button-save-preferences">
-            {updateMutation.isPending ? "Saving..." : "Save Preferences"}
-          </Button>
-        </CardContent>
-      </Card>
 
       {user.role === "customer" && (
         <Card>

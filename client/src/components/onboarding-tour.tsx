@@ -83,7 +83,7 @@ const STEPS: TourStep[] = [
   {
     key: "settings",
     title: "Finish setup",
-    body: "Enable push notifications and pick which alerts you want to receive. We'll take you to Settings now.",
+    body: "Open Settings to enable push notifications and fine-tune which services you hear about. The Service notifications card is right at the top.",
     icon: SettingsIcon,
     desktopSelector: '[data-testid="nav-settings"]',
     mobileSelector: '[data-testid="button-bottom-nav-more"]',

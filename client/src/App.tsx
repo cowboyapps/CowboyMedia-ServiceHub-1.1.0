@@ -58,6 +58,7 @@ import PublicIncidentPage from "@/pages/public-incident-page";
 import CommunityChatPage from "@/pages/community-chat-page";
 import KnowledgePage from "@/pages/knowledge-page";
 import WhatsNewPage from "@/pages/whats-new-page";
+import { ServicesPickerWizard } from "@/pages/services-picker-wizard";
 import { VersionWelcomeDialog } from "@/components/version-welcome-dialog";
 import { useModalSlot } from "@/lib/modal-queue";
 
@@ -1037,6 +1038,17 @@ function AppContent() {
         </Switch>
       </>
     );
+  }
+
+  const needsServicesPicker =
+    !!user &&
+    user.role === "customer" &&
+    (user.subscribedServices?.length ?? 0) === 0 &&
+    !user.servicesPickerDismissed &&
+    !location.startsWith("/status");
+
+  if (needsServicesPicker) {
+    return <ServicesPickerWizard onDone={() => { /* user prefs cache refetch triggers re-render */ }} />;
   }
 
   return (
