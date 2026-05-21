@@ -184,6 +184,8 @@ export default function TicketDetail() {
     setNewNoteText("");
     setEditingNoteId(null);
     setEditingNoteText("");
+    setKbArticle(null);
+    setKbPickerOpen(false);
   }, [params.id]);
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -662,7 +664,7 @@ export default function TicketDetail() {
   }, [pendingPlaceholderSend, performSend]);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
-    doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal);
+    doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null);
   }, [doSendMessage]);
 
   const editNoteMutation = useMutation({
