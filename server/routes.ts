@@ -2257,11 +2257,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           const sender = await storage.getUser(id);
           if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role, avatarUrl: sender.avatarUrl || null });
         }));
+        const kbBySlug = await enrichKbArticlesForMessages(updatedMessages, storage);
         const enriched = updatedMessages.map(m => ({
           ...m,
           senderName: senderMap.get(m.senderId)?.name || "Unknown",
           senderRole: senderMap.get(m.senderId)?.role || "customer",
           senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
+          kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
         }));
         broadcast({ type: "ticket_messages_read", ticketId: req.params.id, readBy: user.id });
         return res.json(enriched);
@@ -2273,11 +2275,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const sender = await storage.getUser(id);
       if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role, avatarUrl: sender.avatarUrl || null });
     }));
+    const kbBySlug = await enrichKbArticlesForMessages(messages, storage);
     const enriched = messages.map(m => ({
       ...m,
       senderName: senderMap.get(m.senderId)?.name || "Unknown",
       senderRole: senderMap.get(m.senderId)?.role || "customer",
       senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
+      kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
     }));
     res.json(enriched);
    } catch (e: any) {
@@ -2383,6 +2387,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(403).json({ message: "Only admins can post internal notes" });
       }
       const isInternal = requestedInternal && canPostInternalNote(user.role);
+      // Optional KB article attachment. Anyone in the conversation
+      // (customer or admin) can link a published article — KB content is
+      // already visible to all signed-in users via /knowledge.
+      const rawKbSlug = typeof req.body?.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
+      let kbArticleSlug: string | null = null;
+      let kbArticleInfo: KbArticleEnvelope | null = null;
+      if (rawKbSlug.length > 0) {
+        const resolved = await resolveKbArticleAttachment(rawKbSlug, storage);
+        if (!resolved.ok) {
+          return res.status(resolved.status).json({ message: resolved.error });
+        }
+        kbArticleSlug = resolved.slug;
+        kbArticleInfo = resolved.info;
+      }
       if (user.role === "master_admin" && ticket.claimedBy && ticket.claimedBy !== user.id) {
         const existingMessages = await storage.getTicketMessages(req.params.id, true);
         const joinedMessage = `${user.fullName} has joined the conversation`;
@@ -2409,13 +2427,21 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
+      const rawMessage = typeof req.body.message === "string" ? req.body.message : "";
+      // Message body may be empty when a KB article is the sole payload (parity
+      // with how the existing image-only path is handled implicitly elsewhere).
+      if (!rawMessage.trim() && !imageUrl && !kbArticleSlug) {
+        return res.status(400).json({ message: "Message is required" });
+      }
       const message = await storage.createTicketMessage({
         ticketId: req.params.id,
         senderId: req.session.userId!,
-        message: req.body.message,
+        message: rawMessage,
         imageUrl: imageUrl || null,
         isInternal,
+        kbArticleSlug,
       });
+      const messageWithKb = { ...message, kbArticle: kbArticleInfo };
       const msgCustomer = isAdmin ? await storage.getUser(ticket.customerId) : user;
       if (isInternal) {
         logActivity("ticket", "ticket_internal_note_created", {
@@ -2425,7 +2451,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           summary: `Internal note added by ${user.fullName} on ticket "${ticket.subject}"`,
           details: JSON.stringify({ messageId: message.id, sender: user.fullName, customer: msgCustomer?.fullName, subject: ticket.subject, body: req.body.message }),
         });
-        broadcastToAdmins({ type: "ticket_message", ticketId: req.params.id, message, isInternal: true });
+        broadcastToAdmins({ type: "ticket_message", ticketId: req.params.id, message: messageWithKb, isInternal: true });
         const allAdminUsers = await storage.getAllUsers();
         let admins = allAdminUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support" && u.id !== req.session.userId);
         if (ticket.categoryId) {
@@ -2445,10 +2471,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             }, adminViewingTicket ? undefined : { type: "ticket_internal_note", referenceType: "ticket", referenceId: ticket.id });
           }
         }
-        return res.json(message);
+        return res.json(messageWithKb);
       }
       logActivity("ticket", "ticket_message", { actorId: req.session.userId!, targetId: ticket.id, targetType: "ticket", summary: `Message on ticket "${ticket.subject}" by ${user.fullName} (customer: ${msgCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ sender: user.fullName, customer: msgCustomer?.fullName, subject: ticket.subject }) });
-      broadcast({ type: "ticket_message", ticketId: req.params.id, message });
+      broadcast({ type: "ticket_message", ticketId: req.params.id, message: messageWithKb });
       if (isAdmin) {
         const customerViewingTicket = isUserViewingTicket(ticket.customerId, ticket.id);
         const customer = await storage.getUser(ticket.customerId);
@@ -2529,7 +2555,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }
         }
       }
-      res.json(message);
+      res.json(messageWithKb);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -5269,11 +5295,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(400).json({ error: "Only image attachments are supported" });
       }
       const isAdminUser = user.role === "admin" || user.role === "master_admin";
-      // KB article links are admin-only — mirrors the @everyone gating pattern below.
+      // KB article links in community chat are admin-only — mirrors the
+      // @everyone gating pattern below. Tickets allow customer-attached
+      // KB links; that authorisation lives in the ticket POST handler.
       let kbArticleSlug: string | null = null;
       let kbArticleInfo: KbArticleEnvelope | null = null;
       if (hasKbArticle) {
-        const resolved = await resolveKbArticleAttachment(rawKbSlug, isAdminUser, storage);
+        if (!isAdminUser) {
+          return res.status(403).json({ error: "Only admins can attach knowledge base articles" });
+        }
+        const resolved = await resolveKbArticleAttachment(rawKbSlug, storage);
         if (!resolved.ok) {
           return res.status(resolved.status).json({ error: resolved.error });
         }

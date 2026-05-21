@@ -60,22 +60,9 @@ function mockStorage(opts: {
 
 // ---------- resolveKbArticleAttachment ----------
 
-test("resolveKbArticleAttachment: non-admin posting a slug is rejected with 403", async () => {
-  const s = mockStorage();
-  const r = await resolveKbArticleAttachment("how-to-pay", false, s);
-  assert.equal(r.ok, false);
-  if (!r.ok) {
-    assert.equal(r.status, 403);
-    assert.match(r.error, /admin/i);
-  }
-  // gating must short-circuit before any DB lookup
-  assert.equal(s.articleCalls.length, 0);
-  assert.equal(s.categoryCalls.length, 0);
-});
-
-test("resolveKbArticleAttachment: admin posting an unknown slug returns 400", async () => {
+test("resolveKbArticleAttachment: unknown slug returns 400", async () => {
   const s = mockStorage({ articles: {} });
-  const r = await resolveKbArticleAttachment("missing-slug", true, s);
+  const r = await resolveKbArticleAttachment("missing-slug", s);
   assert.equal(r.ok, false);
   if (!r.ok) {
     assert.equal(r.status, 400);
@@ -83,16 +70,16 @@ test("resolveKbArticleAttachment: admin posting an unknown slug returns 400", as
   }
 });
 
-test("resolveKbArticleAttachment: admin posting an unpublished slug returns 400", async () => {
+test("resolveKbArticleAttachment: unpublished slug returns 400", async () => {
   const s = mockStorage({ articles: { "draft-only": UNPUBLISHED_ARTICLE } });
-  const r = await resolveKbArticleAttachment("draft-only", true, s);
+  const r = await resolveKbArticleAttachment("draft-only", s);
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.status, 400);
 });
 
-test("resolveKbArticleAttachment: admin posting a valid slug returns the kbArticle envelope", async () => {
+test("resolveKbArticleAttachment: valid slug returns the kbArticle envelope", async () => {
   const s = mockStorage();
-  const r = await resolveKbArticleAttachment("how-to-pay", true, s);
+  const r = await resolveKbArticleAttachment("how-to-pay", s);
   assert.equal(r.ok, true);
   if (r.ok) {
     assert.equal(r.slug, "how-to-pay");
@@ -107,7 +94,7 @@ test("resolveKbArticleAttachment: admin posting a valid slug returns the kbArtic
 
 test("resolveKbArticleAttachment: envelope categoryName is null when category lookup misses", async () => {
   const s = mockStorage({ categories: {} });
-  const r = await resolveKbArticleAttachment("how-to-pay", true, s);
+  const r = await resolveKbArticleAttachment("how-to-pay", s);
   assert.equal(r.ok, true);
   if (r.ok) assert.equal(r.info.categoryName, null);
 });

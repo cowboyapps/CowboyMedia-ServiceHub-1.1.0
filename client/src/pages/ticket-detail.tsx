@@ -40,8 +40,33 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
 import { QuickResponsePicker } from "@/components/quick-response-picker";
+import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { BookOpen, ChevronRight } from "lucide-react";
 
-type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null };
+type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
+
+function KbArticleCard({ article, msgId, onBubble }: { article: KbArticleRef; msgId: string; onBubble?: boolean }) {
+  return (
+    <Link href={`/knowledge/${article.slug}`}>
+      <div
+        className={`mt-2 flex items-start gap-2 p-2 rounded-md border cursor-pointer hover-elevate tap-interactive ${onBubble ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-background/60"}`}
+        data-testid={`kb-card-msg-${msgId}`}
+      >
+        <BookOpen className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium truncate">{article.title}</p>
+          {article.categoryName && (
+            <p className="text-[10px] opacity-80 mt-0.5">{article.categoryName}</p>
+          )}
+          {article.summary && (
+            <p className="text-[11px] opacity-80 mt-1 line-clamp-2">{article.summary}</p>
+          )}
+        </div>
+        <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+      </div>
+    </Link>
+  );
+}
 
 type OptimisticMessage = {
   id: string;
@@ -56,6 +81,7 @@ type OptimisticMessage = {
   imageFile?: File;
   isInternal?: boolean;
   senderAvatarUrl?: string | null;
+  kbArticle?: KbArticleRef | null;
 };
 
 function BouncingDots() {
@@ -139,6 +165,8 @@ export default function TicketDetail() {
   const isMobile = useIsMobile();
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
+  const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const [internalNotesOpen, setInternalNotesOpenState] = useState(false);
   const [newNoteText, setNewNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -453,7 +481,7 @@ export default function TicketDetail() {
     }
   };
 
-  const doSendMessage = useCallback((msgText: string, imgFile: File | null, optimisticId?: string, internal: boolean = false) => {
+  const doSendMessage = useCallback((msgText: string, imgFile: File | null, optimisticId?: string, internal: boolean = false, kb: KbArticleRef | null = null) => {
     const tempId = optimisticId || `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimistic: OptimisticMessage = {
       id: tempId,
@@ -467,6 +495,7 @@ export default function TicketDetail() {
       status: "sending",
       imageFile: imgFile || undefined,
       isInternal: internal,
+      kbArticle: kb,
     };
 
     if (!optimisticId) {
@@ -483,6 +512,7 @@ export default function TicketDetail() {
     formData.append("message", msgText);
     if (imgFile) formData.append("image", imgFile);
     if (internal) formData.append("isInternal", "true");
+    if (kb) formData.append("kbArticleSlug", kb.slug);
 
     fetch(`/api/tickets/${params.id}/messages`, {
       method: "POST",
@@ -507,6 +537,7 @@ export default function TicketDetail() {
     imgFile: File | null;
     internal: boolean;
     unfilled: string[];
+    kb: KbArticleRef | null;
   } | null>(null);
 
   const placeholderContext = useMemo(
@@ -584,10 +615,11 @@ export default function TicketDetail() {
   }, [message, syncPlaceholderOverlayScroll]);
 
   const performSend = useCallback(
-    (msgText: string, imgFile: File | null, internal: boolean) => {
+    (msgText: string, imgFile: File | null, internal: boolean, kb: KbArticleRef | null = null) => {
       setMessage("");
       setImageFile(null);
-      doSendMessage(msgText, imgFile, undefined, internal);
+      setKbArticle(null);
+      doSendMessage(msgText, imgFile, undefined, internal, kb);
       setTimeout(() => {
         const el = messageInputRef.current;
         if (el) {
@@ -602,17 +634,18 @@ export default function TicketDetail() {
   const handleSend = useCallback(() => {
     const msgText = message.trim();
     const imgFile = imageFile;
-    if (!msgText && !imgFile) return;
+    const kb = kbArticle;
+    if (!msgText && !imgFile && !kb) return;
     const internal = false;
     if (isAdmin && msgText) {
       const unfilled = findUnfilledPlaceholders(msgText, placeholderContext);
       if (unfilled.length > 0) {
-        setPendingPlaceholderSend({ msgText, imgFile, internal, unfilled });
+        setPendingPlaceholderSend({ msgText, imgFile, internal, unfilled, kb });
         return;
       }
     }
-    performSend(msgText, imgFile, internal);
-  }, [message, imageFile, isAdmin, placeholderContext, performSend]);
+    performSend(msgText, imgFile, internal, kb);
+  }, [message, imageFile, kbArticle, isAdmin, placeholderContext, performSend]);
 
   const handleSendInternalNote = useCallback(() => {
     const trimmed = newNoteText.trim();
@@ -625,7 +658,7 @@ export default function TicketDetail() {
     const pending = pendingPlaceholderSend;
     if (!pending) return;
     setPendingPlaceholderSend(null);
-    performSend(pending.msgText, pending.imgFile, pending.internal);
+    performSend(pending.msgText, pending.imgFile, pending.internal, pending.kb);
   }, [pendingPlaceholderSend, performSend]);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
@@ -1474,6 +1507,9 @@ export default function TicketDetail() {
                                       <span className="truncate">{optimisticData.imageFile.name}</span>
                                     </div>
                                   )}
+                                  {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
+                                    <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} />
+                                  )}
                                 </>
                               )}
                             </div>
@@ -1588,6 +1624,9 @@ export default function TicketDetail() {
                                 <Paperclip className="w-3 h-3" />
                                 <span className="truncate">{optimisticData.imageFile.name}</span>
                               </div>
+                            )}
+                            {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
+                              <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} onBubble />
                             )}
                           </div>
                           <div className={`flex items-center gap-1.5 ${isMe ? "justify-end" : ""}`}>
@@ -1743,6 +1782,20 @@ export default function TicketDetail() {
                   </Button>
                 </div>
               )}
+              {kbArticle && (
+                <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-selected-kb">
+                  <BookOpen className="w-4 h-4 flex-shrink-0 text-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{kbArticle.title}</p>
+                    {kbArticle.categoryName && (
+                      <p className="text-[10px] text-muted-foreground truncate">{kbArticle.categoryName}</p>
+                    )}
+                  </div>
+                  <Button size="icon" variant="ghost" onClick={() => setKbArticle(null)} data-testid="button-remove-kb">
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
               {draftUnfilledPlaceholders.length > 0 && (
                 <div
                   className="flex items-start gap-1.5 mb-2 text-[11px] text-amber-700 dark:text-amber-400"
@@ -1779,6 +1832,17 @@ export default function TicketDetail() {
                   data-testid="button-attach-image"
                 >
                   <Paperclip className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10"
+                  onClick={() => setKbPickerOpen(true)}
+                  data-testid="button-attach-kb"
+                  title="Link a knowledge base article"
+                >
+                  <BookOpen className="w-4 h-4" />
                 </Button>
                 {isAdmin && user?.id && (
                   <QuickResponsePicker
@@ -1967,7 +2031,7 @@ export default function TicketDetail() {
                   type="button"
                   size="icon"
                   className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10"
-                  disabled={!message.trim() && !imageFile}
+                  disabled={!message.trim() && !imageFile && !kbArticle}
                   onClick={handleSend}
                   data-testid="button-send-message"
                 >
@@ -2018,6 +2082,11 @@ export default function TicketDetail() {
         userId={profileUserId}
         open={!!profileUserId}
         onOpenChange={(o) => { if (!o) setProfileUserId(null); }}
+      />
+      <KbArticlePickerDialog
+        open={kbPickerOpen}
+        onOpenChange={setKbPickerOpen}
+        onSelect={(article) => { setKbArticle(article); setKbPickerOpen(false); }}
       />
     </div>
   );

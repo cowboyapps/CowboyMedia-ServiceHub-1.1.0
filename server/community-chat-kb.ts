@@ -14,16 +14,17 @@ export interface CommunityChatKbStorage {
 
 export type ResolveKbAttachmentResult =
   | { ok: true; slug: string; info: KbArticleEnvelope }
-  | { ok: false; status: 400 | 403; error: string };
+  | { ok: false; status: 400; error: string };
 
+// Looks up a KB article by slug and returns the lean envelope used in
+// message payloads. Does NOT enforce who is allowed to attach KB links —
+// each caller (community chat = admin-only; tickets = anyone in the
+// conversation) is responsible for its own authorisation check before
+// calling.
 export async function resolveKbArticleAttachment(
   rawKbSlug: string,
-  isAdmin: boolean,
   storage: CommunityChatKbStorage,
 ): Promise<ResolveKbAttachmentResult> {
-  if (!isAdmin) {
-    return { ok: false, status: 403, error: "Only admins can attach knowledge base articles" };
-  }
   const article = await storage.getKbArticleBySlug(rawKbSlug);
   if (!article || !article.published) {
     return { ok: false, status: 400, error: "Knowledge base article not found" };
@@ -45,7 +46,7 @@ export async function enrichKbArticlesForMessages(
   messages: { kbArticleSlug: string | null }[],
   storage: CommunityChatKbStorage,
 ): Promise<Map<string, KbArticleEnvelope>> {
-  const kbSlugs = [...new Set(messages.map(m => m.kbArticleSlug).filter((s): s is string => !!s))];
+  const kbSlugs = Array.from(new Set(messages.map(m => m.kbArticleSlug).filter((s): s is string => !!s)));
   const kbBySlug = new Map<string, KbArticleEnvelope>();
   for (const slug of kbSlugs) {
     const article = await storage.getKbArticleBySlug(slug);

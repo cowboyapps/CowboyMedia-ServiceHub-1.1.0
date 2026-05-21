@@ -43,6 +43,13 @@
       "when": 1779368183284,
       "tag": "0005_overjoyed_skrulls",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779371102377,
+      "tag": "0006_short_rogue",
+      "breakpoints": true
     }
   ]
 }

@@ -112,6 +112,10 @@ export const ticketMessages = pgTable("ticket_messages", {
   imageUrl: text("image_url"),
   readAt: timestamp("read_at"),
   isInternal: boolean("is_internal").notNull().default(false),
+  // Optional KB article link attached to this message — stores the slug only.
+  // The server resolves to a {slug,title,categoryName,summary} envelope at
+  // read time so renamed/unpublished articles don't break old messages.
+  kbArticleSlug: text("kb_article_slug"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   ticketCreatedIdx: index("ticket_messages_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
