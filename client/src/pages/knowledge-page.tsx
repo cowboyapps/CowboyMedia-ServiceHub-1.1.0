@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import DOMPurify from "dompurify";
@@ -12,6 +12,7 @@ import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Eye, LifeBuoy, Search, 
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
+import { ImageLightbox } from "@/components/image-lightbox";
 import type { KbArticle, KbCategory } from "@shared/schema";
 
 const ALLOWED_TAGS = ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a", "code", "pre"];
@@ -21,6 +22,8 @@ function ArticleDetail({ slug }: { slug: string }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [voted, setVoted] = useState<"up" | "down" | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; alt?: string } | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const { data: article, isLoading, error } = useQuery<KbArticle>({
     queryKey: ["/api/kb/articles", slug],
@@ -93,9 +96,33 @@ function ArticleDetail({ slug }: { slug: string }) {
       <Card>
         <CardContent className="p-6">
           <div
-            className="prose prose-sm dark:prose-invert max-w-none prose-img:rounded-md prose-img:max-w-full"
+            ref={bodyRef}
+            className="prose prose-sm dark:prose-invert max-w-none prose-img:rounded-md prose-img:max-w-full prose-img:cursor-zoom-in"
             data-testid="text-kb-article-body"
+            onClick={(e) => {
+              const target = e.target as HTMLElement;
+              if (target.tagName !== "IMG") return;
+              // If the image is inside a link, let the link win — don't open the lightbox.
+              if (target.closest("a")) return;
+              const img = target as HTMLImageElement;
+              setLightbox({ src: img.currentSrc || img.src, alt: img.alt });
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              const target = e.target as HTMLElement;
+              if (target.tagName !== "IMG") return;
+              if (target.closest("a")) return;
+              e.preventDefault();
+              const img = target as HTMLImageElement;
+              setLightbox({ src: img.currentSrc || img.src, alt: img.alt });
+            }}
             dangerouslySetInnerHTML={{ __html: safeHtml }}
+          />
+          <ImageLightbox
+            src={lightbox?.src || ""}
+            alt={lightbox?.alt}
+            open={lightbox !== null}
+            onOpenChange={(o) => { if (!o) setLightbox(null); }}
           />
         </CardContent>
       </Card>
