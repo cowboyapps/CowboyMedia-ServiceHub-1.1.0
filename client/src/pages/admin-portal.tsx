@@ -8420,6 +8420,12 @@ function ChangelogTab() {
   const { toast } = useToast();
   const { data: rows, isLoading } = useQuery<ChangelogRow[]>({
     queryKey: ["/api/admin/changelog"],
+    // The bullet counter and editor body need to reflect any out-of-band
+    // appends (e.g. agent calls to /append). The app-wide staleTime: Infinity
+    // would otherwise serve a stale row indefinitely until a mutation
+    // invalidated it.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
   const [editing, setEditing] = useState<ChangelogRow | null>(null);
   const [previewing, setPreviewing] = useState<ChangelogRow | null>(null);

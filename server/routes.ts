@@ -1255,6 +1255,10 @@ export async function registerRoutes(
   // ---- Admin: changelog CRUD (master_admin only) ----
   app.get("/api/admin/changelog", requireMasterAdmin, async (_req, res) => {
     try {
+      // Defeat both the PWA service-worker API cache and any intermediate
+      // HTTP cache so out-of-band appends (e.g. agent calls to /append) are
+      // never masked by a stale copy.
+      res.set("Cache-Control", "no-store");
       res.json(await storage.getAllChangelogEntries());
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
