@@ -26,13 +26,15 @@ export default function WhatsNewPage() {
 
   useEffect(() => {
     if (!entries.length) return;
+    // If the URL has a #version-x-y hash (e.g. from the welcome popup), honor it.
+    // Otherwise land on the latest published entry so the settings link
+    // "What's new in this version" surfaces the most recent release, not the
+    // very first entry that happens to render at the top of the DOM.
     const hash = window.location.hash;
-    if (!hash) return;
-    const id = hash.slice(1);
-    // Wait a tick for the freshly-rendered content to be in the DOM.
+    const id = hash ? hash.slice(1) : versionAnchor(entries[0].version);
     requestAnimationFrame(() => {
       const el = document.getElementById(id);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (el) el.scrollIntoView({ behavior: hash ? "smooth" : "auto", block: "start" });
     });
   }, [entries]);
 
