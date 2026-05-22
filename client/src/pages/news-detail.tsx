@@ -5,17 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { ArrowLeft, Calendar } from "lucide-react";
-import { ClickableImage } from "@/components/image-lightbox";
+import { ClickableImage, ImageLightbox } from "@/components/image-lightbox";
 import { isHtmlContent } from "@/components/rich-text-editor";
 import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import DOMPurify from "dompurify";
 import type { NewsStory } from "@shared/schema";
 import { Poll } from "@/components/poll";
 import { queryClient } from "@/lib/queryClient";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function NewsDetail() {
   const params = useParams<{ id: string }>();
+  const [lightbox, setLightbox] = useState<{ src: string; alt?: string } | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const { data: story, isLoading } = useQuery<NewsStory>({
     queryKey: ["/api/news", params.id],
@@ -30,6 +32,21 @@ export default function NewsDetail() {
     },
     enabled: !!params.id,
   });
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || !story || !isHtmlContent(story.content)) return;
+    const imgs = el.querySelectorAll("img");
+    imgs.forEach((img) => {
+      if (img.closest("a")) return;
+      img.tabIndex = 0;
+      img.setAttribute("role", "button");
+      if (!img.getAttribute("aria-label")) {
+        img.setAttribute("aria-label", img.alt ? `View image: ${img.alt}` : "View image full screen");
+      }
+      img.style.cursor = "zoom-in";
+    });
+  }, [story?.content]);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -104,8 +121,25 @@ export default function NewsDetail() {
         <CardContent className="p-6">
           {isRich ? (
             <div
+              ref={bodyRef}
               className="prose prose-sm dark:prose-invert max-w-none prose-img:rounded-md prose-img:max-w-full"
               data-testid="text-story-content"
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.tagName !== "IMG") return;
+                if (target.closest("a")) return;
+                const img = target as HTMLImageElement;
+                setLightbox({ src: img.currentSrc || img.src, alt: img.alt });
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                const target = e.target as HTMLElement;
+                if (target.tagName !== "IMG") return;
+                if (target.closest("a")) return;
+                e.preventDefault();
+                const img = target as HTMLImageElement;
+                setLightbox({ src: img.currentSrc || img.src, alt: img.alt });
+              }}
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(story.content, { ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a"], ALLOWED_ATTR: ["style", "src", "alt", "width", "height", "href", "target"] }) }}
             />
           ) : (
@@ -113,6 +147,12 @@ export default function NewsDetail() {
               {story.content}
             </div>
           )}
+          <ImageLightbox
+            src={lightbox?.src || ""}
+            alt={lightbox?.alt}
+            open={lightbox !== null}
+            onOpenChange={(o) => { if (!o) setLightbox(null); }}
+          />
         </CardContent>
       </Card>
 
