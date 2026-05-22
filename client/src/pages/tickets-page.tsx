@@ -49,6 +49,38 @@ import type { Ticket as TicketType, Service, TicketCategory } from "@shared/sche
 
 type AdminTicket = TicketType & { claimedByName?: string | null };
 
+type SupportAwayPublicStatus = {
+  enabled: boolean;
+  isActive: boolean;
+  startAt: string | null;
+  endAt: string | null;
+  message: string;
+};
+
+function SupportAwayBanner() {
+  const { data } = useQuery<SupportAwayPublicStatus>({
+    queryKey: ["/api/support-away/status"],
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+  if (!data?.isActive) return null;
+  return (
+    <div
+      className="mb-3 rounded-md border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/40 p-3 flex gap-2 items-start"
+      data-testid="banner-support-away"
+    >
+      <AlertTriangle className="w-4 h-4 text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0" />
+      <div className="text-xs text-orange-900 dark:text-orange-100 space-y-1">
+        <p className="font-medium">Our support team is away</p>
+        <p data-testid="text-away-message">{data.message}</p>
+        <p className="text-orange-800/80 dark:text-orange-200/80">
+          You can still open the ticket — we'll respond as soon as we're back.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const createTicketSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
   description: z.string().min(1, "Description is required"),
@@ -369,6 +401,7 @@ export default function TicketsPage() {
           {(() => {
             const ticketForm = (
               <Form {...form}>
+                <SupportAwayBanner />
                 <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
                   <FormField
                     control={form.control}

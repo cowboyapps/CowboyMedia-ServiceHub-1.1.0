@@ -128,6 +128,58 @@ function AppRouter() {
   );
 }
 
+type AdminAwayStatus = {
+  enabled: boolean;
+  isActive: boolean;
+  startAt: string | null;
+  endAt: string | null;
+  message: string;
+};
+
+function useSupportAwayStatus() {
+  const { user } = useAuth();
+  return useQuery<AdminAwayStatus>({
+    queryKey: ["/api/support-away/status"],
+    enabled: !!user,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
+}
+
+function AdminAwayBanner() {
+  const { user } = useAuth();
+  const { data } = useSupportAwayStatus();
+  if (!user || (user.role !== "admin" && user.role !== "master_admin")) return null;
+  if (!data?.isActive) return null;
+  const endLabel = data.endAt
+    ? new Date(data.endAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    : null;
+  return (
+    <div
+      className="flex items-start gap-2 px-3 py-2 border-b bg-orange-500/15 dark:bg-orange-500/20 text-xs"
+      data-testid="banner-admin-away-active"
+    >
+      <span className="inline-flex items-center rounded-sm bg-orange-500 text-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide flex-shrink-0 mt-0.5">
+        Away
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-orange-900 dark:text-orange-100">
+          <span className="font-medium">Support away message is active.</span>{" "}
+          New tickets receive the away auto-reply{endLabel ? ` until ${endLabel}` : ""}.
+        </p>
+      </div>
+      <Link
+        href="/admin?tab=support-away"
+        className="text-orange-900 dark:text-orange-100 underline whitespace-nowrap"
+        data-testid="link-admin-away-manage"
+      >
+        Manage
+      </Link>
+    </div>
+  );
+}
+
 function AuthenticatedLayout() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
@@ -159,6 +211,7 @@ function AuthenticatedLayout() {
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <OfflineBanner />
+          <AdminAwayBanner />
           <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
             <div className="z-10">
               {isMobile ? (

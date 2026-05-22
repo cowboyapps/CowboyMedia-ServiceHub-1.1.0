@@ -48,6 +48,8 @@ import {
   type AppSettings,
   type BusinessHours,
   type UpdateBusinessHoursData,
+  type SupportAwayMessage,
+  type UpdateSupportAwayData,
   type Announcement,
   type InsertAnnouncement,
   type UpdateAnnouncement,
@@ -56,7 +58,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
+  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -349,6 +351,8 @@ export interface IStorage {
   updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null }): Promise<AppSettings>;
   getBusinessHours(): Promise<BusinessHours>;
   updateBusinessHours(data: UpdateBusinessHoursData): Promise<BusinessHours>;
+  getSupportAway(): Promise<SupportAwayMessage>;
+  updateSupportAway(data: UpdateSupportAwayData & { updatedBy?: string | null }): Promise<SupportAwayMessage>;
 
   listAnnouncements(): Promise<Announcement[]>;
   getAnnouncement(id: string): Promise<Announcement | undefined>;
@@ -1658,6 +1662,29 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(businessHours).set(patch).where(eq(businessHours.id, "singleton")).returning();
     if (updated) return updated;
     const [created] = await db.insert(businessHours).values({ id: "singleton", ...patch }).returning();
+    return created;
+  }
+
+  async getSupportAway(): Promise<SupportAwayMessage> {
+    const [row] = await db.select().from(supportAwayMessages).where(eq(supportAwayMessages.id, "singleton"));
+    if (row) return row;
+    await db.insert(supportAwayMessages).values({ id: "singleton" }).onConflictDoNothing();
+    const [created] = await db.select().from(supportAwayMessages).where(eq(supportAwayMessages.id, "singleton"));
+    return created;
+  }
+
+  async updateSupportAway(
+    data: UpdateSupportAwayData & { updatedBy?: string | null },
+  ): Promise<SupportAwayMessage> {
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    if (data.enabled !== undefined) patch.enabled = data.enabled;
+    if (data.startAt !== undefined) patch.startAt = data.startAt ? new Date(data.startAt) : null;
+    if (data.endAt !== undefined) patch.endAt = data.endAt ? new Date(data.endAt) : null;
+    if (data.message !== undefined) patch.message = data.message;
+    if (data.updatedBy !== undefined) patch.updatedBy = data.updatedBy;
+    const [updated] = await db.update(supportAwayMessages).set(patch).where(eq(supportAwayMessages.id, "singleton")).returning();
+    if (updated) return updated;
+    const [created] = await db.insert(supportAwayMessages).values({ id: "singleton", ...patch }).returning();
     return created;
   }
 

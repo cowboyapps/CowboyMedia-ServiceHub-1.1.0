@@ -69,6 +69,13 @@ export function AppSidebar() {
   });
   const unresolvedErrorCount = errorLogData?.count ?? 0;
 
+  const { data: awayStatus } = useQuery<{ isActive: boolean }>({
+    queryKey: ["/api/support-away/status"],
+    refetchInterval: 60000,
+    enabled: !!user && isAdmin,
+  });
+  const awayActive = !!awayStatus?.isActive;
+
   const handleNavClick = () => {
     if (isMobile) {
       requestAnimationFrame(() => {
@@ -163,6 +170,14 @@ export function AppSidebar() {
                           <Link href={item.url} onClick={handleNavClick} data-testid={testId}>
                             <item.icon className="w-4 h-4" />
                             <span className="flex-1">{item.title}</span>
+                            {item.title === "Admin Portal" && awayActive && (
+                              <Badge
+                                className="ml-auto text-[10px] h-5 px-1.5 bg-orange-500 hover:bg-orange-500 text-white"
+                                data-testid="badge-sidebar-away-active"
+                              >
+                                Away
+                              </Badge>
+                            )}
                             {badge > 0 && (
                               <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-admin-reports">
                                 {badge}

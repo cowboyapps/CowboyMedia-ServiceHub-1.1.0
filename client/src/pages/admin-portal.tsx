@@ -7528,6 +7528,190 @@ function TelegramTab() {
   );
 }
 
+type SupportAwayAdminPayload = {
+  enabled: boolean;
+  startAt: string | null;
+  endAt: string | null;
+  message: string;
+  isActive: boolean;
+  updatedAt: string;
+};
+
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromLocalInput(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function SupportAwayTab() {
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState(false);
+  const [startAt, setStartAt] = useState("");
+  const [endAt, setEndAt] = useState("");
+  const [message, setMessage] = useState("");
+
+  const { data: settings, isLoading } = useQuery<SupportAwayAdminPayload>({
+    queryKey: ["/api/admin/support-away"],
+  });
+
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (settings && !hydratedRef.current) {
+      setEnabled(!!settings.enabled);
+      setStartAt(toLocalInput(settings.startAt));
+      setEndAt(toLocalInput(settings.endAt));
+      setMessage(settings.message);
+      hydratedRef.current = true;
+    }
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (payload: { enabled: boolean; startAt: string | null; endAt: string | null; message: string }) => {
+      const res = await apiRequest("PATCH", "/api/admin/support-away", payload);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to save");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/support-away"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/support-away/status"] });
+      toast({ title: "Away message saved" });
+    },
+    onError: (e: Error) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const turnOffMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/admin/support-away", { enabled: false });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/support-away"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/support-away/status"] });
+      toast({ title: "Away message turned off" });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't turn off", description: e.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-64 w-full" /></div>;
+
+  const startDate = startAt ? new Date(startAt) : null;
+  const endDate = endAt ? new Date(endAt) : null;
+  const windowInvalid = enabled && (!startDate || !endDate || startDate.getTime() >= endDate.getTime());
+  const messageInvalid = !message.trim();
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="w-5 h-5" /> Support Away Message
+            {settings?.isActive && (
+              <Badge variant="default" className="ml-2 text-xs bg-orange-500 hover:bg-orange-500" data-testid="badge-away-status">
+                Active now
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div className="pr-3">
+              <p className="text-sm font-medium">Enable away message</p>
+              <p className="text-xs text-muted-foreground">
+                When enabled and inside the window, customers see a banner before opening a ticket, and new tickets get the away message as an auto-reply instead of the standard one.
+              </p>
+            </div>
+            <Switch checked={enabled} onCheckedChange={setEnabled} data-testid="switch-away-enabled" />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="away-start">Start</Label>
+              <Input
+                id="away-start"
+                type="datetime-local"
+                value={startAt}
+                onChange={(e) => setStartAt(e.target.value)}
+                data-testid="input-away-start"
+              />
+            </div>
+            <div>
+              <Label htmlFor="away-end">End</Label>
+              <Input
+                id="away-end"
+                type="datetime-local"
+                value={endAt}
+                onChange={(e) => setEndAt(e.target.value)}
+                data-testid="input-away-end"
+              />
+            </div>
+          </div>
+          {enabled && windowInvalid && (
+            <p className="text-xs text-destructive" data-testid="text-away-window-error">
+              Set a start and an end time, with the end after the start.
+            </p>
+          )}
+
+          <div>
+            <Label htmlFor="away-msg">Away message</Label>
+            <Textarea
+              id="away-msg"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={2000}
+              rows={4}
+              data-testid="textarea-away-message"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Shown to customers as a banner before they open a ticket and posted as the auto-reply on any new ticket while active.
+            </p>
+            {messageInvalid && (
+              <p className="text-xs text-destructive mt-1">Away message can't be empty.</p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => saveMutation.mutate({
+                enabled,
+                startAt: fromLocalInput(startAt),
+                endAt: fromLocalInput(endAt),
+                message: message.trim(),
+              })}
+              disabled={saveMutation.isPending || windowInvalid || messageInvalid}
+              data-testid="button-save-away"
+            >
+              {saveMutation.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            {settings?.isActive && (
+              <Button
+                variant="outline"
+                onClick={() => turnOffMutation.mutate()}
+                disabled={turnOffMutation.isPending}
+                data-testid="button-away-turn-off"
+              >
+                {turnOffMutation.isPending ? "Turning off..." : "Turn off now"}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 type BusinessHoursAdminPayload = {
   enabled: boolean;
   daysOfWeek: number[];
@@ -8071,6 +8255,7 @@ export default function AdminPortal() {
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10", group: "integrations" },
     { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10", group: "integrations" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10", group: "system" },
+    { key: "support-away", label: "Support Away", icon: Clock, color: "text-orange-500", bg: "bg-orange-500/10", group: "support" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10", group: "content" },
     { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10", group: "content" },
     { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true, group: "community" },
@@ -8124,6 +8309,7 @@ export default function AdminPortal() {
       case "telegram": return <TelegramTab />;
       case "discord": return <DiscordTab />;
       case "business-hours": return <BusinessHoursTab />;
+      case "support-away": return <SupportAwayTab />;
       case "announcements": return <AnnouncementsTab />;
       case "knowledge-base": return <KnowledgeBaseTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab initialInnerTab={initialParams.section} /> : null;

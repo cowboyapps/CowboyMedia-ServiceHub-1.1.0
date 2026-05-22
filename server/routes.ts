@@ -11,6 +11,7 @@ import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
 import { createBusinessHoursHandlers } from "./business-hours";
+import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
 import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
 import { createDiscordSettingsHandlers } from "./discord-settings";
@@ -1739,7 +1740,16 @@ export async function registerRoutes(
         }
       }
 
-      const autoReplyText = "Thank you for contacting CowboyMedia support through our ServiceHub app. We will review your support ticket and respond as quickly as possible. Thank you!";
+      let autoReplyText = "Thank you for contacting CowboyMedia support through our ServiceHub app. We will review your support ticket and respond as quickly as possible. Thank you!";
+      try {
+        const awayRow = await storage.getSupportAway();
+        const awayStatus = computeSupportAwayStatus(awayRow);
+        if (awayStatus.isActive) {
+          autoReplyText = awayRow.message;
+        }
+      } catch {
+        // If the away lookup fails, keep the default auto-reply.
+      }
       try {
         let supportUser = await storage.getUserByUsername("cowboymedia-support");
         if (!supportUser) {
@@ -5883,6 +5893,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get("/api/business-hours/status", businessHoursHandlers.getPublicStatus);
   app.get("/api/admin/business-hours", requireAdmin, businessHoursHandlers.getAdmin);
   app.patch("/api/admin/business-hours", requireAdmin, businessHoursHandlers.patchAdmin);
+
+  const supportAwayHandlers = createSupportAwayHandlers({ storage, logActivity });
+  app.get("/api/support-away/status", supportAwayHandlers.getPublicStatus);
+  app.get("/api/admin/support-away", requireAdmin, supportAwayHandlers.getAdmin);
+  app.patch("/api/admin/support-away", requireAdmin, supportAwayHandlers.patchAdmin);
 
   // ===== Announcements =====
   app.get("/api/admin/announcements", requirePermission("announcements", "announcements"), async (_req, res) => {

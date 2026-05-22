@@ -775,6 +775,29 @@ export const updateBusinessHoursSchema = z.object({
 
 export type UpdateBusinessHoursData = z.infer<typeof updateBusinessHoursSchema>;
 
+export const supportAwayMessages = pgTable("support_away_messages", {
+  id: varchar("id").primaryKey().default("singleton"),
+  enabled: boolean("enabled").notNull().default(false),
+  startAt: timestamp("start_at", { withTimezone: true }),
+  endAt: timestamp("end_at", { withTimezone: true }),
+  message: text("message").notNull().default(
+    "Our support team is away right now. We'll be back shortly and will reply to your ticket as soon as we return."
+  ),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedBy: varchar("updated_by"),
+});
+
+export type SupportAwayMessage = typeof supportAwayMessages.$inferSelect;
+
+export const updateSupportAwaySchema = z.object({
+  enabled: z.boolean().optional(),
+  startAt: z.string().datetime({ offset: true }).nullable().optional(),
+  endAt: z.string().datetime({ offset: true }).nullable().optional(),
+  message: z.string().trim().min(1, "Away message can't be empty").max(2000).optional(),
+});
+
+export type UpdateSupportAwayData = z.infer<typeof updateSupportAwaySchema>;
+
 export const updateQuietHoursSchema = z.object({
   enabled: z.boolean().optional(),
   start: z.string().regex(HHMM_RE, "Use HH:MM 24-hour format").optional(),
