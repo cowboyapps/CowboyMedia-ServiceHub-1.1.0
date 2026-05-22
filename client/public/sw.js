@@ -110,17 +110,33 @@ async function handleHashedAsset(request) {
   }
 }
 
+function isUncacheableApi(url) {
+  // Admin endpoints, auth/session, and anything that mutates frequently must
+  // always go to the network — caching them caused a real bug where the
+  // admin Changelog tab kept rendering an empty draft long after appends had
+  // landed in the DB (cached SW response masked the fresh server data).
+  if (url.pathname.startsWith('/api/admin/')) return true;
+  if (url.pathname.startsWith('/api/auth/')) return true;
+  if (url.pathname === '/api/user') return true;
+  return false;
+}
+
 async function handleApi(request) {
+  let url;
+  try { url = new URL(request.url); } catch { url = null; }
+  const skipCache = url ? isUncacheableApi(url) : false;
   try {
     const response = await fetch(request);
-    if (response.ok) {
+    if (response.ok && !skipCache) {
       const clone = response.clone();
       caches.open(API_CACHE).then((cache) => cache.put(request, clone)).catch(() => {});
     }
     return response;
   } catch {
-    const cached = await caches.match(request);
-    if (cached) return cached;
+    if (!skipCache) {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+    }
     return new Response(JSON.stringify({ error: 'offline' }), {
       status: 503,
       headers: { 'Content-Type': 'application/json' },

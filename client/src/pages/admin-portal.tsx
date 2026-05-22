@@ -8418,7 +8418,7 @@ type ChangelogRow = {
 
 function ChangelogTab() {
   const { toast } = useToast();
-  const { data: rows, isLoading } = useQuery<ChangelogRow[]>({
+  const { data: rows, isLoading, isFetching, refetch } = useQuery<ChangelogRow[]>({
     queryKey: ["/api/admin/changelog"],
     // The bullet counter and editor body need to reflect any out-of-band
     // appends (e.g. agent calls to /append). The app-wide staleTime: Infinity
@@ -8568,6 +8568,36 @@ function ChangelogTab() {
           <div className="text-sm text-muted-foreground" data-testid="text-changelog-count">
             {filteredRows.length} of {rows.length} entr{rows.length === 1 ? "y" : "ies"}
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              // Bust the PWA service-worker API cache for this URL too — the
+              // SW caches every successful GET, so a plain refetch could still
+              // see the stale copy on flaky/offline transitions.
+              try {
+                if ("caches" in window) {
+                  const keys = await caches.keys();
+                  await Promise.all(
+                    keys
+                      .filter((k) => k.startsWith("servicehub-api-"))
+                      .map(async (k) => {
+                        const cache = await caches.open(k);
+                        await cache.delete("/api/admin/changelog");
+                      }),
+                  );
+                }
+              } catch {}
+              await queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
+              await refetch();
+              toast({ title: "Refreshed" });
+            }}
+            disabled={isFetching}
+            data-testid="button-changelog-refresh"
+            title="Re-fetch from server (bypasses PWA cache)"
+          >
+            <RefreshCw className={`w-4 h-4 mr-1 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+          </Button>
           <Button variant="outline" size="sm" onClick={() => { setNewVersion(""); setCreateOpen(true); }} data-testid="button-changelog-new">
             <Plus className="w-4 h-4 mr-1" /> New entry
           </Button>
