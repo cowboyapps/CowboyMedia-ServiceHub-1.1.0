@@ -12,3 +12,15 @@ id = "hw2TxUW0ZUvU8K9RAWSdu"
 uri = "file://CHANGELOG.md"
 type = "text"
 title = "CowboyMedia Changelog"
+
+[[outputs]]
+id = "g6pSU8XeUDbnuBjoI3i_2"
+uri = "file://.local/changelog-restore/v52_body.html.txt"
+type = "text"
+title = "v5.2 changelog body — paste into Edit draft"
+
+[[outputs]]
+id = "2lr9ca-QiWCioUDj52WQh"
+uri = "file://.local/changelog-restore/restore_v52_on_vps.sh.txt"
+type = "text"
+title = "VPS one-shot restore script (rename to .sh before running)"
