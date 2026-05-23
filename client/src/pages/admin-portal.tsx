@@ -8760,6 +8760,7 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
   const { toast } = useToast();
   const [title, setTitle] = useState(row.title);
   const [bodyHtml, setBodyHtml] = useState(row.bodyHtml);
+  const [rawMode, setRawMode] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: async () => apiRequest("PATCH", `/api/admin/changelog/${row.version}`, { title, bodyHtml }),
@@ -8796,13 +8797,41 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
             <p className="text-xs text-muted-foreground">Optional. Falls back to "Welcome to version {row.version}" if empty.</p>
           </div>
           <div className="space-y-2">
-            <Label className="text-xs">Body (rich text — appears on /whats-new)</Label>
-            <RichTextEditor
-              value={bodyHtml}
-              onChange={setBodyHtml}
-              testIdPrefix="changelog-editor"
-              draftKey={`changelog:${row.version}`}
-            />
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Body (appears on /whats-new)</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setRawMode((v) => !v)}
+                data-testid="button-changelog-raw-toggle"
+              >
+                {rawMode ? "Rich text" : "Raw HTML"}
+              </Button>
+            </div>
+            {rawMode ? (
+              <>
+                <Textarea
+                  value={bodyHtml}
+                  onChange={(e) => setBodyHtml(e.target.value)}
+                  rows={14}
+                  className="font-mono text-xs"
+                  placeholder="<h3>New</h3><ul><li>…</li></ul>"
+                  data-testid="textarea-changelog-raw"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Paste raw HTML here (e.g. an exported body). Saved as-is after sanitization. {bodyHtml.length} chars.
+                </p>
+              </>
+            ) : (
+              <RichTextEditor
+                value={bodyHtml}
+                onChange={setBodyHtml}
+                testIdPrefix="changelog-editor"
+                draftKey={`changelog:${row.version}`}
+              />
+            )}
           </div>
           {row.status === "published" && (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs">
