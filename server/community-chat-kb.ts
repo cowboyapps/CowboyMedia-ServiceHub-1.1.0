@@ -10,6 +10,8 @@ export interface KbArticleEnvelope {
 export interface CommunityChatKbStorage {
   getKbArticleBySlug(slug: string): Promise<KbArticle | undefined>;
   getKbCategory(id: string): Promise<KbCategory | undefined>;
+  getKbArticlesBySlugs?(slugs: string[]): Promise<KbArticle[]>;
+  getKbCategoriesByIds?(ids: string[]): Promise<KbCategory[]>;
 }
 
 export type ResolveKbAttachmentResult =
@@ -48,14 +50,27 @@ export async function enrichKbArticlesForMessages(
 ): Promise<Map<string, KbArticleEnvelope>> {
   const kbSlugs = Array.from(new Set(messages.map(m => m.kbArticleSlug).filter((s): s is string => !!s)));
   const kbBySlug = new Map<string, KbArticleEnvelope>();
-  for (const slug of kbSlugs) {
-    const article = await storage.getKbArticleBySlug(slug);
-    if (!article || !article.published) continue;
-    const category = await storage.getKbCategory(article.categoryId);
-    kbBySlug.set(slug, {
+  if (kbSlugs.length === 0) return kbBySlug;
+
+  // Prefer batched fetches when available; fall back to per-item lookups so
+  // older test storages without the batch methods still work.
+  const articles = storage.getKbArticlesBySlugs
+    ? await storage.getKbArticlesBySlugs(kbSlugs)
+    : (await Promise.all(kbSlugs.map(s => storage.getKbArticleBySlug(s)))).filter((a): a is KbArticle => !!a);
+  const publishedArticles = articles.filter(a => a.published);
+  if (publishedArticles.length === 0) return kbBySlug;
+
+  const categoryIds = Array.from(new Set(publishedArticles.map(a => a.categoryId)));
+  const categories = storage.getKbCategoriesByIds
+    ? await storage.getKbCategoriesByIds(categoryIds)
+    : (await Promise.all(categoryIds.map(id => storage.getKbCategory(id)))).filter((c): c is KbCategory => !!c);
+  const categoryById = new Map(categories.map(c => [c.id, c]));
+
+  for (const article of publishedArticles) {
+    kbBySlug.set(article.slug, {
       slug: article.slug,
       title: article.title,
-      categoryName: category?.name ?? null,
+      categoryName: categoryById.get(article.categoryId)?.name ?? null,
       summary: article.summary ?? null,
     });
   }

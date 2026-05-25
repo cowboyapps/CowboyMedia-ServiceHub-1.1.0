@@ -62,6 +62,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
+import { invalidatePublicStatusCache } from "./public-status-cache";
 
 export type DashboardMetrics = {
   generatedAt: string;
@@ -114,6 +115,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getAllUsers(): Promise<User[]>;
+  getUsersByIds(ids: string[]): Promise<User[]>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
   deleteUser(id: string): Promise<void>;
 
@@ -372,6 +374,10 @@ export interface IStorage {
   listKbArticles(opts?: { publishedOnly?: boolean; categoryId?: string }): Promise<KbArticle[]>;
   getKbArticleById(id: string): Promise<KbArticle | undefined>;
   getKbArticleBySlug(slug: string): Promise<KbArticle | undefined>;
+  getKbArticlesBySlugs(slugs: string[]): Promise<KbArticle[]>;
+  getKbCategoriesByIds(ids: string[]): Promise<KbCategory[]>;
+  getAlertUpdatesForAlertIds(alertIds: string[]): Promise<AlertUpdate[]>;
+  getMonitorIncidentsForMonitorIds(monitorIds: string[]): Promise<MonitorIncident[]>;
   createKbArticle(data: InsertKbArticle & { authorId: string | null }): Promise<KbArticle>;
   updateKbArticle(id: string, data: UpdateKbArticle): Promise<KbArticle | undefined>;
   deleteKbArticle(id: string): Promise<void>;
@@ -419,6 +425,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(users);
   }
 
+  async getUsersByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return [];
+    return db.select().from(users).where(inArray(users.id, ids));
+  }
+
   async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
     const [updated] = await db.update(users).set(data).where(eq(users.id, id)).returning();
     return updated;
@@ -439,16 +450,19 @@ export class DatabaseStorage implements IStorage {
 
   async createService(service: InsertService): Promise<Service> {
     const [created] = await db.insert(services).values(service).returning();
+    invalidatePublicStatusCache();
     return created;
   }
 
   async updateService(id: string, data: Partial<Service>): Promise<Service | undefined> {
     const [updated] = await db.update(services).set(data).where(eq(services.id, id)).returning();
+    invalidatePublicStatusCache();
     return updated;
   }
 
   async deleteService(id: string): Promise<void> {
     await db.delete(services).where(eq(services.id, id));
+    invalidatePublicStatusCache();
   }
 
   async getAllAlerts(): Promise<ServiceAlert[]> {
@@ -462,17 +476,20 @@ export class DatabaseStorage implements IStorage {
 
   async createAlert(alert: InsertServiceAlert): Promise<ServiceAlert> {
     const [created] = await db.insert(serviceAlerts).values(alert).returning();
+    invalidatePublicStatusCache();
     return created;
   }
 
   async updateAlert(id: string, data: Partial<ServiceAlert>): Promise<ServiceAlert | undefined> {
     const [updated] = await db.update(serviceAlerts).set(data).where(eq(serviceAlerts.id, id)).returning();
+    invalidatePublicStatusCache();
     return updated;
   }
 
   async deleteAlert(id: string): Promise<void> {
     await db.delete(alertUpdates).where(eq(alertUpdates.alertId, id));
     await db.delete(serviceAlerts).where(eq(serviceAlerts.id, id));
+    invalidatePublicStatusCache();
   }
 
   async getAlertNotificationRecipientIds(alertId: string): Promise<string[]> {
@@ -512,11 +529,13 @@ export class DatabaseStorage implements IStorage {
 
   async createAlertUpdate(update: InsertAlertUpdate): Promise<AlertUpdate> {
     const [created] = await db.insert(alertUpdates).values(update).returning();
+    invalidatePublicStatusCache();
     return created;
   }
 
   async updateAlertUpdate(id: string, data: Partial<{ message: string; imageUrl: string | null }>): Promise<AlertUpdate | undefined> {
     const [updated] = await db.update(alertUpdates).set(data).where(eq(alertUpdates.id, id)).returning();
+    invalidatePublicStatusCache();
     return updated;
   }
 
@@ -857,17 +876,20 @@ export class DatabaseStorage implements IStorage {
 
   async createServiceUpdate(update: InsertServiceUpdate): Promise<ServiceUpdate> {
     const [created] = await db.insert(serviceUpdates).values(update).returning();
+    invalidatePublicStatusCache();
     return created;
   }
 
   async updateServiceUpdate(id: string, data: Partial<{ title: string; description: string; matureContent: boolean }>): Promise<ServiceUpdate | undefined> {
     const [updated] = await db.update(serviceUpdates).set(data).where(eq(serviceUpdates.id, id)).returning();
+    invalidatePublicStatusCache();
     return updated;
   }
 
   async deleteServiceUpdate(id: string): Promise<void> {
     await db.delete(hiddenServiceUpdates).where(eq(hiddenServiceUpdates.serviceUpdateId, id));
     await db.delete(serviceUpdates).where(eq(serviceUpdates.id, id));
+    invalidatePublicStatusCache();
   }
 
   async hideServiceUpdate(userId: string, serviceUpdateId: string): Promise<void> {
@@ -1279,17 +1301,20 @@ export class DatabaseStorage implements IStorage {
 
   async createUrlMonitor(data: InsertUrlMonitor): Promise<UrlMonitor> {
     const [m] = await db.insert(urlMonitors).values(data).returning();
+    invalidatePublicStatusCache();
     return m;
   }
 
   async updateUrlMonitor(id: string, data: Partial<UrlMonitor>): Promise<UrlMonitor | undefined> {
     const [m] = await db.update(urlMonitors).set(data).where(eq(urlMonitors.id, id)).returning();
+    invalidatePublicStatusCache();
     return m;
   }
 
   async deleteUrlMonitor(id: string): Promise<void> {
     await db.delete(monitorIncidents).where(eq(monitorIncidents.monitorId, id));
     await db.delete(urlMonitors).where(eq(urlMonitors.id, id));
+    invalidatePublicStatusCache();
   }
 
   async getMonitorIncidents(monitorId: string): Promise<MonitorIncident[]> {
@@ -1307,11 +1332,13 @@ export class DatabaseStorage implements IStorage {
 
   async createMonitorIncident(data: InsertMonitorIncident): Promise<MonitorIncident> {
     const [inc] = await db.insert(monitorIncidents).values(data).returning();
+    invalidatePublicStatusCache();
     return inc;
   }
 
   async updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined> {
     const [inc] = await db.update(monitorIncidents).set(data).where(eq(monitorIncidents.id, id)).returning();
+    invalidatePublicStatusCache();
     return inc;
   }
 
@@ -1811,6 +1838,26 @@ export class DatabaseStorage implements IStorage {
   async getKbArticleBySlug(slug: string): Promise<KbArticle | undefined> {
     const [row] = await db.select().from(kbArticles).where(eq(kbArticles.slug, slug));
     return row;
+  }
+
+  async getKbArticlesBySlugs(slugs: string[]): Promise<KbArticle[]> {
+    if (slugs.length === 0) return [];
+    return db.select().from(kbArticles).where(inArray(kbArticles.slug, slugs));
+  }
+
+  async getKbCategoriesByIds(ids: string[]): Promise<KbCategory[]> {
+    if (ids.length === 0) return [];
+    return db.select().from(kbCategories).where(inArray(kbCategories.id, ids));
+  }
+
+  async getAlertUpdatesForAlertIds(alertIds: string[]): Promise<AlertUpdate[]> {
+    if (alertIds.length === 0) return [];
+    return db.select().from(alertUpdates).where(inArray(alertUpdates.alertId, alertIds)).orderBy(desc(alertUpdates.createdAt));
+  }
+
+  async getMonitorIncidentsForMonitorIds(monitorIds: string[]): Promise<MonitorIncident[]> {
+    if (monitorIds.length === 0) return [];
+    return db.select().from(monitorIncidents).where(inArray(monitorIncidents.monitorId, monitorIds)).orderBy(desc(monitorIncidents.startedAt));
   }
 
   async createKbArticle(data: InsertKbArticle & { authorId: string | null }): Promise<KbArticle> {

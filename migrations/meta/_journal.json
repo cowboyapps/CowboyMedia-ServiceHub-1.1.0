@@ -64,6 +64,13 @@
       "when": 1779441700510,
       "tag": "0008_glorious_marrow",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779675900710,
+      "tag": "0009_harsh_gunslinger",
+      "breakpoints": true
     }
   ]
 }

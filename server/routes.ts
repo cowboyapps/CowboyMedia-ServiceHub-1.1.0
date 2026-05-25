@@ -3,6 +3,7 @@ import { createServer, type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
+import { getCachedPublicStatus, setCachedPublicStatus } from "./public-status-cache";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
 import session from "express-session";
@@ -846,6 +847,10 @@ export async function registerRoutes(
 
   app.get("/api/public/status", async (_req, res) => {
     try {
+      const cachedPayload = getCachedPublicStatus();
+      if (cachedPayload !== null) {
+        return res.json(cachedPayload);
+      }
       const { computeUptime } = await import("./uptime");
       const [services, alerts, monitors, allUpdates] = await Promise.all([
         storage.getAllServices(),
@@ -854,19 +859,26 @@ export async function registerRoutes(
         storage.getAllServiceUpdates(),
       ]);
       const monitorsByService = new Map<string, typeof monitors>();
+      const monitorToService = new Map<string, string>();
       for (const m of monitors) {
         if (!m.serviceId) continue;
         const arr = monitorsByService.get(m.serviceId) || [];
         arr.push(m);
         monitorsByService.set(m.serviceId, arr);
+        monitorToService.set(m.id, m.serviceId);
       }
       const incidentsByService = new Map<string, MonitorIncident[]>();
-      await Promise.all(
-        Array.from(monitorsByService.entries()).map(async ([sid, mons]) => {
-          const incArrays = await Promise.all(mons.map((m) => storage.getMonitorIncidents(m.id)));
-          incidentsByService.set(sid, incArrays.flat());
-        })
-      );
+      const allMonitorIds = Array.from(monitorToService.keys());
+      if (allMonitorIds.length > 0) {
+        const allIncidents = await storage.getMonitorIncidentsForMonitorIds(allMonitorIds);
+        for (const inc of allIncidents) {
+          const sid = monitorToService.get(inc.monitorId);
+          if (!sid) continue;
+          const arr = incidentsByService.get(sid) || [];
+          arr.push(inc);
+          incidentsByService.set(sid, arr);
+        }
+      }
       // Include ALL unresolved alerts plus any alerts touched in the last 14 days,
       // so the public page never hides an active incident behind a wall of recently
       // resolved ones.
@@ -881,13 +893,15 @@ export async function registerRoutes(
         .sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0));
       const serviceMap = new Map(services.map(s => [s.id, s.name]));
       const updatesByAlert = new Map<string, Date>();
-      await Promise.all(
-        sortedAlerts.map(async (a) => {
-          const ups = await storage.getAlertUpdates(a.id);
-          if (ups.length > 0) updatesByAlert.set(a.id, ups[0].createdAt);
-        })
-      );
-      res.json({
+      const alertIds = sortedAlerts.map((a) => a.id);
+      if (alertIds.length > 0) {
+        const ups = await storage.getAlertUpdatesForAlertIds(alertIds);
+        // ups is ordered by createdAt desc — first seen per alertId is newest.
+        for (const u of ups) {
+          if (!updatesByAlert.has(u.alertId)) updatesByAlert.set(u.alertId, u.createdAt);
+        }
+      }
+      const payload = {
         services: services.map(s => {
           const hasMonitor = (monitorsByService.get(s.id) || []).length > 0;
           const uptime = computeUptime(incidentsByService.get(s.id) || [], hasMonitor);
@@ -926,7 +940,9 @@ export async function registerRoutes(
               createdAt: u.createdAt,
             }));
         })(),
-      });
+      };
+      setCachedPublicStatus(payload);
+      res.json(payload);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -1641,12 +1657,15 @@ export async function registerRoutes(
         const pendingTransferTicketIds = new Set(pendingTransfers.map(t => t.ticketId));
         result = result.filter(t => !t.claimedBy || t.claimedBy === user.id || pendingTransferTicketIds.has(t.id));
       }
-      const enriched = await Promise.all(result.map(async (t) => {
-        if (t.claimedBy) {
-          const claimedAdmin = await storage.getUser(t.claimedBy);
-          return { ...t, claimedByName: claimedAdmin?.fullName || "Unknown" };
-        }
-        return { ...t, claimedByName: null };
+      const claimedIds = Array.from(new Set(result.map(t => t.claimedBy).filter((v): v is string => !!v)));
+      const claimedNameById = new Map<string, string>();
+      if (claimedIds.length > 0) {
+        const admins = await storage.getUsersByIds(claimedIds);
+        for (const a of admins) claimedNameById.set(a.id, a.fullName);
+      }
+      const enriched = result.map((t) => ({
+        ...t,
+        claimedByName: t.claimedBy ? (claimedNameById.get(t.claimedBy) || "Unknown") : null,
       }));
       res.json(enriched);
     } else {
@@ -5268,9 +5287,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const userIds = [...new Set(messages.map(m => m.userId))];
       const usersMap = new Map<string, { role: string; avatarUrl: string | null }>();
-      for (const uid of userIds) {
-        const u = await storage.getUser(uid);
-        if (u) usersMap.set(uid, { role: u.role, avatarUrl: u.avatarUrl || null });
+      if (userIds.length > 0) {
+        const users = await storage.getUsersByIds(userIds);
+        for (const u of users) usersMap.set(u.id, { role: u.role, avatarUrl: u.avatarUrl || null });
       }
       // Enrich KB article references — one lookup per unique slug, not per message.
       const kbBySlug = await enrichKbArticlesForMessages(messages, storage);

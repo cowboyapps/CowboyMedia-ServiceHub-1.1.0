@@ -34,7 +34,9 @@ export const users = pgTable("users", {
   quietHoursAllowCritical: boolean("quiet_hours_allow_critical").notNull().default(true),
   lastVersionWelcomeSeen: text("last_version_welcome_seen"),
   servicesPickerDismissed: boolean("services_picker_dismissed").notNull().default(false),
-});
+}, (table) => ({
+  roleIdx: index("users_role_idx").on(table.role),
+}));
 
 export const totpBackupCodes = pgTable("totp_backup_codes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -68,7 +70,10 @@ export const serviceAlerts = pgTable("service_alerts", {
   postmortemAuthorId: varchar("postmortem_author_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   resolvedAt: timestamp("resolved_at"),
-});
+}, (table) => ({
+  createdAtIdx: index("service_alerts_created_at_idx").on(table.createdAt.desc()),
+  serviceIdx: index("service_alerts_service_id_idx").on(table.serviceId),
+}));
 
 export const alertUpdates = pgTable("alert_updates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -77,7 +82,9 @@ export const alertUpdates = pgTable("alert_updates", {
   status: text("status").notNull(),
   imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  alertCreatedIdx: index("alert_updates_alert_id_created_at_idx").on(table.alertId, table.createdAt.desc()),
+}));
 
 export const newsStories = pgTable("news_stories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -86,7 +93,9 @@ export const newsStories = pgTable("news_stories", {
   imageUrl: text("image_url"),
   authorId: varchar("author_id").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  createdAtIdx: index("news_stories_created_at_idx").on(table.createdAt.desc()),
+}));
 
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -103,7 +112,12 @@ export const tickets = pgTable("tickets", {
   closedBy: varchar("closed_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
-});
+}, (table) => ({
+  createdAtIdx: index("tickets_created_at_idx").on(table.createdAt.desc()),
+  customerIdx: index("tickets_customer_id_idx").on(table.customerId),
+  claimedByIdx: index("tickets_claimed_by_idx").on(table.claimedBy),
+  statusIdx: index("tickets_status_idx").on(table.status),
+}));
 
 export const ticketMessages = pgTable("ticket_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -496,7 +510,9 @@ export const monitorIncidents = pgTable("monitor_incidents", {
   failureReason: text("failure_reason"),
   notifiedDown: boolean("notified_down").notNull().default(false),
   notifiedUp: boolean("notified_up").notNull().default(false),
-});
+}, (table) => ({
+  monitorStartedIdx: index("monitor_incidents_monitor_id_started_at_idx").on(table.monitorId, table.startedAt.desc()),
+}));
 
 export const insertUrlMonitorSchema = createInsertSchema(urlMonitors).omit({ id: true, createdAt: true, lastCheckedAt: true, lastStatusChange: true, lastResponseTimeMs: true, consecutiveFailures: true, status: true });
 export type InsertUrlMonitor = z.infer<typeof insertUrlMonitorSchema>;
@@ -970,7 +986,9 @@ export const kbArticles = pgTable("kb_articles", {
   authorId: varchar("author_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  categoryIdx: index("kb_articles_category_id_idx").on(table.categoryId),
+}));
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
