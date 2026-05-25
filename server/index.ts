@@ -129,7 +129,17 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        // Cap the embedded body. PM2's log file splits any single console.log
+        // longer than ~1KB across multiple physical lines, and only the first
+        // chunk carries the `[express]` prefix. The deploy log-tail error
+        // gate filters on `[express]` to skip request logs — continuation
+        // chunks slip through, and routes that return large JSON arrays
+        // containing strings like `column "x" does not exist` (e.g. the
+        // admin error-history endpoint) end up tripping the gate on perfectly
+        // healthy deploys. 200 chars is plenty for at-a-glance debugging
+        // and keeps the whole log line well under pm2's split threshold.
+        const body = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${body.length > 200 ? body.slice(0, 200) + "…" : body}`;
       }
 
       log(logLine);

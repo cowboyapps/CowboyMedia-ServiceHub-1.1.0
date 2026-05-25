@@ -429,7 +429,27 @@ echo "==> Log-tail error gate (last 200 lines of pm2 logs)..."
 # output (see server/index.ts: "Internal Server Error:", "Seed error:",
 # etc.) so dropping `[express]` lines costs us no real signal.
 LOG_TAIL="$(sudo -u "$APP_USER" -H bash -lc "pm2 logs servicehub --lines 200 --nostream --raw" 2>/dev/null || true)"
-LOG_TAIL_FILTERED="$(echo "$LOG_TAIL" | grep -v "\[express\]" || true)"
+# Strip:
+#   (a) lines prefixed `[express]` — the express request logger embeds
+#       response bodies after `:: `, and bodies for admin endpoints like
+#       `/api/admin/health/errors` legitimately contain old "column ...
+#       does not exist" strings from the resolved-errors history.
+#   (b) JSON-continuation lines from (a) that pm2 split off into their
+#       own physical line because the body exceeded pm2's ~1KB per-line
+#       buffer — those have no `[express]` prefix, but they always
+#       start with a JSON glyph (`"`, `,`, `:`, `{`, `}`).
+#       Real crash output starts with `Error:`, `    at `, `(node:...`,
+#       a timestamp, `[migrate]`, `[seed]`, or plain text — never one
+#       of those JSON glyphs. (We deliberately do NOT strip lines
+#       starting with `[` or `]`: `[migrate]`/`[seed]` source prefixes
+#       are real signal, and JSON wouldn't naturally split right on a
+#       bracket.)
+# Without (b), a single admin dashboard poll during the post-deploy window
+# can land enough wrapped JSON in pm2's log to roll a healthy deploy. We
+# also capped the embedded body length in the source logger (see
+# server/index.ts) so new occurrences never split; (b) covers residue
+# already on disk from before that fix shipped.
+LOG_TAIL_FILTERED="$(echo "$LOG_TAIL" | grep -v "\[express\]" | grep -vE '^("|,|:|\{|\})' || true)"
 if echo "$LOG_TAIL_FILTERED" | grep -E "Migration error|column .* does not exist|relation .* does not exist|ECONNREFUSED" >/dev/null \
    && [[ "${FORCE_DEPLOY:-0}" != "1" ]]; then
   echo "ERROR: pm2 log tail contains schema/connection errors after restart:"
