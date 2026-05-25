@@ -113,10 +113,9 @@ export const tickets = pgTable("tickets", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
 }, (table) => ({
-  createdAtIdx: index("tickets_created_at_idx").on(table.createdAt.desc()),
+  statusCreatedAtIdx: index("tickets_status_created_at_idx").on(table.status, table.createdAt.desc()),
   customerIdx: index("tickets_customer_id_idx").on(table.customerId),
   claimedByIdx: index("tickets_claimed_by_idx").on(table.claimedBy),
-  statusIdx: index("tickets_status_idx").on(table.status),
 }));
 
 export const ticketMessages = pgTable("ticket_messages", {
