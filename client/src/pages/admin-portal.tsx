@@ -791,15 +791,15 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                       {newUserIds.includes(u.id) && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" data-testid={`dot-new-user-${u.id}`} />}
                       <span className="font-medium text-sm truncate">{u.fullName}</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-muted-foreground">@{u.username}</span>
-                      <Badge variant={u.role === "admin" || u.role === "master_admin" ? "default" : "secondary"} className="text-[10px] capitalize px-1.5 py-0">
+                    <div className="flex items-center gap-2 mt-0.5 min-w-0">
+                      <span className="text-xs text-muted-foreground truncate">@{u.username}</span>
+                      <Badge variant={u.role === "admin" || u.role === "master_admin" ? "default" : "secondary"} className="text-[10px] capitalize px-1.5 py-0 shrink-0">
                         {u.role === "master_admin" ? "Master Admin" : u.role}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{u.email}</p>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 pt-0.5 flex-wrap justify-end">
+                  <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                     <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
                       {pushStatus?.[u.id] ? <Bell className="w-3.5 h-3.5 text-green-500" /> : <BellOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
                     </span>
@@ -809,11 +809,11 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                       const e = countEnabledGroups(prefs, "email");
                       return (
                         <>
-                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
-                            <Bell className="w-2.5 h-2.5" />Push prefs {p.enabled}/{p.total} groups
+                          <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
+                            <Bell className="w-2.5 h-2.5" />{p.enabled}/{p.total}
                           </Badge>
-                          <Badge variant="outline" className={`h-5 px-1 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
-                            <Mail className="w-2.5 h-2.5" />Email prefs {e.enabled}/{e.total} groups
+                          <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
+                            <Mail className="w-2.5 h-2.5" />{e.enabled}/{e.total}
                           </Badge>
                         </>
                       );
