@@ -21,6 +21,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
     - `TELEGRAM_BOT_TOKEN` (optional)
     - `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (optional)
     - `DEPLOY_GATE_TOKEN` (production only — long random string. Bearer token the VPS deploy webhook listener uses to read `app_settings.auto_deploy_enabled` over HTTP before invoking `update.sh`. Must match the value in `/etc/servicehub-deploy.env` on the VPS. If unset, the listener fails closed and refuses to deploy.)
+    - `CHANGELOG_APPEND_TOKEN` (long random string, **must be set on prod AND mirrored to Replit Secrets**). Bearer token the agent uses to append changelog bullets straight at production via `POST /api/agent/changelog/:version/append`. Without this, the agent can't satisfy the auto-append rule below — its appends would land in the dev DB and never reach customers. On the VPS it lives in `/etc/servicehub.env`; the prod server reads it via PM2's process env. Rotation: `openssl rand -hex 32`, update Replit Secrets, update `/etc/servicehub.env`, then `sudo -u servicehub pm2 reload servicehub --update-env` (remember to source the env file first — see "Manual deploy" below). The route fails closed (HTTP 503) when the env var is unset, so a typo'd or missing prod value blocks appends loudly instead of silently dropping them.
 
 ## Replit ↔ GitHub sync (manual)
 
@@ -144,7 +145,13 @@ I want iterative development.
 Ask before making major changes.
 When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, and bottom nav all read from it) without further explanation. The "Welcome to version X" popup is decoupled: when the new version boots, the server auto-creates an empty draft changelog entry; the popup only fires once the user clicks **Publish** on it in Admin Portal → Changelog.
 
-**Auto-append the changelog as we work.** Whenever a change ships that a customer can see or interact with, append a single bullet to the **current** `APP_VERSION`'s draft entry by calling `POST /api/admin/changelog/:version/append` with `{ heading, bullet }`. Use the existing helper (`appendBulletToBody` in `shared/changelog-append.ts`) for any non-route call sites. Rules:
+**Auto-append the changelog as we work.** Whenever a change ships that a customer can see or interact with, append a single bullet to the **current** `APP_VERSION`'s draft entry by running, from the Replit shell:
+
+```bash
+tsx script/append-bullet.ts <New|Improved|Fixed> "<one short customer-friendly sentence>"
+```
+
+That script POSTs to `https://cowboyhub.app/api/agent/changelog/:version/append` with the `CHANGELOG_APPEND_TOKEN` bearer, so the bullet lands in the **production** draft — the same DB the user reads in Admin Portal → Changelog on their phone. **Do NOT call the helper against the local Replit DB** — bullets there are invisible to prod and stranded forever once `APP_VERSION` bumps (see the v5.2 backfill of tasks #232/#233/#234 for what the drift looks like). The session-gated `POST /api/admin/changelog/:version/append` route still exists for the admin UI's "Edit draft" flow; only automated callers use the `/api/agent/...` twin. The `appendBulletToBody` helper in `shared/changelog-append.ts` is still the canonical merge function — both routes share it server-side. Rules:
 - **What earns a bullet**: new user-visible features, fixes, UI/UX changes, and anything that meaningfully affects a function the customer interacts with (e.g. faster, clearer, more reliable, new option, new screen, new alert channel).
 - **What does NOT earn a bullet**: pure refactors, dev tooling, internal plumbing, test-only changes, comments, type-only changes, build/CI tweaks, schema changes that aren't user-visible.
 - **Heading buckets**: exactly three — `New` (brand new capability), `Improved` (existing thing got better/faster/clearer), `Fixed` (bug fix). Pick one per bullet.

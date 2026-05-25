@@ -45,6 +45,7 @@ import {
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
 import { APP_VERSION } from "@shared/version";
+import { requireAgentToken } from "./agent-auth";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { selectVersionWelcome } from "@shared/version-welcome";
@@ -1318,7 +1319,10 @@ export async function registerRoutes(
   // Keeps agent edits small, atomic, and safe — and avoids the agent ever
   // round-tripping the entire body, which would risk wiping editorial
   // tweaks the user made between appends.
-  app.post("/api/admin/changelog/:version/append", requireMasterAdmin, async (req, res) => {
+  // Shared body for both the session-gated admin route and the bearer-gated
+  // agent route. Same validation, same merge, same sanitize, same return —
+  // the only thing that differs between the two surfaces is auth.
+  async function handleChangelogAppend(req: Request, res: Response) {
     try {
       const { heading, bullet } = (req.body || {}) as { heading?: unknown; bullet?: unknown };
       if (!isBulletHeading(heading)) {
@@ -1346,7 +1350,21 @@ export async function registerRoutes(
       });
       res.json(updated);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
-  });
+  }
+
+  app.post("/api/admin/changelog/:version/append", requireMasterAdmin, handleChangelogAppend);
+
+  // Bearer-token twin of the route above. Same body, same merge, same
+  // response shape — auth is the only difference. Lets the Replit agent
+  // (or any other automated caller) POST a bullet straight at production
+  // without piggybacking on a master_admin browser session. The token
+  // lives in `CHANGELOG_APPEND_TOKEN` on the VPS (mirror in Replit Secrets
+  // so the agent's append script can read it). See replit.md.
+  app.post(
+    "/api/agent/changelog/:version/append",
+    requireAgentToken("CHANGELOG_APPEND_TOKEN"),
+    handleChangelogAppend,
+  );
 
   app.post("/api/admin/changelog/:version/publish", requireMasterAdmin, async (req, res) => {
     try {
