@@ -602,14 +602,23 @@ export default function TicketDetail() {
               );
               // Reconcile own-send optimistic bubble: if WS arrives before our POST .then()
               // removes the optimistic placeholder, both would render briefly. Match by
-              // sender + text + internal flag (no shared id between temp and real).
+              // sender + text + internal flag (no shared id between temp and real). Remove
+              // only the SINGLE oldest matching pending entry so rapid duplicate sends
+              // ("ok" / "ok") don't lose their second optimistic bubble — the second one
+              // stays pending and remains retryable if its POST eventually fails.
               if (incoming.senderId === userIdRef.current) {
-                setOptimisticMessages((prev) => prev.filter((m) => !(
-                  m.status !== "failed" &&
-                  m.senderId === incoming.senderId &&
-                  m.message === incoming.message &&
-                  !!m.isInternal === !!incoming.isInternal
-                )));
+                setOptimisticMessages((prev) => {
+                  const idx = prev.findIndex((m) => (
+                    m.status !== "failed" &&
+                    m.senderId === incoming.senderId &&
+                    m.message === incoming.message &&
+                    !!m.isInternal === !!incoming.isInternal
+                  ));
+                  if (idx === -1) return prev;
+                  const next = prev.slice();
+                  next.splice(idx, 1);
+                  return next;
+                });
               }
             } else {
               queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
