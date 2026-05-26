@@ -1,4 +1,6 @@
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+
+export type ReconnectingWebSocketStatus = "connecting" | "open" | "closed";
 
 export interface ReconnectingWebSocketOptions {
   /**
@@ -58,13 +60,17 @@ export interface ReconnectingWebSocketOptions {
  * without resetting the socket. The socket is only torn down/recreated
  * when `deps` change.
  */
-export function useReconnectingWebSocket(opts: ReconnectingWebSocketOptions): void {
+export function useReconnectingWebSocket(
+  opts: ReconnectingWebSocketOptions,
+): ReconnectingWebSocketStatus {
   const {
     path,
     reconnectDelayMs = 2000,
     wsRef: externalWsRef,
     deps = [],
   } = opts;
+
+  const [status, setStatus] = useState<ReconnectingWebSocketStatus>("connecting");
 
   const onOpenRef = useRef(opts.onOpen);
   const onMessageRef = useRef(opts.onMessage);
@@ -92,6 +98,7 @@ export function useReconnectingWebSocket(opts: ReconnectingWebSocketOptions): vo
       setActiveSocket(next);
 
       next.onopen = () => {
+        setStatus("open");
         onOpenRef.current?.(next);
       };
 
@@ -105,6 +112,7 @@ export function useReconnectingWebSocket(opts: ReconnectingWebSocketOptions): vo
         }
         if (ws === next) ws = null;
         if (!disposed) {
+          setStatus("closed");
           reconnectTimer = setTimeout(connect, reconnectDelayMs);
         }
       };
@@ -154,4 +162,6 @@ export function useReconnectingWebSocket(opts: ReconnectingWebSocketOptions): vo
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, reconnectDelayMs, ...deps]);
+
+  return status;
 }
