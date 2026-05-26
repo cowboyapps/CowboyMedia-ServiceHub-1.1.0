@@ -486,6 +486,8 @@ export default function TicketDetail() {
   const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
   const [aiSuggestCollapsed, setAiSuggestCollapsed] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const keyboardOpenRef = useRef(false);
+  const keyboardToastShownRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -493,7 +495,17 @@ export default function TicketDetail() {
     if (!vv) return;
     const onResize = () => {
       const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setKeyboardInset(offset > 80 ? offset : 0);
+      const inset = offset > 80 ? offset : 0;
+      setKeyboardInset(inset);
+      const isOpen = inset > 0;
+      if (isOpen && !keyboardOpenRef.current && !keyboardToastShownRef.current) {
+        keyboardToastShownRef.current = true;
+        toast({
+          description: "Composer moved up so the keyboard doesn't cover it.",
+          duration: 2000,
+        });
+      }
+      keyboardOpenRef.current = isOpen;
     };
     vv.addEventListener("resize", onResize);
     vv.addEventListener("scroll", onResize);
@@ -502,7 +514,7 @@ export default function TicketDetail() {
       vv.removeEventListener("resize", onResize);
       vv.removeEventListener("scroll", onResize);
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     setComposerMode("reply");
@@ -1133,6 +1145,7 @@ export default function TicketDetail() {
         paddingBottom: keyboardInset
           ? `${keyboardInset}px`
           : "env(safe-area-inset-bottom, 0px)",
+        transition: "padding-bottom 150ms ease-out",
       }}
     >
       <div
