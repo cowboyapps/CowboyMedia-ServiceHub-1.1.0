@@ -16,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Wifi, WifiOff } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search } from "lucide-react";
+import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { Link } from "wouter";
 import { Poll } from "@/components/poll";
@@ -26,7 +27,6 @@ import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
 import type { CommunityMessage } from "@shared/schema";
-import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 
 type AdminAction =
   | { type: "menu"; messageId: string; userId: string; username: string }
@@ -948,25 +948,6 @@ export default function CommunityChatPage() {
     };
   }, []);
 
-  // Mirror ticket-detail: surface a small banner if the socket has been down
-  // for >3s, then briefly flash "Live again" when it reopens. Closes the UX
-  // gap where new messages / typing / reactions silently stop updating.
-  const [connectionBanner, setConnectionBanner] = useState<"reconnecting" | "recovered" | null>(null);
-  useEffect(() => {
-    if (wsStatus === "closed") {
-      const t = setTimeout(() => setConnectionBanner("reconnecting"), 3000);
-      return () => clearTimeout(t);
-    }
-    if (wsStatus === "open") {
-      setConnectionBanner((prev) => (prev === "reconnecting" ? "recovered" : prev));
-    }
-  }, [wsStatus]);
-  useEffect(() => {
-    if (connectionBanner !== "recovered") return;
-    const t = setTimeout(() => setConnectionBanner(null), 2000);
-    return () => clearTimeout(t);
-  }, [connectionBanner]);
-
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
     setShowNewMessagesPill(false);
@@ -1190,34 +1171,7 @@ export default function CommunityChatPage() {
         <NotificationSettingsPopover currentPref={chatNotifPref} onUpdate={setChatNotifPref} />
       </div>
 
-      {connectionBanner && (
-        <div
-          className={`flex-shrink-0 mx-2 sm:mx-3 mt-2 px-3 py-1.5 rounded-md text-xs flex items-center gap-1.5 ${
-            connectionBanner === "reconnecting"
-              ? "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900"
-              : "bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-900"
-          }`}
-          data-testid={
-            connectionBanner === "reconnecting"
-              ? "banner-connection-reconnecting"
-              : "banner-connection-recovered"
-          }
-          role="status"
-          aria-live="polite"
-        >
-          {connectionBanner === "reconnecting" ? (
-            <>
-              <WifiOff className="w-3.5 h-3.5" />
-              Reconnecting…
-            </>
-          ) : (
-            <>
-              <Wifi className="w-3.5 h-3.5" />
-              Live again
-            </>
-          )}
-        </div>
-      )}
+      <LiveConnectionBanner status={wsStatus} className="mx-2 sm:mx-3 mt-2" />
 
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-3 space-y-1 min-h-0">
         {isLoading ? (

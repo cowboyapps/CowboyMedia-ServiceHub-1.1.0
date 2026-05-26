@@ -28,6 +28,7 @@ import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
@@ -1979,7 +1980,7 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
 
   useEffect(() => { markRead.mutate(); }, [threadId]);
 
-  useReconnectingWebSocket({
+  const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     wsRef,
     deps: [threadId, userId],
@@ -2083,6 +2084,7 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
           <p className="text-xs text-muted-foreground truncate">{thread?.customerName}</p>
         </div>
       </div>
+      <LiveConnectionBanner status={wsStatus} className="mx-2 mt-2" />
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1 min-h-0">
         {isLoading ? (
           <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4" />)}</div>

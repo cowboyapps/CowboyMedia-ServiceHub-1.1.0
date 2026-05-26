@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
@@ -360,22 +361,16 @@ function SetupReminderDialog() {
   );
 }
 
-function PrivateMessagePopup() {
-  const { user } = useAuth();
+function PrivateMessagePopupInner({ userId }: { userId: string }) {
   const [popupMessage, setPopupMessage] = useState<{ subject: string; body: string } | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
-    if (!user || user.role === "admin" || user.role === "master_admin") return;
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
+  useReconnectingWebSocket({
+    path: "/ws",
+    deps: [userId],
+    onMessage: (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === "private_message" && data.recipientId === user.id) {
+        if (data.type === "private_message" && data.recipientId === userId) {
           setPopupMessage({ subject: data.subject, body: "You have a new private message. Open your Message Center to read it." });
           queryClient.invalidateQueries({ queryKey: ["/api/private-messages"] });
           queryClient.invalidateQueries({ queryKey: ["/api/private-messages/unread-count"] });
@@ -385,14 +380,20 @@ function PrivateMessagePopup() {
           queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
         }
       } catch {}
-    };
+    },
+  });
 
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
-  }, [user]);
+  if (!popupMessage) return null;
+  return <PrivateMessageDialog popupMessage={popupMessage} setPopupMessage={setPopupMessage} />;
+}
 
+function PrivateMessagePopup() {
+  const { user } = useAuth();
+  if (!user || user.role === "admin" || user.role === "master_admin") return null;
+  return <PrivateMessagePopupInner userId={user.id} />;
+}
+
+function PrivateMessageDialog({ popupMessage, setPopupMessage }: { popupMessage: { subject: string; body: string }; setPopupMessage: (v: null) => void }) {
   if (!popupMessage) return null;
 
   return (
@@ -1016,41 +1017,35 @@ function AppContent() {
     reRegisterPush();
   }, [user]);
 
-  useEffect(() => {
-    if (!user) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    (window as any).__ws = ws;
-    const sendPage = (sock: WebSocket) => {
-      if (sock.readyState === WebSocket.OPEN) {
-        try { sock.send(JSON.stringify({ type: "current_page", page: window.location.pathname })); } catch {}
-      }
-    };
-    ws.onopen = () => sendPage(ws);
-    ws.onclose = () => {
-      setTimeout(() => {
-        if ((window as any).__ws === ws) {
-          const newWs = new WebSocket(`${protocol}//${window.location.host}/ws`);
-          (window as any).__ws = newWs;
-          newWs.onopen = () => sendPage(newWs);
-        }
-      }, 3000);
-    };
-    return () => {
-      ws.close();
-      if ((window as any).__ws === ws) {
-        (window as any).__ws = null;
-      }
-    };
-  }, [user]);
+  return (
+    <AppContentInner user={user} isLoading={isLoading} isAdmin={isAdmin} location={location} />
+  );
+}
+
+function GlobalPresenceTracker({ userId, location }: { userId: string; location: string }) {
+  const globalWsRef = useRef<WebSocket | null>(null);
+  useReconnectingWebSocket({
+    path: "/ws",
+    wsRef: globalWsRef,
+    reconnectDelayMs: 3000,
+    deps: [userId],
+    onOpen: (sock) => {
+      (window as any).__ws = sock;
+      try { sock.send(JSON.stringify({ type: "current_page", page: window.location.pathname })); } catch {}
+    },
+  });
 
   useEffect(() => {
-    if (!user) return;
     const ws = (window as any).__ws as WebSocket | null;
     if (ws && ws.readyState === WebSocket.OPEN) {
       try { ws.send(JSON.stringify({ type: "current_page", page: location })); } catch {}
     }
-  }, [user, location]);
+  }, [location]);
+
+  return null;
+}
+
+function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; isLoading: boolean; isAdmin: boolean; location: string }) {
 
   if (location.startsWith("/status/incidents/")) {
     return (
@@ -1106,6 +1101,7 @@ function AppContent() {
 
   return (
     <>
+      <GlobalPresenceTracker userId={user.id} location={location} />
       <BroadcastAlertPopup />
       <CommandPalette />
       {isAdmin && <TicketTransferPopup />}

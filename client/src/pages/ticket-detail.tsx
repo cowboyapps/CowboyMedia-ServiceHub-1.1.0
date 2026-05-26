@@ -25,7 +25,8 @@ import { findUnfilledPlaceholders } from "@shared/quick-response-vars";
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Lock, Pencil, Trash2, Check, WifiOff, Wifi } from "lucide-react";
+import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Lock, Pencil, Trash2, Check } from "lucide-react";
+import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -482,8 +483,6 @@ export default function TicketDetail() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
 
-  const [connectionBanner, setConnectionBanner] = useState<"reconnecting" | "recovered" | null>(null);
-
   const [keyboardInset, setKeyboardInset] = useState(0);
   const keyboardOpenRef = useRef(false);
   const keyboardToastShownRef = useRef(false);
@@ -668,28 +667,6 @@ export default function TicketDetail() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, []);
-
-  // Surface a small banner if the live socket has been down for >3s, then
-  // briefly flash "Live again" when it reopens. This closes the UX gap where
-  // typing/presence/messages silently stop updating during a network blip.
-  useEffect(() => {
-    if (wsStatus === "closed") {
-      const t = setTimeout(() => setConnectionBanner("reconnecting"), 3000);
-      return () => clearTimeout(t);
-    }
-    if (wsStatus === "open") {
-      setConnectionBanner((prev) => {
-        if (prev === "reconnecting") return "recovered";
-        return prev;
-      });
-    }
-  }, [wsStatus]);
-
-  useEffect(() => {
-    if (connectionBanner !== "recovered") return;
-    const t = setTimeout(() => setConnectionBanner(null), 2000);
-    return () => clearTimeout(t);
-  }, [connectionBanner]);
 
   useEffect(() => {
     const ws = wsRef.current;
@@ -1187,34 +1164,7 @@ export default function TicketDetail() {
         </DropdownMenu>
       </div>
 
-      {connectionBanner && (
-        <div
-          className={`flex-shrink-0 mb-2 px-3 py-1.5 rounded-md text-xs flex items-center gap-1.5 ${
-            connectionBanner === "reconnecting"
-              ? "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900"
-              : "bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-900"
-          }`}
-          data-testid={
-            connectionBanner === "reconnecting"
-              ? "banner-connection-reconnecting"
-              : "banner-connection-recovered"
-          }
-          role="status"
-          aria-live="polite"
-        >
-          {connectionBanner === "reconnecting" ? (
-            <>
-              <WifiOff className="w-3.5 h-3.5" />
-              Reconnecting…
-            </>
-          ) : (
-            <>
-              <Wifi className="w-3.5 h-3.5" />
-              Live again
-            </>
-          )}
-        </div>
-      )}
+      <LiveConnectionBanner status={wsStatus} className="mb-2" />
 
       <BusinessHoursBanner show={!isAdmin} />
 

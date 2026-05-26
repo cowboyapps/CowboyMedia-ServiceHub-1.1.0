@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -144,7 +145,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
   // or alert events fire so the counters react instantly instead of waiting
   // for the 30s poll. Throttled by the server-side 30s cache.
   const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useReconnectingWebSocket({
+  const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     onMessage: (e) => {
       try {
@@ -201,6 +202,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
 
   return (
     <div className="space-y-4" data-testid="page-admin-dashboard">
+      <LiveConnectionBanner status={wsStatus} />
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
         {/* Tickets */}
         <Card

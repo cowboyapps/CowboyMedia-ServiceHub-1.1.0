@@ -15,6 +15,7 @@ import { format, isToday, isYesterday } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { MessageThread, ThreadMessage, PrivateMessage } from "@shared/schema";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { LiveConnectionBanner } from "@/components/live-connection-banner";
 
 type EnrichedThread = MessageThread & {
   adminName: string;
@@ -94,7 +95,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
     markReadMutation.mutate();
   }, [threadId]);
 
-  useReconnectingWebSocket({
+  const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     wsRef,
     deps: [threadId, user?.id],
@@ -218,6 +219,8 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
           </div>
         </div>
       </div>
+
+      <LiveConnectionBanner status={wsStatus} className="mx-2 sm:mx-3 mt-2" />
 
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1 min-h-0">
         {messagesLoading ? (

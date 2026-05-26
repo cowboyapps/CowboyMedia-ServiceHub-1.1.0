@@ -14,6 +14,7 @@ import { Poll } from "@/components/poll";
 import { queryClient } from "@/lib/queryClient";
 import { useEffect, useRef, useState } from "react";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { LiveConnectionBanner } from "@/components/live-connection-banner";
 
 export default function NewsDetail() {
   const params = useParams<{ id: string }>();
@@ -49,7 +50,7 @@ export default function NewsDetail() {
     });
   }, [story?.content]);
 
-  useReconnectingWebSocket({
+  const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     deps: [params.id],
     onMessage: (event) => {
@@ -87,6 +88,7 @@ export default function NewsDetail() {
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
+      <LiveConnectionBanner status={wsStatus} />
       <Link href="/news">
         <Button variant="ghost" size="sm" data-testid="button-back-news">
           <ArrowLeft className="w-4 h-4 mr-1" /> Back to News
