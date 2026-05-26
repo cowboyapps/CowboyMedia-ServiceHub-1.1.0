@@ -1150,21 +1150,6 @@ export default function TicketDetail() {
           {ticket.priority === "high" && (
             <Badge variant="destructive" className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">!</Badge>
           )}
-          {(() => {
-            const otherPartyRole = isAdmin ? "user" : "admin";
-            const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
-              otherPartyRole === "admin" ? (role === "admin" || role === "master_admin") : role === "user"
-            );
-            return (
-              <span
-                className="inline-flex items-center flex-shrink-0"
-                data-testid="presence-indicator"
-                title={`${isAdmin ? "Customer" : "Support"} ${hasOtherParty ? "online" : "away"}`}
-              >
-                <span className={`w-2 h-2 rounded-full ${hasOtherParty ? "bg-green-500" : "bg-gray-400"}`} />
-              </span>
-            );
-          })()}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1178,6 +1163,22 @@ export default function TicketDetail() {
                 {serviceName}{serviceName && categoryName ? " · " : ""}{categoryName}
               </div>
             )}
+            {(() => {
+              const otherPartyRole = isAdmin ? "user" : "admin";
+              const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
+                otherPartyRole === "admin" ? (role === "admin" || role === "master_admin") : role === "user"
+              );
+              const label = isAdmin ? "Customer" : "Support";
+              return (
+                <div
+                  className="px-2 py-1.5 text-[11px] text-muted-foreground border-b inline-flex items-center gap-1.5"
+                  data-testid="presence-indicator"
+                >
+                  <span className={`w-2 h-2 rounded-full ${hasOtherParty ? "bg-green-500" : "bg-gray-400"}`} />
+                  {hasOtherParty ? `${label} online` : `${label} away`}
+                </div>
+              );
+            })()}
             {ticket.claimedBy && (
               <div className="px-2 py-1.5 text-[11px] text-muted-foreground border-b inline-flex items-center gap-1" data-testid="badge-claimed-by">
                 <Shield className="w-3 h-3" />
@@ -1199,27 +1200,27 @@ export default function TicketDetail() {
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info" data-menu-testid="menu-customer-info">
+              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="menu-customer-info" data-testid-alt="button-customer-info">
                 <UserIcon className="w-4 h-4 mr-2" /> Customer Info
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history" data-menu-testid="menu-ticket-history">
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history" data-testid-alt="button-ticket-history">
                 <Clock className="w-4 h-4 mr-2" /> History
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes" data-menu-testid="menu-internal-notes">
+              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes" data-testid-alt="button-internal-notes">
                 <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
               </DropdownMenuItem>
             )}
             {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket" data-menu-testid="menu-transfer-ticket">
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket" data-testid-alt="button-transfer-ticket">
                 <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
               </DropdownMenuItem>
             )}
             {ticket.status === "open" && (
-              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket" data-menu-testid="menu-close-ticket">
+              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket" data-testid-alt="button-close-ticket">
                 <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
               </DropdownMenuItem>
             )}
