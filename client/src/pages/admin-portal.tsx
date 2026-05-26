@@ -28,6 +28,7 @@ import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { useGlobalSocket } from "@/contexts/global-socket-context";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
@@ -5476,6 +5477,7 @@ interface ChatThread {
 function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) {
   const { user, isMasterAdmin } = useAuth();
   const { toast } = useToast();
+  const { sendMessage, subscribe } = useGlobalSocket();
   const isMobile = useIsMobile();
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId ?? null);
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -5569,10 +5571,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
 
   useEffect(() => {
     if (!activeThreadId) return;
-    const ws = (window as any).__ws;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "viewing_admin_chat", threadId: activeThreadId, userId: user?.id }));
-    }
+    sendMessage({ type: "viewing_admin_chat", threadId: activeThreadId, userId: user?.id });
     const handleWs = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
@@ -5593,18 +5592,14 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
         }
       } catch {}
     };
-    if (ws) ws.addEventListener("message", handleWs);
+    const unsubscribe = subscribe(handleWs);
     return () => {
-      if (ws) {
-        ws.removeEventListener("message", handleWs);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "left_admin_chat", threadId: activeThreadId, userId: user?.id }));
-        }
-      }
+      unsubscribe();
+      sendMessage({ type: "left_admin_chat", threadId: activeThreadId, userId: user?.id });
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       setTypingUser(null);
     };
-  }, [activeThreadId, user?.id]);
+  }, [activeThreadId, user?.id, sendMessage, subscribe]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -5614,9 +5609,8 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
     const now = Date.now();
     if (now - lastTypingSentRef.current < 2000) return;
     lastTypingSentRef.current = now;
-    const ws = (window as any).__ws;
-    if (ws && ws.readyState === WebSocket.OPEN && user && activeThreadId) {
-      ws.send(JSON.stringify({ type: "admin_chat_typing", threadId: activeThreadId, userId: user.id, userName: user.fullName }));
+    if (user && activeThreadId) {
+      sendMessage({ type: "admin_chat_typing", threadId: activeThreadId, userId: user.id, userName: user.fullName });
     }
   };
 
@@ -7974,6 +7968,7 @@ interface OnlineUserRow {
 function OnlineUsersTab() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { subscribe } = useGlobalSocket();
   const [, navigate] = useLocation();
   const [tick, setTick] = useState(0);
   const [composeFor, setComposeFor] = useState<OnlineUserRow | null>(null);
@@ -7991,8 +7986,6 @@ function OnlineUsersTab() {
   }, []);
 
   useEffect(() => {
-    const ws = (window as any).__ws as WebSocket | null;
-    if (!ws) return;
     const listener = (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data);
@@ -8018,9 +8011,8 @@ function OnlineUsersTab() {
         refetch();
       } catch {}
     };
-    ws.addEventListener("message", listener);
-    return () => ws.removeEventListener("message", listener);
-  }, [refetch]);
+    return subscribe(listener);
+  }, [refetch, subscribe]);
 
   const startMessage = useMutation({
     mutationFn: async ({ customerId, subject, body }: { customerId: string; subject: string; body: string }) => {

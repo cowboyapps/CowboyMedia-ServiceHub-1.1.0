@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { GlobalSocketProvider, useGlobalSocket } from "@/contexts/global-socket-context";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
@@ -433,6 +434,7 @@ interface BroadcastMsg {
 
 function BroadcastAlertPopup() {
   const { user } = useAuth();
+  const { subscribe } = useGlobalSocket();
   const [queue, setQueue] = useState<BroadcastMsg[]>([]);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
 
@@ -458,7 +460,6 @@ function BroadcastAlertPopup() {
 
   useEffect(() => {
     if (!user) return;
-    let currentWs: WebSocket | null = null;
     const handleWs = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
@@ -468,21 +469,8 @@ function BroadcastAlertPopup() {
         }
       } catch {}
     };
-    const attachWs = () => {
-      const ws = (window as any).__ws;
-      if (ws && ws !== currentWs) {
-        if (currentWs) currentWs.removeEventListener("message", handleWs);
-        ws.addEventListener("message", handleWs);
-        currentWs = ws;
-      }
-    };
-    attachWs();
-    const interval = setInterval(attachWs, 2000);
-    return () => {
-      clearInterval(interval);
-      if (currentWs) currentWs.removeEventListener("message", handleWs);
-    };
-  }, [user]);
+    return subscribe(handleWs);
+  }, [user, subscribe]);
 
   const acknowledgeMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -684,6 +672,7 @@ interface TransferData {
 
 function TicketTransferPopup() {
   const { user } = useAuth();
+  const { subscribe } = useGlobalSocket();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [queue, setQueue] = useState<TransferData[]>([]);
@@ -711,7 +700,6 @@ function TicketTransferPopup() {
 
   useEffect(() => {
     if (!user) return;
-    let currentWs: WebSocket | null = null;
     const handleWs = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
@@ -734,21 +722,8 @@ function TicketTransferPopup() {
         }
       } catch {}
     };
-    const attachWs = () => {
-      const ws = (window as any).__ws;
-      if (ws && ws !== currentWs) {
-        if (currentWs) currentWs.removeEventListener("message", handleWs);
-        ws.addEventListener("message", handleWs);
-        currentWs = ws;
-      }
-    };
-    attachWs();
-    const interval = setInterval(attachWs, 2000);
-    return () => {
-      clearInterval(interval);
-      if (currentWs) currentWs.removeEventListener("message", handleWs);
-    };
-  }, [user]);
+    return subscribe(handleWs);
+  }, [user, subscribe]);
 
   useEffect(() => {
     if (queue.length > 0) setOpen(true);
@@ -1022,26 +997,11 @@ function AppContent() {
   );
 }
 
-function GlobalPresenceTracker({ userId, location }: { userId: string; location: string }) {
-  const globalWsRef = useRef<WebSocket | null>(null);
-  useReconnectingWebSocket({
-    path: "/ws",
-    wsRef: globalWsRef,
-    reconnectDelayMs: 3000,
-    deps: [userId],
-    onOpen: (sock) => {
-      (window as any).__ws = sock;
-      try { sock.send(JSON.stringify({ type: "current_page", page: window.location.pathname })); } catch {}
-    },
-  });
-
+function LocationPresenceSync({ location }: { location: string }) {
+  const { sendMessage } = useGlobalSocket();
   useEffect(() => {
-    const ws = (window as any).__ws as WebSocket | null;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: "current_page", page: location })); } catch {}
-    }
-  }, [location]);
-
+    sendMessage({ type: "current_page", page: location });
+  }, [location, sendMessage]);
   return null;
 }
 
@@ -1100,8 +1060,8 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
   }
 
   return (
-    <>
-      <GlobalPresenceTracker userId={user.id} location={location} />
+    <GlobalSocketProvider userId={user.id}>
+      <LocationPresenceSync location={location} />
       <BroadcastAlertPopup />
       <CommandPalette />
       {isAdmin && <TicketTransferPopup />}
@@ -1112,7 +1072,7 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
       <AnnouncementPopup />
       <OnboardingTour />
       <AuthenticatedLayout />
-    </>
+    </GlobalSocketProvider>
   );
 }
 
