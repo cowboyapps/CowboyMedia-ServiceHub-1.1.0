@@ -39,7 +39,9 @@ test("admin dashboard page: uses Shadcn ChartContainer wrapper", () => {
 });
 
 test("admin dashboard page: subscribes to ws ticket + alert events for live invalidation", () => {
-  assert.match(PAGE, /new WebSocket\(/);
+  // Migrated off inline `new WebSocket(` to the shared reconnect hook (task #250) —
+  // assert the page still wires its live subscription, just through the hook now.
+  assert.match(PAGE, /useReconnectingWebSocket\(/);
   assert.match(PAGE, /ticket_/);
   assert.match(PAGE, /new_alert/);
   assert.match(PAGE, /alert_update\b/);
