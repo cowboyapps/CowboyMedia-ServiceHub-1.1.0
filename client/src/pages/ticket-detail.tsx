@@ -1128,102 +1128,103 @@ export default function TicketDetail() {
   return (
     <div
       className="flex flex-col flex-1 min-h-0 overflow-hidden px-3 pt-2 sm:px-6 sm:pt-3"
-      style={{ overscrollBehavior: "none", paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined }}
+      style={{
+        overscrollBehavior: "none",
+        minHeight: "100dvh",
+        maxHeight: "100dvh",
+        paddingBottom: keyboardInset
+          ? `${keyboardInset}px`
+          : "env(safe-area-inset-bottom, 0px)",
+      }}
     >
-      <div className="flex items-center gap-1.5 sm:gap-2 pb-2 flex-shrink-0 min-w-0">
+      <div
+        className="flex items-center gap-1.5 pb-2 flex-shrink-0 min-w-0"
+        style={{ minHeight: "40px", maxHeight: "44px" }}
+      >
         <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <h2 className="font-semibold text-sm sm:text-base truncate" data-testid="text-ticket-subject">{ticket.subject}</h2>
-            <Badge variant={ticket.status === "open" ? "default" : "secondary"} className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.status}</Badge>
-            {ticket.priority === "high" && (
-              <Badge variant="destructive" className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.priority}</Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
-            {serviceName && <span className="truncate">{serviceName}</span>}
-            {serviceName && categoryName && <span>·</span>}
-            {categoryName && <span className="truncate">{categoryName}</span>}
-            {(serviceName || categoryName) && <span>·</span>}
-            {(() => {
-              const otherPartyRole = isAdmin ? "user" : "admin";
-              const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
-                otherPartyRole === "admin" ? (role === "admin" || role === "master_admin") : role === "user"
-              );
-              const label = isAdmin ? "Customer" : "Support";
-              return (
-                <span className="inline-flex items-center gap-1 flex-shrink-0" data-testid="presence-indicator">
-                  <span className={`w-1.5 h-1.5 rounded-full ${hasOtherParty ? "bg-green-500" : "bg-gray-400"}`} />
-                  {hasOtherParty ? `${label} online` : `${label} away`}
-                </span>
-              );
-            })()}
-            {ticket.claimedBy && (
-              <>
-                <span>·</span>
-                <span className="inline-flex items-center gap-0.5 flex-shrink-0" data-testid="badge-claimed-by">
-                  <Shield className="w-2.5 h-2.5" />
-                  {isAdmin ? (ticket.claimedBy === user?.id ? "You" : `${(ticket as any).claimedByName || "admin"}`) : "Claimed"}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {isAdmin && ticket.status === "open" && !ticket.claimedBy && (
-            <Button variant="default" size="sm" className="h-8 px-2 text-xs" onClick={() => claimMutation.mutate()} disabled={claimMutation.isPending} data-testid="button-claim-ticket">
-              <Shield className="w-3.5 h-3.5 sm:mr-1" /> <span className="hidden sm:inline">{claimMutation.isPending ? "Claiming..." : "Claim"}</span>
-            </Button>
+        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+          <h2 className="font-semibold text-sm sm:text-base truncate" data-testid="text-ticket-subject">{ticket.subject}</h2>
+          <Badge variant={ticket.status === "open" ? "default" : "secondary"} className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.status}</Badge>
+          {ticket.priority === "high" && (
+            <Badge variant="destructive" className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">!</Badge>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
-              queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
-            }}
-            data-testid="button-refresh-ticket"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-ticket-actions-menu">
-                <MoreVertical className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {isAdmin && (
-                <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="menu-customer-info">
-                  <UserIcon className="w-4 h-4 mr-2" /> Customer Info
-                </DropdownMenuItem>
-              )}
-              {isAdmin && (
-                <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history">
-                  <Clock className="w-4 h-4 mr-2" /> History
-                </DropdownMenuItem>
-              )}
-              {isAdmin && (
-                <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes">
-                  <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
-                </DropdownMenuItem>
-              )}
-              {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-                <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket">
-                  <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
-                </DropdownMenuItem>
-              )}
-              {ticket.status === "open" && (
-                <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket">
-                  <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {(() => {
+            const otherPartyRole = isAdmin ? "user" : "admin";
+            const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
+              otherPartyRole === "admin" ? (role === "admin" || role === "master_admin") : role === "user"
+            );
+            return (
+              <span
+                className="inline-flex items-center flex-shrink-0"
+                data-testid="presence-indicator"
+                title={`${isAdmin ? "Customer" : "Support"} ${hasOtherParty ? "online" : "away"}`}
+              >
+                <span className={`w-2 h-2 rounded-full ${hasOtherParty ? "bg-green-500" : "bg-gray-400"}`} />
+              </span>
+            );
+          })()}
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" data-testid="button-ticket-actions-menu">
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {(serviceName || categoryName) && (
+              <div className="px-2 py-1.5 text-[11px] text-muted-foreground border-b" data-testid="menu-meta">
+                {serviceName}{serviceName && categoryName ? " · " : ""}{categoryName}
+              </div>
+            )}
+            {ticket.claimedBy && (
+              <div className="px-2 py-1.5 text-[11px] text-muted-foreground border-b inline-flex items-center gap-1" data-testid="badge-claimed-by">
+                <Shield className="w-3 h-3" />
+                {isAdmin ? (ticket.claimedBy === user?.id ? "Claimed by you" : `Claimed by ${(ticket as any).claimedByName || "admin"}`) : "Claimed"}
+              </div>
+            )}
+            {isAdmin && ticket.status === "open" && !ticket.claimedBy && (
+              <DropdownMenuItem onClick={() => claimMutation.mutate()} disabled={claimMutation.isPending} data-testid="button-claim-ticket">
+                <Shield className="w-4 h-4 mr-2" /> {claimMutation.isPending ? "Claiming..." : "Claim ticket"}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
+                queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+              }}
+              data-testid="button-refresh-ticket"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+            </DropdownMenuItem>
+            {isAdmin && (
+              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info">
+                <UserIcon className="w-4 h-4 mr-2" /> Customer Info
+              </DropdownMenuItem>
+            )}
+            {isAdmin && (
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history">
+                <Clock className="w-4 h-4 mr-2" /> History
+              </DropdownMenuItem>
+            )}
+            {isAdmin && (
+              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes">
+                <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
+              </DropdownMenuItem>
+            )}
+            {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket">
+                <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
+              </DropdownMenuItem>
+            )}
+            {ticket.status === "open" && (
+              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket">
+                <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <BusinessHoursBanner show={!isAdmin} />
