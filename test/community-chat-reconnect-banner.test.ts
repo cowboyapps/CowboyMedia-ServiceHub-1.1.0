@@ -355,6 +355,14 @@ const COMMUNITY_CHAT = readFileSync(
   join(process.cwd(), "client/src/pages/community-chat-page.tsx"),
   "utf8",
 );
+const TICKET_DETAIL = readFileSync(
+  join(process.cwd(), "client/src/pages/ticket-detail.tsx"),
+  "utf8",
+);
+const CONNECTION_BANNER = readFileSync(
+  join(process.cwd(), "client/src/components/live-connection-banner.tsx"),
+  "utf8",
+);
 
 test("community-chat source: still uses the shared reconnecting WS hook", () => {
   assert.match(
@@ -364,42 +372,80 @@ test("community-chat source: still uses the shared reconnecting WS hook", () => 
   );
 });
 
-test("community-chat source: still renders both banner test IDs", () => {
+test("community-chat + ticket-detail: both render the shared <LiveConnectionBanner />", () => {
+  // The whole point of task #258: one component owns the banner contract.
+  // Both pages should import the shared component and render it driven by
+  // their wsStatus, instead of re-implementing the state machine inline.
   assert.match(
     COMMUNITY_CHAT,
+    /from\s+"@\/components\/live-connection-banner"/,
+    "community chat imports the shared LiveConnectionBanner",
+  );
+  assert.match(
+    COMMUNITY_CHAT,
+    /<LiveConnectionBanner\s+status=\{wsStatus\}/,
+    "community chat renders <LiveConnectionBanner status={wsStatus} ... />",
+  );
+  assert.match(
+    TICKET_DETAIL,
+    /from\s+"@\/components\/live-connection-banner"/,
+    "ticket detail imports the shared LiveConnectionBanner",
+  );
+  assert.match(
+    TICKET_DETAIL,
+    /<LiveConnectionBanner\s+status=\{wsStatus\}/,
+    "ticket detail renders <LiveConnectionBanner status={wsStatus} ... />",
+  );
+  // And neither page keeps a private copy of the state machine that could
+  // drift from the shared one.
+  assert.doesNotMatch(
+    COMMUNITY_CHAT,
+    /setConnectionBanner\(/,
+    "community chat no longer owns the connectionBanner state",
+  );
+  assert.doesNotMatch(
+    TICKET_DETAIL,
+    /setConnectionBanner\(/,
+    "ticket detail no longer owns the connectionBanner state",
+  );
+});
+
+test("live-connection-banner source: still renders both banner test IDs", () => {
+  assert.match(
+    CONNECTION_BANNER,
     /"banner-connection-reconnecting"/,
     "reconnecting banner test ID is still rendered",
   );
   assert.match(
-    COMMUNITY_CHAT,
+    CONNECTION_BANNER,
     /"banner-connection-recovered"/,
     "recovered banner test ID is still rendered",
   );
 });
 
-test("community-chat source: still pins the 3s debounce and 2s flash timings", () => {
+test("live-connection-banner source: still pins the 3s debounce and 2s flash timings", () => {
   // 3s debounce before showing "Reconnecting…" when wsStatus flips to closed.
   assert.match(
-    COMMUNITY_CHAT,
-    /setTimeout\(\(\)\s*=>\s*setConnectionBanner\("reconnecting"\),\s*3000\)/,
+    CONNECTION_BANNER,
+    /setTimeout\(\(\)\s*=>\s*setState\("reconnecting"\),\s*3000\)/,
     "3s debounce before showing the reconnecting banner",
   );
   // 2s flash of "Live again" before the banner clears itself.
   assert.match(
-    COMMUNITY_CHAT,
-    /setTimeout\(\(\)\s*=>\s*setConnectionBanner\(null\),\s*2000\)/,
+    CONNECTION_BANNER,
+    /setTimeout\(\(\)\s*=>\s*setState\(null\),\s*2000\)/,
     "2s flash before clearing the recovered banner",
   );
   // The closed→open transition flips reconnecting → recovered (not straight
   // to null), so the customer actually sees the recovery flash.
   assert.match(
-    COMMUNITY_CHAT,
+    CONNECTION_BANNER,
     /prev\s*===\s*"reconnecting"\s*\?\s*"recovered"\s*:\s*prev/,
     "open transition flips reconnecting → recovered, not straight to null",
   );
 });
 
-test("community-chat source: still shows the customer-facing banner copy", () => {
-  assert.match(COMMUNITY_CHAT, /Reconnecting/);
-  assert.match(COMMUNITY_CHAT, /Live again/);
+test("live-connection-banner source: still shows the customer-facing banner copy", () => {
+  assert.match(CONNECTION_BANNER, /Reconnecting/);
+  assert.match(CONNECTION_BANNER, /Live again/);
 });
