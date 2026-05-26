@@ -158,7 +158,7 @@ interface TicketRowProps {
   optimisticData: any | null;
   isFailed: boolean;
   isSending: boolean;
-  msgDate: Date;
+  createdAtMs: number;
   showDateSep: boolean;
   dateSepLabel: string;
   isInternal: boolean;
@@ -185,7 +185,7 @@ interface TicketRowProps {
 const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
   const {
     msg, isMe, isAdminSender, displayName, isOptimistic, optimisticData,
-    isFailed, isSending, msgDate, showDateSep, dateSepLabel, isInternal,
+    isFailed, isSending, createdAtMs, showDateSep, dateSepLabel, isInternal,
     canEditNote, isEditingThis, editingNoteText, isFirstInRun, tailClass,
     rowClass, isAdmin, userAvatarUrl, userFullName,
     editNotePending, deleteNotePending,
@@ -301,7 +301,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                 </div>
               )}
               {!isOptimistic && (
-                <p className="text-[10px] sm:text-xs text-muted-foreground">{format(msgDate, "h:mm a")}</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">{format(createdAtMs, "h:mm a")}</p>
               )}
               {canEditNote && !isEditingThis && (
                 <>
@@ -1689,7 +1689,7 @@ export default function TicketDetail() {
                       optimisticData={optimisticData}
                       isFailed={!!isFailed}
                       isSending={!!isSending}
-                      msgDate={msgDate}
+                      createdAtMs={msgDate.getTime()}
                       showDateSep={showDateSep}
                       dateSepLabel={formatDateSeparator(msgDate)}
                       isInternal={isInternal}
