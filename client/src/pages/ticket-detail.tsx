@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
 import { type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import { ChatComposer, type ChatComposerHandle, type ComposerSendPayload } from "@/components/ticket/chat-composer";
+import { mergeIncomingMessageIntoCache, removeMatchingOptimistic } from "@shared/ticket-message-reconcile";
 import { BookOpen, ChevronRight } from "lucide-react";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
@@ -594,32 +595,13 @@ export default function TicketDetail() {
             if (incoming?.id) {
               queryClient.setQueryData<EnrichedTicketMessage[] | undefined>(
                 ["/api/tickets", params.id, "messages"],
-                (prev) => {
-                  if (!prev) return [incoming];
-                  if (prev.some((m) => m.id === incoming.id)) return prev;
-                  return [...prev, incoming];
-                },
+                (prev) => mergeIncomingMessageIntoCache(prev, incoming),
               );
-              // Reconcile own-send optimistic bubble: if WS arrives before our POST .then()
-              // removes the optimistic placeholder, both would render briefly. Match by
-              // sender + text + internal flag (no shared id between temp and real). Remove
-              // only the SINGLE oldest matching pending entry so rapid duplicate sends
-              // ("ok" / "ok") don't lose their second optimistic bubble — the second one
-              // stays pending and remains retryable if its POST eventually fails.
-              if (incoming.senderId === userIdRef.current) {
-                setOptimisticMessages((prev) => {
-                  const idx = prev.findIndex((m) => (
-                    m.status !== "failed" &&
-                    m.senderId === incoming.senderId &&
-                    m.message === incoming.message &&
-                    !!m.isInternal === !!incoming.isInternal
-                  ));
-                  if (idx === -1) return prev;
-                  const next = prev.slice();
-                  next.splice(idx, 1);
-                  return next;
-                });
-              }
+              // Reconcile own-send optimistic bubble: see
+              // shared/ticket-message-reconcile.ts for the dedup contract.
+              setOptimisticMessages((prev) =>
+                removeMatchingOptimistic(prev, incoming, userIdRef.current),
+              );
             } else {
               queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
             }
