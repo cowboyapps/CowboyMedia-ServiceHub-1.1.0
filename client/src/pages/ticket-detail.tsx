@@ -41,6 +41,7 @@ import {
   markOptimisticFailed,
   removeOptimisticById,
 } from "@shared/ticket-message-reconcile";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { BookOpen, ChevronRight } from "lucide-react";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
@@ -574,115 +575,85 @@ export default function TicketDetail() {
     markTicketRead();
   }, [params.id, markTicketRead]);
 
-  useEffect(() => {
-    let disposed = false;
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function connect() {
-      if (disposed) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (userIdRef.current) {
-          ws!.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "ticket_message" && data.ticketId === params.id) {
-            // Snappy texting: merge the broadcast message directly into the cache instead of
-            // round-tripping a refetch. Dedupe by id (the sender already has it from their POST,
-            // and the server sometimes broadcasts twice via the internal-notes/admin-only path).
-            const incoming = data.message as EnrichedTicketMessage | undefined;
-            if (incoming?.id) {
-              queryClient.setQueryData<EnrichedTicketMessage[] | undefined>(
-                ["/api/tickets", params.id, "messages"],
-                (prev) => mergeIncomingMessageIntoCache(prev, incoming),
-              );
-              // Reconcile own-send optimistic bubble: see
-              // shared/ticket-message-reconcile.ts for the dedup contract.
-              setOptimisticMessages((prev) =>
-                removeMatchingOptimistic(prev, incoming, userIdRef.current),
-              );
-            } else {
-              queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
-            }
-            setTypingUser(null);
-            markTicketRead();
-          }
-          if (data.type === "ticket_messages_read" && data.ticketId === params.id && data.readBy !== userIdRef.current) {
+  useReconnectingWebSocket({
+    path: "/ws",
+    wsRef,
+    deps: [params.id],
+    onOpen: (ws) => {
+      if (userIdRef.current) {
+        ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
+      }
+    },
+    onMessage: (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "ticket_message" && data.ticketId === params.id) {
+          // Snappy texting: merge the broadcast message directly into the cache instead of
+          // round-tripping a refetch. Dedupe by id (the sender already has it from their POST,
+          // and the server sometimes broadcasts twice via the internal-notes/admin-only path).
+          const incoming = data.message as EnrichedTicketMessage | undefined;
+          if (incoming?.id) {
+            queryClient.setQueryData<EnrichedTicketMessage[] | undefined>(
+              ["/api/tickets", params.id, "messages"],
+              (prev) => mergeIncomingMessageIntoCache(prev, incoming),
+            );
+            // Reconcile own-send optimistic bubble: see
+            // shared/ticket-message-reconcile.ts for the dedup contract.
+            setOptimisticMessages((prev) =>
+              removeMatchingOptimistic(prev, incoming, userIdRef.current),
+            );
+          } else {
             queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
           }
-          if (data.type === "typing" && data.ticketId === params.id && data.userId !== userIdRef.current) {
-            setTypingUser(data.userName);
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
-          }
-          if (data.type === "ticket_updated" && data.ticket?.id === params.id) {
-            queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
-          }
-          if (data.type === "ticket_presence" && data.ticketId === params.id && data.userId !== userIdRef.current) {
-            setOnlineViewers((prev) => {
-              const next = new Map(prev);
-              if (data.status === "online") next.set(data.userId, data.userRole || "user");
-              else next.delete(data.userId);
-              return next;
-            });
-          }
-          if (data.type === "ticket_viewers" && data.ticketId === params.id) {
-            const viewers = (data.viewers as { userId: string; userRole: string }[])
-              .filter((v) => v.userId !== userIdRef.current);
-            const map = new Map<string, string>();
-            viewers.forEach((v) => map.set(v.userId, v.userRole));
-            setOnlineViewers(map);
-          }
-        } catch {}
-      };
-
-      ws.onclose = () => {
-        wsRef.current = null;
-        if (!disposed) {
-          reconnectTimer = setTimeout(connect, 2000);
+          setTypingUser(null);
+          markTicketRead();
         }
-      };
-
-      ws.onerror = () => {
-        ws?.close();
-      };
-    }
-
-    connect();
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        markTicketRead();
-        const current = wsRef.current;
-        if (current && current.readyState === WebSocket.OPEN && userIdRef.current) {
-          current.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
-        } else if (!current || current.readyState === WebSocket.CLOSED) {
-          connect();
+        if (data.type === "ticket_messages_read" && data.ticketId === params.id && data.readBy !== userIdRef.current) {
+          queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
         }
+        if (data.type === "typing" && data.ticketId === params.id && data.userId !== userIdRef.current) {
+          setTypingUser(data.userName);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+        }
+        if (data.type === "ticket_updated" && data.ticket?.id === params.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
+        }
+        if (data.type === "ticket_presence" && data.ticketId === params.id && data.userId !== userIdRef.current) {
+          setOnlineViewers((prev) => {
+            const next = new Map(prev);
+            if (data.status === "online") next.set(data.userId, data.userRole || "user");
+            else next.delete(data.userId);
+            return next;
+          });
+        }
+        if (data.type === "ticket_viewers" && data.ticketId === params.id) {
+          const viewers = (data.viewers as { userId: string; userRole: string }[])
+            .filter((v) => v.userId !== userIdRef.current);
+          const map = new Map<string, string>();
+          viewers.forEach((v) => map.set(v.userId, v.userRole));
+          setOnlineViewers(map);
+        }
+      } catch {}
+    },
+    onVisible: (ws) => {
+      markTicketRead();
+      if (userIdRef.current) {
+        ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
       }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      disposed = true;
-      document.removeEventListener("visibilitychange", handleVisibility);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (ws && ws.readyState === WebSocket.OPEN && userIdRef.current) {
+    },
+    onBeforeUnmount: (ws) => {
+      if (userIdRef.current) {
         ws.send(JSON.stringify({ type: "left_ticket", ticketId: params.id, userId: userIdRef.current }));
       }
-      ws?.close();
-      wsRef.current = null;
+    },
+  });
+
+  useEffect(() => {
+    return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
-  }, [params.id]);
+  }, []);
 
   useEffect(() => {
     const ws = wsRef.current;
