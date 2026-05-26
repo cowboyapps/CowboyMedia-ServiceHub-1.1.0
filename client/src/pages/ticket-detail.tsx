@@ -1130,8 +1130,6 @@ export default function TicketDetail() {
       className="flex flex-col flex-1 min-h-0 overflow-hidden px-3 pt-2 sm:px-6 sm:pt-3"
       style={{
         overscrollBehavior: "none",
-        minHeight: "100dvh",
-        maxHeight: "100dvh",
         paddingBottom: keyboardInset
           ? `${keyboardInset}px`
           : "env(safe-area-inset-bottom, 0px)",
@@ -1200,32 +1198,27 @@ export default function TicketDetail() {
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info">
-                <span data-testid="menu-customer-info" className="sr-only" />
+              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="menu-customer-info">
                 <UserIcon className="w-4 h-4 mr-2" /> Customer Info
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history">
-                <span data-testid="menu-ticket-history" className="sr-only" />
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history">
                 <Clock className="w-4 h-4 mr-2" /> History
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes">
-                <span data-testid="menu-internal-notes" className="sr-only" />
+              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes">
                 <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
               </DropdownMenuItem>
             )}
             {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket">
-                <span data-testid="menu-transfer-ticket" className="sr-only" />
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket">
                 <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
               </DropdownMenuItem>
             )}
             {ticket.status === "open" && (
-              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket">
-                <span data-testid="menu-close-ticket" className="sr-only" />
+              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket">
                 <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
               </DropdownMenuItem>
             )}
@@ -1823,22 +1816,6 @@ export default function TicketDetail() {
               >
                 New messages <ChevronDown className="w-3 h-3" />
               </Button>
-            </div>
-          )}
-
-          {ticket.status === "open" && isAdmin && !ticket.claimedBy && (
-            <div className="p-3 border-t bg-accent/50">
-              <p className="text-sm text-muted-foreground text-center" data-testid="text-claim-required">
-                You must claim this ticket before you can respond.
-              </p>
-            </div>
-          )}
-
-          {ticket.status === "open" && isAdmin && ticket.claimedBy && ticket.claimedBy !== user?.id && (
-            <div className="p-3 border-t bg-accent/50">
-              <p className="text-sm text-muted-foreground text-center" data-testid="text-claimed-by-other">
-                This ticket has been claimed by another admin.
-              </p>
             </div>
           )}
 
