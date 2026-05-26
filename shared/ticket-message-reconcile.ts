@@ -54,6 +54,69 @@ export function mergeIncomingMessageIntoCache<M extends ReconcileMessage>(
  * Failed optimistic rows are NEVER consumed by reconciliation: a separate
  * incoming broadcast must not silently swallow a still-retryable failure.
  */
+/**
+ * Append a fresh optimistic row. Used on first send (no existing tempId).
+ */
+export function appendOptimistic<O extends ReconcileOptimistic>(
+  prev: O[],
+  msg: O,
+): O[] {
+  return [...prev, msg];
+}
+
+/**
+ * Flip an existing optimistic row back to `sending`. Used by the Retry button
+ * when re-running `doSendMessage` against an already-rendered `failed` bubble:
+ * the row must stay in place (preserve position + attached image/kb) but its
+ * status flips back to `sending` so the spinner replaces the retry affordance.
+ *
+ * If the id is unknown the list is returned unchanged (no row is inserted) —
+ * the caller is responsible for ensuring the id is one it already owns.
+ */
+export function markOptimisticSending<O extends ReconcileOptimistic>(
+  prev: O[],
+  id: string,
+): O[] {
+  let changed = false;
+  const next = prev.map((m) => {
+    if (m.id !== id) return m;
+    if (m.status === "sending") return m;
+    changed = true;
+    return { ...m, status: "sending" as const };
+  });
+  return changed ? next : prev;
+}
+
+/**
+ * Flip an optimistic row to `failed` after its POST rejects. The row is kept
+ * (not removed) so the user can hit Retry. No-op when the id isn't present
+ * (e.g. the row was already reconciled away by a WS broadcast).
+ */
+export function markOptimisticFailed<O extends ReconcileOptimistic>(
+  prev: O[],
+  id: string,
+): O[] {
+  let changed = false;
+  const next = prev.map((m) => {
+    if (m.id !== id) return m;
+    if (m.status === "failed") return m;
+    changed = true;
+    return { ...m, status: "failed" as const };
+  });
+  return changed ? next : prev;
+}
+
+/**
+ * Remove an optimistic row by id after its POST resolves. The server-side
+ * row will land via the subsequent cache invalidation / WS broadcast.
+ */
+export function removeOptimisticById<O extends ReconcileOptimistic>(
+  prev: O[],
+  id: string,
+): O[] {
+  return prev.filter((m) => m.id !== id);
+}
+
 export function removeMatchingOptimistic<O extends ReconcileOptimistic>(
   prev: O[],
   incoming: ReconcileMessage,

@@ -33,7 +33,14 @@ import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
 import { type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import { ChatComposer, type ChatComposerHandle, type ComposerSendPayload } from "@/components/ticket/chat-composer";
-import { mergeIncomingMessageIntoCache, removeMatchingOptimistic } from "@shared/ticket-message-reconcile";
+import {
+  mergeIncomingMessageIntoCache,
+  removeMatchingOptimistic,
+  appendOptimistic,
+  markOptimisticSending,
+  markOptimisticFailed,
+  removeOptimisticById,
+} from "@shared/ticket-message-reconcile";
 import { BookOpen, ChevronRight } from "lucide-react";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
@@ -766,9 +773,9 @@ export default function TicketDetail() {
     };
 
     if (!optimisticId) {
-      setOptimisticMessages((prev) => [...prev, optimistic]);
+      setOptimisticMessages((prev) => appendOptimistic(prev, optimistic));
     } else {
-      setOptimisticMessages((prev) => prev.map((m) => m.id === optimisticId ? { ...m, status: "sending" as const } : m));
+      setOptimisticMessages((prev) => markOptimisticSending(prev, optimisticId));
     }
 
     if (isNearBottomRef.current) {
@@ -793,11 +800,11 @@ export default function TicketDetail() {
         return res.json();
       })
       .then(() => {
-        setOptimisticMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setOptimisticMessages((prev) => removeOptimisticById(prev, tempId));
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
       })
       .catch(() => {
-        setOptimisticMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "failed" as const } : m));
+        setOptimisticMessages((prev) => markOptimisticFailed(prev, tempId));
       });
   }, [params.id, user, isAdmin, scrollToBottom]);
 
