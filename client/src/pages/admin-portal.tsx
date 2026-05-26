@@ -27,6 +27,7 @@ import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw,
 import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
@@ -1978,57 +1979,46 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
 
   useEffect(() => { markRead.mutate(); }, [threadId]);
 
+  useReconnectingWebSocket({
+    path: "/ws",
+    wsRef,
+    deps: [threadId, userId],
+    onOpen: (ws) => {
+      ws.send(JSON.stringify({ type: "viewing_thread", threadId, userId }));
+    },
+    onMessage: (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.type === "thread_message" && d.threadId === threadId) {
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+          setTypingUser(null);
+          markRead.mutate();
+        }
+        if (d.type === "thread_messages_read" && d.threadId === threadId && d.readBy !== userId) {
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+        }
+        if (d.type === "thread_typing" && d.threadId === threadId && d.userId !== userId) {
+          setTypingUser(d.userName);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+        }
+      } catch {}
+    },
+    onVisible: (ws) => {
+      markRead.mutate();
+      ws.send(JSON.stringify({ type: "viewing_thread", threadId, userId }));
+    },
+    onBeforeUnmount: (ws) => {
+      ws.send(JSON.stringify({ type: "left_thread", threadId, userId }));
+    },
+  });
+
   useEffect(() => {
-    let disposed = false;
-    let ws: WebSocket | null = null;
-    let reconnect: ReturnType<typeof setTimeout> | null = null;
-    function connect() {
-      if (disposed) return;
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${proto}//${window.location.host}/ws`);
-      wsRef.current = ws;
-      ws.onopen = () => { ws!.send(JSON.stringify({ type: "viewing_thread", threadId, userId })); };
-      ws.onmessage = (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          if (d.type === "thread_message" && d.threadId === threadId) {
-            queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
-            setTypingUser(null);
-            markRead.mutate();
-          }
-          if (d.type === "thread_messages_read" && d.threadId === threadId && d.readBy !== userId) {
-            queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
-          }
-          if (d.type === "thread_typing" && d.threadId === threadId && d.userId !== userId) {
-            setTypingUser(d.userName);
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
-          }
-        } catch {}
-      };
-      ws.onclose = () => { wsRef.current = null; if (!disposed) reconnect = setTimeout(connect, 2000); };
-      ws.onerror = () => ws?.close();
-    }
-    connect();
-    const handleVis = () => {
-      if (document.visibilityState === "visible") {
-        markRead.mutate();
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: "viewing_thread", threadId, userId }));
-        } else connect();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVis);
     return () => {
-      disposed = true;
-      document.removeEventListener("visibilitychange", handleVis);
-      if (reconnect) clearTimeout(reconnect);
-      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "left_thread", threadId, userId }));
-      ws?.close();
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
-  }, [threadId, userId]);
+  }, []);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });

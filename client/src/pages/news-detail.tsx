@@ -13,6 +13,7 @@ import type { NewsStory } from "@shared/schema";
 import { Poll } from "@/components/poll";
 import { queryClient } from "@/lib/queryClient";
 import { useEffect, useRef, useState } from "react";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 
 export default function NewsDetail() {
   const params = useParams<{ id: string }>();
@@ -48,10 +49,10 @@ export default function NewsDetail() {
     });
   }, [story?.content]);
 
-  useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    ws.onmessage = (event) => {
+  useReconnectingWebSocket({
+    path: "/ws",
+    deps: [params.id],
+    onMessage: (event) => {
       try {
         const data = JSON.parse(event.data);
         if ((data.type === "poll_vote" || data.type === "poll_created" || data.type === "poll_deleted") && data.parentType === "news" && data.parentId === params.id) {
@@ -59,9 +60,8 @@ export default function NewsDetail() {
           if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
         }
       } catch {}
-    };
-    return () => ws.close();
-  }, [params.id]);
+    },
+  });
 
   if (isLoading) {
     return (

@@ -25,6 +25,7 @@ import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
 import type { CommunityMessage } from "@shared/schema";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 
 type AdminAction =
   | { type: "menu"; messageId: string; userId: string; username: string }
@@ -894,71 +895,54 @@ export default function CommunityChatPage() {
     }, 0);
   }, [message]);
 
-  useEffect(() => {
-    let disposed = false;
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function connect() {
-      if (disposed) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      wsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "community_message") {
+  useReconnectingWebSocket({
+    path: "/ws",
+    wsRef,
+    deps: [user?.id],
+    onMessage: (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "community_message") {
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+        }
+        if (data.type === "community_message_deleted") {
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+        }
+        if (data.type === "community_reaction") {
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+        }
+        if (data.type === "poll_vote" || data.type === "poll_deleted") {
+          if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
+          if (data.type === "poll_deleted" && data.parentType === "community") {
             queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
           }
-          if (data.type === "community_message_deleted") {
-            queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
-          }
-          if (data.type === "community_reaction") {
-            queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
-          }
-          if (data.type === "poll_vote" || data.type === "poll_deleted") {
-            if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
-            if (data.type === "poll_deleted" && data.parentType === "community") {
-              queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
-            }
-          }
-          if (data.type === "community_typing" && data.userId !== user?.id) {
+        }
+        if (data.type === "community_typing" && data.userId !== user?.id) {
+          setTypingUsers((prev) => {
+            const next = new Map(prev);
+            next.set(data.userId, data.chatUsername);
+            return next;
+          });
+          const existing = typingTimeoutsRef.current.get(data.userId);
+          if (existing) clearTimeout(existing);
+          typingTimeoutsRef.current.set(data.userId, setTimeout(() => {
             setTypingUsers((prev) => {
               const next = new Map(prev);
-              next.set(data.userId, data.chatUsername);
+              next.delete(data.userId);
               return next;
             });
-            const existing = typingTimeoutsRef.current.get(data.userId);
-            if (existing) clearTimeout(existing);
-            typingTimeoutsRef.current.set(data.userId, setTimeout(() => {
-              setTypingUsers((prev) => {
-                const next = new Map(prev);
-                next.delete(data.userId);
-                return next;
-              });
-            }, 3000));
-          }
-        } catch {}
-      };
+          }, 3000));
+        }
+      } catch {}
+    },
+  });
 
-      ws.onclose = () => {
-        wsRef.current = null;
-        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
-      };
-      ws.onerror = () => ws?.close();
-    }
-
-    connect();
-
+  useEffect(() => {
+    const timeouts = typingTimeoutsRef.current;
     return () => {
-      disposed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      ws?.close();
-      wsRef.current = null;
-      typingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      timeouts.forEach((t) => clearTimeout(t));
     };
-  }, [user?.id]);
+  }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });

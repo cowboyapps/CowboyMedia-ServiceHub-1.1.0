@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -142,41 +143,33 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
   // Live refresh via websocket: invalidate the dashboard query when ticket
   // or alert events fire so the counters react instantly instead of waiting
   // for the 30s poll. Throttled by the server-side 30s cache.
-  useEffect(() => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    let ws: WebSocket | null = null;
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (pending) return;
-      pending = setTimeout(() => {
-        pending = null;
-        queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard"] });
-      }, 1500);
-    };
-    try {
-      ws = new WebSocket(`${proto}//${window.location.host}/ws`);
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (typeof msg?.type !== "string") return;
-          if (
-            msg.type.startsWith("ticket_") ||
-            msg.type === "new_ticket" ||
-            msg.type === "new_alert" ||
-            msg.type === "alert_update" ||
-            msg.type === "alert_updated" ||
-            msg.type === "alert_resolved"
-          ) {
-            schedule();
-          }
-        } catch {}
-      };
-    } catch {}
-    return () => {
-      if (pending) clearTimeout(pending);
-      try { ws?.close(); } catch {}
-    };
-  }, [queryClient]);
+  const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useReconnectingWebSocket({
+    path: "/ws",
+    onMessage: (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (typeof msg?.type !== "string") return;
+        if (
+          msg.type.startsWith("ticket_") ||
+          msg.type === "new_ticket" ||
+          msg.type === "new_alert" ||
+          msg.type === "alert_update" ||
+          msg.type === "alert_updated" ||
+          msg.type === "alert_resolved"
+        ) {
+          if (pendingRef.current) return;
+          pendingRef.current = setTimeout(() => {
+            pendingRef.current = null;
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard"] });
+          }, 1500);
+        }
+      } catch {}
+    },
+  });
+  useEffect(() => () => {
+    if (pendingRef.current) clearTimeout(pendingRef.current);
+  }, []);
 
   if (isLoading) {
     return (

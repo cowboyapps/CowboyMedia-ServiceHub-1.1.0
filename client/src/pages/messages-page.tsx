@@ -14,6 +14,7 @@ import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, In
 import { format, isToday, isYesterday } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { MessageThread, ThreadMessage, PrivateMessage } from "@shared/schema";
+import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 
 type EnrichedThread = MessageThread & {
   adminName: string;
@@ -93,74 +94,49 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
     markReadMutation.mutate();
   }, [threadId]);
 
-  useEffect(() => {
-    let disposed = false;
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function connect() {
-      if (disposed) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (user?.id) {
-          ws!.send(JSON.stringify({ type: "viewing_thread", threadId, userId: user.id }));
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "thread_message" && data.threadId === threadId) {
-            queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
-            setTypingUser(null);
-            markReadMutation.mutate();
-          }
-          if (data.type === "thread_typing" && data.threadId === threadId && data.userId !== user?.id) {
-            setTypingUser(data.userName);
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
-          }
-        } catch {}
-      };
-
-      ws.onclose = () => {
-        wsRef.current = null;
-        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
-      };
-      ws.onerror = () => ws?.close();
-    }
-
-    connect();
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        markReadMutation.mutate();
-        const current = wsRef.current;
-        if (current && current.readyState === WebSocket.OPEN && user?.id) {
-          current.send(JSON.stringify({ type: "viewing_thread", threadId, userId: user.id }));
-        } else if (!current || current.readyState === WebSocket.CLOSED) {
-          connect();
-        }
+  useReconnectingWebSocket({
+    path: "/ws",
+    wsRef,
+    deps: [threadId, user?.id],
+    onOpen: (ws) => {
+      if (user?.id) {
+        ws.send(JSON.stringify({ type: "viewing_thread", threadId, userId: user.id }));
       }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      disposed = true;
-      document.removeEventListener("visibilitychange", handleVisibility);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (ws && ws.readyState === WebSocket.OPEN && user?.id) {
+    },
+    onMessage: (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "thread_message" && data.threadId === threadId) {
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+          setTypingUser(null);
+          markReadMutation.mutate();
+        }
+        if (data.type === "thread_typing" && data.threadId === threadId && data.userId !== user?.id) {
+          setTypingUser(data.userName);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
+        }
+      } catch {}
+    },
+    onVisible: (ws) => {
+      markReadMutation.mutate();
+      if (user?.id) {
+        ws.send(JSON.stringify({ type: "viewing_thread", threadId, userId: user.id }));
+      }
+    },
+    onBeforeUnmount: (ws) => {
+      if (user?.id) {
         ws.send(JSON.stringify({ type: "left_thread", threadId, userId: user.id }));
       }
-      ws?.close();
-      wsRef.current = null;
+    },
+  });
+
+  useEffect(() => {
+    return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
-  }, [threadId, user?.id]);
+  }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
