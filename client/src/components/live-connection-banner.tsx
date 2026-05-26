@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useEffect, useState } from "react";
 import { Wifi, WifiOff } from "lucide-react";
 import type { ReconnectingWebSocketStatus } from "@/hooks/use-reconnecting-websocket";
