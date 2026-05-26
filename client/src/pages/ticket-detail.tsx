@@ -1145,7 +1145,7 @@ export default function TicketDetail() {
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <h2 className="font-semibold text-sm sm:text-base truncate" data-testid="text-ticket-subject">{ticket.subject}</h2>
+          <h2 className="font-semibold text-sm sm:text-base truncate" title={ticket.subject} data-testid="text-ticket-subject">{ticket.subject}</h2>
           <Badge variant={ticket.status === "open" ? "default" : "secondary"} className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.status}</Badge>
           {ticket.priority === "high" && (
             <Badge variant="destructive" className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">!</Badge>
@@ -1200,27 +1200,32 @@ export default function TicketDetail() {
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="menu-customer-info" data-testid-alt="button-customer-info">
+              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info">
+                <span data-testid="menu-customer-info" className="sr-only" />
                 <UserIcon className="w-4 h-4 mr-2" /> Customer Info
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history" data-testid-alt="button-ticket-history">
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history">
+                <span data-testid="menu-ticket-history" className="sr-only" />
                 <Clock className="w-4 h-4 mr-2" /> History
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes" data-testid-alt="button-internal-notes">
+              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes">
+                <span data-testid="menu-internal-notes" className="sr-only" />
                 <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
               </DropdownMenuItem>
             )}
             {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket" data-testid-alt="button-transfer-ticket">
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket">
+                <span data-testid="menu-transfer-ticket" className="sr-only" />
                 <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
               </DropdownMenuItem>
             )}
             {ticket.status === "open" && (
-              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket" data-testid-alt="button-close-ticket">
+              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket">
+                <span data-testid="menu-close-ticket" className="sr-only" />
                 <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
               </DropdownMenuItem>
             )}
