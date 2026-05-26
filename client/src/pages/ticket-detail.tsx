@@ -483,6 +483,32 @@ export default function TicketDetail() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
 
+  const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
+  const [aiSuggestCollapsed, setAiSuggestCollapsed] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(offset > 80 ? offset : 0);
+    };
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    onResize();
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    setComposerMode("reply");
+    setAiSuggestCollapsed(false);
+  }, [params.id]);
+
   const { data: ticket, isLoading } = useQuery<Ticket>({
     queryKey: ["/api/tickets", params.id],
   });
@@ -524,7 +550,8 @@ export default function TicketDetail() {
       if (el) {
         el.focus();
         el.style.height = "auto";
-        el.style.height = Math.min(el.scrollHeight, 120) + "px";
+        const maxPx = Math.round(window.innerHeight * 0.5);
+        el.style.height = Math.min(el.scrollHeight, maxPx) + "px";
       }
     });
     return true;
@@ -904,17 +931,22 @@ export default function TicketDetail() {
     const msgText = message.trim();
     const imgFile = imageFile;
     const kb = kbArticle;
+    const internal = isAdmin && composerMode === "internal";
+    if (internal) {
+      if (!msgText) return;
+      performSend(msgText, null, true, null);
+      return;
+    }
     if (!msgText && !imgFile && !kb) return;
-    const internal = false;
     if (isAdmin && msgText) {
       const unfilled = findUnfilledPlaceholders(msgText, placeholderContext);
       if (unfilled.length > 0) {
-        setPendingPlaceholderSend({ msgText, imgFile, internal, unfilled, kb });
+        setPendingPlaceholderSend({ msgText, imgFile, internal: false, unfilled, kb });
         return;
       }
     }
-    performSend(msgText, imgFile, internal, kb);
-  }, [message, imageFile, kbArticle, isAdmin, placeholderContext, performSend]);
+    performSend(msgText, imgFile, false, kb);
+  }, [message, imageFile, kbArticle, isAdmin, composerMode, placeholderContext, performSend]);
 
   const handleSendInternalNote = useCallback(() => {
     const trimmed = newNoteText.trim();
@@ -1094,15 +1126,61 @@ export default function TicketDetail() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden px-3 pt-3 sm:px-6 sm:pt-4" style={{ overscrollBehavior: "none" }}>
-      <div className="flex items-center justify-between gap-3 pb-4 flex-wrap flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
+    <div
+      className="flex flex-col flex-1 min-h-0 overflow-hidden px-3 pt-2 sm:px-6 sm:pt-3"
+      style={{ overscrollBehavior: "none", paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined }}
+    >
+      <div className="flex items-center gap-1.5 sm:gap-2 pb-2 flex-shrink-0 min-w-0">
+        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h2 className="font-semibold text-sm sm:text-base truncate" data-testid="text-ticket-subject">{ticket.subject}</h2>
+            <Badge variant={ticket.status === "open" ? "default" : "secondary"} className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.status}</Badge>
+            {ticket.priority === "high" && (
+              <Badge variant="destructive" className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.priority}</Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
+            {serviceName && <span className="truncate">{serviceName}</span>}
+            {serviceName && categoryName && <span>·</span>}
+            {categoryName && <span className="truncate">{categoryName}</span>}
+            {(serviceName || categoryName) && <span>·</span>}
+            {(() => {
+              const otherPartyRole = isAdmin ? "user" : "admin";
+              const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
+                otherPartyRole === "admin" ? (role === "admin" || role === "master_admin") : role === "user"
+              );
+              const label = isAdmin ? "Customer" : "Support";
+              return (
+                <span className="inline-flex items-center gap-1 flex-shrink-0" data-testid="presence-indicator">
+                  <span className={`w-1.5 h-1.5 rounded-full ${hasOtherParty ? "bg-green-500" : "bg-gray-400"}`} />
+                  {hasOtherParty ? `${label} online` : `${label} away`}
+                </span>
+              );
+            })()}
+            {ticket.claimedBy && (
+              <>
+                <span>·</span>
+                <span className="inline-flex items-center gap-0.5 flex-shrink-0" data-testid="badge-claimed-by">
+                  <Shield className="w-2.5 h-2.5" />
+                  {isAdmin ? (ticket.claimedBy === user?.id ? "You" : `${(ticket as any).claimedByName || "admin"}`) : "Claimed"}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {isAdmin && ticket.status === "open" && !ticket.claimedBy && (
+            <Button variant="default" size="sm" className="h-8 px-2 text-xs" onClick={() => claimMutation.mutate()} disabled={claimMutation.isPending} data-testid="button-claim-ticket">
+              <Shield className="w-3.5 h-3.5 sm:mr-1" /> <span className="hidden sm:inline">{claimMutation.isPending ? "Claiming..." : "Claim"}</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
+            className="h-8 w-8"
             onClick={() => {
               queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
               queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
@@ -1111,111 +1189,40 @@ export default function TicketDetail() {
           >
             <RefreshCw className="w-4 h-4" />
           </Button>
-          <div>
-            <h2 className="font-semibold text-lg" data-testid="text-ticket-subject">{ticket.subject}</h2>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant={ticket.status === "open" ? "default" : "secondary"} className="text-xs capitalize">{ticket.status}</Badge>
-              <Badge variant={ticket.priority === "high" ? "destructive" : "secondary"} className="text-xs capitalize">{ticket.priority}</Badge>
-              {serviceName && <Badge variant="secondary" className="text-xs">{serviceName}</Badge>}
-              {categoryName && <Badge variant="outline" className="text-xs">{categoryName}</Badge>}
-              {(() => {
-                const otherPartyRole = isAdmin ? "user" : "admin";
-                const hasOtherParty = Array.from(onlineViewers.values()).some((role) =>
-                  otherPartyRole === "admin" ? (role === "admin" || role === "master_admin") : role === "user"
-                );
-                const label = isAdmin ? "Customer" : "Support";
-                return (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="presence-indicator">
-                    <span className={`w-2 h-2 rounded-full ${hasOtherParty ? "bg-green-500" : "bg-gray-400"}`} />
-                    {hasOtherParty ? `${label} online` : `${label} away`}
-                  </span>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {isAdmin && ticket.status === "open" && !ticket.claimedBy && (
-            <Button variant="default" size="sm" onClick={() => claimMutation.mutate()} disabled={claimMutation.isPending} data-testid="button-claim-ticket">
-              <Shield className="w-4 h-4 mr-1" /> {claimMutation.isPending ? "Claiming..." : "Claim Ticket"}
-            </Button>
-          )}
-          {ticket.claimedBy && (
-            <Badge variant="outline" className="text-xs gap-1" data-testid="badge-claimed-by">
-              <Shield className="w-3 h-3" />
-              {isAdmin ? (ticket.claimedBy === user?.id ? "Claimed by you" : `Claimed by ${(ticket as any).claimedByName || "admin"}`) : "Claimed"}
-            </Badge>
-          )}
-          {isMobile && isAdmin && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" data-testid="button-ticket-actions-menu">
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-ticket-actions-menu">
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {isAdmin && (
                 <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="menu-customer-info">
                   <UserIcon className="w-4 h-4 mr-2" /> Customer Info
                 </DropdownMenuItem>
+              )}
+              {isAdmin && (
                 <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history">
                   <Clock className="w-4 h-4 mr-2" /> History
                 </DropdownMenuItem>
+              )}
+              {isAdmin && (
                 <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes">
                   <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
                 </DropdownMenuItem>
-                {ticket.status === "open" && ticket.claimedBy === user?.id && (
-                  <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket">
-                    <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
-                  </DropdownMenuItem>
-                )}
-                {ticket.status === "open" && (
-                  <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket">
-                    <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {!isMobile && (
-            <>
-              {isAdmin && (
-                <Button variant="outline" size="sm" onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info">
-                  <UserIcon className="w-4 h-4 mr-1" /> Customer Info
-                </Button>
-              )}
-              {isAdmin && (
-                <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history">
-                  <Clock className="w-4 h-4 mr-1" /> History
-                </Button>
-              )}
-              {isAdmin && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setInternalNotesOpen(true)}
-                  className="border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                  data-testid="button-internal-notes"
-                >
-                  <Lock className="w-4 h-4 mr-1" /> Notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
-                </Button>
               )}
               {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-                <Button variant="outline" size="sm" onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket">
-                  <ArrowRightLeft className="w-4 h-4 mr-1" /> Transfer
-                </Button>
+                <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket">
+                  <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
+                </DropdownMenuItem>
               )}
               {ticket.status === "open" && (
-                <Button variant="outline" size="sm" onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket">
-                  <CheckCircle className="w-4 h-4 mr-1" /> Close Ticket
-                </Button>
+                <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket">
+                  <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
+                </DropdownMenuItem>
               )}
-            </>
-          )}
-          {isMobile && !isAdmin && ticket.status === "open" && (
-            <Button variant="outline" size="sm" onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket">
-              <CheckCircle className="w-4 h-4 mr-1" /> Close
-            </Button>
-          )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -1837,68 +1844,124 @@ export default function TicketDetail() {
             </div>
           )}
 
-          {ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id) && (
-            <div className="p-2 sm:p-3 border-t">
-              {isAdmin && (
-                <div className="flex items-center gap-2 mb-2">
+          {(() => {
+            const canReply = ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id);
+            const ticketClosed = ticket.status !== "open";
+            const adminUnclaimed = isAdmin && ticket.status === "open" && ticket.claimedBy !== user?.id;
+            const isInternal = isAdmin && composerMode === "internal" && canReply;
+            const disabledReason = ticketClosed
+              ? "This ticket is closed."
+              : adminUnclaimed
+                ? ticket.claimedBy
+                  ? "Claimed by another admin."
+                  : "Claim this ticket to reply."
+                : null;
+            return (
+            <div
+              className={`border-t flex-shrink-0 ${isInternal ? "bg-amber-50/40 dark:bg-amber-950/20" : "bg-card"}`}
+              data-testid="composer-container"
+            >
+              {isAdmin && canReply && (
+                <div className="flex items-center gap-1 px-2 sm:px-3 pt-2">
                   <Button
                     type="button"
                     size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-xs gap-1 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                    onClick={() => setInternalNotesOpen(true)}
-                    data-testid="button-open-internal-notes"
+                    variant={composerMode === "reply" ? "secondary" : "ghost"}
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => setComposerMode("reply")}
+                    data-testid="tab-composer-reply"
+                  >
+                    Reply
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={composerMode === "internal" ? "secondary" : "ghost"}
+                    className={`h-7 px-2.5 text-xs gap-1 ${composerMode === "internal" ? "border border-amber-400 dark:border-amber-700 text-amber-800 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/50" : "text-amber-800 dark:text-amber-300"}`}
+                    onClick={() => setComposerMode("internal")}
+                    data-testid="tab-composer-internal"
                   >
                     <Lock className="w-3 h-3" />
-                    {internalNotesCount > 0
-                      ? `Internal notes (${internalNotesCount})`
-                      : "Add internal note"}
+                    Internal note{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
                   </Button>
-                </div>
-              )}
-              {isAdmin && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
-                <div className="flex flex-wrap items-center gap-1.5 mb-2" data-testid="row-suggestions">
-                  {suggestions && suggestions.length > 0 && (
-                    <span className="text-xs text-muted-foreground mr-1">Suggested:</span>
-                  )}
-                  <TooltipProvider delayDuration={300}>
-                    {suggestions?.map((s) => (
-                      <Tooltip key={s.id}>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 px-2 text-xs rounded-full"
-                            onClick={() => applySuggestion(s.message)}
-                            data-testid={`chip-suggestion-${s.id}`}
-                          >
-                            {s.title}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs whitespace-pre-wrap text-xs">
-                          {s.message}
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </TooltipProvider>
-                  {aiStatus?.enabled && (
+                  {composerMode === "internal" && internalNotesCount > 0 && (
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs rounded-full ml-auto"
-                      onClick={() => aiDraftMutation.mutate()}
-                      disabled={aiDraftMutation.isPending}
-                      data-testid="button-ai-suggest"
+                      variant="ghost"
+                      className="h-7 px-2 text-[11px] text-muted-foreground ml-auto"
+                      onClick={() => setInternalNotesOpen(true)}
+                      data-testid="button-open-internal-notes"
                     >
-                      {aiDraftMutation.isPending ? (
-                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-3 h-3 mr-1" />
-                      )}
-                      AI suggest
+                      View all
                     </Button>
+                  )}
+                </div>
+              )}
+              {disabledReason && (
+                <div className="px-3 pt-2 text-xs text-muted-foreground" data-testid="text-composer-disabled-reason">
+                  {disabledReason}
+                </div>
+              )}
+              <div className="p-2 sm:p-3">
+              {isAdmin && canReply && composerMode === "reply" && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
+                <div className="mb-2" data-testid="row-suggestions">
+                  {aiSuggestCollapsed && suggestions && suggestions.length > 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[11px] rounded-full text-muted-foreground"
+                      onClick={() => setAiSuggestCollapsed(false)}
+                      data-testid="button-expand-suggestions"
+                    >
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      {suggestions.length} suggestion{suggestions.length === 1 ? "" : "s"}
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 pb-0.5" style={{ scrollbarWidth: "thin" }}>
+                        <TooltipProvider delayDuration={300}>
+                          {suggestions?.map((s) => (
+                            <Tooltip key={s.id}>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-6 px-2 text-[11px] rounded-full flex-shrink-0"
+                                  onClick={() => applySuggestion(s.message)}
+                                  data-testid={`chip-suggestion-${s.id}`}
+                                >
+                                  {s.title}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs whitespace-pre-wrap text-xs">
+                                {s.message}
+                              </TooltipContent>
+                            </Tooltip>
+                          ))}
+                        </TooltipProvider>
+                      </div>
+                      {aiStatus?.enabled && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[11px] rounded-full flex-shrink-0"
+                          onClick={() => aiDraftMutation.mutate()}
+                          disabled={aiDraftMutation.isPending}
+                          data-testid="button-ai-suggest"
+                        >
+                          {aiDraftMutation.isPending ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3 mr-1" />
+                          )}
+                          AI
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -1954,28 +2017,34 @@ export default function TicketDetail() {
                   className="hidden"
                   onChange={(e) => setImageFile(e.target.files?.[0] || null)}
                 />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10"
-                  onClick={() => fileInputRef.current?.click()}
-                  data-testid="button-attach-image"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10"
-                  onClick={() => setKbPickerOpen(true)}
-                  data-testid="button-attach-kb"
-                  title="Link a knowledge base article"
-                >
-                  <BookOpen className="w-4 h-4" />
-                </Button>
-                {isAdmin && user?.id && (
+                {!isInternal && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="flex-shrink-0 h-9 w-9"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!canReply}
+                    data-testid="button-attach-image"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </Button>
+                )}
+                {!isInternal && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="flex-shrink-0 h-9 w-9"
+                    onClick={() => setKbPickerOpen(true)}
+                    disabled={!canReply}
+                    data-testid="button-attach-kb"
+                    title="Link a knowledge base article"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                  </Button>
+                )}
+                {isAdmin && user?.id && !isInternal && canReply && (
                   <QuickResponsePicker
                     adminId={user.id}
                     context={{
@@ -2141,9 +2210,20 @@ export default function TicketDetail() {
                     onChange={(e) => {
                       setMessage(e.target.value);
                       if (e.target.value.trim()) sendTypingEvent();
+                      if (isAdmin) {
+                        if (e.target.value.length === 0 && aiSuggestCollapsed) {
+                          setAiSuggestCollapsed(false);
+                        } else if (e.target.value.length > 0 && !aiSuggestCollapsed) {
+                          setAiSuggestCollapsed(true);
+                        }
+                      }
                       const el = e.target;
                       el.style.height = "auto";
-                      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+                      const maxPx = Math.round(window.innerHeight * 0.5);
+                      el.style.height = Math.min(el.scrollHeight, maxPx) + "px";
+                    }}
+                    onFocus={() => {
+                      if (isAdmin && !aiSuggestCollapsed) setAiSuggestCollapsed(true);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -2152,25 +2232,39 @@ export default function TicketDetail() {
                       }
                     }}
                     onScroll={syncPlaceholderOverlayScroll}
-                    placeholder="Type a message..."
-                    className="relative w-full min-h-[36px] max-h-[120px] resize-none text-sm py-2 leading-5 bg-transparent whitespace-pre-wrap break-words"
-                    rows={1}
+                    placeholder={
+                      !canReply
+                        ? (ticketClosed ? "Ticket is closed" : "Claim ticket to reply")
+                        : isInternal
+                          ? "Write a private note for other admins..."
+                          : "Type a message..."
+                    }
+                    disabled={!canReply}
+                    className={`relative w-full min-h-[80px] resize-none text-base sm:text-sm py-2 leading-5 whitespace-pre-wrap break-words ${isInternal ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700" : "bg-transparent"}`}
+                    style={{ maxHeight: "50dvh" }}
+                    rows={4}
                     data-testid="input-message"
                   />
                 </div>
                 <Button
                   type="button"
                   size="icon"
-                  className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10"
-                  disabled={!message.trim() && !imageFile && !kbArticle}
+                  className={`flex-shrink-0 h-9 w-9 self-end ${isInternal ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}`}
+                  disabled={
+                    !canReply ||
+                    (isInternal ? !message.trim() : (!message.trim() && !imageFile && !kbArticle))
+                  }
                   onClick={handleSend}
                   data-testid="button-send-message"
+                  title={isInternal ? "Save internal note" : "Send message"}
                 >
-                  <Send className="w-4 h-4" />
+                  {isInternal ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                 </Button>
               </div>
+              </div>
             </div>
-          )}
+            );
+          })()}
         </CardContent>
       </Card>
       <AlertDialog
