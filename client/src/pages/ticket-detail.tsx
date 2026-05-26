@@ -878,7 +878,7 @@ export default function TicketDetail() {
       if (!el) return;
       el.focus();
       el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+      el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.5)) + "px";
       if (caretAfter === "select") {
         el.setSelectionRange(start, start + replacement.length);
       } else {
@@ -1199,27 +1199,27 @@ export default function TicketDetail() {
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info">
+              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info" data-menu-testid="menu-customer-info">
                 <UserIcon className="w-4 h-4 mr-2" /> Customer Info
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history">
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history" data-menu-testid="menu-ticket-history">
                 <Clock className="w-4 h-4 mr-2" /> History
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes">
+              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes" data-menu-testid="menu-internal-notes">
                 <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
               </DropdownMenuItem>
             )}
             {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket">
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket" data-menu-testid="menu-transfer-ticket">
                 <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
               </DropdownMenuItem>
             )}
             {ticket.status === "open" && (
-              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket">
+              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket" data-menu-testid="menu-close-ticket">
                 <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
               </DropdownMenuItem>
             )}
@@ -1900,8 +1900,21 @@ export default function TicketDetail() {
                 </div>
               )}
               {disabledReason && (
-                <div className="px-3 pt-2 text-xs text-muted-foreground" data-testid="text-composer-disabled-reason">
-                  {disabledReason}
+                <div className="px-3 pt-2 flex items-center justify-between gap-2" data-testid="text-composer-disabled-reason">
+                  <span className="text-xs text-muted-foreground">{disabledReason}</span>
+                  {adminUnclaimed && !ticket.claimedBy && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 px-3 text-xs"
+                      onClick={() => claimMutation.mutate()}
+                      disabled={claimMutation.isPending}
+                      data-testid="button-claim-ticket-inline"
+                    >
+                      <Shield className="w-3 h-3 mr-1" />
+                      {claimMutation.isPending ? "Claiming..." : "Claim to reply"}
+                    </Button>
+                  )}
                 </div>
               )}
               <div className="p-2 sm:p-3">
