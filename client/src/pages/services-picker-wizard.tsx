@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Bell, Check, ChevronRight, Loader2 } from "lucide-react";
 import type { Service } from "@shared/schema";
@@ -21,6 +21,25 @@ export function ServicesPickerWizard({ onDone }: Props) {
   });
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Pre-check the CowboyMedia ServiceHub service exactly once, on first
+  // services-query resolve. Guarded so unchecking doesn't immediately
+  // re-check, and so the seed never runs again on later refetches.
+  // No-op when the service isn't present in the DB.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (services.length === 0) return;
+    seededRef.current = true;
+    const defaultService = services.find((s) => s.name === "CowboyMedia ServiceHub");
+    if (defaultService) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.add(defaultService.id);
+        return next;
+      });
+    }
+  }, [services]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, Service[]>();
