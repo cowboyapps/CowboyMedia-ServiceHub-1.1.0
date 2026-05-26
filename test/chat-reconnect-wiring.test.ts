@@ -415,6 +415,181 @@ const COMMUNITY_CHAT = readFileSync(
   join(process.cwd(), "client/src/pages/community-chat-page.tsx"), "utf8",
 );
 
+// ---------------------------------------------------------------------------
+// 5. thread_typing — both pages mirror the same contract: show the typing
+//    name when someone else types, clear after 3s, ignore self-typing.
+// ---------------------------------------------------------------------------
+
+function mountTypingHarness(threadId: string, currentUserId: string) {
+  let typingUser: string | null = null;
+  let typingTimeoutId: number | null = null;
+
+  const h = mountWithOptions(() => ({
+    path: "/ws",
+    onMessage: (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (
+          data.type === "thread_typing" &&
+          data.threadId === threadId &&
+          data.userId !== currentUserId
+        ) {
+          typingUser = data.userName;
+          if (typingTimeoutId !== null) clearTimeout(typingTimeoutId);
+          typingTimeoutId = setTimeout(() => { typingUser = null; }, 3000) as unknown as number;
+        }
+      } catch {}
+    },
+  }));
+
+  return {
+    sockets: h.sockets,
+    unmount: h.unmount,
+    getTypingUser: () => typingUser,
+  };
+}
+
+test("messages-page wiring: thread_typing updates indicator, clears after 3s, ignores self", () => {
+  const threadId = "thread-1";
+  const userId = "user-42";
+  const h = mountTypingHarness(threadId, userId);
+
+  try {
+    const first = h.sockets[0];
+    act(() => first.fireOpen());
+
+    // Frame from someone else for this thread → indicator shows their name.
+    act(() => first.fireMessage({
+      type: "thread_typing", threadId, userId: "other-1", userName: "Alice",
+    }));
+    assert.equal(h.getTypingUser(), "Alice", "shows other user's name");
+
+    // Frame from the current user must be ignored.
+    act(() => first.fireMessage({
+      type: "thread_typing", threadId, userId, userName: "Me",
+    }));
+    assert.equal(h.getTypingUser(), "Alice", "self-typing frame ignored");
+
+    // Frame for a different thread must be ignored.
+    act(() => first.fireMessage({
+      type: "thread_typing", threadId: "other-thread", userId: "other-1", userName: "Bob",
+    }));
+    assert.equal(h.getTypingUser(), "Alice", "frame for other thread ignored");
+
+    // After 3s with no fresh frame, the indicator clears.
+    act(() => advanceTime(3000));
+    assert.equal(h.getTypingUser(), null, "indicator clears after 3s");
+
+    // After a reconnect the new socket's onmessage must still wire typing.
+    act(() => first.fireClose());
+    act(() => advanceTime(2000));
+    const second = h.sockets[1];
+    act(() => second.fireOpen());
+    act(() => second.fireMessage({
+      type: "thread_typing", threadId, userId: "other-1", userName: "Carol",
+    }));
+    assert.equal(h.getTypingUser(), "Carol", "typing still wired after reconnect");
+  } finally {
+    h.unmount();
+  }
+});
+
+test("admin-portal wiring: thread_typing updates indicator, clears after 3s, ignores self", () => {
+  const threadId = "thread-9";
+  const userId = "admin-1";
+  const h = mountTypingHarness(threadId, userId);
+
+  try {
+    const first = h.sockets[0];
+    act(() => first.fireOpen());
+
+    act(() => first.fireMessage({
+      type: "thread_typing", threadId, userId: "customer-7", userName: "Dana",
+    }));
+    assert.equal(h.getTypingUser(), "Dana");
+
+    act(() => first.fireMessage({
+      type: "thread_typing", threadId, userId, userName: "Admin Self",
+    }));
+    assert.equal(h.getTypingUser(), "Dana", "self-typing ignored on admin side");
+
+    act(() => advanceTime(3000));
+    assert.equal(h.getTypingUser(), null, "admin indicator clears after 3s");
+  } finally {
+    h.unmount();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 6. thread_messages_read — admin-portal invalidates the thread messages
+//    query only when readBy is someone other than the current admin.
+// ---------------------------------------------------------------------------
+
+test("admin-portal wiring: thread_messages_read invalidates only when readBy is someone else", () => {
+  const threadId = "thread-9";
+  const userId = "admin-1";
+  const invalidatedKeys: unknown[][] = [];
+  const fakeQueryClient = {
+    invalidateQueries: ({ queryKey }: { queryKey: unknown[] }) => {
+      invalidatedKeys.push(queryKey);
+    },
+  };
+
+  const h = mountWithOptions(() => ({
+    path: "/ws",
+    onMessage: (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        if (
+          d.type === "thread_messages_read" &&
+          d.threadId === threadId &&
+          d.readBy !== userId
+        ) {
+          fakeQueryClient.invalidateQueries({
+            queryKey: ["/api/message-threads", threadId, "messages"],
+          });
+        }
+      } catch {}
+    },
+  }));
+
+  try {
+    const first = h.sockets[0];
+    act(() => first.fireOpen());
+
+    // Read receipt from the current admin — must be ignored.
+    act(() => first.fireMessage({
+      type: "thread_messages_read", threadId, readBy: userId,
+    }));
+    assert.equal(invalidatedKeys.length, 0, "self read receipt ignored");
+
+    // Read receipt for a different thread — must be ignored.
+    act(() => first.fireMessage({
+      type: "thread_messages_read", threadId: "other", readBy: "customer-7",
+    }));
+    assert.equal(invalidatedKeys.length, 0, "other-thread read receipt ignored");
+
+    // Read receipt from another user — invalidates once.
+    act(() => first.fireMessage({
+      type: "thread_messages_read", threadId, readBy: "customer-7",
+    }));
+    assert.equal(invalidatedKeys.length, 1, "invalidated when readBy is someone else");
+    assert.deepEqual(invalidatedKeys[0], ["/api/message-threads", threadId, "messages"]);
+
+    // Survives a reconnect.
+    act(() => first.fireClose());
+    act(() => advanceTime(2000));
+    const second = h.sockets[1];
+    act(() => second.fireOpen());
+    act(() => second.fireMessage({
+      type: "thread_messages_read", threadId, readBy: "customer-7",
+    }));
+    assert.equal(invalidatedKeys.length, 2, "still wired after reconnect");
+  } finally {
+    h.unmount();
+  }
+});
+
 test("messages-page source: still wires onVisible→viewing_thread and onBeforeUnmount→left_thread", () => {
   assert.match(MESSAGES_PAGE, /useReconnectingWebSocket\(\{/, "uses the shared hook");
   assert.match(MESSAGES_PAGE, /onVisible:\s*\(ws\)\s*=>/, "onVisible wired");
@@ -430,6 +605,37 @@ test("admin-portal source: still wires onVisible→viewing_thread and onBeforeUn
   assert.match(ADMIN_PORTAL, /onBeforeUnmount:\s*\(ws\)\s*=>/);
   assert.match(ADMIN_PORTAL, /type:\s*"viewing_thread"/);
   assert.match(ADMIN_PORTAL, /type:\s*"left_thread"/);
+});
+
+test("messages-page source: still wires thread_typing handler (other-user check + 3s clear)", () => {
+  assert.match(
+    MESSAGES_PAGE,
+    /data\.type\s*===\s*"thread_typing"[\s\S]*?data\.userId\s*!==\s*user\?\.id/,
+    "thread_typing branch checks data.userId !== current user",
+  );
+  assert.match(
+    MESSAGES_PAGE,
+    /setTypingUser\(null\)[\s\S]{0,20}3000/,
+    "typing indicator clears via a 3000ms setTimeout",
+  );
+});
+
+test("admin-portal source: still wires thread_typing + thread_messages_read with other-user checks", () => {
+  assert.match(
+    ADMIN_PORTAL,
+    /d\.type\s*===\s*"thread_typing"[\s\S]*?d\.userId\s*!==\s*userId/,
+    "thread_typing branch checks d.userId !== current admin",
+  );
+  assert.match(
+    ADMIN_PORTAL,
+    /d\.type\s*===\s*"thread_messages_read"[\s\S]*?d\.readBy\s*!==\s*userId/,
+    "thread_messages_read branch checks d.readBy !== current admin",
+  );
+  assert.match(
+    ADMIN_PORTAL,
+    /d\.type\s*===\s*"thread_messages_read"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*\["\/api\/message-threads",\s*threadId,\s*"messages"\]\s*\}\)/,
+    "thread_messages_read invalidates the thread messages query",
+  );
 });
 
 test("community-chat source: still invalidates /api/community-chat/messages on community_message", () => {
