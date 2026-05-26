@@ -21,26 +21,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  findUnfilledPlaceholders,
-  walkPlaceholderOverlay,
-  suggestKnownVariable,
-  PLACEHOLDER_VARIABLE_LABELS,
-  PLACEHOLDER_EMPTY_REASONS,
-} from "@shared/quick-response-vars";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { findUnfilledPlaceholders } from "@shared/quick-response-vars";
 import { format, isToday, isYesterday } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Sparkles, Loader2, Lock, Pencil, Trash2, Check } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Lock, Pencil, Trash2, Check } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
-import { QuickResponsePicker } from "@/components/quick-response-picker";
-import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { ChatComposer, type ChatComposerHandle, type ComposerSendPayload } from "@/components/ticket/chat-composer";
 import { BookOpen, ChevronRight } from "lucide-react";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
@@ -427,10 +419,7 @@ export default function TicketDetail() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isMobile = useIsMobile();
-  const [message, setMessage] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
-  const [kbPickerOpen, setKbPickerOpen] = useState(false);
+  const composerRef = useRef<ChatComposerHandle>(null);
   const [internalNotesOpen, setInternalNotesOpenState] = useState(false);
   const [newNoteText, setNewNoteText] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -448,15 +437,7 @@ export default function TicketDetail() {
     setNewNoteText("");
     setEditingNoteId(null);
     setEditingNoteText("");
-    setKbArticle(null);
-    setKbPickerOpen(false);
   }, [params.id]);
-  const [, forceTick] = useState(0);
-  useEffect(() => {
-    if (!isAdmin) return;
-    const t = setInterval(() => forceTick((n) => n + 1), 30_000);
-    return () => clearInterval(t);
-  }, [isAdmin]);
   const [customerInfoOpen, setCustomerInfoOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -476,15 +457,10 @@ export default function TicketDetail() {
   const originTicketSubject = searchParams.get("fromSubject");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const messageInputRef = useRef<HTMLTextAreaElement>(null);
-  const placeholderOverlayRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
 
-  const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
-  const [aiSuggestCollapsed, setAiSuggestCollapsed] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const keyboardOpenRef = useRef(false);
   const keyboardToastShownRef = useRef(false);
@@ -516,11 +492,6 @@ export default function TicketDetail() {
     };
   }, [toast]);
 
-  useEffect(() => {
-    setComposerMode("reply");
-    setAiSuggestCollapsed(false);
-  }, [params.id]);
-
   const { data: ticket, isLoading } = useQuery<Ticket>({
     queryKey: ["/api/tickets", params.id],
   });
@@ -528,6 +499,7 @@ export default function TicketDetail() {
   const { data: messages, isLoading: messagesLoading } = useQuery<EnrichedTicketMessage[]>({
     queryKey: ["/api/tickets", params.id, "messages"],
     refetchInterval: 5000,
+    staleTime: 2000,
   });
 
   const { data: services } = useQuery<Service[]>({
@@ -552,35 +524,6 @@ export default function TicketDetail() {
     queryKey: ["/api/ai-draft/status"],
     enabled: isAdmin,
     staleTime: 5 * 60 * 1000,
-  });
-
-  const applySuggestion = (text: string): boolean => {
-    if (message.trim() && !window.confirm("Replace your current draft with this response?")) return false;
-    setMessage(text);
-    requestAnimationFrame(() => {
-      const el = messageInputRef.current;
-      if (el) {
-        el.focus();
-        el.style.height = "auto";
-        const maxPx = Math.round(window.innerHeight * 0.5);
-        el.style.height = Math.min(el.scrollHeight, maxPx) + "px";
-      }
-    });
-    return true;
-  };
-
-  const aiDraftMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/tickets/${params.id}/ai-draft`);
-      return (await res.json()) as { draft: string; remaining: number };
-    },
-    onSuccess: (data) => {
-      applySuggestion(data.draft);
-      toast({ title: "AI draft ready", description: "Edit before sending." });
-    },
-    onError: (err: any) => {
-      toast({ title: "AI draft failed", description: err?.message || "Try again later.", variant: "destructive" });
-    },
   });
 
   type PreviousTicket = {
@@ -644,7 +587,33 @@ export default function TicketDetail() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "ticket_message" && data.ticketId === params.id) {
-            queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+            // Snappy texting: merge the broadcast message directly into the cache instead of
+            // round-tripping a refetch. Dedupe by id (the sender already has it from their POST,
+            // and the server sometimes broadcasts twice via the internal-notes/admin-only path).
+            const incoming = data.message as EnrichedTicketMessage | undefined;
+            if (incoming?.id) {
+              queryClient.setQueryData<EnrichedTicketMessage[] | undefined>(
+                ["/api/tickets", params.id, "messages"],
+                (prev) => {
+                  if (!prev) return [incoming];
+                  if (prev.some((m) => m.id === incoming.id)) return prev;
+                  return [...prev, incoming];
+                },
+              );
+              // Reconcile own-send optimistic bubble: if WS arrives before our POST .then()
+              // removes the optimistic placeholder, both would render briefly. Match by
+              // sender + text + internal flag (no shared id between temp and real).
+              if (incoming.senderId === userIdRef.current) {
+                setOptimisticMessages((prev) => prev.filter((m) => !(
+                  m.status !== "failed" &&
+                  m.senderId === incoming.senderId &&
+                  m.message === incoming.message &&
+                  !!m.isInternal === !!incoming.isInternal
+                )));
+              }
+            } else {
+              queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+            }
             setTypingUser(null);
             markTicketRead();
           }
@@ -736,8 +705,7 @@ export default function TicketDetail() {
     setHistoryOpen(false);
     setTransferDialogOpen(false);
     setCloseDialogOpen(false);
-    setMessage("");
-    setImageFile(null);
+    composerRef.current?.clear();
     setOptimisticMessages([]);
     setOnlineViewers(new Map());
     setShowNewMessagesPill(false);
@@ -813,7 +781,9 @@ export default function TicketDetail() {
     }
 
     if (isNearBottomRef.current) {
-      setTimeout(() => scrollToBottom(), 50);
+      // Native-texting feel: scroll instantly + synchronously so the bubble lands the moment
+      // the user taps Send. The previous 50ms smooth-scroll made own-send feel laggy.
+      scrollToBottom("auto");
     }
 
     const formData = new FormData();
@@ -857,93 +827,16 @@ export default function TicketDetail() {
     [customerInfo?.customer.fullName, ticket?.subject, user?.fullName],
   );
 
-  const draftUnfilledPlaceholders = useMemo(() => {
-    if (!isAdmin) return [];
-    const trimmed = message.trim();
-    if (!trimmed) return [];
-    return Array.from(new Set(findUnfilledPlaceholders(trimmed, placeholderContext)));
-  }, [isAdmin, message, placeholderContext]);
-
-  const showPlaceholderOverlay = isAdmin;
-
-  const overlayParts = useMemo(() => {
-    if (!showPlaceholderOverlay || !message) return [];
-    return walkPlaceholderOverlay(message, placeholderContext);
-  }, [showPlaceholderOverlay, message, placeholderContext]);
-
-  const hasPlaceholderHighlights = useMemo(
-    () => overlayParts.some((p) => p.kind === "missing-token" || p.kind === "unknown-token"),
-    [overlayParts],
-  );
-
-  const [openTokenKey, setOpenTokenKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!hasPlaceholderHighlights) setOpenTokenKey(null);
-  }, [hasPlaceholderHighlights]);
-
-  const replaceTokenRange = useCallback((start: number, end: number, replacement: string, caretAfter: "end" | "select") => {
-    setMessage((prev) => prev.slice(0, start) + replacement + prev.slice(end));
-    setOpenTokenKey(null);
-    requestAnimationFrame(() => {
-      const el = messageInputRef.current;
-      if (!el) return;
-      el.focus();
-      el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.5)) + "px";
-      if (caretAfter === "select") {
-        el.setSelectionRange(start, start + replacement.length);
-      } else {
-        const pos = start + replacement.length;
-        el.setSelectionRange(pos, pos);
-      }
-    });
-  }, []);
-
-  const jumpToToken = useCallback((start: number, end: number) => {
-    setOpenTokenKey(null);
-    requestAnimationFrame(() => {
-      const el = messageInputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(start, end);
-    });
-  }, []);
-
-  const syncPlaceholderOverlayScroll = useCallback(() => {
-    const ta = messageInputRef.current;
-    const overlay = placeholderOverlayRef.current;
-    if (!ta || !overlay) return;
-    overlay.scrollTop = ta.scrollTop;
-    overlay.scrollLeft = ta.scrollLeft;
-  }, []);
-
-  useEffect(() => {
-    syncPlaceholderOverlayScroll();
-  }, [message, syncPlaceholderOverlayScroll]);
-
   const performSend = useCallback(
     (msgText: string, imgFile: File | null, internal: boolean, kb: KbArticleRef | null = null) => {
-      setMessage("");
-      setImageFile(null);
-      setKbArticle(null);
+      composerRef.current?.clear();
       doSendMessage(msgText, imgFile, undefined, internal, kb);
-      setTimeout(() => {
-        const el = messageInputRef.current;
-        if (el) {
-          el.style.height = "auto";
-          el.focus();
-        }
-      }, 0);
     },
     [doSendMessage],
   );
 
-  const handleSend = useCallback(() => {
-    const msgText = message.trim();
-    const imgFile = imageFile;
-    const kb = kbArticle;
-    const internal = isAdmin && composerMode === "internal";
+  const handleComposerSend = useCallback((payload: ComposerSendPayload) => {
+    const { text: msgText, file: imgFile, kb, internal } = payload;
     if (internal) {
       if (!msgText) return;
       performSend(msgText, null, true, null);
@@ -958,7 +851,7 @@ export default function TicketDetail() {
       }
     }
     performSend(msgText, imgFile, false, kb);
-  }, [message, imageFile, kbArticle, isAdmin, composerMode, placeholderContext, performSend]);
+  }, [isAdmin, placeholderContext, performSend]);
 
   const handleSendInternalNote = useCallback(() => {
     const trimmed = newNoteText.trim();
@@ -1845,7 +1738,7 @@ export default function TicketDetail() {
             const canReply = ticket.status === "open" && (!isAdmin || ticket.claimedBy === user?.id);
             const ticketClosed = ticket.status !== "open";
             const adminUnclaimed = isAdmin && ticket.status === "open" && ticket.claimedBy !== user?.id;
-            const isInternal = isAdmin && composerMode === "internal" && canReply;
+            const ticketClaimedByOther = !!(adminUnclaimed && ticket.claimedBy);
             const disabledReason = ticketClosed
               ? "This ticket is closed."
               : adminUnclaimed
@@ -1854,425 +1747,27 @@ export default function TicketDetail() {
                   : "Claim this ticket to reply."
                 : null;
             return (
-            <div
-              className={`border-t flex-shrink-0 ${isInternal ? "bg-amber-50/40 dark:bg-amber-950/20" : "bg-card"}`}
-              data-testid="composer-container"
-            >
-              {isAdmin && canReply && (
-                <div className="flex items-center gap-1 px-2 sm:px-3 pt-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={composerMode === "reply" ? "secondary" : "ghost"}
-                    className="h-7 px-2.5 text-xs"
-                    onClick={() => setComposerMode("reply")}
-                    data-testid="tab-composer-reply"
-                  >
-                    Reply
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={composerMode === "internal" ? "secondary" : "ghost"}
-                    className={`h-7 px-2.5 text-xs gap-1 ${composerMode === "internal" ? "border border-amber-400 dark:border-amber-700 text-amber-800 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/50" : "text-amber-800 dark:text-amber-300"}`}
-                    onClick={() => setComposerMode("internal")}
-                    data-testid="tab-composer-internal"
-                  >
-                    <Lock className="w-3 h-3" />
-                    Internal note{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
-                  </Button>
-                  {composerMode === "internal" && internalNotesCount > 0 && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-[11px] text-muted-foreground ml-auto"
-                      onClick={() => setInternalNotesOpen(true)}
-                      data-testid="button-open-internal-notes"
-                    >
-                      View all
-                    </Button>
-                  )}
-                </div>
-              )}
-              {disabledReason && (
-                <div className="px-3 pt-2 flex items-center justify-between gap-2" data-testid="text-composer-disabled-reason">
-                  <span className="text-xs text-muted-foreground">{disabledReason}</span>
-                  {adminUnclaimed && !ticket.claimedBy && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-7 px-3 text-xs"
-                      onClick={() => claimMutation.mutate()}
-                      disabled={claimMutation.isPending}
-                      data-testid="button-claim-ticket-inline"
-                    >
-                      <Shield className="w-3 h-3 mr-1" />
-                      {claimMutation.isPending ? "Claiming..." : "Claim to reply"}
-                    </Button>
-                  )}
-                </div>
-              )}
-              <div className="p-2 sm:p-3">
-              {isAdmin && canReply && composerMode === "reply" && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
-                <div className="mb-2" data-testid="row-suggestions">
-                  {aiSuggestCollapsed && suggestions && suggestions.length > 0 ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 px-2 text-[11px] rounded-full text-muted-foreground"
-                      onClick={() => setAiSuggestCollapsed(false)}
-                      data-testid="button-expand-suggestions"
-                    >
-                      <Sparkles className="w-3 h-3 mr-1" />
-                      {suggestions.length} suggestion{suggestions.length === 1 ? "" : "s"}
-                    </Button>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 pb-0.5" style={{ scrollbarWidth: "thin" }}>
-                        <TooltipProvider delayDuration={300}>
-                          {suggestions?.map((s) => (
-                            <Tooltip key={s.id}>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="secondary"
-                                  className="h-6 px-2 text-[11px] rounded-full flex-shrink-0"
-                                  onClick={() => applySuggestion(s.message)}
-                                  data-testid={`chip-suggestion-${s.id}`}
-                                >
-                                  {s.title}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-xs whitespace-pre-wrap text-xs">
-                                {s.message}
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
-                        </TooltipProvider>
-                      </div>
-                      {aiStatus?.enabled && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-[11px] rounded-full flex-shrink-0"
-                          onClick={() => aiDraftMutation.mutate()}
-                          disabled={aiDraftMutation.isPending}
-                          data-testid="button-ai-suggest"
-                        >
-                          {aiDraftMutation.isPending ? (
-                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3 h-3 mr-1" />
-                          )}
-                          AI
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {imageFile && (
-                <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md">
-                  {imageFile.type.startsWith("video/") ? <Film className="w-4 h-4 flex-shrink-0" /> :
-                   imageFile.type.startsWith("image/") ? <Paperclip className="w-4 h-4 flex-shrink-0" /> :
-                   <FileText className="w-4 h-4 flex-shrink-0" />}
-                  <span className="text-xs truncate flex-1">{imageFile.name}</span>
-                  <Button size="icon" variant="ghost" onClick={() => setImageFile(null)} data-testid="button-remove-image">
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              )}
-              {kbArticle && (
-                <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-selected-kb">
-                  <BookOpen className="w-4 h-4 flex-shrink-0 text-primary" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">{kbArticle.title}</p>
-                    {kbArticle.categoryName && (
-                      <p className="text-[10px] text-muted-foreground truncate">{kbArticle.categoryName}</p>
-                    )}
-                  </div>
-                  <Button size="icon" variant="ghost" onClick={() => setKbArticle(null)} data-testid="button-remove-kb">
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              )}
-              {draftUnfilledPlaceholders.length > 0 && (
-                <div
-                  className="flex items-start gap-1.5 mb-2 text-[11px] text-amber-700 dark:text-amber-400"
-                  data-testid="hint-unfilled-placeholders"
-                >
-                  <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                  <span>
-                    This draft still has unfilled placeholders:{" "}
-                    {draftUnfilledPlaceholders.map((token, i) => (
-                      <span key={`${token}-${i}`}>
-                        {i > 0 && ", "}
-                        <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 font-mono">
-                          {token}
-                        </code>
-                      </span>
-                    ))}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-end gap-1.5 sm:gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="*/*"
-                  className="hidden"
-                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-                />
-                {!isInternal && (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="flex-shrink-0 h-9 w-9"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={!canReply}
-                    data-testid="button-attach-image"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </Button>
-                )}
-                {!isInternal && (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="flex-shrink-0 h-9 w-9"
-                    onClick={() => setKbPickerOpen(true)}
-                    disabled={!canReply}
-                    data-testid="button-attach-kb"
-                    title="Link a knowledge base article"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                  </Button>
-                )}
-                {isAdmin && user?.id && !isInternal && canReply && (
-                  <QuickResponsePicker
-                    adminId={user.id}
-                    context={{
-                      customer_name: customerInfo?.customer.fullName ?? null,
-                      ticket_subject: ticket.subject,
-                      admin_name: user.fullName,
-                    }}
-                    onInsert={applySuggestion}
-                  />
-                )}
-                <div className="relative flex-1">
-                  {showPlaceholderOverlay && hasPlaceholderHighlights && (
-                    <div
-                      ref={placeholderOverlayRef}
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 overflow-hidden rounded-md border border-transparent px-3 py-2 text-sm leading-5 text-transparent whitespace-pre-wrap break-words"
-                      data-testid="overlay-placeholder-highlights"
-                    >
-                      {overlayParts.map((part, i) => {
-                        if (part.kind === "text") {
-                          return <span key={i}>{part.value}</span>;
-                        }
-                        if (part.kind === "filled-token") {
-                          return <span key={i}>{part.raw}</span>;
-                        }
-                        const tokenKey = `${i}-${part.start}`;
-                        const isMissing = part.kind === "missing-token";
-                        const variable = isMissing ? part.variable : undefined;
-                        const label = variable
-                          ? PLACEHOLDER_VARIABLE_LABELS[variable] ?? variable
-                          : null;
-                        const reason = variable
-                          ? PLACEHOLDER_EMPTY_REASONS[variable] ?? null
-                          : null;
-                        const liveValue = (() => {
-                          if (!variable) return "";
-                          const v = (placeholderContext as Record<string, unknown>)[variable];
-                          return v == null ? "" : String(v).trim();
-                        })();
-                        const suggestion = !isMissing
-                          ? suggestKnownVariable(part.raw)
-                          : null;
-                        return (
-                          <Popover
-                            key={tokenKey}
-                            open={openTokenKey === tokenKey}
-                            onOpenChange={(o) => setOpenTokenKey(o ? tokenKey : null)}
-                          >
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                className="pointer-events-auto rounded bg-amber-200/70 dark:bg-amber-900/50 underline decoration-amber-600 decoration-2 underline-offset-2 text-transparent cursor-pointer p-0 m-0 border-0 align-baseline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                                data-testid={`overlay-placeholder-token-${i}`}
-                                aria-label={
-                                  isMissing
-                                    ? `Fix unfilled placeholder ${part.raw}`
-                                    : `Fix unknown placeholder ${part.raw}`
-                                }
-                              >
-                                {part.raw}
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent
-                              align="start"
-                              side="top"
-                              className="w-64 p-0 pointer-events-auto"
-                              data-testid={`popover-placeholder-${i}`}
-                            >
-                              <div className="p-3 space-y-1">
-                                <div
-                                  className="text-xs font-mono break-all"
-                                  data-testid={`text-placeholder-token-${i}`}
-                                >
-                                  {part.raw}
-                                </div>
-                                {isMissing ? (
-                                  <p
-                                    className="text-xs text-muted-foreground"
-                                    data-testid={`text-placeholder-explanation-${i}`}
-                                  >
-                                    {liveValue
-                                      ? `${label} is now available — insert it below.`
-                                      : `${label} is empty. ${reason ?? ""}`}
-                                  </p>
-                                ) : (
-                                  <p
-                                    className="text-xs text-muted-foreground"
-                                    data-testid={`text-placeholder-explanation-${i}`}
-                                  >
-                                    {suggestion ? (
-                                      <>
-                                        This isn&apos;t a recognized variable. Did you mean{" "}
-                                        <code className="font-mono">{`{{${suggestion}}}`}</code>?
-                                      </>
-                                    ) : (
-                                      <>
-                                        This isn&apos;t a recognized variable, so it can&apos;t be
-                                        filled in automatically.
-                                      </>
-                                    )}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="border-t flex flex-col">
-                                {isMissing && liveValue && (
-                                  <button
-                                    type="button"
-                                    className="px-3 py-2 text-left text-sm hover:bg-accent"
-                                    onClick={() =>
-                                      replaceTokenRange(part.start, part.end, liveValue, "end")
-                                    }
-                                    data-testid={`button-placeholder-insert-${i}`}
-                                  >
-                                    Insert &ldquo;{liveValue}&rdquo;
-                                  </button>
-                                )}
-                                {!isMissing && suggestion && (
-                                  <button
-                                    type="button"
-                                    className="px-3 py-2 text-left text-sm hover:bg-accent"
-                                    onClick={() =>
-                                      replaceTokenRange(
-                                        part.start,
-                                        part.end,
-                                        `{{${suggestion}}}`,
-                                        "end",
-                                      )
-                                    }
-                                    data-testid={`button-placeholder-suggest-${i}`}
-                                  >
-                                    Replace with <code className="font-mono">{`{{${suggestion}}}`}</code>
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className="px-3 py-2 text-left text-sm hover:bg-accent"
-                                  onClick={() =>
-                                    replaceTokenRange(part.start, part.end, "", "end")
-                                  }
-                                  data-testid={`button-placeholder-remove-${i}`}
-                                >
-                                  Remove placeholder
-                                </button>
-                                <button
-                                  type="button"
-                                  className="px-3 py-2 text-left text-sm hover:bg-accent"
-                                  onClick={() => jumpToToken(part.start, part.end)}
-                                  data-testid={`button-placeholder-edit-${i}`}
-                                >
-                                  Edit manually
-                                </button>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        );
-                      })}
-                      {message.endsWith("\n") && "\u200b"}
-                    </div>
-                  )}
-                  <Textarea
-                    ref={messageInputRef}
-                    value={message}
-                    onChange={(e) => {
-                      setMessage(e.target.value);
-                      if (e.target.value.trim()) sendTypingEvent();
-                      if (isAdmin) {
-                        if (e.target.value.length === 0 && aiSuggestCollapsed) {
-                          setAiSuggestCollapsed(false);
-                        } else if (e.target.value.length > 0 && !aiSuggestCollapsed) {
-                          setAiSuggestCollapsed(true);
-                        }
-                      }
-                      const el = e.target;
-                      el.style.height = "auto";
-                      const maxPx = Math.round(window.innerHeight * 0.5);
-                      el.style.height = Math.min(el.scrollHeight, maxPx) + "px";
-                    }}
-                    onFocus={() => {
-                      if (isAdmin && !aiSuggestCollapsed) setAiSuggestCollapsed(true);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    onScroll={syncPlaceholderOverlayScroll}
-                    placeholder={
-                      !canReply
-                        ? (ticketClosed ? "Ticket is closed" : "Claim ticket to reply")
-                        : isInternal
-                          ? "Write a private note for other admins..."
-                          : "Type a message..."
-                    }
-                    disabled={!canReply}
-                    className={`relative w-full min-h-[80px] resize-none text-base sm:text-sm py-2 leading-5 whitespace-pre-wrap break-words ${isInternal ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700" : "bg-transparent"}`}
-                    style={{ maxHeight: "50dvh" }}
-                    rows={4}
-                    data-testid="input-message"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="icon"
-                  className={`flex-shrink-0 h-9 w-9 self-end ${isInternal ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}`}
-                  disabled={
-                    !canReply ||
-                    (isInternal ? !message.trim() : (!message.trim() && !imageFile && !kbArticle))
-                  }
-                  onClick={handleSend}
-                  data-testid="button-send-message"
-                  title={isInternal ? "Save internal note" : "Send message"}
-                >
-                  {isInternal ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-                </Button>
-              </div>
-              </div>
-            </div>
+              <ChatComposer
+                ref={composerRef}
+                ticketId={params.id!}
+                canReply={canReply}
+                ticketClosed={ticketClosed}
+                disabledReason={disabledReason}
+                adminUnclaimed={adminUnclaimed}
+                ticketClaimedByOther={ticketClaimedByOther}
+                isAdmin={isAdmin}
+                userId={user?.id}
+                userFullName={user?.fullName}
+                placeholderContext={placeholderContext}
+                suggestions={suggestions}
+                aiStatus={aiStatus}
+                internalNotesCount={internalNotesCount}
+                onRequestSend={handleComposerSend}
+                onTyping={sendTypingEvent}
+                onOpenInternalNotes={() => setInternalNotesOpen(true)}
+                onClaimTicket={() => claimMutation.mutate()}
+                claimPending={claimMutation.isPending}
+              />
             );
           })()}
         </CardContent>
@@ -2317,11 +1812,6 @@ export default function TicketDetail() {
         userId={profileUserId}
         open={!!profileUserId}
         onOpenChange={(o) => { if (!o) setProfileUserId(null); }}
-      />
-      <KbArticlePickerDialog
-        open={kbPickerOpen}
-        onOpenChange={setKbPickerOpen}
-        onSelect={(article) => { setKbArticle(article); setKbPickerOpen(false); }}
       />
     </div>
   );
