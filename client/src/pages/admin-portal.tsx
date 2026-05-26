@@ -56,6 +56,7 @@ const createServiceSchema = z.object({
   category: z.string().optional(),
   status: z.string().default("operational"),
   discordWebhookUrl: z.string().trim().url("Must be a valid URL").or(z.literal("")).optional(),
+  isDefault: z.boolean().default(false),
 });
 
 const createAlertSchema = z.object({
@@ -964,7 +965,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
 
   const form = useForm({
     resolver: zodResolver(createServiceSchema),
-    defaultValues: { name: "", description: "", category: "", status: "operational", discordWebhookUrl: "" },
+    defaultValues: { name: "", description: "", category: "", status: "operational", discordWebhookUrl: "", isDefault: false },
   });
 
   const createMutation = useMutation({
@@ -997,7 +998,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
 
   const openEdit = (s: Service) => {
     setEditId(s.id);
-    form.reset({ name: s.name, description: s.description || "", category: s.category || "", status: s.status, discordWebhookUrl: s.discordWebhookUrl || "" });
+    form.reset({ name: s.name, description: s.description || "", category: s.category || "", status: s.status, discordWebhookUrl: s.discordWebhookUrl || "", isDefault: s.isDefault ?? false });
     setDialogOpen(true);
   };
 
@@ -1050,6 +1051,17 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
                     <FormMessage />
                   </FormItem>
                 )} />
+                <FormField control={form.control} name="isDefault" render={({ field }) => (
+                  <FormItem className="flex items-start justify-between gap-3 rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-sm">Pre-check for new customers</FormLabel>
+                      <p className="text-xs text-muted-foreground">When on, this service is ticked by default in the new-customer services picker. Existing customers are unaffected.</p>
+                    </div>
+                    <FormControl>
+                      <Switch checked={!!field.value} onCheckedChange={field.onChange} data-testid="switch-service-default" />
+                    </FormControl>
+                  </FormItem>
+                )} />
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-service">
                   {createMutation.isPending ? "Saving..." : editId ? "Update Service" : "Add Service"}
                 </Button>
@@ -1067,9 +1079,10 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <span className="font-medium text-sm">{s.name}</span>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {s.category && <span className="text-xs text-muted-foreground">{s.category}</span>}
                       <Badge variant="secondary" className="text-[10px] capitalize px-1.5 py-0">{s.status}</Badge>
+                      {s.isDefault && <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-service-default-${s.id}`}>Default</Badge>}
                     </div>
                     {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
                   </div>
@@ -1097,6 +1110,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
                 <TableHead>Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Default</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -1106,6 +1120,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
                   <TableCell className="font-medium text-sm">{s.name}</TableCell>
                   <TableCell className="text-sm">{s.category || "-"}</TableCell>
                   <TableCell><Badge variant="secondary" className="text-xs capitalize">{s.status}</Badge></TableCell>
+                  <TableCell>{s.isDefault ? <Badge variant="outline" className="text-xs" data-testid={`badge-service-default-${s.id}`}>Default</Badge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       {canManage && <Button size="icon" variant="ghost" onClick={() => openEdit(s)} data-testid={`button-edit-service-${s.id}`}>
