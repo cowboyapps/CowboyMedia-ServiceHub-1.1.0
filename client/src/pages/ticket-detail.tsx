@@ -1198,27 +1198,27 @@ export default function TicketDetail() {
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="menu-customer-info">
+              <DropdownMenuItem onClick={() => setCustomerInfoOpen(true)} data-testid="button-customer-info" data-testid-menu="menu-customer-info">
                 <UserIcon className="w-4 h-4 mr-2" /> Customer Info
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="menu-ticket-history">
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)} data-testid="button-ticket-history" data-testid-menu="menu-ticket-history">
                 <Clock className="w-4 h-4 mr-2" /> History
               </DropdownMenuItem>
             )}
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="menu-internal-notes">
+              <DropdownMenuItem onClick={() => setInternalNotesOpen(true)} data-testid="button-internal-notes" data-testid-menu="menu-internal-notes">
                 <Lock className="w-4 h-4 mr-2" /> Internal notes{internalNotesCount > 0 ? ` (${internalNotesCount})` : ""}
               </DropdownMenuItem>
             )}
             {isAdmin && ticket.status === "open" && ticket.claimedBy === user?.id && (
-              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="menu-transfer-ticket">
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)} data-testid="button-transfer-ticket" data-testid-menu="menu-transfer-ticket">
                 <ArrowRightLeft className="w-4 h-4 mr-2" /> Transfer
               </DropdownMenuItem>
             )}
             {ticket.status === "open" && (
-              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="menu-close-ticket">
+              <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} data-testid="button-close-ticket" data-testid-menu="menu-close-ticket">
                 <CheckCircle className="w-4 h-4 mr-2" /> Close Ticket
               </DropdownMenuItem>
             )}
