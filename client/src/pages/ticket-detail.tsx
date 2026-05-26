@@ -42,6 +42,11 @@ import {
   removeOptimisticById,
 } from "@shared/ticket-message-reconcile";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import {
+  persistFailedMessage,
+  removePersistedFailedMessage,
+  loadPersistedFailedMessages,
+} from "@/lib/failed-message-store";
 import { BookOpen, ChevronRight } from "lucide-react";
 
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
@@ -189,6 +194,7 @@ interface TicketRowProps {
   onSaveEdit: (id: string, text: string) => void;
   onDeleteNote: (id: string) => void;
   onRetry: (opt: any) => void;
+  onDismiss: (opt: any) => void;
 }
 
 const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
@@ -199,7 +205,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
     rowClass, isAdmin, userAvatarUrl, userFullName,
     editNotePending, deleteNotePending,
     onProfileClick, onStartEdit, onCancelEdit, onEditingTextChange,
-    onSaveEdit, onDeleteNote, onRetry,
+    onSaveEdit, onDeleteNote, onRetry, onDismiss,
   } = props;
   return (
     <div className={rowClass || undefined}>
@@ -307,6 +313,9 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                   <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700" onClick={() => onRetry(optimisticData!)} data-testid={`button-retry-${msg.id}`}>
                     <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
                   </Button>
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => onDismiss(optimisticData!)} data-testid={`button-dismiss-${msg.id}`}>
+                    Dismiss
+                  </Button>
                 </div>
               )}
               {!isOptimistic && (
@@ -405,6 +414,9 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                   <span className="text-[10px] text-red-500">Failed to send</span>
                   <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => onRetry(optimisticData!)} data-testid={`button-retry-${msg.id}`}>
                     <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => onDismiss(optimisticData!)} data-testid={`button-dismiss-${msg.id}`}>
+                    Dismiss
                   </Button>
                 </div>
               )}
@@ -772,10 +784,25 @@ export default function TicketDetail() {
       })
       .then(() => {
         setOptimisticMessages((prev) => removeOptimisticById(prev, tempId));
+        removePersistedFailedMessage(params.id!, tempId).catch(() => {});
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
       })
       .catch(() => {
         setOptimisticMessages((prev) => markOptimisticFailed(prev, tempId));
+        persistFailedMessage({
+          id: tempId,
+          ticketId: params.id!,
+          senderId: optimistic.senderId,
+          message: optimistic.message,
+          imageUrl: optimistic.imageUrl,
+          createdAt: optimistic.createdAt,
+          senderName: optimistic.senderName,
+          senderRole: optimistic.senderRole,
+          isInternal: optimistic.isInternal,
+          senderAvatarUrl: optimistic.senderAvatarUrl,
+          kbArticle: optimistic.kbArticle ?? null,
+          imageFile: optimistic.imageFile ?? null,
+        }).catch(() => {});
       });
   }, [params.id, user, isAdmin, scrollToBottom]);
 
@@ -857,6 +884,41 @@ export default function TicketDetail() {
   const retryMessage = useCallback((msg: OptimisticMessage) => {
     doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null);
   }, [doSendMessage]);
+
+  const dismissFailedMessage = useCallback((msg: OptimisticMessage) => {
+    setOptimisticMessages((prev) => removeOptimisticById(prev, msg.id));
+    removePersistedFailedMessage(params.id!, msg.id).catch(() => {});
+  }, [params.id]);
+
+  useEffect(() => {
+    if (!params.id) return;
+    let cancelled = false;
+    loadPersistedFailedMessages(params.id).then((arr) => {
+      if (cancelled || arr.length === 0) return;
+      setOptimisticMessages((prev) => {
+        const existing = new Set(prev.map((m) => m.id));
+        const additions: OptimisticMessage[] = arr
+          .filter((a) => !existing.has(a.id))
+          .map((a) => ({
+            id: a.id,
+            ticketId: a.ticketId,
+            senderId: a.senderId,
+            message: a.message,
+            imageUrl: a.imageUrl,
+            createdAt: a.createdAt,
+            senderName: a.senderName,
+            senderRole: a.senderRole,
+            status: "failed" as const,
+            imageFile: a.imageFile,
+            isInternal: a.isInternal,
+            senderAvatarUrl: a.senderAvatarUrl,
+            kbArticle: a.kbArticle ?? null,
+          }));
+        return additions.length === 0 ? prev : [...prev, ...additions];
+      });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [params.id]);
 
   const editNoteMutation = useMutation({
     mutationFn: async ({ id, text }: { id: string; text: string }) => {
@@ -1307,15 +1369,26 @@ export default function TicketDetail() {
                           {noteSending ? "Sending..." : noteFailed ? "Failed to send" : format(noteDate, "MMM d, h:mm a")}
                         </span>
                         {noteFailed && noteOptimistic && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
-                            onClick={() => retryMessage(noteOptimistic)}
-                            data-testid={`button-dialog-retry-note-${note.id}`}
-                          >
-                            <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
-                          </Button>
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700"
+                              onClick={() => retryMessage(noteOptimistic)}
+                              data-testid={`button-dialog-retry-note-${note.id}`}
+                            >
+                              <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                              onClick={() => dismissFailedMessage(noteOptimistic)}
+                              data-testid={`button-dialog-dismiss-note-${note.id}`}
+                            >
+                              Dismiss
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1671,6 +1744,7 @@ export default function TicketDetail() {
                       onSaveEdit={handleSaveEdit}
                       onDeleteNote={handleDeleteNote}
                       onRetry={retryMessage}
+                      onDismiss={dismissFailedMessage}
                     />
                   );
                 })}
