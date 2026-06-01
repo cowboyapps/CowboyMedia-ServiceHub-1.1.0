@@ -97,7 +97,10 @@ test("service-change helper recomputes the union of previous and new service ids
 // Build a throwaway app wired to spy collaborators. `storageOverrides` lets a
 // test control what the storage methods return (e.g. an alert's covered ids);
 // recomputeServiceStatus is always the recorder under test and isn't overridable.
-function routeHarness(storageOverrides: Record<string, any> = {}) {
+function routeHarness(
+  storageOverrides: Record<string, any> = {},
+  opts: { uploadedFile?: any } = {},
+) {
   const recomputed: string[] = [];
   const serviceUpdatedBroadcasts: string[] = [];
 
@@ -148,7 +151,12 @@ function routeHarness(storageOverrides: Record<string, any> = {}) {
       req.session = { userId: "admin-user" };
       next();
     },
-    upload: { single: () => (_req: any, _res: any, next: any) => next() },
+    upload: {
+      single: () => (req: any, _res: any, next: any) => {
+        if (opts.uploadedFile) req.file = opts.uploadedFile;
+        next();
+      },
+    },
   };
 
   const app = express();
@@ -333,6 +341,57 @@ test("route PATCH /api/admin/alerts/:alertId/updates/:updateId persists the edit
   assert.equal(calls[0].id, "update-9", "the update id from the URL is forwarded");
   assert.deepEqual(calls[0].data, { message: "Edited message" }, "the edited message is persisted");
   assert.equal(res.body.message, "Edited message", "the persisted row is returned to the caller");
+});
+
+// The same edit route also lets admins swap or remove the timeline entry's photo.
+// These two pin the image branches: an uploaded file runs through saveUploadedFile
+// and the resulting URL is persisted; removeImage="true" nulls the stored URL.
+test("route PATCH /api/admin/alerts/:alertId/updates/:updateId persists an uploaded image", async () => {
+  const calls: Array<{ id: string; data: Record<string, any> }> = [];
+  const { app } = routeHarness(
+    {
+      updateAlertUpdate: async (id: string, data: Record<string, any>) => {
+        calls.push({ id, data });
+        return { id, ...data };
+      },
+    },
+    { uploadedFile: { originalname: "incident.png", buffer: Buffer.from("x") } },
+  );
+  const res = await httpCall(
+    app,
+    "PATCH",
+    "/api/admin/alerts/alert-1/updates/update-9",
+    { message: "Edited with a new photo" },
+  );
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "the storage update is invoked exactly once");
+  assert.equal(
+    calls[0].data.imageUrl,
+    "image.png",
+    "the saveUploadedFile URL is persisted as imageUrl",
+  );
+  assert.equal(calls[0].data.message, "Edited with a new photo", "the message is persisted alongside the image");
+  assert.equal(res.body.imageUrl, "image.png", "the persisted row is returned to the caller");
+});
+
+test("route PATCH /api/admin/alerts/:alertId/updates/:updateId clears the image when removeImage is set", async () => {
+  const calls: Array<{ id: string; data: Record<string, any> }> = [];
+  const { app } = routeHarness({
+    updateAlertUpdate: async (id: string, data: Record<string, any>) => {
+      calls.push({ id, data });
+      return { id, ...data };
+    },
+  });
+  const res = await httpCall(
+    app,
+    "PATCH",
+    "/api/admin/alerts/alert-1/updates/update-9",
+    { removeImage: "true" },
+  );
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "the storage update is invoked exactly once");
+  assert.strictEqual(calls[0].data.imageUrl, null, "imageUrl is set to null to remove the existing photo");
+  assert.strictEqual(res.body.imageUrl, null, "the cleared row is returned to the caller");
 });
 
 test("route PATCH /api/admin/alerts/:alertId/updates/:updateId returns 404 for a missing update", async () => {
