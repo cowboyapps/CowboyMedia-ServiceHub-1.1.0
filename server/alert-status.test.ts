@@ -669,3 +669,72 @@ test("recompute ignores resolved alerts when ranking", async () => {
   assert.equal(await storage.recomputeServiceStatus(s), "maintenance");
   assert.ok(resolved);
 });
+
+// ---------------------------------------------------------------------------
+// Resolution-photo persistence + read-back (real storage, test DB).
+//
+// The route-level tests above prove the resolve handler passes the uploaded
+// image's URL into storage.createAlertUpdate via a spy. What they DON'T prove
+// is that the URL actually survives a round-trip through the database and comes
+// back out the read paths a customer's alert timeline uses. A regression in the
+// storage write (dropping imageUrl) or the read methods could still hide the
+// photo from customers while the spy-based tests stay green. These exercise the
+// REAL createAlertUpdate + both read-back methods against the test DB.
+// ---------------------------------------------------------------------------
+
+test("resolve photo: imageUrl round-trips through createAlertUpdate and getAlertUpdates", async () => {
+  const a = await newService();
+  const alertId = await newAlert("outage", [a]);
+
+  const imageUrl = `/uploads/resolved-${randomUUID()}.png`;
+  // Mirror exactly what the resolve route persists when a photo is attached.
+  const created = await storage.createAlertUpdate({
+    alertId,
+    message: "Issue has been resolved.",
+    status: "resolved",
+    imageUrl,
+  } as any);
+  assert.equal(created.imageUrl, imageUrl, "the insert returns the stored imageUrl");
+
+  // Read-back path used by GET /api/alerts/:id/updates (single-alert timeline).
+  const updates = await storage.getAlertUpdates(alertId);
+  const resolveUpdate = updates.find(u => u.id === created.id);
+  assert.ok(resolveUpdate, "the resolve update is returned in the timeline");
+  assert.equal(resolveUpdate!.status, "resolved");
+  assert.equal(
+    resolveUpdate!.imageUrl,
+    imageUrl,
+    "the resolution photo URL survives the DB round-trip for customers",
+  );
+
+  // Read-back path used by the batched alerts feed (getAlertUpdatesForAlertIds).
+  const batched = await storage.getAlertUpdatesForAlertIds([alertId]);
+  const batchedUpdate = batched.find(u => u.id === created.id);
+  assert.ok(batchedUpdate, "the resolve update is returned in the batched feed");
+  assert.equal(
+    batchedUpdate!.imageUrl,
+    imageUrl,
+    "the resolution photo URL is present in the batched read path too",
+  );
+});
+
+test("resolve note: a photo-less resolve update reads back with a null imageUrl", async () => {
+  const a = await newService();
+  const alertId = await newAlert("degraded", [a]);
+
+  // Mirror the resolve route's no-file branch: imageUrl is simply omitted.
+  const created = await storage.createAlertUpdate({
+    alertId,
+    message: "Issue has been resolved.",
+    status: "resolved",
+  } as any);
+
+  const updates = await storage.getAlertUpdates(alertId);
+  const resolveUpdate = updates.find(u => u.id === created.id);
+  assert.ok(resolveUpdate, "the resolve update is returned in the timeline");
+  assert.strictEqual(
+    resolveUpdate!.imageUrl,
+    null,
+    "a resolve note with no photo reads back with imageUrl null",
+  );
+});
