@@ -1,10 +1,247 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import express from "express";
 import { inArray } from "drizzle-orm";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { services, serviceAlerts, alertServices, alertUpdates } from "@shared/schema";
+import {
+  recomputeForCoveredServices,
+  recomputeForServiceChange,
+  type AlertStatusDeps,
+} from "./alert-status";
+import { registerAlertRoutes } from "./alert-routes";
+
+// A spy implementation of AlertStatusDeps that records, in call order, which
+// service ids were recomputed and which were broadcast. Used by the route-level
+// orchestration tests below to assert each alert path drives the recompute +
+// `service_updated` broadcast for the correct set of services — the class of
+// bug (a route forgetting to recompute after a mutation) that motivated this
+// helper. These tests need no database.
+function spyDeps() {
+  const recomputed: string[] = [];
+  const broadcast: string[] = [];
+  const deps: AlertStatusDeps = {
+    recompute: async (sid) => {
+      recomputed.push(sid);
+    },
+    broadcast: (msg) => {
+      broadcast.push(msg.serviceId);
+    },
+  };
+  return { deps, recomputed, broadcast };
+}
+
+// create / add-update / resolve / delete all recompute exactly the covered ids.
+test("covered-services helper recomputes and broadcasts each covered service", async () => {
+  const { deps, recomputed, broadcast } = spyDeps();
+  const processed = await recomputeForCoveredServices(["s1", "s2"], deps);
+
+  assert.deepEqual(processed, ["s1", "s2"]);
+  assert.deepEqual(recomputed, ["s1", "s2"], "recomputes every covered service");
+  assert.deepEqual(broadcast, ["s1", "s2"], "broadcasts service_updated for each");
+});
+
+test("covered-services helper dedupes repeated ids", async () => {
+  const { deps, recomputed, broadcast } = spyDeps();
+  await recomputeForCoveredServices(["s1", "s1", "s2"], deps);
+
+  assert.deepEqual(recomputed, ["s1", "s2"], "each service recomputed once");
+  assert.deepEqual(broadcast, ["s1", "s2"], "each service broadcast once");
+});
+
+test("covered-services helper is a no-op for an empty id set (e.g. deleted alert with no services)", async () => {
+  const { deps, recomputed, broadcast } = spyDeps();
+  const processed = await recomputeForCoveredServices([], deps);
+
+  assert.deepEqual(processed, []);
+  assert.deepEqual(recomputed, []);
+  assert.deepEqual(broadcast, []);
+});
+
+// edit: recompute the union of previously- and newly-covered ids so a service
+// dropped from the alert is recomputed back to baseline.
+test("service-change helper recomputes the union of previous and new service ids", async () => {
+  const { deps, recomputed, broadcast } = spyDeps();
+  // Alert previously covered [a, b]; it now covers [a, c]. b was dropped, c added.
+  const processed = await recomputeForServiceChange(["a", "b"], ["a", "c"], deps);
+
+  assert.deepEqual(
+    new Set(processed),
+    new Set(["a", "b", "c"]),
+    "kept (a), dropped (b), and added (c) services are all recomputed",
+  );
+  assert.deepEqual(
+    new Set(recomputed),
+    new Set(["a", "b", "c"]),
+    "the dropped service is recomputed so it can return to baseline",
+  );
+  assert.deepEqual(new Set(broadcast), new Set(["a", "b", "c"]));
+  // Union is deduped: a appears in both sets but is processed once.
+  assert.equal(recomputed.length, 3);
+});
+
+// ---------------------------------------------------------------------------
+// Route-level wiring tests.
+//
+// The helper tests above prove the orchestration is correct in isolation; these
+// prove each alert *route* actually invokes it. We mount registerAlertRoutes on
+// a bare Express app with spy collaborators, then drive each mutation path over
+// HTTP and assert it recomputed + broadcast `service_updated` for the right set
+// of services. If a future edit to a route drops the recompute/broadcast call,
+// the matching test here fails — catching the bug at the route boundary, which
+// is the whole point of the extraction. These tests need no database.
+// ---------------------------------------------------------------------------
+
+// Build a throwaway app wired to spy collaborators. `storageOverrides` lets a
+// test control what the storage methods return (e.g. an alert's covered ids);
+// recomputeServiceStatus is always the recorder under test and isn't overridable.
+function routeHarness(storageOverrides: Record<string, any> = {}) {
+  const recomputed: string[] = [];
+  const serviceUpdatedBroadcasts: string[] = [];
+
+  const baseStorage: Record<string, any> = {
+    createAlert: async (data: any, serviceIds: string[]) => ({ id: "alert-1", serviceIds, title: data.title ?? "t", description: data.description ?? "d", severity: data.severity ?? "minor" }),
+    getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+    updateAlert: async (id: string, _data: any) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+    setAlertServices: async () => {},
+    deleteAlert: async () => {},
+    getService: async (sid: string) => ({ id: sid, name: `svc-${sid}` }),
+    getAllUsers: async () => [],
+    createContentNotificationBulk: async () => {},
+    createAlertUpdate: async () => ({ id: "update-1" }),
+    updateAlertUpdate: async () => ({ id: "update-1" }),
+  };
+  const storageSpy: any = { ...baseStorage, ...storageOverrides };
+  storageSpy.recomputeServiceStatus = async (sid: string) => {
+    recomputed.push(sid);
+    return "operational";
+  };
+
+  const deps: any = {
+    storage: storageSpy,
+    broadcast: (msg: any) => {
+      if (msg?.type === "service_updated") serviceUpdatedBroadcasts.push(msg.serviceId);
+    },
+    saveUploadedFile: async () => "image.png",
+    parseServiceIds: (raw: any) =>
+      Array.isArray(raw)
+        ? raw.filter(Boolean)
+        : typeof raw === "string" && raw.trim()
+          ? raw.split(",").map((s: string) => s.trim()).filter(Boolean)
+          : [],
+    logActivity: () => {},
+    customerWantsPush: () => false,
+    customerWantsEmail: () => false,
+    sendPushToUser: async () => {},
+    sendTemplatedEmail: async () => {},
+    fireDiscordForServices: () => {},
+    fireTelegram: () => {},
+    getBaseUrl: () => "http://test.local",
+    notifyServiceSubscribers: () => {},
+  };
+
+  // Pass-through middleware: authorize every request as an admin and skip multer.
+  const middleware: any = {
+    requirePermission: () => (req: any, _res: any, next: any) => {
+      req.session = { userId: "admin-user" };
+      next();
+    },
+    upload: { single: () => (_req: any, _res: any, next: any) => next() },
+  };
+
+  const app = express();
+  app.use(express.json());
+  registerAlertRoutes(app, middleware, deps);
+  return { app, recomputed, serviceUpdatedBroadcasts };
+}
+
+// Boot `app` on an ephemeral port, issue one request, return { status, body }.
+async function httpCall(
+  app: express.Express,
+  method: string,
+  path: string,
+  body?: any,
+): Promise<{ status: number; body: any }> {
+  const server = app.listen(0);
+  await new Promise<void>((resolve) => server.on("listening", () => resolve()));
+  try {
+    const port = (server.address() as any).port;
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : null };
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+test("route POST /api/admin/alerts recomputes + broadcasts every covered service", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness();
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(recomputed, ["s1", "s2"]);
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
+});
+
+test("route PATCH /api/admin/alerts/:id recomputes the union of previous and new services", async () => {
+  // Alert previously covered [s1, s2]; the edit narrows coverage to [s1, s3].
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+    getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s3"], title: "t", description: "d", severity: "minor" }),
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1", { serviceIds: ["s1", "s3"] });
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    new Set(recomputed),
+    new Set(["s1", "s2", "s3"]),
+    "dropped (s2), kept (s1), and added (s3) services are all recomputed",
+  );
+  assert.equal(recomputed.length, 3, "union is deduped");
+  assert.deepEqual(new Set(serviceUpdatedBroadcasts), new Set(["s1", "s2", "s3"]));
+});
+
+test("route POST /api/admin/alerts/:id/updates recomputes + broadcasts every covered service", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+  });
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    message: "Investigating",
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(recomputed, ["s1", "s2"]);
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
+});
+
+test("route PATCH /api/admin/alerts/:id/resolve recomputes + broadcasts every covered service", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(recomputed, ["s1", "s2"]);
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
+});
+
+test("route DELETE /api/admin/alerts/:id recomputes services captured before deletion", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+  });
+  const res = await httpCall(app, "DELETE", "/api/admin/alerts/alert-1");
+  assert.equal(res.status, 200);
+  assert.deepEqual(recomputed, ["s1", "s2"], "the pre-delete covered ids are recomputed back to baseline");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
+});
 
 // Integration tests for the multi-service alert status recompute invariant.
 //

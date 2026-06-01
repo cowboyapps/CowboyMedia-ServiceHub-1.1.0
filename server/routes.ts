@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server, ServerResponse } from "http";
 import { storage } from "./storage";
+import { registerAlertRoutes } from "./alert-routes";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { getCachedPublicStatus, setCachedPublicStatus } from "./public-status-cache";
@@ -2835,336 +2836,29 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
-    try {
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, ...alertData } = req.body;
-      const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
-      const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
-      if (imageUrl) alertData.imageUrl = imageUrl;
-      const serviceIds = parseServiceIds(rawServiceIds);
-      if (serviceIds.length === 0) {
-        return res.status(400).json({ message: "At least one service is required" });
-      }
-      const impact = serviceImpact || "degraded";
-      alertData.impact = impact;
-      const alert = await storage.createAlert(alertData, serviceIds);
-      // Recompute each covered service's status so a shared service keeps its
-      // most-severe active impact rather than being clobbered by this one.
-      for (const sid of alert.serviceIds) {
-        await storage.recomputeServiceStatus(sid);
-        broadcast({ type: "service_updated", serviceId: sid });
-      }
-      const coveredServices = (await Promise.all(alert.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
-      const serviceNames = coveredServices.map(s => s.name);
-      const serviceNameDisplay = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
-      const impactLabel = impact === "outage" ? "Outage" : impact === "maintenance" ? "Maintenance" : "Degraded Performance";
-      logActivity("alert", "alert_created", { actorId: req.session.userId!, targetId: alert.id, targetType: "alert", summary: `Alert created: ${alert.title} (${serviceNameDisplay} — ${impactLabel})`, details: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity, services: serviceNames, impact }) });
-      broadcast({ type: "new_alert", alert });
-      const allUsers = await storage.getAllUsers();
-      const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => alert.serviceIds.includes(sid)));
-      console.log(`[Alert Create] Alert ${alert.id} — sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
-      for (const u of subscribers) {
-        if (parsedSendPush && customerWantsPush(u, "service_alert", alert.severity)) {
-          await sendPushToUser(u.id, {
-            title: `${serviceNameDisplay}: ${impactLabel}`,
-            body: alert.title,
-            url: `/alerts/${alert.id}`,
-            tag: `alert-${alert.id}`,
-            resourceLabel: `${serviceNameDisplay} alert: ${alert.title}`,
-            rollupNoun: "updates",
-          }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: alert.id } : undefined);
-        }
-        if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
-          sendTemplatedEmail(u.email, "customer_service_alert", {
-            alert_title: `${serviceNameDisplay}: ${impactLabel}`,
-            alert_description: `${alert.title}\n\n${alert.description}`,
-            customer_name: u.fullName,
-          }, u.fullName);
-        }
-      }
-      const subIds = subscribers.map(u => u.id);
-      storage.createContentNotificationBulk(subIds, "alerts", `${serviceNameDisplay}: ${impactLabel} — ${alert.title}`, alert.id).catch(() => {});
-      fireDiscordForServices(coveredServices, composeDiscordAlertCreated({
-        serviceNames,
-        impact,
-        severity: alert.severity,
-        title: alert.title,
-        description: alert.description,
-        alertId: alert.id,
-        baseUrl: getBaseUrl(req),
-      }));
-      fireTelegram(composeAlertCreated({
-        serviceNames,
-        impact,
-        severity: alert.severity,
-        title: alert.title,
-        description: alert.description,
-      }), "alert");
-      for (const s of coveredServices) {
-        notifyServiceSubscribers(s.id, "incident", {
-          service_name: s.name,
-          alert_title: alert.title,
-          alert_description: alert.description,
-          impact_label: impactLabel,
-        }, getBaseUrl(req));
-      }
-      res.json(alert);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
-    try {
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const data: Record<string, any> = {};
-      if (req.body.title !== undefined) data.title = req.body.title;
-      if (req.body.description !== undefined) data.description = req.body.description;
-      if (req.body.severity !== undefined) data.severity = req.body.severity;
-      if (imageUrl) data.imageUrl = imageUrl;
-      if (req.body.removeImage === "true") data.imageUrl = null;
-      const updated = await storage.updateAlert(req.params.id, data);
-      if (!updated) return res.status(404).json({ message: "Alert not found" });
-      if (req.body.serviceIds !== undefined) {
-        const newServiceIds = parseServiceIds(req.body.serviceIds);
-        if (newServiceIds.length === 0) {
-          return res.status(400).json({ message: "At least one service is required" });
-        }
-        const previousServiceIds = updated.serviceIds;
-        await storage.setAlertServices(req.params.id, newServiceIds);
-        // Recompute every service that gained or lost this alert so statuses stay correct.
-        const affected = Array.from(new Set([...previousServiceIds, ...newServiceIds]));
-        for (const sid of affected) {
-          await storage.recomputeServiceStatus(sid);
-          broadcast({ type: "service_updated", serviceId: sid });
-        }
-        const refreshed = await storage.getAlert(req.params.id);
-        return res.json(refreshed ?? updated);
-      }
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
-    try {
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, ...updateData } = req.body;
-      const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
-      const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
-      const update = await storage.createAlertUpdate({
-        alertId: req.params.id,
-        message: updateData.message,
-        status: updateData.status,
-        ...(imageUrl ? { imageUrl } : {}),
-      });
-      if (updateData.status === "resolved") {
-        await storage.updateAlert(req.params.id, { status: "resolved", resolvedAt: new Date() });
-      } else {
-        await storage.updateAlert(req.params.id, { status: updateData.status });
-      }
-      broadcast({ type: "alert_update", alertId: req.params.id, update });
-      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact }) });
-      const alert = await storage.getAlert(req.params.id);
-      if (alert) {
-        const isResolved = updateData.status === "resolved";
-        const impactLabels: Record<string, string> = { operational: "Operational", degraded: "Degraded", outage: "Outage", maintenance: "Maintenance" };
-        const hasImpactChange = !isResolved && serviceImpact && serviceImpact !== "no_change";
-        const impactLabel = hasImpactChange ? impactLabels[serviceImpact] || serviceImpact : null;
-        // Persist the new impact on the alert so status recompute reflects it for all covered services.
-        if (hasImpactChange) {
-          await storage.updateAlert(req.params.id, { impact: serviceImpact });
-        }
-        const coveredServices = (await Promise.all(alert.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
-        const serviceNames = coveredServices.map(s => s.name);
-        const serviceName = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
-        // Recompute each covered service's status (handles resolve → operational
-        // and impact changes, while keeping shared services at their worst active impact).
-        for (const sid of alert.serviceIds) {
-          await storage.recomputeServiceStatus(sid);
-          broadcast({ type: "service_updated", serviceId: sid });
-        }
-        const pushTitle = isResolved
-          ? `${serviceName}: Resolved — Now Operational`
-          : impactLabel
-            ? `${serviceName}: ${impactLabel} — ${alert.title}`
-            : `${serviceName} Alert Update: ${alert.title}`;
-        const emailTitle = isResolved
-          ? `${serviceName}: Issue Resolved — Service Restored`
-          : impactLabel
-            ? `${serviceName}: ${impactLabel} — ${alert.title}`
-            : `${serviceName} Update: ${alert.title}`;
-        const allUsers = await storage.getAllUsers();
-        const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => alert.serviceIds.includes(sid)));
-        console.log(`[Alert Update] Alert ${req.params.id} — status=${updateData.status}, sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
-        for (const u of subscribers) {
-          if ((parsedSendPush || isResolved) && customerWantsPush(u, "service_alert", alert.severity)) {
-            await sendPushToUser(u.id, {
-              title: pushTitle,
-              body: updateData.message,
-              url: `/alerts/${req.params.id}`,
-              tag: `alert-${req.params.id}`,
-              resourceLabel: `${serviceName} alert: ${alert.title}`,
-              rollupNoun: "updates",
-            }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
-          }
-          if ((parsedSendEmail || isResolved) && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
-            sendTemplatedEmail(u.email, "customer_service_alert", {
-              alert_title: emailTitle,
-              alert_description: updateData.message,
-              customer_name: u.fullName,
-            }, u.fullName);
-          }
-        }
-        const subIds = subscribers.map(u => u.id);
-        const notifMsg = isResolved
-          ? `${serviceName}: Resolved — ${alert.title}`
-          : `${serviceName} Update: ${alert.title}`;
-        storage.createContentNotificationBulk(subIds, "alerts", notifMsg, alert.id).catch(() => {});
-        fireDiscordForServices(coveredServices, composeDiscordAlertUpdate({
-          serviceNames,
-          title: alert.title,
-          status: updateData.status,
-          message: updateData.message,
-          impact: hasImpactChange ? serviceImpact : null,
-          alertId: alert.id,
-          baseUrl: getBaseUrl(req),
-        }));
-        fireTelegram(composeAlertUpdate({
-          serviceNames,
-          title: alert.title,
-          status: updateData.status,
-          message: updateData.message,
-          impact: hasImpactChange ? serviceImpact : null,
-        }), "alert");
-        if (isResolved) {
-          for (const s of coveredServices) {
-            notifyServiceSubscribers(s.id, "resolved", {
-              service_name: s.name,
-              alert_title: alert.title,
-              resolve_message: updateData.message,
-            }, getBaseUrl(req));
-          }
-        } else if (hasImpactChange) {
-          for (const s of coveredServices) {
-            notifyServiceSubscribers(s.id, "status", {
-              service_name: s.name,
-              alert_title: alert.title,
-              alert_description: updateData.message,
-              impact_label: impactLabel || "",
-            }, getBaseUrl(req));
-          }
-        }
-      }
-      res.json(update);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/alerts/:alertId/updates/:updateId", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
-    try {
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const data: Record<string, any> = {};
-      if (req.body.message !== undefined) data.message = req.body.message;
-      if (imageUrl) data.imageUrl = imageUrl;
-      if (req.body.removeImage === "true") data.imageUrl = null;
-      const updated = await storage.updateAlertUpdate(req.params.updateId, data);
-      if (!updated) return res.status(404).json({ message: "Alert update not found" });
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.patch("/api/admin/alerts/:id/resolve", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
-    try {
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const resolveMessage = req.body?.message || "Issue has been resolved.";
-      const updated = await storage.updateAlert(req.params.id, { status: "resolved", resolvedAt: new Date() });
-      if (!updated) return res.status(404).json({ message: "Alert not found" });
-      await storage.createAlertUpdate({
-        alertId: req.params.id,
-        message: resolveMessage,
-        status: "resolved",
-        ...(imageUrl ? { imageUrl } : {}),
-      });
-      // Recompute each covered service: a shared service stays non-operational
-      // if it still has another active alert.
-      for (const sid of updated.serviceIds) {
-        await storage.recomputeServiceStatus(sid);
-        broadcast({ type: "service_updated", serviceId: sid });
-      }
-      const coveredServices = (await Promise.all(updated.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
-      const serviceNames = coveredServices.map(s => s.name);
-      const serviceName = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
-      logActivity("alert", "alert_resolved", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert resolved: ${updated.title} (${serviceName})`, details: JSON.stringify({ title: updated.title, resolveMessage, services: serviceNames }) });
-      broadcast({ type: "alert_resolved", alertId: req.params.id });
-      const allUsers = await storage.getAllUsers();
-      const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => updated.serviceIds.includes(sid)));
-      console.log(`[Alert Resolve] Alert ${req.params.id} — ${subscribers.length} subscriber(s) to notify`);
-      for (const u of subscribers) {
-        if (customerWantsPush(u, "service_alert", updated.severity)) {
-          await sendPushToUser(u.id, {
-            title: `${serviceName}: Resolved — Now Operational`,
-            body: `${updated.title} has been resolved. Service is back to operational.`,
-            url: `/alerts/${req.params.id}`,
-            tag: `alert-${req.params.id}`,
-            resourceLabel: `${serviceName} alert: ${updated.title}`,
-            rollupNoun: "updates",
-          }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: req.params.id } : undefined);
-        }
-        if (u.email && customerWantsEmail(u, "service_alert", updated.severity)) {
-          sendTemplatedEmail(u.email, "customer_service_alert", {
-            alert_title: `${serviceName}: Issue Resolved — Service Restored`,
-            alert_description: `${updated.title} has been resolved. Service is back to operational.`,
-            customer_name: u.fullName,
-          }, u.fullName);
-        }
-      }
-      const subIds = subscribers.map(u => u.id);
-      storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: Resolved — ${updated.title}`, updated.id).catch(() => {});
-      fireDiscordForServices(coveredServices, composeDiscordAlertResolved({
-        serviceNames,
-        title: updated.title,
-        resolveMessage,
-        alertId: updated.id,
-        baseUrl: getBaseUrl(req),
-      }));
-      fireTelegram(composeAlertResolved({
-        serviceNames,
-        title: updated.title,
-        resolveMessage,
-      }), "alert");
-      for (const s of coveredServices) {
-        notifyServiceSubscribers(s.id, "resolved", {
-          service_name: s.name,
-          alert_title: updated.title,
-          resolve_message: resolveMessage,
-        }, getBaseUrl(req));
-      }
-      res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
-
-  app.delete("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
-    try {
-      const alertToDelete = await storage.getAlert(req.params.id);
-      await storage.deleteAlert(req.params.id);
-      for (const sid of alertToDelete?.serviceIds || []) {
-        await storage.recomputeServiceStatus(sid);
-        broadcast({ type: "service_updated", serviceId: sid });
-      }
-      logActivity("alert", "alert_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert deleted: ${alertToDelete?.title || req.params.id}` });
-      res.json({ message: "Alert deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  // Service-alert admin routes (create / edit / add-update / edit-update /
+  // resolve / delete) live in server/alert-routes.ts so they can be mounted on a
+  // bare Express app and tested over HTTP. Collaborators are injected so the
+  // recompute + broadcast orchestration is exercised at the route boundary.
+  registerAlertRoutes(
+    app,
+    { requirePermission, upload },
+    {
+      storage,
+      broadcast,
+      saveUploadedFile,
+      parseServiceIds,
+      logActivity,
+      customerWantsPush,
+      customerWantsEmail,
+      sendPushToUser,
+      sendTemplatedEmail,
+      fireDiscordForServices,
+      fireTelegram,
+      getBaseUrl,
+      notifyServiceSubscribers,
+    },
+  );
 
   app.get("/api/service-updates", requireAuth, async (req, res) => {
     try {
