@@ -231,6 +231,37 @@ test("route POST /api/admin/alerts/:id/updates recomputes + broadcasts every cov
   assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
 });
 
+// The add-update route also lets admins attach a photo to a brand-new timeline
+// entry: an uploaded file runs through saveUploadedFile and the resulting URL is
+// persisted as imageUrl on the createAlertUpdate call. This pins that branch so a
+// regression that drops the photo on a new update would be caught.
+test("route POST /api/admin/alerts/:id/updates persists an uploaded image on the new update", async () => {
+  const calls: Array<Record<string, any>> = [];
+  const { app } = routeHarness(
+    {
+      getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+      createAlertUpdate: async (data: Record<string, any>) => {
+        calls.push(data);
+        return { id: "update-1", ...data };
+      },
+    },
+    { uploadedFile: { originalname: "incident.png", buffer: Buffer.from("x") } },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    message: "Investigating with a photo",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "createAlertUpdate is invoked exactly once");
+  assert.equal(
+    calls[0].imageUrl,
+    "image.png",
+    "the saveUploadedFile URL is persisted as imageUrl on the new update",
+  );
+  assert.equal(calls[0].message, "Investigating with a photo", "the message is persisted alongside the image");
+  assert.equal(res.body.imageUrl, "image.png", "the persisted update with its photo is returned to the caller");
+});
+
 test("route PATCH /api/admin/alerts/:id/resolve recomputes + broadcasts every covered service", async () => {
   const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
     updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
