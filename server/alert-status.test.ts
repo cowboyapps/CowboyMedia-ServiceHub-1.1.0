@@ -201,6 +201,59 @@ test("route POST /api/admin/alerts recomputes + broadcasts every covered service
   assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
 });
 
+// The create route also lets admins attach a photo to a brand-new alert: an
+// uploaded file runs through saveUploadedFile and the resulting URL is persisted
+// as imageUrl on the createAlert call. This pins that branch so a regression that
+// drops the photo on a brand-new alert would be caught.
+test("route POST /api/admin/alerts persists an uploaded image on the new alert", async () => {
+  const calls: Array<{ data: Record<string, any>; serviceIds: string[] }> = [];
+  const { app } = routeHarness(
+    {
+      createAlert: async (data: Record<string, any>, serviceIds: string[]) => {
+        calls.push({ data, serviceIds });
+        return { id: "alert-1", serviceIds, title: data.title ?? "t", description: data.description ?? "d", severity: data.severity ?? "minor", imageUrl: data.imageUrl };
+      },
+    },
+    { uploadedFile: { originalname: "incident.png", buffer: Buffer.from("x") } },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "createAlert is invoked exactly once");
+  assert.equal(
+    calls[0].data.imageUrl,
+    "image.png",
+    "the saveUploadedFile URL is persisted as imageUrl on the new alert",
+  );
+  assert.equal(res.body.imageUrl, "image.png", "the persisted alert with its photo is returned to the caller");
+});
+
+test("route POST /api/admin/alerts sets no imageUrl when no file is uploaded", async () => {
+  const calls: Array<{ data: Record<string, any>; serviceIds: string[] }> = [];
+  const { app } = routeHarness({
+    createAlert: async (data: Record<string, any>, serviceIds: string[]) => {
+      calls.push({ data, serviceIds });
+      return { id: "alert-1", serviceIds, title: data.title ?? "t", description: data.description ?? "d", severity: data.severity ?? "minor" };
+    },
+  });
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "createAlert is invoked exactly once");
+  assert.ok(
+    !("imageUrl" in calls[0].data),
+    "no imageUrl key is set on the new alert when nothing was uploaded",
+  );
+});
+
 test("route PATCH /api/admin/alerts/:id recomputes the union of previous and new services", async () => {
   // Alert previously covered [s1, s2]; the edit narrows coverage to [s1, s3].
   const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
