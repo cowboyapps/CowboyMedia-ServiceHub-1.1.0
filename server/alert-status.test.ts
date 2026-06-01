@@ -298,6 +298,17 @@ test("route PATCH /api/admin/alerts/:id/resolve returns 404 when the alert is mi
   assert.deepEqual(serviceUpdatedBroadcasts, []);
 });
 
+test("route PATCH /api/admin/alerts/:alertId/updates/:updateId returns 404 when the update is missing", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    updateAlertUpdate: async () => undefined,
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/updates/missing", { message: "edited" });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.message, "Alert update not found");
+  assert.deepEqual(recomputed, [], "no service is recomputed when editing a missing update");
+  assert.deepEqual(serviceUpdatedBroadcasts, []);
+});
+
 // Integration tests for the multi-service alert status recompute invariant.
 //
 // A service's `status` is derived: the most-severe `impact` among the still-active
