@@ -243,6 +243,61 @@ test("route DELETE /api/admin/alerts/:id recomputes services captured before del
   assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
 });
 
+// ---------------------------------------------------------------------------
+// Route-level guard-rail tests.
+//
+// The wiring tests above prove the happy-path recompute/broadcast fires; these
+// prove the input-validation and not-found branches still reject bad requests.
+// A future refactor could silently weaken these guards on customer-facing alert
+// mutations, so each test asserts the right status code AND that no recompute or
+// broadcast happened on the rejected path. These tests need no database.
+// ---------------------------------------------------------------------------
+
+test("route POST /api/admin/alerts rejects an empty serviceIds with 400 and does not recompute", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness();
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: [],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.message, "At least one service is required");
+  assert.deepEqual(recomputed, [], "no service is recomputed on a rejected create");
+  assert.deepEqual(serviceUpdatedBroadcasts, [], "nothing is broadcast on a rejected create");
+});
+
+test("route PATCH /api/admin/alerts/:id rejects an empty serviceIds with 400 and does not recompute", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness();
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1", { serviceIds: [] });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.message, "At least one service is required");
+  assert.deepEqual(recomputed, [], "no service is recomputed on a rejected edit");
+  assert.deepEqual(serviceUpdatedBroadcasts, [], "nothing is broadcast on a rejected edit");
+});
+
+test("route PATCH /api/admin/alerts/:id returns 404 when the alert is missing", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    updateAlert: async () => undefined,
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/missing", { serviceIds: ["s1"] });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.message, "Alert not found");
+  assert.deepEqual(recomputed, [], "no service is recomputed for a missing alert");
+  assert.deepEqual(serviceUpdatedBroadcasts, []);
+});
+
+test("route PATCH /api/admin/alerts/:id/resolve returns 404 when the alert is missing", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
+    updateAlert: async () => undefined,
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/missing/resolve", { message: "Fixed" });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.message, "Alert not found");
+  assert.deepEqual(recomputed, [], "no service is recomputed for a missing alert");
+  assert.deepEqual(serviceUpdatedBroadcasts, []);
+});
+
 // Integration tests for the multi-service alert status recompute invariant.
 //
 // A service's `status` is derived: the most-severe `impact` among the still-active
