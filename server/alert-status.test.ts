@@ -309,6 +309,46 @@ test("route PATCH /api/admin/alerts/:alertId/updates/:updateId returns 404 when 
   assert.deepEqual(serviceUpdatedBroadcasts, []);
 });
 
+// Editing an existing alert update does NOT touch service-status recompute (the
+// message/image of a timeline entry can't change a service's derived status), so
+// it isn't part of the recompute assertions above. But it's still an admin action
+// customers' incident timelines depend on, so this pair of tests pins the route's
+// persistence + not-found wiring.
+test("route PATCH /api/admin/alerts/:alertId/updates/:updateId persists the edited fields", async () => {
+  const calls: Array<{ id: string; data: Record<string, any> }> = [];
+  const { app } = routeHarness({
+    updateAlertUpdate: async (id: string, data: Record<string, any>) => {
+      calls.push({ id, data });
+      return { id, ...data };
+    },
+  });
+  const res = await httpCall(
+    app,
+    "PATCH",
+    "/api/admin/alerts/alert-1/updates/update-9",
+    { message: "Edited message" },
+  );
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "the storage update is invoked exactly once");
+  assert.equal(calls[0].id, "update-9", "the update id from the URL is forwarded");
+  assert.deepEqual(calls[0].data, { message: "Edited message" }, "the edited message is persisted");
+  assert.equal(res.body.message, "Edited message", "the persisted row is returned to the caller");
+});
+
+test("route PATCH /api/admin/alerts/:alertId/updates/:updateId returns 404 for a missing update", async () => {
+  const { app } = routeHarness({
+    updateAlertUpdate: async () => null,
+  });
+  const res = await httpCall(
+    app,
+    "PATCH",
+    "/api/admin/alerts/alert-1/updates/does-not-exist",
+    { message: "Edited message" },
+  );
+  assert.equal(res.status, 404);
+  assert.equal(res.body.message, "Alert update not found");
+});
+
 // Integration tests for the multi-service alert status recompute invariant.
 //
 // A service's `status` is derived: the most-severe `impact` among the still-active
