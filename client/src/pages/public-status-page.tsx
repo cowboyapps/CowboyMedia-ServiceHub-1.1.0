@@ -19,6 +19,7 @@ type PublicAlert = {
   status: string;
   severity: string;
   serviceName: string;
+  serviceNames?: string[];
   createdAt: string | null;
   resolvedAt: string | null;
   lastUpdateAt: string | null;
@@ -254,7 +255,7 @@ export default function PublicStatusPage() {
                 <span className="font-medium">{a.title}</span>
               </div>
               <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
-                <span>{a.serviceName}</span>
+                <span>{a.serviceNames && a.serviceNames.length > 0 ? a.serviceNames.join(", ") : a.serviceName}</span>
                 <span className="capitalize">{a.severity}</span>
                 <span className="capitalize">{a.status}</span>
                 {a.createdAt && <span>Started {format(new Date(a.createdAt), "PPp")}</span>}

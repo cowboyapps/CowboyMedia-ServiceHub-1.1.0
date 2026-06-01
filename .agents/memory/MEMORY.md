@@ -1,0 +1,1 @@
+- [Alert service-status recompute](alert-status-recompute.md) — every alert lifecycle route that changes coverage must recompute + broadcast each affected service or status goes stale.

@@ -117,8 +117,17 @@ const statusLabels: Record<string, string> = {
   resolved: "Resolved",
 };
 
+// Renders one or many covered service names for a Telegram alert header.
+function serviceDisplay(opts: { serviceName?: string; serviceNames?: string[] }): string {
+  const names = (opts.serviceNames && opts.serviceNames.length > 0)
+    ? opts.serviceNames
+    : (opts.serviceName ? [opts.serviceName] : []);
+  return names.length > 0 ? names.join(", ") : "Service";
+}
+
 export function composeAlertCreated(opts: {
-  serviceName: string;
+  serviceName?: string;
+  serviceNames?: string[];
   impact: string;
   severity?: string;
   title: string;
@@ -127,7 +136,7 @@ export function composeAlertCreated(opts: {
   const emoji = impactEmoji[opts.impact] || "🚨";
   const impactLabel = impactLabels[opts.impact] || opts.impact;
   return [
-    `🚨 <b>SERVICE ALERT — ${escapeHtml(opts.serviceName)}</b>`,
+    `🚨 <b>SERVICE ALERT — ${escapeHtml(serviceDisplay(opts))}</b>`,
     `${emoji} <b>Impact:</b> ${escapeHtml(impactLabel)}`,
     opts.severity ? `<b>Severity:</b> ${escapeHtml(opts.severity)}` : "",
     ``,
@@ -137,16 +146,18 @@ export function composeAlertCreated(opts: {
 }
 
 export function composeAlertUpdate(opts: {
-  serviceName: string;
+  serviceName?: string;
+  serviceNames?: string[];
   title: string;
   status: string;
   message: string;
   impact?: string | null;
 }): string {
   const statusLabel = statusLabels[opts.status] || opts.status;
+  const name = escapeHtml(serviceDisplay(opts));
   const header = opts.status === "resolved"
-    ? `✅ <b>SERVICE ALERT RESOLVED — ${escapeHtml(opts.serviceName)}</b>`
-    : `🔄 <b>SERVICE ALERT UPDATE — ${escapeHtml(opts.serviceName)}</b>`;
+    ? `✅ <b>SERVICE ALERT RESOLVED — ${name}</b>`
+    : `🔄 <b>SERVICE ALERT UPDATE — ${name}</b>`;
   const lines = [
     header,
     `<b>Status:</b> ${escapeHtml(statusLabel)}`,
@@ -161,12 +172,13 @@ export function composeAlertUpdate(opts: {
 }
 
 export function composeAlertResolved(opts: {
-  serviceName: string;
+  serviceName?: string;
+  serviceNames?: string[];
   title: string;
   resolveMessage: string;
 }): string {
   return [
-    `✅ <b>SERVICE ALERT RESOLVED — ${escapeHtml(opts.serviceName)}</b>`,
+    `✅ <b>SERVICE ALERT RESOLVED — ${escapeHtml(serviceDisplay(opts))}</b>`,
     ``,
     `<b>${escapeHtml(opts.title)}</b>`,
     `<i>${escapeHtml(truncate(opts.resolveMessage))}</i>`,

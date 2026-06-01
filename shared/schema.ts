@@ -64,7 +64,7 @@ export const serviceAlerts = pgTable("service_alerts", {
   description: text("description").notNull(),
   severity: text("severity").notNull().default("warning"),
   status: text("status").notNull().default("investigating"),
-  serviceId: varchar("service_id").notNull(),
+  impact: text("impact"),
   imageUrl: text("image_url"),
   postmortemHtml: text("postmortem_html"),
   postmortemPublishedAt: timestamp("postmortem_published_at"),
@@ -73,7 +73,14 @@ export const serviceAlerts = pgTable("service_alerts", {
   resolvedAt: timestamp("resolved_at"),
 }, (table) => ({
   createdAtIdx: index("service_alerts_created_at_idx").on(table.createdAt.desc()),
-  serviceIdx: index("service_alerts_service_id_idx").on(table.serviceId),
+}));
+
+export const alertServices = pgTable("alert_services", {
+  alertId: varchar("alert_id").notNull(),
+  serviceId: varchar("service_id").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.alertId, table.serviceId] }),
+  serviceIdx: index("alert_services_service_id_idx").on(table.serviceId),
 }));
 
 export const alertUpdates = pgTable("alert_updates", {
@@ -340,6 +347,7 @@ export const updateProfileSchema = z.object({
 export type UpdateProfile = z.infer<typeof updateProfileSchema>;
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
 export const insertServiceAlertSchema = createInsertSchema(serviceAlerts).omit({ id: true, createdAt: true, resolvedAt: true });
+export const insertAlertServiceSchema = createInsertSchema(alertServices);
 export const insertAlertUpdateSchema = createInsertSchema(alertUpdates).omit({ id: true, createdAt: true });
 export const insertNewsStorySchema = createInsertSchema(newsStories).omit({ id: true, createdAt: true });
 export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, closedAt: true });
@@ -369,6 +377,9 @@ export type InsertService = z.infer<typeof insertServiceSchema>;
 export type Service = typeof services.$inferSelect;
 export type InsertServiceAlert = z.infer<typeof insertServiceAlertSchema>;
 export type ServiceAlert = typeof serviceAlerts.$inferSelect;
+export type ServiceAlertWithServices = ServiceAlert & { serviceIds: string[] };
+export type InsertAlertService = z.infer<typeof insertAlertServiceSchema>;
+export type AlertService = typeof alertServices.$inferSelect;
 export type InsertAlertUpdate = z.infer<typeof insertAlertUpdateSchema>;
 export type AlertUpdate = typeof alertUpdates.$inferSelect;
 export type InsertNewsStory = z.infer<typeof insertNewsStorySchema>;

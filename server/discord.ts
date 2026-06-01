@@ -190,8 +190,18 @@ function serviceUpdatesUrl(baseUrl: string | undefined): string | undefined {
   return safeUrl(`${baseUrl.replace(/\/$/, "")}/service-updates`);
 }
 
+// Renders one or many covered service names into a Discord field label + value.
+function serviceDisplay(opts: { serviceName?: string; serviceNames?: string[] }): { label: string; value: string } {
+  const names = (opts.serviceNames && opts.serviceNames.length > 0)
+    ? opts.serviceNames
+    : (opts.serviceName ? [opts.serviceName] : []);
+  const value = names.length > 0 ? names.join(", ") : "Service";
+  return { label: names.length > 1 ? "Services" : "Service", value };
+}
+
 export function composeAlertCreated(opts: {
-  serviceName: string;
+  serviceName?: string;
+  serviceNames?: string[];
   impact: string;
   severity?: string;
   title: string;
@@ -201,8 +211,9 @@ export function composeAlertCreated(opts: {
 }): DiscordPayload {
   const emoji = impactEmoji[opts.impact] || "🚨";
   const impactLabel = impactLabels[opts.impact] || opts.impact;
+  const svc = serviceDisplay(opts);
   const fields: DiscordEmbed["fields"] = [
-    { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+    { name: svc.label, value: truncate(svc.value, MAX_FIELD_VALUE), inline: true },
     { name: "Impact", value: `${emoji} ${impactLabel}`, inline: true },
   ];
   if (opts.severity) fields.push({ name: "Severity", value: truncate(opts.severity, MAX_FIELD_VALUE), inline: true });
@@ -213,14 +224,15 @@ export function composeAlertCreated(opts: {
       url: alertUrl(opts.baseUrl, opts.alertId),
       color: impactColor(opts.impact, COLOR.outage),
       fields,
-      footer: { text: clampServiceName(opts.serviceName) },
+      footer: { text: clampServiceName(svc.value) },
       timestamp: new Date().toISOString(),
     }],
   };
 }
 
 export function composeAlertUpdate(opts: {
-  serviceName: string;
+  serviceName?: string;
+  serviceNames?: string[];
   title: string;
   status: string;
   message: string;
@@ -232,8 +244,9 @@ export function composeAlertUpdate(opts: {
   const statusLabel = statusLabels[opts.status] || opts.status;
   const headerEmoji = isResolved ? "✅" : "🔄";
   const headerLabel = isResolved ? "Service Alert Resolved" : "Service Alert Update";
+  const svc = serviceDisplay(opts);
   const fields: DiscordEmbed["fields"] = [
-    { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+    { name: svc.label, value: truncate(svc.value, MAX_FIELD_VALUE), inline: true },
     { name: "Status", value: statusLabel, inline: true },
   ];
   if (opts.impact && opts.impact !== "no_change" && !isResolved) {
@@ -249,19 +262,21 @@ export function composeAlertUpdate(opts: {
       url: alertUrl(opts.baseUrl, opts.alertId),
       color,
       fields,
-      footer: { text: clampServiceName(opts.serviceName) },
+      footer: { text: clampServiceName(svc.value) },
       timestamp: new Date().toISOString(),
     }],
   };
 }
 
 export function composeAlertResolved(opts: {
-  serviceName: string;
+  serviceName?: string;
+  serviceNames?: string[];
   title: string;
   resolveMessage: string;
   alertId?: string;
   baseUrl?: string;
 }): DiscordPayload {
+  const svc = serviceDisplay(opts);
   return {
     embeds: [{
       title: truncate(`✅ Service Alert Resolved — ${clampTitle(opts.title)}`, 256),
@@ -269,10 +284,10 @@ export function composeAlertResolved(opts: {
       url: alertUrl(opts.baseUrl, opts.alertId),
       color: COLOR.resolved,
       fields: [
-        { name: "Service", value: truncate(opts.serviceName || "Service", MAX_FIELD_VALUE), inline: true },
+        { name: svc.label, value: truncate(svc.value, MAX_FIELD_VALUE), inline: true },
         { name: "Status", value: "Resolved", inline: true },
       ],
-      footer: { text: clampServiceName(opts.serviceName) },
+      footer: { text: clampServiceName(svc.value) },
       timestamp: new Date().toISOString(),
     }],
   };

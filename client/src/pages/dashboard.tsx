@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { Activity, AlertTriangle, Bell, CheckCircle, Clock, Newspaper, Ticket } from "lucide-react";
-import type { Service, ServiceAlert, NewsStory, Ticket as TicketType } from "@shared/schema";
+import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType } from "@shared/schema";
 import { format } from "date-fns";
 import { LazyImage } from "@/components/lazy-image";
 import { stripHtml } from "@/components/rich-text-editor";
@@ -38,7 +38,7 @@ export default function Dashboard() {
     queryKey: ["/api/services"],
   });
 
-  const { data: alerts, isLoading: alertsLoading } = useQuery<ServiceAlert[]>({
+  const { data: alerts, isLoading: alertsLoading } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
 
@@ -58,6 +58,7 @@ export default function Dashboard() {
   const newServiceUpdatesCount = contentNotifData?.["service-updates"] ?? 0;
 
   const activeAlerts = alerts?.filter((a) => a.status !== "resolved") || [];
+  const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
   const subscribedServices = services?.filter((s) =>
     user?.subscribedServices?.includes(s.id)
   ) || [];
@@ -202,6 +203,13 @@ export default function Dashboard() {
                   <div className="flex items-start justify-between gap-2 py-1.5 hover-elevate tap-interactive rounded-md px-2 -mx-2 cursor-pointer" data-testid={`alert-row-${alert.id}`}>
                     <div className="space-y-0.5">
                       <p className="text-sm font-medium">{alert.title}</p>
+                      {alert.serviceIds && alert.serviceIds.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {alert.serviceIds.map((sid) => serviceMap.get(sid) && (
+                            <Badge key={sid} variant="secondary" className="text-[10px]">{serviceMap.get(sid)}</Badge>
+                          ))}
+                        </div>
+                      )}
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {format(new Date(alert.createdAt), "MMM d, h:mm a")}

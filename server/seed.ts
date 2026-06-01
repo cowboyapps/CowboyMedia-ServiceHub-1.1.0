@@ -98,8 +98,8 @@ export async function seed() {
     description: "We are investigating reports of increased response times on the API Gateway service. Some requests may experience delays of up to 2 seconds.",
     severity: "warning",
     status: "investigating",
-    serviceId: svc5.id,
-  });
+    impact: "degraded",
+  }, [svc5.id]);
 
   await storage.createAlertUpdate({
     alertId: alert1.id,

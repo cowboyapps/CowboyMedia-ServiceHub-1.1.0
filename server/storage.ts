@@ -1,7 +1,7 @@
 import {
   type User, type InsertUser,
   type Service, type InsertService,
-  type ServiceAlert, type InsertServiceAlert,
+  type ServiceAlert, type InsertServiceAlert, type ServiceAlertWithServices,
   type AlertUpdate, type InsertAlertUpdate,
   type NewsStory, type InsertNewsStory,
   type Ticket, type InsertTicket,
@@ -58,7 +58,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
+  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
@@ -125,10 +125,12 @@ export interface IStorage {
   updateService(id: string, data: Partial<Service>): Promise<Service | undefined>;
   deleteService(id: string): Promise<void>;
 
-  getAllAlerts(): Promise<ServiceAlert[]>;
-  getAlert(id: string): Promise<ServiceAlert | undefined>;
-  createAlert(alert: InsertServiceAlert): Promise<ServiceAlert>;
-  updateAlert(id: string, data: Partial<ServiceAlert>): Promise<ServiceAlert | undefined>;
+  getAllAlerts(): Promise<ServiceAlertWithServices[]>;
+  getAlert(id: string): Promise<ServiceAlertWithServices | undefined>;
+  createAlert(alert: InsertServiceAlert, serviceIds: string[]): Promise<ServiceAlertWithServices>;
+  updateAlert(id: string, data: Partial<ServiceAlert>): Promise<ServiceAlertWithServices | undefined>;
+  setAlertServices(alertId: string, serviceIds: string[]): Promise<void>;
+  recomputeServiceStatus(serviceId: string): Promise<string>;
   deleteAlert(id: string): Promise<void>;
 
   getAlertUpdates(alertId: string): Promise<AlertUpdate[]>;
@@ -465,29 +467,76 @@ export class DatabaseStorage implements IStorage {
     invalidatePublicStatusCache();
   }
 
-  async getAllAlerts(): Promise<ServiceAlert[]> {
-    return db.select().from(serviceAlerts).orderBy(desc(serviceAlerts.createdAt));
+  async getAllAlerts(): Promise<ServiceAlertWithServices[]> {
+    const alerts = await db.select().from(serviceAlerts).orderBy(desc(serviceAlerts.createdAt));
+    const links = await db.select().from(alertServices);
+    const byAlert = new Map<string, string[]>();
+    for (const l of links) {
+      const arr = byAlert.get(l.alertId) || [];
+      arr.push(l.serviceId);
+      byAlert.set(l.alertId, arr);
+    }
+    return alerts.map(a => ({ ...a, serviceIds: byAlert.get(a.id) || [] }));
   }
 
-  async getAlert(id: string): Promise<ServiceAlert | undefined> {
+  async getAlert(id: string): Promise<ServiceAlertWithServices | undefined> {
     const [alert] = await db.select().from(serviceAlerts).where(eq(serviceAlerts.id, id));
-    return alert;
+    if (!alert) return undefined;
+    const links = await db.select().from(alertServices).where(eq(alertServices.alertId, id));
+    return { ...alert, serviceIds: links.map(l => l.serviceId) };
   }
 
-  async createAlert(alert: InsertServiceAlert): Promise<ServiceAlert> {
+  async createAlert(alert: InsertServiceAlert, serviceIds: string[]): Promise<ServiceAlertWithServices> {
     const [created] = await db.insert(serviceAlerts).values(alert).returning();
+    const unique = Array.from(new Set(serviceIds));
+    if (unique.length > 0) {
+      await db.insert(alertServices).values(unique.map(serviceId => ({ alertId: created.id, serviceId })));
+    }
     invalidatePublicStatusCache();
-    return created;
+    return { ...created, serviceIds: unique };
   }
 
-  async updateAlert(id: string, data: Partial<ServiceAlert>): Promise<ServiceAlert | undefined> {
+  async updateAlert(id: string, data: Partial<ServiceAlert>): Promise<ServiceAlertWithServices | undefined> {
     const [updated] = await db.update(serviceAlerts).set(data).where(eq(serviceAlerts.id, id)).returning();
+    if (!updated) return undefined;
+    const links = await db.select().from(alertServices).where(eq(alertServices.alertId, id));
     invalidatePublicStatusCache();
-    return updated;
+    return { ...updated, serviceIds: links.map(l => l.serviceId) };
+  }
+
+  async setAlertServices(alertId: string, serviceIds: string[]): Promise<void> {
+    const unique = Array.from(new Set(serviceIds));
+    await db.delete(alertServices).where(eq(alertServices.alertId, alertId));
+    if (unique.length > 0) {
+      await db.insert(alertServices).values(unique.map(serviceId => ({ alertId, serviceId })));
+    }
+    invalidatePublicStatusCache();
+  }
+
+  async recomputeServiceStatus(serviceId: string): Promise<string> {
+    // Find the most severe impact among the still-active (non-resolved) alerts
+    // that cover this service. Returns "operational" when none remain.
+    const IMPACT_RANK: Record<string, number> = { operational: 0, maintenance: 1, degraded: 2, outage: 3 };
+    const rows = await db
+      .select({ impact: serviceAlerts.impact })
+      .from(alertServices)
+      .innerJoin(serviceAlerts, eq(alertServices.alertId, serviceAlerts.id))
+      .where(and(eq(alertServices.serviceId, serviceId), ne(serviceAlerts.status, "resolved")));
+    let best = "operational";
+    let bestRank = 0;
+    for (const r of rows) {
+      const impact = r.impact || "degraded";
+      const rank = IMPACT_RANK[impact] ?? 2;
+      if (rank > bestRank) { bestRank = rank; best = impact; }
+    }
+    await db.update(services).set({ status: best }).where(eq(services.id, serviceId));
+    invalidatePublicStatusCache();
+    return best;
   }
 
   async deleteAlert(id: string): Promise<void> {
     await db.delete(alertUpdates).where(eq(alertUpdates.alertId, id));
+    await db.delete(alertServices).where(eq(alertServices.alertId, id));
     await db.delete(serviceAlerts).where(eq(serviceAlerts.id, id));
     invalidatePublicStatusCache();
   }

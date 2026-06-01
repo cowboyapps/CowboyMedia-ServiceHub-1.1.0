@@ -41,6 +41,7 @@ import {
   composeServiceUpdate as composeDiscordServiceUpdate,
   composeNews as composeDiscordNews,
   composeDiscordTest,
+  type DiscordPayload,
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
@@ -54,7 +55,7 @@ import { shouldSuppressNotification } from "@shared/quiet-hours";
 import { updateQuietHoursSchema } from "@shared/schema";
 import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
 import { buildPushPayload } from "./push-payload";
-import type { User } from "@shared/schema";
+import type { User, Service } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { markGroupRead } from "./notifications-helpers";
 import { getOpenAIClient } from "./openai-client";
@@ -180,6 +181,46 @@ async function notifyServiceSubscribers(
   } catch (e) {
     console.error("[notifyServiceSubscribers]", e);
   }
+}
+
+// Parse a serviceIds payload that may arrive as a JS array, a JSON string, or
+// a comma-separated string (multipart/form-data submits everything as strings).
+function parseServiceIds(raw: any): string[] {
+  if (Array.isArray(raw)) return Array.from(new Set(raw.filter((v) => typeof v === "string" && v)));
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return Array.from(new Set(parsed.filter((v) => typeof v === "string" && v)));
+    } catch { /* not JSON, fall through to CSV */ }
+    return Array.from(new Set(raw.split(",").map((s) => s.trim()).filter(Boolean)));
+  }
+  return [];
+}
+
+// Fan a single Discord alert payload out to every covered service's webhook,
+// deduplicated by URL. Services with a per-service override post to that
+// override; the global webhook fires once if any covered service has no override
+// (or there are no services at all).
+function fireDiscordForServices(coveredServices: Service[], payload: DiscordPayload): void {
+  // Resolve every covered service to its effective webhook (per-service override
+  // or the global webhook), then dedup by final URL so the same endpoint never
+  // receives the same alert twice — including the case where an override URL
+  // happens to equal the global webhook URL.
+  (async () => {
+    try {
+      const settings = await storage.getDiscordSettings();
+      const globalUrl = settings?.webhookUrl?.trim() || null;
+      const targets = new Set<string>();
+      for (const s of coveredServices) {
+        const url = (s.discordWebhookUrl && s.discordWebhookUrl.trim()) || globalUrl;
+        if (url) targets.add(url);
+      }
+      if (coveredServices.length === 0 && globalUrl) targets.add(globalUrl);
+      for (const url of Array.from(targets)) fireDiscord(payload, "alert", url);
+    } catch (e) {
+      console.error("[Discord] fireDiscordForServices error:", e);
+    }
+  })();
 }
 
 // Per-IP rate limiter for public subscribe endpoint (5 / minute).
@@ -916,16 +957,20 @@ export async function registerRoutes(
             dailyBuckets: uptime.dailyBuckets,
           };
         }),
-        alerts: sortedAlerts.map(a => ({
-          id: a.id,
-          title: a.title,
-          status: a.status,
-          severity: a.severity,
-          serviceName: serviceMap.get(a.serviceId) || "Service",
-          createdAt: a.createdAt,
-          resolvedAt: a.resolvedAt,
-          lastUpdateAt: updatesByAlert.get(a.id) || a.resolvedAt || a.createdAt,
-        })),
+        alerts: sortedAlerts.map(a => {
+          const serviceNames = a.serviceIds.map(id => serviceMap.get(id)).filter((n): n is string => !!n);
+          return {
+            id: a.id,
+            title: a.title,
+            status: a.status,
+            severity: a.severity,
+            serviceNames: serviceNames.length > 0 ? serviceNames : ["Service"],
+            serviceName: serviceNames.length > 0 ? serviceNames.join(", ") : "Service",
+            createdAt: a.createdAt,
+            resolvedAt: a.resolvedAt,
+            lastUpdateAt: updatesByAlert.get(a.id) || a.resolvedAt || a.createdAt,
+          };
+        }),
         updates: (() => {
           const THIRTY_DAYS = 30 * 86400000;
           const updateCutoff = Date.now() - THIRTY_DAYS;
@@ -972,10 +1017,13 @@ export async function registerRoutes(
       }
       const alert = await storage.getAlert(req.params.id);
       if (!alert) return res.status(404).json({ message: "Incident not found" });
-      const [service, updates] = await Promise.all([
-        storage.getService(alert.serviceId),
+      const [coveredServicesRaw, updates] = await Promise.all([
+        Promise.all(alert.serviceIds.map(sid => storage.getService(sid))),
         storage.getAlertUpdates(alert.id),
       ]);
+      const coveredServices = coveredServicesRaw.filter((s): s is Service => !!s);
+      const service = coveredServices[0];
+      const serviceNames = coveredServices.map(s => s.name);
       const createdAtMs = alert.createdAt?.getTime?.() || 0;
       const resolvedAtMs = alert.resolvedAt?.getTime?.() || 0;
       const durationSeconds = createdAtMs
@@ -989,7 +1037,8 @@ export async function registerRoutes(
         description: alert.description,
         status: alert.status,
         severity: alert.severity,
-        serviceName: service?.name || "Service",
+        serviceName: serviceNames.length > 0 ? serviceNames.join(", ") : "Service",
+        serviceNames: serviceNames.length > 0 ? serviceNames : ["Service"],
         serviceCategory: service?.category || null,
         createdAt: alert.createdAt,
         resolvedAt: alert.resolvedAt,
@@ -2789,65 +2838,77 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, ...alertData } = req.body;
+      const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, ...alertData } = req.body;
       const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
       const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
       if (imageUrl) alertData.imageUrl = imageUrl;
-      const alert = await storage.createAlert(alertData);
+      const serviceIds = parseServiceIds(rawServiceIds);
+      if (serviceIds.length === 0) {
+        return res.status(400).json({ message: "At least one service is required" });
+      }
       const impact = serviceImpact || "degraded";
-      await storage.updateService(alert.serviceId, { status: impact });
-      const service = await storage.getService(alert.serviceId);
-      const serviceName = service?.name || "Service";
+      alertData.impact = impact;
+      const alert = await storage.createAlert(alertData, serviceIds);
+      // Recompute each covered service's status so a shared service keeps its
+      // most-severe active impact rather than being clobbered by this one.
+      for (const sid of alert.serviceIds) {
+        await storage.recomputeServiceStatus(sid);
+        broadcast({ type: "service_updated", serviceId: sid });
+      }
+      const coveredServices = (await Promise.all(alert.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
+      const serviceNames = coveredServices.map(s => s.name);
+      const serviceNameDisplay = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
       const impactLabel = impact === "outage" ? "Outage" : impact === "maintenance" ? "Maintenance" : "Degraded Performance";
-      logActivity("alert", "alert_created", { actorId: req.session.userId!, targetId: alert.id, targetType: "alert", summary: `Alert created: ${alert.title} (${serviceName} — ${impactLabel})`, details: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity, service: serviceName, impact }) });
+      logActivity("alert", "alert_created", { actorId: req.session.userId!, targetId: alert.id, targetType: "alert", summary: `Alert created: ${alert.title} (${serviceNameDisplay} — ${impactLabel})`, details: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity, services: serviceNames, impact }) });
       broadcast({ type: "new_alert", alert });
-      broadcast({ type: "service_updated", serviceId: alert.serviceId });
       const allUsers = await storage.getAllUsers();
-      const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
+      const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => alert.serviceIds.includes(sid)));
       console.log(`[Alert Create] Alert ${alert.id} — sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
       for (const u of subscribers) {
         if (parsedSendPush && customerWantsPush(u, "service_alert", alert.severity)) {
           await sendPushToUser(u.id, {
-            title: `${serviceName}: ${impactLabel}`,
+            title: `${serviceNameDisplay}: ${impactLabel}`,
             body: alert.title,
             url: `/alerts/${alert.id}`,
             tag: `alert-${alert.id}`,
-            resourceLabel: `${serviceName} alert: ${alert.title}`,
+            resourceLabel: `${serviceNameDisplay} alert: ${alert.title}`,
             rollupNoun: "updates",
           }, u.role === "customer" ? { type: "alert", referenceType: "alert", referenceId: alert.id } : undefined);
         }
         if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
-            alert_title: `${serviceName}: ${impactLabel}`,
+            alert_title: `${serviceNameDisplay}: ${impactLabel}`,
             alert_description: `${alert.title}\n\n${alert.description}`,
             customer_name: u.fullName,
           }, u.fullName);
         }
       }
       const subIds = subscribers.map(u => u.id);
-      storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: ${impactLabel} — ${alert.title}`, alert.id).catch(() => {});
-      fireDiscord(composeDiscordAlertCreated({
-        serviceName,
+      storage.createContentNotificationBulk(subIds, "alerts", `${serviceNameDisplay}: ${impactLabel} — ${alert.title}`, alert.id).catch(() => {});
+      fireDiscordForServices(coveredServices, composeDiscordAlertCreated({
+        serviceNames,
         impact,
         severity: alert.severity,
         title: alert.title,
         description: alert.description,
         alertId: alert.id,
         baseUrl: getBaseUrl(req),
-      }), "alert", service?.discordWebhookUrl);
+      }));
       fireTelegram(composeAlertCreated({
-        serviceName,
+        serviceNames,
         impact,
         severity: alert.severity,
         title: alert.title,
         description: alert.description,
       }), "alert");
-      notifyServiceSubscribers(alert.serviceId, "incident", {
-        service_name: serviceName,
-        alert_title: alert.title,
-        alert_description: alert.description,
-        impact_label: impactLabel,
-      }, getBaseUrl(req));
+      for (const s of coveredServices) {
+        notifyServiceSubscribers(s.id, "incident", {
+          service_name: s.name,
+          alert_title: alert.title,
+          alert_description: alert.description,
+          impact_label: impactLabel,
+        }, getBaseUrl(req));
+      }
       res.json(alert);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2865,6 +2926,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (req.body.removeImage === "true") data.imageUrl = null;
       const updated = await storage.updateAlert(req.params.id, data);
       if (!updated) return res.status(404).json({ message: "Alert not found" });
+      if (req.body.serviceIds !== undefined) {
+        const newServiceIds = parseServiceIds(req.body.serviceIds);
+        if (newServiceIds.length === 0) {
+          return res.status(400).json({ message: "At least one service is required" });
+        }
+        const previousServiceIds = updated.serviceIds;
+        await storage.setAlertServices(req.params.id, newServiceIds);
+        // Recompute every service that gained or lost this alert so statuses stay correct.
+        const affected = Array.from(new Set([...previousServiceIds, ...newServiceIds]));
+        for (const sid of affected) {
+          await storage.recomputeServiceStatus(sid);
+          broadcast({ type: "service_updated", serviceId: sid });
+        }
+        const refreshed = await storage.getAlert(req.params.id);
+        return res.json(refreshed ?? updated);
+      }
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2892,19 +2969,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact }) });
       const alert = await storage.getAlert(req.params.id);
       if (alert) {
-        const service = await storage.getService(alert.serviceId);
-        const serviceName = service?.name || "Service";
-        if (updateData.status === "resolved") {
-          await storage.updateService(alert.serviceId, { status: "operational" });
-          broadcast({ type: "service_updated", serviceId: alert.serviceId });
-        } else if (serviceImpact && serviceImpact !== "no_change") {
-          await storage.updateService(alert.serviceId, { status: serviceImpact });
-          broadcast({ type: "service_updated", serviceId: alert.serviceId });
-        }
         const isResolved = updateData.status === "resolved";
         const impactLabels: Record<string, string> = { operational: "Operational", degraded: "Degraded", outage: "Outage", maintenance: "Maintenance" };
         const hasImpactChange = !isResolved && serviceImpact && serviceImpact !== "no_change";
         const impactLabel = hasImpactChange ? impactLabels[serviceImpact] || serviceImpact : null;
+        // Persist the new impact on the alert so status recompute reflects it for all covered services.
+        if (hasImpactChange) {
+          await storage.updateAlert(req.params.id, { impact: serviceImpact });
+        }
+        const coveredServices = (await Promise.all(alert.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
+        const serviceNames = coveredServices.map(s => s.name);
+        const serviceName = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
+        // Recompute each covered service's status (handles resolve → operational
+        // and impact changes, while keeping shared services at their worst active impact).
+        for (const sid of alert.serviceIds) {
+          await storage.recomputeServiceStatus(sid);
+          broadcast({ type: "service_updated", serviceId: sid });
+        }
         const pushTitle = isResolved
           ? `${serviceName}: Resolved — Now Operational`
           : impactLabel
@@ -2916,7 +2997,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             ? `${serviceName}: ${impactLabel} — ${alert.title}`
             : `${serviceName} Update: ${alert.title}`;
         const allUsers = await storage.getAllUsers();
-        const subscribers = allUsers.filter(u => u.subscribedServices?.includes(alert.serviceId) && u.id !== req.session.userId);
+        const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => alert.serviceIds.includes(sid)));
         console.log(`[Alert Update] Alert ${req.params.id} — status=${updateData.status}, sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
         for (const u of subscribers) {
           if ((parsedSendPush || isResolved) && customerWantsPush(u, "service_alert", alert.severity)) {
@@ -2942,35 +3023,39 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           ? `${serviceName}: Resolved — ${alert.title}`
           : `${serviceName} Update: ${alert.title}`;
         storage.createContentNotificationBulk(subIds, "alerts", notifMsg, alert.id).catch(() => {});
-        fireDiscord(composeDiscordAlertUpdate({
-          serviceName,
+        fireDiscordForServices(coveredServices, composeDiscordAlertUpdate({
+          serviceNames,
           title: alert.title,
           status: updateData.status,
           message: updateData.message,
           impact: hasImpactChange ? serviceImpact : null,
           alertId: alert.id,
           baseUrl: getBaseUrl(req),
-        }), "alert", service?.discordWebhookUrl);
+        }));
         fireTelegram(composeAlertUpdate({
-          serviceName,
+          serviceNames,
           title: alert.title,
           status: updateData.status,
           message: updateData.message,
           impact: hasImpactChange ? serviceImpact : null,
         }), "alert");
         if (isResolved) {
-          notifyServiceSubscribers(alert.serviceId, "resolved", {
-            service_name: serviceName,
-            alert_title: alert.title,
-            resolve_message: updateData.message,
-          }, getBaseUrl(req));
+          for (const s of coveredServices) {
+            notifyServiceSubscribers(s.id, "resolved", {
+              service_name: s.name,
+              alert_title: alert.title,
+              resolve_message: updateData.message,
+            }, getBaseUrl(req));
+          }
         } else if (hasImpactChange) {
-          notifyServiceSubscribers(alert.serviceId, "status", {
-            service_name: serviceName,
-            alert_title: alert.title,
-            alert_description: updateData.message,
-            impact_label: impactLabel || "",
-          }, getBaseUrl(req));
+          for (const s of coveredServices) {
+            notifyServiceSubscribers(s.id, "status", {
+              service_name: s.name,
+              alert_title: alert.title,
+              alert_description: updateData.message,
+              impact_label: impactLabel || "",
+            }, getBaseUrl(req));
+          }
         }
       }
       res.json(update);
@@ -3006,14 +3091,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         status: "resolved",
         ...(imageUrl ? { imageUrl } : {}),
       });
-      await storage.updateService(updated.serviceId, { status: "operational" });
-      const service = await storage.getService(updated.serviceId);
-      const serviceName = service?.name || "Service";
-      logActivity("alert", "alert_resolved", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert resolved: ${updated.title} (${serviceName})`, details: JSON.stringify({ title: updated.title, resolveMessage, service: serviceName }) });
+      // Recompute each covered service: a shared service stays non-operational
+      // if it still has another active alert.
+      for (const sid of updated.serviceIds) {
+        await storage.recomputeServiceStatus(sid);
+        broadcast({ type: "service_updated", serviceId: sid });
+      }
+      const coveredServices = (await Promise.all(updated.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
+      const serviceNames = coveredServices.map(s => s.name);
+      const serviceName = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
+      logActivity("alert", "alert_resolved", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert resolved: ${updated.title} (${serviceName})`, details: JSON.stringify({ title: updated.title, resolveMessage, services: serviceNames }) });
       broadcast({ type: "alert_resolved", alertId: req.params.id });
-      broadcast({ type: "service_updated", serviceId: updated.serviceId });
       const allUsers = await storage.getAllUsers();
-      const subscribers = allUsers.filter(u => u.subscribedServices?.includes(updated.serviceId) && u.id !== req.session.userId);
+      const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => updated.serviceIds.includes(sid)));
       console.log(`[Alert Resolve] Alert ${req.params.id} — ${subscribers.length} subscriber(s) to notify`);
       for (const u of subscribers) {
         if (customerWantsPush(u, "service_alert", updated.severity)) {
@@ -3036,23 +3126,25 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const subIds = subscribers.map(u => u.id);
       storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: Resolved — ${updated.title}`, updated.id).catch(() => {});
-      fireDiscord(composeDiscordAlertResolved({
-        serviceName,
+      fireDiscordForServices(coveredServices, composeDiscordAlertResolved({
+        serviceNames,
         title: updated.title,
         resolveMessage,
         alertId: updated.id,
         baseUrl: getBaseUrl(req),
-      }), "alert", service?.discordWebhookUrl);
+      }));
       fireTelegram(composeAlertResolved({
-        serviceName,
+        serviceNames,
         title: updated.title,
         resolveMessage,
       }), "alert");
-      notifyServiceSubscribers(updated.serviceId, "resolved", {
-        service_name: serviceName,
-        alert_title: updated.title,
-        resolve_message: resolveMessage,
-      }, getBaseUrl(req));
+      for (const s of coveredServices) {
+        notifyServiceSubscribers(s.id, "resolved", {
+          service_name: s.name,
+          alert_title: updated.title,
+          resolve_message: resolveMessage,
+        }, getBaseUrl(req));
+      }
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3063,6 +3155,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const alertToDelete = await storage.getAlert(req.params.id);
       await storage.deleteAlert(req.params.id);
+      for (const sid of alertToDelete?.serviceIds || []) {
+        await storage.recomputeServiceStatus(sid);
+        broadcast({ type: "service_updated", serviceId: sid });
+      }
       logActivity("alert", "alert_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert deleted: ${alertToDelete?.title || req.params.id}` });
       res.json({ message: "Alert deleted" });
     } catch (e: any) {

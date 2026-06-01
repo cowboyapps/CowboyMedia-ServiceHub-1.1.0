@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
-import type { Service, ServiceAlert } from "@shared/schema";
+import type { Service, ServiceAlertWithServices } from "@shared/schema";
 
 type DailyStatus = "up" | "partial" | "down" | "unknown";
 
@@ -110,12 +110,13 @@ export default function ServiceDetail() {
   const { data: services, isLoading: servicesLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
-  const { data: allAlerts, isLoading: alertsLoading } = useQuery<ServiceAlert[]>({
+  const { data: allAlerts, isLoading: alertsLoading } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
 
   const service = services?.find((s) => s.id === params.id);
-  const alerts = allAlerts?.filter((a) => a.serviceId === params.id) || [];
+  const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
+  const alerts = allAlerts?.filter((a) => a.serviceIds?.includes(params.id)) || [];
   const activeAlerts = alerts.filter((a) => a.status !== "resolved");
   const resolvedAlerts = alerts.filter((a) => a.status === "resolved");
   const isLoading = servicesLoading || alertsLoading;
@@ -212,6 +213,9 @@ export default function ServiceDetail() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <SeverityBadge severity={alert.severity} />
                             <AlertStatusBadge status={alert.status} />
+                            {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
+                              <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
+                            ))}
                           </div>
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <Clock className="w-3 h-3" />
@@ -245,6 +249,9 @@ export default function ServiceDetail() {
                           <h3 className="font-semibold text-sm">{alert.title}</h3>
                           <div className="flex items-center gap-2 flex-wrap">
                             <AlertStatusBadge status="resolved" />
+                            {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
+                              <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
+                            ))}
                           </div>
                           <p className="text-xs text-muted-foreground">
                             Resolved {alert.resolvedAt ? format(new Date(alert.resolvedAt), "MMM d, yyyy") : ""}

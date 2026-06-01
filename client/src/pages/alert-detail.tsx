@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
-import type { ServiceAlert, AlertUpdate, Service } from "@shared/schema";
+import type { ServiceAlertWithServices, AlertUpdate, Service } from "@shared/schema";
 
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
@@ -25,7 +25,7 @@ function StatusIcon({ status }: { status: string }) {
 export default function AlertDetail() {
   const params = useParams<{ id: string }>();
 
-  const { data: alert, isLoading } = useQuery<ServiceAlert>({
+  const { data: alert, isLoading } = useQuery<ServiceAlertWithServices>({
     queryKey: ["/api/alerts", params.id],
   });
 
@@ -37,7 +37,9 @@ export default function AlertDetail() {
     queryKey: ["/api/services"],
   });
 
-  const serviceName = services?.find((s) => s.id === alert?.serviceId)?.name;
+  const alertServiceNames = (alert?.serviceIds || [])
+    .map((sid) => services?.find((s) => s.id === sid)?.name)
+    .filter((n): n is string => Boolean(n));
 
   if (isLoading) {
     return (
@@ -83,7 +85,7 @@ export default function AlertDetail() {
                 <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">
                   {alert.status}
                 </Badge>
-                {serviceName && <Badge variant="secondary" className="text-xs">{serviceName}</Badge>}
+                {alertServiceNames.map((name, i) => <Badge key={i} variant="secondary" className="text-xs" data-testid={`badge-alert-service-${i}`}>{name}</Badge>)}
               </div>
             </div>
           </div>

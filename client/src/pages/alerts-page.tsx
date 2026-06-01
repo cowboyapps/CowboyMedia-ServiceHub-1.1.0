@@ -8,7 +8,7 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { AlertTriangle, CheckCircle, Clock, ChevronRight } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { ServiceAlert, Service } from "@shared/schema";
+import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
 function SeverityBadge({ severity }: { severity: string }) {
   const variants: Record<string, "default" | "secondary" | "destructive"> = {
@@ -34,7 +34,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AlertsPage() {
-  const { data: alerts, isLoading: alertsLoading } = useQuery<ServiceAlert[]>({
+  const { data: alerts, isLoading: alertsLoading } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
   const { data: services } = useQuery<Service[]>({
@@ -119,9 +119,9 @@ export default function AlertsPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <SeverityBadge severity={alert.severity} />
                           <StatusBadge status={alert.status} />
-                          {serviceMap.get(alert.serviceId) && (
-                            <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>
-                          )}
+                          {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
+                            <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
+                          ))}
                         </div>
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <Clock className="w-3 h-3" />
@@ -155,9 +155,9 @@ export default function AlertsPage() {
                         <h3 className="font-semibold text-sm">{alert.title}</h3>
                         <div className="flex items-center gap-2 flex-wrap">
                           <StatusBadge status="resolved" />
-                          {serviceMap.get(alert.serviceId) && (
-                            <Badge variant="secondary" className="text-xs">{serviceMap.get(alert.serviceId)}</Badge>
-                          )}
+                          {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
+                            <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
+                          ))}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           Resolved {alert.resolvedAt ? format(new Date(alert.resolvedAt), "MMM d, yyyy") : ""}

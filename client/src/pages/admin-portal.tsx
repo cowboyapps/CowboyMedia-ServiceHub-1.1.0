@@ -34,7 +34,7 @@ import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { Download, ImagePlus, X as XIcon } from "lucide-react";
-import type { User, Service, ServiceAlert, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
+import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
@@ -68,7 +68,7 @@ const createAlertSchema = z.object({
   severity: z.string().default("warning"),
   status: z.string().default("investigating"),
   serviceImpact: z.string().default("degraded"),
-  serviceId: z.string().min(1, "Service is required"),
+  serviceIds: z.array(z.string()).min(1, "Select at least one service"),
   sendPush: z.boolean().default(true),
   sendEmail: z.boolean().default(true),
 });
@@ -1153,10 +1153,11 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [alertImageFile, setAlertImageFile] = useState<File | null>(null);
   const [updateImageFile, setUpdateImageFile] = useState<File | null>(null);
   const [editAlertDialogOpen, setEditAlertDialogOpen] = useState(false);
-  const [editingAlert, setEditingAlert] = useState<ServiceAlert | null>(null);
+  const [editingAlert, setEditingAlert] = useState<ServiceAlertWithServices | null>(null);
   const [editAlertTitle, setEditAlertTitle] = useState("");
   const [editAlertDesc, setEditAlertDesc] = useState("");
   const [editAlertSeverity, setEditAlertSeverity] = useState("warning");
+  const [editAlertServiceIds, setEditAlertServiceIds] = useState<string[]>([]);
   const [editAlertImageFile, setEditAlertImageFile] = useState<File | null>(null);
   const [editAlertRemoveImage, setEditAlertRemoveImage] = useState(false);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
@@ -1171,7 +1172,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
   const [expandedAlertCardId, setExpandedAlertCardId] = useState<string | null>(null);
 
-  const { data: alerts, isLoading } = useQuery<ServiceAlert[]>({
+  const { data: alerts, isLoading } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
   const { data: services } = useQuery<Service[]>({
@@ -1180,7 +1181,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const form = useForm({
     resolver: zodResolver(createAlertSchema),
-    defaultValues: { title: "", description: "", severity: "warning", status: "investigating", serviceImpact: "degraded", serviceId: "", sendPush: true, sendEmail: true },
+    defaultValues: { title: "", description: "", severity: "warning", status: "investigating", serviceImpact: "degraded", serviceIds: [] as string[], sendPush: true, sendEmail: true },
   });
 
   const updateForm = useForm({
@@ -1191,7 +1192,10 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const createMutation = useMutation({
     mutationFn: async (data: z.infer<typeof createAlertSchema>) => {
       const formData = new FormData();
-      Object.entries(data).forEach(([k, v]) => formData.append(k, String(v)));
+      Object.entries(data).forEach(([k, v]) => {
+        if (k === "serviceIds") formData.append(k, JSON.stringify(v));
+        else formData.append(k, String(v));
+      });
       if (alertImageFile) formData.append("image", alertImageFile);
       const res = await fetch("/api/admin/alerts", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to create alert");
@@ -1228,11 +1232,12 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   });
 
   const editAlertMutation = useMutation({
-    mutationFn: async ({ id, data, imageFile, removeImage }: { id: string; data: { title: string; description: string; severity: string }; imageFile: File | null; removeImage: boolean }) => {
+    mutationFn: async ({ id, data, imageFile, removeImage }: { id: string; data: { title: string; description: string; severity: string; serviceIds: string[] }; imageFile: File | null; removeImage: boolean }) => {
       const formData = new FormData();
       formData.append("title", data.title);
       formData.append("description", data.description);
       formData.append("severity", data.severity);
+      formData.append("serviceIds", JSON.stringify(data.serviceIds));
       if (imageFile) formData.append("image", imageFile);
       if (removeImage) formData.append("removeImage", "true");
       const res = await fetch(`/api/admin/alerts/${id}`, { method: "PATCH", body: formData, credentials: "include" });
@@ -1301,11 +1306,12 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
 
-  const openEditAlert = (alert: ServiceAlert) => {
+  const openEditAlert = (alert: ServiceAlertWithServices) => {
     setEditingAlert(alert);
     setEditAlertTitle(alert.title);
     setEditAlertDesc(alert.description);
     setEditAlertSeverity(alert.severity);
+    setEditAlertServiceIds(alert.serviceIds || []);
     setEditAlertImageFile(null);
     setEditAlertRemoveImage(false);
     setEditAlertDialogOpen(true);
@@ -1329,14 +1335,26 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                 <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea data-testid="input-alert-desc" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="serviceId" render={({ field }) => (
-                  <FormItem><FormLabel>Service</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger data-testid="select-alert-service"><SelectValue placeholder="Select service" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {services?.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                <FormField control={form.control} name="serviceIds" render={({ field }) => (
+                  <FormItem><FormLabel>Services</FormLabel>
+                    <div className="space-y-2 rounded-md border p-3 max-h-48 overflow-y-auto" data-testid="checkboxes-alert-services">
+                      {services?.map((s) => {
+                        const checked = field.value?.includes(s.id);
+                        return (
+                          <label key={s.id} className="flex items-center gap-2 cursor-pointer" data-testid={`label-alert-service-${s.id}`}>
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                const current: string[] = field.value || [];
+                                field.onChange(v ? [...current, s.id] : current.filter((id) => id !== s.id));
+                              }}
+                              data-testid={`checkbox-alert-service-${s.id}`}
+                            />
+                            <span className="text-sm">{s.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   <FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="severity" render={({ field }) => (
@@ -1466,7 +1484,24 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Alert</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            {editingAlert && <p className="text-sm text-muted-foreground">Service: {serviceMap.get(editingAlert.serviceId) || "Unknown"}</p>}
+            <div className="space-y-2">
+              <Label>Services</Label>
+              <div className="space-y-2 rounded-md border p-3 max-h-48 overflow-y-auto" data-testid="checkboxes-edit-alert-services">
+                {services?.map((s) => {
+                  const checked = editAlertServiceIds.includes(s.id);
+                  return (
+                    <label key={s.id} className="flex items-center gap-2 cursor-pointer" data-testid={`label-edit-alert-service-${s.id}`}>
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(v) => setEditAlertServiceIds((prev) => v ? [...prev, s.id] : prev.filter((id) => id !== s.id))}
+                        data-testid={`checkbox-edit-alert-service-${s.id}`}
+                      />
+                      <span className="text-sm">{s.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>Title</Label>
               <Input value={editAlertTitle} onChange={(e) => setEditAlertTitle(e.target.value)} data-testid="input-edit-alert-title" />
@@ -1499,8 +1534,8 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
             </div>
             <Button
               className="w-full"
-              disabled={editAlertMutation.isPending || !editAlertTitle.trim() || !editAlertDesc.trim()}
-              onClick={() => editingAlert && editAlertMutation.mutate({ id: editingAlert.id, data: { title: editAlertTitle, description: editAlertDesc, severity: editAlertSeverity }, imageFile: editAlertImageFile, removeImage: editAlertRemoveImage })}
+              disabled={editAlertMutation.isPending || !editAlertTitle.trim() || !editAlertDesc.trim() || editAlertServiceIds.length === 0}
+              onClick={() => editingAlert && editAlertMutation.mutate({ id: editingAlert.id, data: { title: editAlertTitle, description: editAlertDesc, severity: editAlertSeverity, serviceIds: editAlertServiceIds }, imageFile: editAlertImageFile, removeImage: editAlertRemoveImage })}
               data-testid="button-save-edit-alert"
             >
               {editAlertMutation.isPending ? "Saving..." : "Save Changes"}
@@ -1581,7 +1616,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap pl-6">
-                  {serviceMap.get(alert.serviceId) && <Badge variant="secondary" className="text-[10px]">{serviceMap.get(alert.serviceId)}</Badge>}
+                  {alert.serviceIds?.map((sid) => serviceMap.get(sid) && <Badge key={sid} variant="secondary" className="text-[10px]" data-testid={`badge-alert-service-${sid}`}>{serviceMap.get(sid)}</Badge>)}
                   <span className="text-[10px] text-muted-foreground">{format(new Date(alert.createdAt), "MMM d, yyyy h:mm a")}</span>
                 </div>
                 {expandedAlertCardId === alert.id && (
