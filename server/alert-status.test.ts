@@ -241,6 +241,54 @@ test("route PATCH /api/admin/alerts/:id/resolve recomputes + broadcasts every co
   assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"]);
 });
 
+// The resolve route also lets admins attach a photo to the resolution note: an
+// uploaded file runs through saveUploadedFile and the resulting URL is included
+// as imageUrl on the created resolve alert-update. These two pin that branch —
+// an uploaded file lands on the createAlertUpdate call, and with no file no
+// imageUrl is set — so a regression that drops the photo from the note is caught.
+test("route PATCH /api/admin/alerts/:id/resolve includes the uploaded image on the resolve update", async () => {
+  const calls: Array<Record<string, any>> = [];
+  const { app } = routeHarness(
+    {
+      updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+      createAlertUpdate: async (data: Record<string, any>) => {
+        calls.push(data);
+        return { id: "update-1", ...data };
+      },
+    },
+    { uploadedFile: { originalname: "resolved.png", buffer: Buffer.from("x") } },
+  );
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "exactly one resolve update is created");
+  assert.equal(calls[0].status, "resolved", "the created update is the resolution note");
+  assert.equal(calls[0].message, "Fixed", "the resolve message is persisted");
+  assert.equal(
+    calls[0].imageUrl,
+    "image.png",
+    "the saveUploadedFile URL is included as imageUrl on the resolve update",
+  );
+});
+
+test("route PATCH /api/admin/alerts/:id/resolve sets no imageUrl when no file is uploaded", async () => {
+  const calls: Array<Record<string, any>> = [];
+  const { app } = routeHarness({
+    updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+    createAlertUpdate: async (data: Record<string, any>) => {
+      calls.push(data);
+      return { id: "update-1", ...data };
+    },
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1, "exactly one resolve update is created");
+  assert.equal(calls[0].message, "Fixed", "the resolve message is persisted");
+  assert.ok(
+    !("imageUrl" in calls[0]),
+    "no imageUrl key is set on the resolve update when nothing was uploaded",
+  );
+});
+
 test("route DELETE /api/admin/alerts/:id recomputes services captured before deletion", async () => {
   const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
     getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
