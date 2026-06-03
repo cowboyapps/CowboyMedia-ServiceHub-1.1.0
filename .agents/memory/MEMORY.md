@@ -1,2 +1,3 @@
 - [Alert service-status recompute](alert-status-recompute.md) — every alert lifecycle route that changes coverage must recompute + broadcast each affected service or status goes stale.
 - [KB attachment gate ordering](kb-attachment-gate-ordering.md) — admin-only KB-link gate + slug resolve must pass before saveUploadedFile, or rejected requests orphan upload blobs.
+- [Uploaded-file orphan cleanup](uploaded-file-cleanup.md) — uploads are base64 rows in `uploaded_files`; delete a blob only after confirming no record (any image column) still references it.

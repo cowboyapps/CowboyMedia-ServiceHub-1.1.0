@@ -13,6 +13,7 @@ import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
+import { deleteUploadedFileIfUnreferenced } from "./uploaded-file-cleanup";
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
 import { createDashboardHandler } from "./dashboard";
@@ -3399,7 +3400,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (thread.adminId !== req.session.userId && delUser?.role !== "master_admin") {
         return res.status(403).json({ message: "Forbidden" });
       }
+      // Capture attached image URLs BEFORE the rows are gone, then tidy up any
+      // upload no longer referenced once the thread + its messages are deleted.
+      const threadImageUrls = (await storage.getThreadMessages(req.params.id))
+        .map((m) => m.imageUrl)
+        .filter((u): u is string => !!u);
       await storage.deleteMessageThread(req.params.id);
+      for (const url of threadImageUrls) {
+        await deleteUploadedFileIfUnreferenced(url);
+      }
       res.json({ message: "Thread deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
