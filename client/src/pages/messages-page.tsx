@@ -10,12 +10,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox } from "lucide-react";
+import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox, Paperclip, X, Download, BookOpen, ChevronRight } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { MessageThread, ThreadMessage, PrivateMessage } from "@shared/schema";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
+import { ClickableImage } from "@/components/image-lightbox";
+import type { KbArticleRef } from "@/components/kb-article-picker-dialog";
 
 type EnrichedThread = MessageThread & {
   adminName: string;
@@ -24,7 +26,65 @@ type EnrichedThread = MessageThread & {
   unreadCount: number;
 };
 
-type EnrichedThreadMessage = ThreadMessage & { senderName?: string };
+type EnrichedThreadMessage = ThreadMessage & { senderName?: string; kbArticle?: KbArticleRef | null };
+
+function getFileType(url: string): "image" | "video" | "other" {
+  const ext = url.split(".").pop()?.toLowerCase() || "";
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)) return "image";
+  if (["mp4", "webm", "mov", "avi", "mkv", "m4v"].includes(ext)) return "video";
+  return "other";
+}
+
+function getFileName(url: string): string {
+  return url.split("/").pop() || "file";
+}
+
+function ThreadFileAttachment({ url, isMe }: { url: string; isMe: boolean }) {
+  const type = getFileType(url);
+  if (type === "image") {
+    return (
+      <div className="mt-2">
+        <ClickableImage src={url} alt="Attachment" className="max-w-full h-32 object-cover rounded-md" />
+        <a href={url} download target="_blank" rel="noopener noreferrer" className={`mt-1 flex items-center gap-1 text-xs hover:underline ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`} data-testid="link-download-thread-image">
+          <Download className="w-3 h-3" />
+          <span>Download</span>
+        </a>
+      </div>
+    );
+  }
+  if (type === "video") {
+    return (
+      <div className="mt-2">
+        <video src={url} controls className="max-w-full h-40 rounded-md" />
+      </div>
+    );
+  }
+  return (
+    <a href={url} download target="_blank" rel="noopener noreferrer" className={`mt-2 flex items-center gap-1.5 text-xs underline ${isMe ? "text-primary-foreground/80" : "text-foreground"}`} data-testid="link-download-thread-file">
+      <Download className="w-3.5 h-3.5" />
+      <span className="truncate">{getFileName(url)}</span>
+    </a>
+  );
+}
+
+function ThreadKbCard({ article, isMe }: { article: KbArticleRef; isMe: boolean }) {
+  return (
+    <Link href={`/knowledge/${article.slug}`}>
+      <div
+        className={`mt-2 flex items-start gap-2 p-2 rounded-md border cursor-pointer hover-elevate tap-interactive ${isMe ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-background/60"}`}
+        data-testid="kb-card-thread-msg"
+      >
+        <BookOpen className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium truncate">{article.title}</p>
+          {article.categoryName && <p className="text-[10px] opacity-80 mt-0.5">{article.categoryName}</p>}
+          {article.summary && <p className="text-[11px] opacity-80 mt-1 line-clamp-2">{article.summary}</p>}
+        </div>
+        <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+      </div>
+    </Link>
+  );
+}
 
 function BouncingDots() {
   return (
@@ -60,12 +120,14 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const [message, setMessage] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
@@ -174,11 +236,13 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
   };
 
   const sendMutation = useMutation({
-    mutationFn: async (body: string) => {
+    mutationFn: async ({ body, file }: { body: string; file: File | null }) => {
+      const formData = new FormData();
+      formData.append("body", body);
+      if (file) formData.append("image", file);
       const res = await fetch(`/api/message-threads/${threadId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: formData,
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to send");
@@ -193,15 +257,17 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
 
   const handleSend = useCallback(() => {
     const msgText = message.trim();
-    if (!msgText) return;
+    const file = imageFile;
+    if (!msgText && !file) return;
     setMessage("");
-    sendMutation.mutate(msgText);
+    setImageFile(null);
+    sendMutation.mutate({ body: msgText, file });
     if (isNearBottomRef.current) setTimeout(() => scrollToBottom(), 50);
     setTimeout(() => {
       const el = messageInputRef.current;
       if (el) { el.style.height = "auto"; el.focus(); }
     }, 0);
-  }, [message, sendMutation, scrollToBottom]);
+  }, [message, imageFile, sendMutation, scrollToBottom]);
 
   const otherName = isAdmin ? thread?.customerName : thread?.adminName;
 
@@ -245,7 +311,9 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
                   <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1`}>
                     <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                       {!isMe && <p className="text-[10px] font-medium mb-0.5 opacity-70">{msg.senderName}</p>}
-                      <p className="text-sm whitespace-pre-wrap break-words">{msg.body}</p>
+                      {msg.body && <p className="text-sm whitespace-pre-wrap break-words">{msg.body}</p>}
+                      {msg.imageUrl && <ThreadFileAttachment url={msg.imageUrl} isMe={isMe} />}
+                      {msg.kbArticle && <ThreadKbCard article={msg.kbArticle} isMe={isMe} />}
                       <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                         {format(msgDate, "h:mm a")}
                       </p>
@@ -274,7 +342,35 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
             <BouncingDots />
           </div>
         )}
+        {imageFile && (
+          <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-thread-image">
+            <Paperclip className="w-4 h-4 flex-shrink-0" />
+            <span className="text-xs truncate flex-1">{imageFile.name}</span>
+            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setImageFile(null)} data-testid="button-remove-thread-image">
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+            data-testid="input-thread-file"
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="flex-shrink-0 h-9 w-9"
+            onClick={() => fileInputRef.current?.click()}
+            data-testid="button-attach-thread-image"
+            title="Attach a photo"
+          >
+            <Paperclip className="w-4 h-4" />
+          </Button>
           <Textarea
             ref={messageInputRef}
             value={message}
@@ -303,7 +399,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
             size="icon"
             className="flex-shrink-0 h-9 w-9"
             onClick={handleSend}
-            disabled={!message.trim() || sendMutation.isPending}
+            disabled={(!message.trim() && !imageFile) || sendMutation.isPending}
             data-testid="button-send-thread-message"
           >
             <Send className="w-4 h-4" />

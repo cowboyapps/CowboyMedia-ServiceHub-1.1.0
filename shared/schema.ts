@@ -566,6 +566,8 @@ export const threadMessages = pgTable("thread_messages", {
   threadId: varchar("thread_id").notNull(),
   senderId: varchar("sender_id").notNull(),
   body: text("body").notNull(),
+  imageUrl: text("image_url"),
+  kbArticleSlug: text("kb_article_slug"),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({

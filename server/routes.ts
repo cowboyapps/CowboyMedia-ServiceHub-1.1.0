@@ -3128,15 +3128,41 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   // === Message Threads (Conversational Messaging) ===
 
-  app.post("/api/message-threads", requirePermission("messages.manage"), async (req, res) => {
+  app.post("/api/message-threads", requirePermission("messages.manage"), upload.single("image"), async (req, res) => {
     try {
-      const { customerId, subject, body } = req.body;
-      if (!customerId || !subject || !body) {
-        return res.status(400).json({ message: "customerId, subject, and body are required" });
+      const customerId = typeof req.body.customerId === "string" ? req.body.customerId : "";
+      const subject = typeof req.body.subject === "string" ? req.body.subject : "";
+      const rawBody = typeof req.body.body === "string" ? req.body.body : "";
+      const body = rawBody.trim();
+
+      // KB attachment — the creator here is always an admin (route is gated by
+      // messages.manage), so no extra role check is needed. Resolve KB +
+      // validate required fields BEFORE persisting any upload so rejected
+      // requests don't leave orphaned file blobs on disk.
+      const rawKbSlug = typeof req.body.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
+      let kbArticleSlug: string | null = null;
+      let kbArticleInfo: KbArticleEnvelope | null = null;
+      if (rawKbSlug.length > 0) {
+        const resolved = await resolveKbArticleAttachment(rawKbSlug, storage);
+        if (!resolved.ok) {
+          return res.status(resolved.status).json({ message: resolved.error });
+        }
+        kbArticleSlug = resolved.slug;
+        kbArticleInfo = resolved.info;
+      }
+
+      if (!customerId || !subject) {
+        return res.status(400).json({ message: "customerId and subject are required" });
+      }
+      // Body may be empty when an image and/or KB article is the sole payload.
+      if (!body && !req.file && !kbArticleSlug) {
+        return res.status(400).json({ message: "A message, image, or article is required" });
       }
       const customer = await storage.getUser(customerId);
       if (!customer) return res.status(404).json({ message: "Customer not found" });
       if (customer.role !== "customer") return res.status(400).json({ message: "Can only start conversations with customers" });
+
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
 
       const thread = await storage.createMessageThread({
         adminId: req.session.userId!,
@@ -3148,15 +3174,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         threadId: thread.id,
         senderId: req.session.userId!,
         body,
+        imageUrl,
+        kbArticleSlug,
       });
+      const msgWithKb = { ...msg, kbArticle: kbArticleInfo };
 
       const sender = await storage.getUser(req.session.userId!);
-      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
+      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msgWithKb, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
 
+      const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
       if (customerWantsPush(customer, "thread_message")) {
         sendPushToUser(customerId, {
           title: `Message from ${sender?.fullName || "Support"}`,
-          body: `${subject}: ${body.substring(0, 100)}`,
+          body: `${subject}: ${previewBody.substring(0, 100)}`,
           url: `/messages/${thread.id}`,
           tag: `thread-${thread.id}`,
           resourceLabel: `your conversation "${subject}"`,
@@ -3168,14 +3198,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         sendTemplatedEmail(customer.email, "customer_thread_message", {
           sender_name: sender.fullName,
           thread_subject: subject,
-          message_body: body,
+          message_body: previewBody,
           customer_name: customer.fullName,
         }, customer.fullName);
       }
 
       logActivity("messages", "thread_created", { actorId: req.session.userId!, targetId: thread.id, targetType: "message_thread", summary: `Started conversation "${subject}" with ${customer.fullName}` });
 
-      res.json({ thread, message: msg });
+      res.json({ thread, message: msgWithKb });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -3246,9 +3276,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const user = await storage.getUser(id);
         if (user) senderMap.set(id, user.fullName);
       }));
+      const kbBySlug = await enrichKbArticlesForMessages(messages, storage);
       const enriched = messages.map(m => ({
         ...m,
         senderName: senderMap.get(m.senderId) || "Unknown",
+        kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
       }));
       res.json(enriched);
     } catch (e: any) {
@@ -3256,7 +3288,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/message-threads/:id/messages", requireAuth, async (req, res) => {
+  app.post("/api/message-threads/:id/messages", requireAuth, upload.single("image"), async (req, res) => {
     try {
       const thread = await storage.getMessageThread(req.params.id);
       if (!thread) return res.status(404).json({ message: "Thread not found" });
@@ -3264,30 +3296,61 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser3?.role !== "master_admin") {
         return res.status(403).json({ message: "Forbidden" });
       }
-      const { body } = req.body;
-      if (!body || !body.trim()) return res.status(400).json({ message: "Message body is required" });
+      const isAdminSending = reqUser3?.role === "master_admin" || reqUser3?.role === "admin" || req.session.userId === thread.adminId;
+
+      const rawBody = typeof req.body.body === "string" ? req.body.body : "";
+      const body = rawBody.trim();
+
+      // KB attachments are admin-only. Reject (don't silently drop) if a
+      // non-admin tries to attach one, so the rule is enforced server-side.
+      // Resolve KB + validate required fields BEFORE persisting any upload so
+      // rejected requests don't leave orphaned file blobs on disk.
+      const rawKbSlug = typeof req.body.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
+      let kbArticleSlug: string | null = null;
+      let kbArticleInfo: KbArticleEnvelope | null = null;
+      if (rawKbSlug.length > 0) {
+        if (!isAdminSending) {
+          return res.status(403).json({ message: "Only admins can link knowledge base articles" });
+        }
+        const resolved = await resolveKbArticleAttachment(rawKbSlug, storage);
+        if (!resolved.ok) {
+          return res.status(resolved.status).json({ message: resolved.error });
+        }
+        kbArticleSlug = resolved.slug;
+        kbArticleInfo = resolved.info;
+      }
+
+      // Body may be empty when an image and/or KB article is the sole payload.
+      if (!body && !req.file && !kbArticleSlug) {
+        return res.status(400).json({ message: "A message, image, or article is required" });
+      }
+
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
 
       const msg = await storage.createThreadMessage({
         threadId: thread.id,
         senderId: req.session.userId!,
-        body: body.trim(),
+        body,
+        imageUrl,
+        kbArticleSlug,
       });
+      const msgWithKb = { ...msg, kbArticle: kbArticleInfo };
 
       await storage.updateMessageThread(thread.id, { lastMessageAt: new Date() });
 
       const sender = await storage.getUser(req.session.userId!);
-      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msg, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
+      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msgWithKb, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
 
-      const isAdminSending = reqUser3?.role === "master_admin" || reqUser3?.role === "admin" || req.session.userId === thread.adminId;
       const recipientId = isAdminSending ? thread.customerId : thread.adminId;
       const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
 
       const shouldCreateNotif = !isRecipientViewing;
       const recipientUser = await storage.getUser(recipientId);
+      const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
       if (customerWantsPush(recipientUser, "thread_message")) {
         sendPushToUser(recipientId, {
           title: `${sender?.fullName || "User"}`,
-          body: body.trim().substring(0, 100),
+          body: previewBody.substring(0, 100),
           url: `/messages/${thread.id}`,
           tag: `thread-${thread.id}`,
           resourceLabel: `your conversation "${thread.subject}"`,
@@ -3302,13 +3365,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           sendTemplatedEmail(recipient.email, templateKey, {
             sender_name: sender.fullName,
             thread_subject: thread.subject,
-            message_body: body.trim(),
+            message_body: previewBody,
             customer_name: isAdminSending ? recipient.fullName : sender.fullName,
           }, recipient.fullName);
         }
       }
 
-      res.json(msg);
+      res.json(msgWithKb);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

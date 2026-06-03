@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useLocation, useSearch } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +33,8 @@ import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
-import { Download, ImagePlus, X as XIcon } from "lucide-react";
+import { Download, ImagePlus, X as XIcon, Paperclip } from "lucide-react";
+import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
@@ -1957,7 +1958,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
 const newThreadSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   subject: z.string().min(1, "Subject is required"),
-  body: z.string().min(1, "Message is required"),
+  body: z.string().optional().default(""),
 });
 
 type AdminEnrichedThread = {
@@ -1978,17 +1979,72 @@ type AdminThreadMsg = {
   threadId: string;
   senderId: string;
   body: string;
+  imageUrl: string | null;
+  kbArticleSlug: string | null;
+  kbArticle?: KbArticleRef | null;
   readAt: string | null;
   createdAt: string;
   senderName?: string;
 };
 
+function getThreadFileType(url: string): "image" | "video" | "other" {
+  const ext = url.split(".").pop()?.toLowerCase() || "";
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)) return "image";
+  if (["mp4", "webm", "mov", "avi", "mkv", "m4v"].includes(ext)) return "video";
+  return "other";
+}
+
+function AdminThreadAttachment({ url, isMe }: { url: string; isMe: boolean }) {
+  const type = getThreadFileType(url);
+  if (type === "image") {
+    return (
+      <div className="mt-2">
+        <ClickableImage src={url} alt="Attachment" className="max-w-full h-32 object-cover rounded-md" />
+        <a href={url} download target="_blank" rel="noopener noreferrer" className={`mt-1 flex items-center gap-1 text-xs hover:underline ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`} data-testid="link-download-admin-thread-image">
+          <Download className="w-3 h-3" /><span>Download</span>
+        </a>
+      </div>
+    );
+  }
+  if (type === "video") {
+    return <div className="mt-2"><ClickableVideo src={url} className="max-w-full h-40 rounded-md" /></div>;
+  }
+  return (
+    <a href={url} download target="_blank" rel="noopener noreferrer" className={`mt-2 flex items-center gap-1.5 text-xs underline ${isMe ? "text-primary-foreground/80" : "text-foreground"}`} data-testid="link-download-admin-thread-file">
+      <Download className="w-3.5 h-3.5" /><span className="truncate">{url.split("/").pop() || "file"}</span>
+    </a>
+  );
+}
+
+function AdminThreadKbCard({ article, isMe }: { article: KbArticleRef; isMe: boolean }) {
+  return (
+    <Link href={`/knowledge/${article.slug}`}>
+      <div
+        className={`mt-2 flex items-start gap-2 p-2 rounded-md border cursor-pointer hover-elevate tap-interactive ${isMe ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-background/60"}`}
+        data-testid="kb-card-admin-thread-msg"
+      >
+        <BookOpen className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium truncate">{article.title}</p>
+          {article.categoryName && <p className="text-[10px] opacity-80 mt-0.5">{article.categoryName}</p>}
+          {article.summary && <p className="text-[11px] opacity-80 mt-1 line-clamp-2">{article.summary}</p>}
+        </div>
+        <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+      </div>
+    </Link>
+  );
+}
+
 function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBack: () => void; userId: string }) {
   const { toast } = useToast();
   const [message, setMessage] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
+  const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
@@ -2082,26 +2138,32 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
   };
 
   const sendMut = useMutation({
-    mutationFn: async (body: string) => {
+    mutationFn: async (payload: { body: string; image: File | null; kbSlug: string | null }) => {
+      const fd = new FormData();
+      fd.append("body", payload.body);
+      if (payload.image) fd.append("image", payload.image);
+      if (payload.kbSlug) fd.append("kbArticleSlug", payload.kbSlug);
       const r = await fetch(`/api/message-threads/${threadId}/messages`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }), credentials: "include",
+        method: "POST", body: fd, credentials: "include",
       });
-      if (!r.ok) throw new Error("Failed");
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "Failed");
       return r.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
     },
-    onError: () => toast({ title: "Failed to send", variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed to send", description: e.message, variant: "destructive" }),
   });
 
   const handleSend = () => {
     const t = message.trim();
-    if (!t) return;
+    if (!t && !imageFile && !kbArticle) return;
     setMessage("");
-    sendMut.mutate(t);
+    sendMut.mutate({ body: t, image: imageFile, kbSlug: kbArticle?.slug ?? null });
+    setImageFile(null);
+    setKbArticle(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (isNearBottomRef.current) setTimeout(() => scrollToBottom(), 50);
     setTimeout(() => {
       const el = messageInputRef.current;
@@ -2140,7 +2202,9 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
               <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-1`}>
                 <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3 py-2 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                   {!isMe && <p className="text-[10px] font-medium mb-0.5 opacity-70">{msg.senderName}</p>}
-                  <p className="text-sm whitespace-pre-wrap break-words">{msg.body}</p>
+                  {msg.body && <p className="text-sm whitespace-pre-wrap break-words">{msg.body}</p>}
+                  {msg.imageUrl && <AdminThreadAttachment url={msg.imageUrl} isMe={isMe} />}
+                  {msg.kbArticle && <AdminThreadKbCard article={msg.kbArticle} isMe={isMe} />}
                   <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                     {format(msgDate, "h:mm a")}
                     {isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
@@ -2163,7 +2227,39 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
             </span>
           </div>
         )}
+        {imageFile && (
+          <div className="flex items-center gap-2 mb-2 px-1" data-testid="chip-admin-thread-image">
+            <div className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs">
+              <ImagePlus className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[180px]">{imageFile.name}</span>
+              <button type="button" onClick={() => { setImageFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} data-testid="button-admin-remove-image"><XIcon className="w-3.5 h-3.5" /></button>
+            </div>
+          </div>
+        )}
+        {kbArticle && (
+          <div className="flex items-center gap-2 mb-2 px-1" data-testid="chip-admin-thread-kb">
+            <div className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs">
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[180px]">{kbArticle.title}</span>
+              <button type="button" onClick={() => setKbArticle(null)} data-testid="button-admin-remove-kb"><XIcon className="w-3.5 h-3.5" /></button>
+            </div>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) setImageFile(f); }}
+          data-testid="input-admin-thread-file"
+        />
         <div className="flex items-end gap-2">
+          <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 h-9 w-9" onClick={() => fileInputRef.current?.click()} data-testid="button-admin-attach-image">
+            <Paperclip className="w-4 h-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 h-9 w-9" onClick={() => setKbPickerOpen(true)} data-testid="button-admin-attach-kb">
+            <BookOpen className="w-4 h-4" />
+          </Button>
           <Textarea
             ref={messageInputRef}
             value={message}
@@ -2182,11 +2278,12 @@ function AdminThreadChat({ threadId, onBack, userId }: { threadId: string; onBac
             rows={1}
             data-testid="input-admin-thread-message"
           />
-          <Button size="icon" className="flex-shrink-0 h-9 w-9" onClick={handleSend} disabled={!message.trim() || sendMut.isPending} data-testid="button-admin-send-thread">
+          <Button size="icon" className="flex-shrink-0 h-9 w-9" onClick={handleSend} disabled={(!message.trim() && !imageFile && !kbArticle) || sendMut.isPending} data-testid="button-admin-send-thread">
             <Send className="w-4 h-4" />
           </Button>
         </div>
       </div>
+      <KbArticlePickerDialog open={kbPickerOpen} onOpenChange={setKbPickerOpen} onSelect={(a) => { setKbArticle(a); setKbPickerOpen(false); }} />
     </div>
   );
 }
@@ -2209,6 +2306,11 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
 
   const customers = users?.filter((u) => u.role === "customer") || [];
 
+  const [newImageFile, setNewImageFile] = useState<File | null>(null);
+  const [newKbArticle, setNewKbArticle] = useState<KbArticleRef | null>(null);
+  const [newKbPickerOpen, setNewKbPickerOpen] = useState(false);
+  const newFileInputRef = useRef<HTMLInputElement>(null);
+
   const form = useForm({
     resolver: zodResolver(newThreadSchema),
     defaultValues: { customerId: "", subject: "", body: "" },
@@ -2216,22 +2318,38 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
 
   const createMutation = useMutation({
     mutationFn: async (data: z.infer<typeof newThreadSchema>) => {
+      const fd = new FormData();
+      fd.append("customerId", data.customerId);
+      fd.append("subject", data.subject);
+      fd.append("body", data.body ?? "");
+      if (newImageFile) fd.append("image", newImageFile);
+      if (newKbArticle) fd.append("kbArticleSlug", newKbArticle.slug);
       const res = await fetch("/api/message-threads", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data), credentials: "include",
+        method: "POST", body: fd, credentials: "include",
       });
-      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed");
       return res.json();
     },
     onSuccess: (data) => {
       setDialogOpen(false);
       form.reset();
+      setNewImageFile(null);
+      setNewKbArticle(null);
+      if (newFileInputRef.current) newFileInputRef.current.value = "";
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
       toast({ title: "Conversation started" });
       if (data.thread?.id) setActiveThreadId(data.thread.id);
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const handleCreateSubmit = (d: z.infer<typeof newThreadSchema>) => {
+    if (!(d.body ?? "").trim() && !newImageFile && !newKbArticle) {
+      toast({ title: "Add a message, photo, or article", variant: "destructive" });
+      return;
+    }
+    createMutation.mutate(d);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -2265,7 +2383,7 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader><DialogTitle>Start Conversation</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
+              <form onSubmit={form.handleSubmit(handleCreateSubmit)} className="space-y-3">
                 <FormField control={form.control} name="customerId" render={({ field }) => (
                   <FormItem><FormLabel>Customer</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
@@ -2284,11 +2402,42 @@ function MessagesTab({ canManage = true }: { canManage?: boolean }) {
                 <FormField control={form.control} name="body" render={({ field }) => (
                   <FormItem><FormLabel>First Message</FormLabel><FormControl><Textarea className="min-h-[100px]" data-testid="input-thread-body" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
+                {newImageFile && (
+                  <div className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs w-fit" data-testid="chip-new-thread-image">
+                    <ImagePlus className="w-3.5 h-3.5" />
+                    <span className="truncate max-w-[200px]">{newImageFile.name}</span>
+                    <button type="button" onClick={() => { setNewImageFile(null); if (newFileInputRef.current) newFileInputRef.current.value = ""; }} data-testid="button-new-thread-remove-image"><XIcon className="w-3.5 h-3.5" /></button>
+                  </div>
+                )}
+                {newKbArticle && (
+                  <div className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs w-fit" data-testid="chip-new-thread-kb">
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span className="truncate max-w-[200px]">{newKbArticle.title}</span>
+                    <button type="button" onClick={() => setNewKbArticle(null)} data-testid="button-new-thread-remove-kb"><XIcon className="w-3.5 h-3.5" /></button>
+                  </div>
+                )}
+                <input
+                  ref={newFileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) setNewImageFile(f); }}
+                  data-testid="input-new-thread-file"
+                />
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => newFileInputRef.current?.click()} data-testid="button-new-thread-attach-image">
+                    <Paperclip className="w-4 h-4 mr-1" /> Photo
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setNewKbPickerOpen(true)} data-testid="button-new-thread-attach-kb">
+                    <BookOpen className="w-4 h-4 mr-1" /> Article
+                  </Button>
+                </div>
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-start-conversation">
                   {createMutation.isPending ? "Starting..." : "Start Conversation"}
                 </Button>
               </form>
             </Form>
+            <KbArticlePickerDialog open={newKbPickerOpen} onOpenChange={setNewKbPickerOpen} onSelect={(a) => { setNewKbArticle(a); setNewKbPickerOpen(false); }} />
           </DialogContent>
         </Dialog>
       </div>
