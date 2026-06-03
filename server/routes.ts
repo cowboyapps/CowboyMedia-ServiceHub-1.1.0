@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { registerAlertRoutes } from "./alert-routes";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
+import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getCachedPublicStatus, setCachedPublicStatus } from "./public-status-cache";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
@@ -3136,20 +3137,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const body = rawBody.trim();
 
       // KB attachment — the creator here is always an admin (route is gated by
-      // messages.manage), so no extra role check is needed. Resolve KB +
+      // messages.manage), so the admin gate always passes. Resolve KB +
       // validate required fields BEFORE persisting any upload so rejected
       // requests don't leave orphaned file blobs on disk.
-      const rawKbSlug = typeof req.body.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
-      let kbArticleSlug: string | null = null;
-      let kbArticleInfo: KbArticleEnvelope | null = null;
-      if (rawKbSlug.length > 0) {
-        const resolved = await resolveKbArticleAttachment(rawKbSlug, storage);
-        if (!resolved.ok) {
-          return res.status(resolved.status).json({ message: resolved.error });
-        }
-        kbArticleSlug = resolved.slug;
-        kbArticleInfo = resolved.info;
+      const rawKbSlug = typeof req.body.kbArticleSlug === "string" ? req.body.kbArticleSlug : "";
+      const kbDecision = await resolveKbAttachmentForSender({ rawKbSlug, isAdminSending: true }, storage);
+      if (!kbDecision.ok) {
+        return res.status(kbDecision.status).json({ message: kbDecision.error });
       }
+      const kbArticleSlug = kbDecision.kbArticleSlug;
+      const kbArticleInfo = kbDecision.kbArticleInfo;
 
       if (!customerId || !subject) {
         return res.status(400).json({ message: "customerId and subject are required" });
@@ -3305,20 +3302,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // non-admin tries to attach one, so the rule is enforced server-side.
       // Resolve KB + validate required fields BEFORE persisting any upload so
       // rejected requests don't leave orphaned file blobs on disk.
-      const rawKbSlug = typeof req.body.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
-      let kbArticleSlug: string | null = null;
-      let kbArticleInfo: KbArticleEnvelope | null = null;
-      if (rawKbSlug.length > 0) {
-        if (!isAdminSending) {
-          return res.status(403).json({ message: "Only admins can link knowledge base articles" });
-        }
-        const resolved = await resolveKbArticleAttachment(rawKbSlug, storage);
-        if (!resolved.ok) {
-          return res.status(resolved.status).json({ message: resolved.error });
-        }
-        kbArticleSlug = resolved.slug;
-        kbArticleInfo = resolved.info;
+      const rawKbSlug = typeof req.body.kbArticleSlug === "string" ? req.body.kbArticleSlug : "";
+      const kbDecision = await resolveKbAttachmentForSender({ rawKbSlug, isAdminSending }, storage);
+      if (!kbDecision.ok) {
+        return res.status(kbDecision.status).json({ message: kbDecision.error });
       }
+      const kbArticleSlug = kbDecision.kbArticleSlug;
+      const kbArticleInfo = kbDecision.kbArticleInfo;
 
       // Body may be empty when an image and/or KB article is the sole payload.
       if (!body && !req.file && !kbArticleSlug) {
