@@ -33,6 +33,8 @@ the historical backlog. Best-effort per-file; logs the count removed.
 image + every message image, internal included), individual ticket-message
 delete, and community-chat message delete (`DELETE /api/community-chat/messages/:id`)
 now clean up inline via `deleteUploadedFileIfUnreferenced` AFTER the row(s) are gone.
+Community-chat is the last of the known per-delete leaks to be closed.
 
-**Known remaining gaps:** The boot-time orphan sweep in `registerRoutes`
-currently only nulls `newsStories.imageUrl`, not references in other tables.
+**No known remaining gaps:** the boot-time sweep now calls
+`sweepOrphanedUploadedFiles()`, which deletes every zero-reference blob across all
+tables in `isUploadReferenced` (not just `newsStories.imageUrl`).
