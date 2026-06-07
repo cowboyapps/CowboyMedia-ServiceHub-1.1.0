@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractUploadFilename, deleteUploadedFileIfUnreferenced } from "./uploaded-file-cleanup";
+import { extractUploadFilename, deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles } from "./uploaded-file-cleanup";
 
 // ---------- extractUploadFilename ----------
 // Guards the "only ever act on a file we own" property: anything that isn't a
@@ -80,4 +80,62 @@ test("swallows errors so a cleanup failure can't break the delete it follows", a
       },
     }),
   );
+});
+
+// ---------- sweepOrphanedUploadedFiles ----------
+// The boot/periodic sweep: delete every zero-reference blob, keep referenced
+// ones, and never throw so a single failure can't abort the whole sweep.
+
+test("sweep removes only the blobs that nothing references", async () => {
+  const referenced = new Set(["/uploads/kept.png"]);
+  const removed: string[] = [];
+  const count = await sweepOrphanedUploadedFiles({
+    listFilenames: async () => ["kept.png", "orphan-a.png", "orphan-b.png"],
+    isReferenced: async (url) => referenced.has(url),
+    remove: async (filename) => {
+      removed.push(filename);
+    },
+  });
+  assert.deepEqual(removed.sort(), ["orphan-a.png", "orphan-b.png"]);
+  assert.equal(count, 2);
+});
+
+test("sweep returns 0 and deletes nothing when every blob is referenced", async () => {
+  const removed: string[] = [];
+  const count = await sweepOrphanedUploadedFiles({
+    listFilenames: async () => ["a.png", "b.png"],
+    isReferenced: async () => true,
+    remove: async (filename) => {
+      removed.push(filename);
+    },
+  });
+  assert.deepEqual(removed, []);
+  assert.equal(count, 0);
+});
+
+test("sweep keeps going when one file's check throws, counting only successes", async () => {
+  const removed: string[] = [];
+  const count = await sweepOrphanedUploadedFiles({
+    listFilenames: async () => ["boom.png", "orphan.png"],
+    isReferenced: async (url) => {
+      if (url === "/uploads/boom.png") throw new Error("db blip");
+      return false;
+    },
+    remove: async (filename) => {
+      removed.push(filename);
+    },
+  });
+  assert.deepEqual(removed, ["orphan.png"]);
+  assert.equal(count, 1);
+});
+
+test("sweep never throws when listing the files fails", async () => {
+  await assert.doesNotReject(async () => {
+    const count = await sweepOrphanedUploadedFiles({
+      listFilenames: async () => {
+        throw new Error("db down");
+      },
+    });
+    assert.equal(count, 0);
+  });
 });

@@ -77,3 +77,49 @@ export async function deleteUploadedFileIfUnreferenced(
     console.error("deleteUploadedFileIfUnreferenced failed:", e);
   }
 }
+
+// Injectable seams so the sweep can be tested without a live DB.
+export interface SweepDeps {
+  listFilenames?: () => Promise<string[]>;
+  isReferenced?: (url: string) => Promise<boolean>;
+  remove?: (filename: string) => Promise<void>;
+}
+
+// Boot/periodic sweep: walks every blob in `uploaded_files` and deletes the ones
+// no record references anymore. Reuses the same reference-check list as the
+// per-delete cleanup so a column that keeps a file alive there keeps it alive
+// here too. Safe (only deletes zero-reference blobs) and best-effort (never
+// throws; a single failure is logged and the sweep moves on). Returns the count
+// removed. Reclaims the historical backlog from before per-delete cleanup existed.
+export async function sweepOrphanedUploadedFiles(deps: SweepDeps = {}): Promise<number> {
+  const listFilenames =
+    deps.listFilenames ??
+    (async () => {
+      const rows = await db.select({ filename: uploadedFiles.filename }).from(uploadedFiles);
+      return rows.map((r) => r.filename);
+    });
+  const isReferenced = deps.isReferenced ?? isUploadReferenced;
+  const remove =
+    deps.remove ??
+    (async (filename: string) => {
+      await db.delete(uploadedFiles).where(eq(uploadedFiles.filename, filename));
+    });
+
+  let removed = 0;
+  try {
+    const filenames = await listFilenames();
+    for (const filename of filenames) {
+      try {
+        const url = `/uploads/${filename}`;
+        if (await isReferenced(url)) continue;
+        await remove(filename);
+        removed++;
+      } catch (e) {
+        console.error(`sweepOrphanedUploadedFiles: failed on ${filename}:`, e);
+      }
+    }
+  } catch (e) {
+    console.error("sweepOrphanedUploadedFiles failed:", e);
+  }
+  return removed;
+}

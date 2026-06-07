@@ -23,7 +23,13 @@ reference check is the safety net. Run cleanup AFTER deleting the owning row so
 the row's own reference doesn't keep the file alive; make it best-effort (never
 throw) so a cleanup failure can't break the user-facing delete.
 
-**Known remaining gaps:** message-thread delete and community-chat message
-delete (`DELETE /api/community-chat/messages/:id`) now clean up. Ticket
-message/ticket delete paths still leak blobs; the boot-time orphan sweep in
-`registerRoutes` only nulls `newsStories.imageUrl`, not other tables.
+**Boot sweep:** the boot-time IIFE in `registerRoutes` nulls dangling
+`newsStories.imageUrl` AND then calls `sweepOrphanedUploadedFiles()` (in
+`server/uploaded-file-cleanup.ts`), which deletes every `uploaded_files` blob
+that the shared `isUploadReferenced` list finds zero references for — reclaiming
+the historical backlog. Best-effort per-file; logs the count removed.
+
+**Known remaining gaps (per-delete paths):** message-thread delete and community-chat
+message delete (`DELETE /api/community-chat/messages/:id`) now clean up inline.
+Ticket message/ticket delete paths still leak blobs at delete time — but the boot sweep
+now reclaims those leaks on the next restart.

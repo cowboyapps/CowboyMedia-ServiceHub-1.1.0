@@ -13,7 +13,7 @@ import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
-import { deleteUploadedFileIfUnreferenced } from "./uploaded-file-cleanup";
+import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles } from "./uploaded-file-cleanup";
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
 import { createDashboardHandler } from "./dashboard";
@@ -4973,6 +4973,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (story.imageUrl && !validPaths.has(story.imageUrl)) {
           await db.update(newsStories).set({ imageUrl: null }).where(eq(newsStories.id, story.id));
         }
+      }
+
+      // Reclaim the historical backlog of upload blobs no record references
+      // anymore (from before per-delete cleanup existed). Safe: only deletes
+      // zero-reference files via the shared reference-check list.
+      const removed = await sweepOrphanedUploadedFiles();
+      if (removed > 0) {
+        console.log(`[cleanup] Swept ${removed} orphaned uploaded file(s) at startup`);
       }
     } catch (e) {
       console.error("Cleanup orphaned image refs failed:", e);
