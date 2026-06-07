@@ -5318,7 +5318,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!user) return res.status(401).json({ error: "User not found" });
       const isAdminUser = user.role === "admin" || user.role === "master_admin";
       if (!isAdminUser) return res.status(403).json({ error: "Only admins can delete messages" });
+      // Capture the attached image URL BEFORE the row is gone, then tidy up the
+      // upload if no other record still references it.
+      const existingMsg = await storage.getCommunityMessage(req.params.id);
       await storage.deleteCommunityMessage(req.params.id);
+      await deleteUploadedFileIfUnreferenced(existingMsg?.imageUrl);
       broadcast({ type: "community_message_deleted", messageId: req.params.id });
       res.json({ success: true });
     } catch (e: any) {

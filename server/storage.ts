@@ -333,6 +333,7 @@ export interface IStorage {
   deleteExpiredUserNotifications(daysOld: number): Promise<number>;
 
   getCommunityMessages(limit?: number, before?: string): Promise<CommunityMessage[]>;
+  getCommunityMessage(id: string): Promise<CommunityMessage | undefined>;
   createCommunityMessage(data: InsertCommunityMessage): Promise<CommunityMessage>;
   deleteCommunityMessage(id: string): Promise<void>;
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
@@ -1578,6 +1579,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(communityMessages)
       .orderBy(desc(communityMessages.createdAt))
       .limit(limit);
+  }
+
+  async getCommunityMessage(id: string): Promise<CommunityMessage | undefined> {
+    const [msg] = await db.select().from(communityMessages).where(eq(communityMessages.id, id));
+    return msg;
   }
 
   async createCommunityMessage(data: InsertCommunityMessage): Promise<CommunityMessage> {

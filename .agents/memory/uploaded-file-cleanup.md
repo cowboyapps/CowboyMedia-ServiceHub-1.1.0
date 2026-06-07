@@ -23,7 +23,7 @@ reference check is the safety net. Run cleanup AFTER deleting the owning row so
 the row's own reference doesn't keep the file alive; make it best-effort (never
 throw) so a cleanup failure can't break the user-facing delete.
 
-**Known remaining gaps (as of Task #278):** only the message-thread delete path
-cleans up. Ticket message/ticket delete and community-chat message delete paths
-still leak blobs; the boot-time orphan sweep in `registerRoutes` only nulls
-`newsStories.imageUrl`, not other tables.
+**Known remaining gaps:** message-thread delete and community-chat message
+delete (`DELETE /api/community-chat/messages/:id`) now clean up. Ticket
+message/ticket delete paths still leak blobs; the boot-time orphan sweep in
+`registerRoutes` only nulls `newsStories.imageUrl`, not other tables.
