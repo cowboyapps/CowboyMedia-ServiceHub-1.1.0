@@ -2699,6 +2699,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const check = canMutateInternalNote(msg, ticket.id, actor);
       if (!check.ok) return res.status(check.status).json({ message: check.message });
       await storage.deleteTicketMessage(req.params.messageId);
+      await deleteUploadedFileIfUnreferenced(msg!.imageUrl);
       logActivity("ticket", "ticket_internal_note_deleted", {
         actorId: req.session.userId!,
         targetId: ticket.id,
@@ -3056,7 +3057,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (ticket.status !== "closed") {
         return res.status(400).json({ message: "Only closed tickets can be deleted" });
       }
+      // Capture attached image URLs (the ticket's own + every message's) BEFORE
+      // the rows are gone, then tidy up any upload no longer referenced once the
+      // ticket + its messages are deleted.
+      const ticketImageUrls = [
+        ticket.imageUrl,
+        ...(await storage.getTicketMessages(req.params.id, true)).map((m) => m.imageUrl),
+      ].filter((u): u is string => !!u);
       await storage.deleteTicket(req.params.id);
+      for (const url of ticketImageUrls) {
+        await deleteUploadedFileIfUnreferenced(url);
+      }
       res.json({ message: "Ticket deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

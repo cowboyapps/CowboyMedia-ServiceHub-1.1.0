@@ -29,7 +29,10 @@ throw) so a cleanup failure can't break the user-facing delete.
 that the shared `isUploadReferenced` list finds zero references for — reclaiming
 the historical backlog. Best-effort per-file; logs the count removed.
 
-**Known remaining gaps (per-delete paths):** message-thread delete and community-chat
-message delete (`DELETE /api/community-chat/messages/:id`) now clean up inline.
-Ticket message/ticket delete paths still leak blobs at delete time — but the boot sweep
-now reclaims those leaks on the next restart.
+**Cleaned-up delete paths:** message-thread delete, ticket delete (its own
+image + every message image, internal included), individual ticket-message
+delete, and community-chat message delete (`DELETE /api/community-chat/messages/:id`)
+now clean up inline via `deleteUploadedFileIfUnreferenced` AFTER the row(s) are gone.
+
+**Known remaining gaps:** The boot-time orphan sweep in `registerRoutes`
+currently only nulls `newsStories.imageUrl`, not references in other tables.
