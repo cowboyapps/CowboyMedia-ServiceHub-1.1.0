@@ -1,23 +1,41 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { useParams, useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox, Paperclip, X, Download, BookOpen, ChevronRight } from "lucide-react";
+import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox, Paperclip, X, Download, BookOpen, ChevronRight, MessageSquare, Trash2, Users } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { MessageThread, ThreadMessage, PrivateMessage } from "@shared/schema";
+import type { MessageThread, ThreadMessage, PrivateMessage, User } from "@shared/schema";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { ClickableImage } from "@/components/image-lightbox";
-import type { KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 
 type EnrichedThread = MessageThread & {
   adminName: string;
@@ -27,6 +45,12 @@ type EnrichedThread = MessageThread & {
 };
 
 type EnrichedThreadMessage = ThreadMessage & { senderName?: string; kbArticle?: KbArticleRef | null };
+
+const newThreadSchema = z.object({
+  customerId: z.string().min(1, "Customer is required"),
+  subject: z.string().min(1, "Subject is required"),
+  body: z.string().optional().default(""),
+});
 
 function getFileType(url: string): "image" | "video" | "other" {
   const ext = url.split(".").pop()?.toLowerCase() || "";
@@ -121,6 +145,8 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
   const isMobile = useIsMobile();
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
+  const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
   const isNearBottomRef = useRef(true);
@@ -236,38 +262,42 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
   };
 
   const sendMutation = useMutation({
-    mutationFn: async ({ body, file }: { body: string; file: File | null }) => {
+    mutationFn: async ({ body, file, kbSlug }: { body: string; file: File | null; kbSlug: string | null }) => {
       const formData = new FormData();
       formData.append("body", body);
       if (file) formData.append("image", file);
+      if (kbSlug) formData.append("kbArticleSlug", kbSlug);
       const res = await fetch(`/api/message-threads/${threadId}/messages`, {
         method: "POST",
         body: formData,
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to send");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to send");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
     },
-    onError: () => toast({ title: "Failed to send message", variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed to send message", description: e.message, variant: "destructive" }),
   });
 
   const handleSend = useCallback(() => {
     const msgText = message.trim();
     const file = imageFile;
-    if (!msgText && !file) return;
+    const kbSlug = isAdmin ? (kbArticle?.slug ?? null) : null;
+    if (!msgText && !file && !kbSlug) return;
     setMessage("");
     setImageFile(null);
-    sendMutation.mutate({ body: msgText, file });
+    setKbArticle(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    sendMutation.mutate({ body: msgText, file, kbSlug });
     if (isNearBottomRef.current) setTimeout(() => scrollToBottom(), 50);
     setTimeout(() => {
       const el = messageInputRef.current;
       if (el) { el.style.height = "auto"; el.focus(); }
     }, 0);
-  }, [message, imageFile, sendMutation, scrollToBottom]);
+  }, [message, imageFile, kbArticle, isAdmin, sendMutation, scrollToBottom]);
 
   const otherName = isAdmin ? thread?.customerName : thread?.adminName;
 
@@ -316,6 +346,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
                       {msg.kbArticle && <ThreadKbCard article={msg.kbArticle} isMe={isMe} />}
                       <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                         {format(msgDate, "h:mm a")}
+                        {isMe && isAdmin && msg.readAt && <span className="ml-1.5">· Read</span>}
                       </p>
                     </div>
                   </div>
@@ -346,7 +377,16 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
           <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-thread-image">
             <Paperclip className="w-4 h-4 flex-shrink-0" />
             <span className="text-xs truncate flex-1">{imageFile.name}</span>
-            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setImageFile(null)} data-testid="button-remove-thread-image">
+            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setImageFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} data-testid="button-remove-thread-image">
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+        )}
+        {isAdmin && kbArticle && (
+          <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-thread-kb">
+            <BookOpen className="w-4 h-4 flex-shrink-0" />
+            <span className="text-xs truncate flex-1">{kbArticle.title}</span>
+            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setKbArticle(null)} data-testid="button-remove-thread-kb">
               <X className="w-3 h-3" />
             </Button>
           </div>
@@ -371,6 +411,19 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
           >
             <Paperclip className="w-4 h-4" />
           </Button>
+          {isAdmin && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="flex-shrink-0 h-9 w-9"
+              onClick={() => setKbPickerOpen(true)}
+              data-testid="button-attach-thread-kb"
+              title="Link a knowledge base article"
+            >
+              <BookOpen className="w-4 h-4" />
+            </Button>
+          )}
           <Textarea
             ref={messageInputRef}
             value={message}
@@ -399,22 +452,222 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
             size="icon"
             className="flex-shrink-0 h-9 w-9"
             onClick={handleSend}
-            disabled={(!message.trim() && !imageFile) || sendMutation.isPending}
+            disabled={(!message.trim() && !imageFile && !(isAdmin && kbArticle)) || sendMutation.isPending}
             data-testid="button-send-thread-message"
           >
             <Send className="w-4 h-4" />
           </Button>
         </div>
       </div>
+
+      {isAdmin && (
+        <KbArticlePickerDialog open={kbPickerOpen} onOpenChange={setKbPickerOpen} onSelect={(a) => { setKbArticle(a); setKbPickerOpen(false); }} />
+      )}
     </div>
   );
 }
 
+function NewConversationDialog() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [, navigate] = useLocation();
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
+  const [kbPickerOpen, setKbPickerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: users } = useQuery<User[]>({ queryKey: ["/api/admin/users"], enabled: open });
+  const customers = users?.filter((u) => u.role === "customer") || [];
+
+  const form = useForm({
+    resolver: zodResolver(newThreadSchema),
+    defaultValues: { customerId: "", subject: "", body: "" },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof newThreadSchema>) => {
+      const fd = new FormData();
+      fd.append("customerId", data.customerId);
+      fd.append("subject", data.subject);
+      fd.append("body", data.body ?? "");
+      if (imageFile) fd.append("image", imageFile);
+      if (kbArticle) fd.append("kbArticleSlug", kbArticle.slug);
+      const res = await fetch("/api/message-threads", { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setOpen(false);
+      form.reset();
+      setImageFile(null);
+      setKbArticle(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+      toast({ title: "Conversation started" });
+      if (data.thread?.id) navigate(`/messages/${data.thread.id}`);
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const handleCreateSubmit = (d: z.infer<typeof newThreadSchema>) => {
+    if (!(d.body ?? "").trim() && !imageFile && !kbArticle) {
+      toast({ title: "Add a message, photo, or article", variant: "destructive" });
+      return;
+    }
+    createMutation.mutate(d);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      form.reset();
+      setImageFile(null);
+      setKbArticle(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button size="sm" data-testid="button-new-conversation"><MessageSquare className="w-4 h-4 mr-1" /> New Conversation</Button>
+      </DialogTrigger>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+        <DialogHeader><DialogTitle>Start Conversation</DialogTitle></DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleCreateSubmit)} className="space-y-3">
+            <FormField control={form.control} name="customerId" render={({ field }) => (
+              <FormItem><FormLabel>Customer</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl><SelectTrigger data-testid="select-thread-customer"><SelectValue placeholder="Select a customer" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {customers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.fullName} (@{u.username})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              <FormMessage /></FormItem>
+            )} />
+            <FormField control={form.control} name="subject" render={({ field }) => (
+              <FormItem><FormLabel>Subject</FormLabel><FormControl><Input data-testid="input-thread-subject" {...field} /></FormControl><FormMessage /></FormItem>
+            )} />
+            <FormField control={form.control} name="body" render={({ field }) => (
+              <FormItem><FormLabel>First Message</FormLabel><FormControl><Textarea className="min-h-[100px]" data-testid="input-thread-body" {...field} /></FormControl><FormMessage /></FormItem>
+            )} />
+            {imageFile && (
+              <div className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs w-fit" data-testid="chip-new-thread-image">
+                <Paperclip className="w-3.5 h-3.5" />
+                <span className="truncate max-w-[200px]">{imageFile.name}</span>
+                <button type="button" onClick={() => { setImageFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} data-testid="button-new-thread-remove-image"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+            {kbArticle && (
+              <div className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs w-fit" data-testid="chip-new-thread-kb">
+                <BookOpen className="w-3.5 h-3.5" />
+                <span className="truncate max-w-[200px]">{kbArticle.title}</span>
+                <button type="button" onClick={() => setKbArticle(null)} data-testid="button-new-thread-remove-kb"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) setImageFile(f); }}
+              data-testid="input-new-thread-file"
+            />
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} data-testid="button-new-thread-attach-image">
+                <Paperclip className="w-4 h-4 mr-1" /> Photo
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setKbPickerOpen(true)} data-testid="button-new-thread-attach-kb">
+                <BookOpen className="w-4 h-4 mr-1" /> Article
+              </Button>
+            </div>
+            <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-start-conversation">
+              {createMutation.isPending ? "Starting..." : "Start Conversation"}
+            </Button>
+          </form>
+        </Form>
+        <KbArticlePickerDialog open={kbPickerOpen} onOpenChange={setKbPickerOpen} onSelect={(a) => { setKbArticle(a); setKbPickerOpen(false); }} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ThreadCard({ thread, isAdmin, currentUserId, onOpen, onDelete, canManage }: {
+  thread: EnrichedThread;
+  isAdmin: boolean;
+  currentUserId?: string;
+  onOpen: () => void;
+  onDelete?: () => void;
+  canManage: boolean;
+}) {
+  return (
+    <Card
+      className={`cursor-pointer hover-elevate transition-colors ${thread.unreadCount > 0 ? "border-primary/40 bg-primary/5" : ""}`}
+      onClick={onOpen}
+      data-testid={`card-thread-${thread.id}`}
+    >
+      <CardContent className="flex items-center gap-3 p-3 sm:p-4">
+        {!isAdmin && (
+          <Avatar className="w-9 h-9 flex-shrink-0">
+            <AvatarFallback className="text-xs">{thread.adminName?.[0] || "A"}</AvatarFallback>
+          </Avatar>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <p className={`text-sm font-medium truncate ${thread.unreadCount > 0 ? "text-foreground" : "text-muted-foreground"}`} data-testid={`text-thread-subject-${thread.id}`}>
+              {thread.subject}
+            </p>
+            {thread.unreadCount > 0 && (
+              <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1 flex-shrink-0" data-testid={`badge-thread-unread-${thread.id}`}>
+                {thread.unreadCount}
+              </Badge>
+            )}
+          </div>
+          {!isAdmin && <p className="text-xs text-muted-foreground truncate">{thread.adminName}</p>}
+          {thread.lastMessage && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {thread.lastMessage.senderId === currentUserId ? "You: " : ""}{thread.lastMessage.body}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-[10px] text-muted-foreground">
+            {thread.lastMessage ? format(new Date(thread.lastMessage.createdAt), "MMM d") : format(new Date(thread.createdAt), "MMM d")}
+          </span>
+          {isAdmin && canManage && onDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()} data-testid={`button-delete-thread-${thread.id}`}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm" onClick={(e) => e.stopPropagation()}>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Conversation</AlertDialogTitle>
+                  <AlertDialogDescription>Delete this entire conversation and all messages? This cannot be undone.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={onDelete} data-testid="button-confirm-delete-thread">Delete</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function MessagesPage() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
   const params = useParams<{ id?: string }>();
   const [, navigate] = useLocation();
+  const canManage = isAdmin && hasPermission("messages.manage");
 
   const { data: threads, isLoading } = useQuery<EnrichedThread[]>({
     queryKey: ["/api/message-threads"],
@@ -426,6 +679,29 @@ export default function MessagesPage() {
     enabled: !isAdmin,
   });
 
+  const { data: sentMessages } = useQuery<PrivateMessage[]>({
+    queryKey: ["/api/admin/private-messages/sent"],
+    enabled: isAdmin && hasPermission("messages.view"),
+  });
+
+  const { data: adminUsers } = useQuery<User[]>({
+    queryKey: ["/api/admin/users"],
+    enabled: isAdmin,
+  });
+  const userMap = new Map(adminUsers?.map((u) => [u.id, u.fullName]) || []);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/message-threads/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
+      toast({ title: "Conversation deleted" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   if (params.id) {
     return (
       <div className="h-full flex flex-col">
@@ -434,76 +710,102 @@ export default function MessagesPage() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-messages-title">Messages</h1>
-        <p className="text-sm text-muted-foreground mt-1">Conversations with the support team</p>
-      </div>
-
-      {isLoading ? (
+  const renderThreadList = () => {
+    if (isLoading) {
+      return (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
-      ) : !threads || threads.length === 0 ? (
+      );
+    }
+    if (!threads || threads.length === 0) {
+      return (
         <Card>
           <CardContent className="p-6">
             <div className="text-center py-8">
               <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground" data-testid="text-no-messages">No messages yet</p>
-              <p className="text-xs text-muted-foreground mt-1">When a team member sends you a message, it will appear here.</p>
+              <p className="text-sm text-muted-foreground" data-testid="text-no-messages">
+                {isAdmin ? "No conversations yet." : "No messages yet"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {isAdmin ? "Start one using the New Conversation button." : "When a team member sends you a message, it will appear here."}
+              </p>
             </div>
           </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-2">
-          {threads.map((t) => (
-            <Card
-              key={t.id}
-              className={`cursor-pointer hover-elevate transition-colors ${t.unreadCount > 0 ? "border-primary/40 bg-primary/5" : ""}`}
-              onClick={() => navigate(`/messages/${t.id}`)}
-              data-testid={`card-thread-${t.id}`}
-            >
-              <CardContent className="flex items-center gap-3 p-3 sm:p-4">
-                <Avatar className="w-9 h-9 flex-shrink-0">
-                  <AvatarFallback className="text-xs">
-                    {isAdmin ? (t.customerName?.[0] || "C") : (t.adminName?.[0] || "A")}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className={`text-sm font-medium truncate ${t.unreadCount > 0 ? "text-foreground" : "text-muted-foreground"}`} data-testid={`text-thread-subject-${t.id}`}>
-                      {t.subject}
-                    </p>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {t.unreadCount > 0 && (
-                        <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-thread-unread-${t.id}`}>
-                          {t.unreadCount}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {isAdmin ? t.customerName : t.adminName}
-                  </p>
-                  {t.lastMessage && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {t.lastMessage.senderId === user?.id ? "You: " : ""}{t.lastMessage.body}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-[10px] text-muted-foreground">
-                    {t.lastMessage ? format(new Date(t.lastMessage.createdAt), "MMM d") : format(new Date(t.createdAt), "MMM d")}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+      );
+    }
+
+    if (isAdmin) {
+      const grouped = new Map<string, EnrichedThread[]>();
+      threads.forEach((t) => {
+        if (!grouped.has(t.customerId)) grouped.set(t.customerId, []);
+        grouped.get(t.customerId)!.push(t);
+      });
+      const groups = Array.from(grouped.entries()).sort((a, b) => {
+        const aLatest = Math.max(...a[1].map(t => new Date(t.lastMessageAt).getTime()));
+        const bLatest = Math.max(...b[1].map(t => new Date(t.lastMessageAt).getTime()));
+        return bLatest - aLatest;
+      });
+      return (
+        <div className="space-y-4">
+          {groups.map(([customerId, customerThreads]) => (
+            <div key={customerId}>
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="w-4 h-4 text-muted-foreground" />
+                <h4 className="text-sm font-medium">{customerThreads[0].customerName}</h4>
+                <Badge variant="outline" className="text-[10px]">{customerThreads.length}</Badge>
+              </div>
+              <div className="space-y-2 ml-6">
+                {customerThreads.map((t) => (
+                  <ThreadCard
+                    key={t.id}
+                    thread={t}
+                    isAdmin
+                    currentUserId={user?.id}
+                    canManage={canManage}
+                    onOpen={() => navigate(`/messages/${t.id}`)}
+                    onDelete={() => deleteMutation.mutate(t.id)}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
-      )}
+      );
+    }
 
-      {legacyMessages && legacyMessages.length > 0 && (
+    return (
+      <div className="space-y-2">
+        {threads.map((t) => (
+          <ThreadCard
+            key={t.id}
+            thread={t}
+            isAdmin={false}
+            currentUserId={user?.id}
+            canManage={false}
+            onOpen={() => navigate(`/messages/${t.id}`)}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-messages-title">Messages</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {isAdmin ? "Conversations with customers" : "Conversations with the support team"}
+          </p>
+        </div>
+        {canManage && <NewConversationDialog />}
+      </div>
+
+      {renderThreadList()}
+
+      {!isAdmin && legacyMessages && legacyMessages.length > 0 && (
         <div className="space-y-3 mt-6">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Inbox className="w-5 h-5" /> Previous Messages
@@ -517,6 +819,28 @@ export default function MessagesPage() {
                   {!msg.readAt && <Badge variant="destructive" className="text-[10px] h-5">New</Badge>}
                 </div>
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">{msg.body}</p>
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {format(new Date(msg.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {isAdmin && sentMessages && sentMessages.length > 0 && (
+        <div className="space-y-3 mt-6">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Inbox className="w-5 h-5" /> Legacy Sent Messages ({sentMessages.length})
+          </h2>
+          <p className="text-xs text-muted-foreground">One-way messages sent before the conversation system.</p>
+          {sentMessages.map((msg) => (
+            <Card key={msg.id} data-testid={`card-legacy-sent-${msg.id}`}>
+              <CardContent className="p-3 sm:p-4 space-y-1">
+                <p className="text-sm font-medium truncate">{msg.subject}</p>
+                <p className="text-xs text-muted-foreground">To: {userMap.get(msg.recipientId) || "Unknown"}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2">{msg.body}</p>
                 <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {format(new Date(msg.createdAt), "MMM d, yyyy 'at' h:mm a")}
