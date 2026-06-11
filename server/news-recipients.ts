@@ -45,9 +45,17 @@ export function selectNewsEmailRecipients<T extends RecipientUser>(users: T[], n
   return selectNewsEmailRecipientUsers(users, now).map((u) => u.email as string);
 }
 
-/** Users who should get an in-app content notification card for a news story. */
+/**
+ * Users who should get an in-app content notification card for a news story.
+ *
+ * Honours each user's per-category `in_app` pref so customers who muted the
+ * news bell don't get a card. Quiet hours do NOT apply — the bell is a passive
+ * surface, so a card still waits there for users who keep the in-app channel on.
+ */
 export function selectNewsInAppRecipients<T extends RecipientUser>(users: T[]): string[] {
-  // In-app notification cards are always created for everyone (independent of
-  // push/email prefs and quiet hours) so the bell icon stays in sync.
-  return users.map((u) => u.id);
+  return users
+    .filter((u) =>
+      userWantsChannel(u.notificationPrefs as NotificationPrefs | null | undefined, "news", "in_app"),
+    )
+    .map((u) => u.id);
 }

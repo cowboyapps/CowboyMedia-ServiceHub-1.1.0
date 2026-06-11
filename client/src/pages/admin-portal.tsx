@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -457,6 +457,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
 
               {detailUser.role === "customer" && (() => {
                 const prefs: NotificationPrefs | null | undefined = detailUser.notificationPrefs;
+                const ia = countEnabledGroups(prefs, "in_app");
                 const p = countEnabledGroups(prefs, "push");
                 const e = countEnabledGroups(prefs, "email");
                 return (
@@ -469,8 +470,11 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(ia.enabled, ia.total)}`} title={`Customer has not muted ${ia.enabled} of ${ia.total} in-app bell groups.`} data-testid="badge-detail-in-app-prefs">
+                          <Bell className="w-3 h-3" />Bell prefs {ia.enabled}/{ia.total} groups
+                        </Badge>
                         <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups. This is only delivered if their device is also subscribed (see Push Notifications above).`} data-testid="badge-detail-push-prefs">
-                          <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total} groups
+                          <Smartphone className="w-3 h-3" />Push prefs {p.enabled}/{p.total} groups
                         </Badge>
                         <Badge variant="outline" className={`h-6 px-2 text-xs gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups.`} data-testid="badge-detail-email-prefs">
                           <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total} groups
@@ -501,7 +505,8 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                       <div className="px-3 py-3 border-t space-y-4" data-testid="grid-notif-prefs">
                         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground pb-1 border-b">
                           <span className="flex-1">Category</span>
-                          <span className="w-14 flex items-center justify-center gap-1"><Bell className="w-3 h-3" />Push</span>
+                          <span className="w-14 flex items-center justify-center gap-1"><Bell className="w-3 h-3" />Bell</span>
+                          <span className="w-14 flex items-center justify-center gap-1"><Smartphone className="w-3 h-3" />Push</span>
                           <span className="w-14 flex items-center justify-center gap-1"><Mail className="w-3 h-3" />Email</span>
                         </div>
                         {NOTIFICATION_GROUPS.map((group) => {
@@ -511,13 +516,20 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                               <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">{group}</p>
                               <div className="rounded-md border divide-y bg-card">
                                 {cats.map((cat) => {
+                                  const supportsInApp = cat.channels.includes("in_app");
                                   const supportsPush = cat.channels.includes("push");
                                   const supportsEmail = cat.channels.includes("email");
+                                  const inAppOn = supportsInApp && userWantsChannel(prefs, cat.key, "in_app");
                                   const pushOn = supportsPush && userWantsChannel(prefs, cat.key, "push");
                                   const emailOn = supportsEmail && userWantsChannel(prefs, cat.key, "email");
                                   return (
                                     <div key={cat.key} className="flex items-center gap-2 text-xs px-2 py-2.5 min-h-[40px]" data-testid={`grid-row-${cat.key}`}>
                                       <span className="flex-1 min-w-0 leading-snug">{cat.label}</span>
+                                      <span className="w-14 flex items-center justify-center" title={supportsInApp ? (inAppOn ? "In-app bell enabled" : "In-app bell disabled") : "In-app bell not applicable"}>
+                                        {supportsInApp ? (
+                                          inAppOn ? <Check className="w-4 h-4 text-green-600 dark:text-green-400" data-testid={`grid-in-app-on-${cat.key}`} /> : <Minus className="w-4 h-4 text-muted-foreground/50" data-testid={`grid-in-app-off-${cat.key}`} />
+                                        ) : <span className="text-muted-foreground/30">—</span>}
+                                      </span>
                                       <span className="w-14 flex items-center justify-center" title={supportsPush ? (pushOn ? "Push enabled" : "Push disabled") : "Push not applicable"}>
                                         {supportsPush ? (
                                           pushOn ? <Check className="w-4 h-4 text-green-600 dark:text-green-400" data-testid={`grid-push-on-${cat.key}`} /> : <Minus className="w-4 h-4 text-muted-foreground/50" data-testid={`grid-push-off-${cat.key}`} />

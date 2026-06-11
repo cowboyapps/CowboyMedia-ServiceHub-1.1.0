@@ -137,6 +137,14 @@ export function customerWantsEmail(user: NotifUser | null | undefined, categoryK
   return true;
 }
 
+// In-app bell cards honour only the per-category in_app pref. Unlike push/email
+// they are NOT silenced by quiet hours — the bell is a passive surface the user
+// pulls open on their own schedule, so a card should always be waiting there.
+export function customerWantsInApp(user: NotifUser | null | undefined, categoryKey: string): boolean {
+  if (!user) return false;
+  return userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "in_app");
+}
+
 function adminWantsPush(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
   if (!user) return false;
   if (user.role !== "admin" && user.role !== "master_admin") return false;
@@ -1952,12 +1960,14 @@ export async function registerRoutes(
             rollupNoun: "messages",
           }, receivedNotifId ? { notificationId: receivedNotifId } : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
         }
-        void storage.createTicketNotification({
-          userId: req.session.userId!,
-          ticketId: ticket.id,
-          type: "ticket_reply",
-          message: `New reply on: ${ticket.subject}`,
-        });
+        if (customerWantsInApp(customer, "ticket_reply")) {
+          void storage.createTicketNotification({
+            userId: req.session.userId!,
+            ticketId: ticket.id,
+            type: "ticket_reply",
+            message: `New reply on: ${ticket.subject}`,
+          });
+        }
         if (customer?.email && customerWantsEmail(customer, "ticket_received")) {
           void sendTemplatedEmail(customer.email, "customer_ticket_received", {
             ticket_subject: ticket.subject,
@@ -2236,14 +2246,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           tag: `ticket-${ticket.id}`,
         }, claimNotifId ? { notificationId: claimNotifId } : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
       }
-      void storage.createTicketNotification({
-        userId: ticket.customerId,
-        ticketId: ticket.id,
-        type: isTransfer ? "ticket_transferred" : "ticket_claimed",
-        message: isTransfer
-          ? `Your ticket has been transferred to ${admin.fullName}: ${ticket.subject}`
-          : `${admin.fullName} claimed your ticket: ${ticket.subject}`,
-      });
+      if (customerWantsInApp(customer, claimCategory)) {
+        void storage.createTicketNotification({
+          userId: ticket.customerId,
+          ticketId: ticket.id,
+          type: isTransfer ? "ticket_transferred" : "ticket_claimed",
+          message: isTransfer
+            ? `Your ticket has been transferred to ${admin.fullName}: ${ticket.subject}`
+            : `${admin.fullName} claimed your ticket: ${ticket.subject}`,
+        });
+      }
 
       if (customer?.email && customerWantsEmail(customer, claimCategory)) {
         const emailTemplate = isTransfer ? "customer_ticket_transferred" : "customer_ticket_claimed";
@@ -2700,7 +2712,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             rollupNoun: "replies",
           }, customerViewingTicket ? undefined : (replyNotifId ? { notificationId: replyNotifId } : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }));
         }
-        if (!customerViewingTicket) {
+        if (!customerViewingTicket && customerWantsInApp(customer, "ticket_reply")) {
           void storage.createTicketNotification({
             userId: ticket.customerId,
             ticketId: ticket.id,
@@ -2912,7 +2924,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (req.body.status && req.body.status !== existing.status) {
         const allUsers = await storage.getAllUsers();
         const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(existing.id));
-        const subIds = subscribedCustomers.map(u => u.id);
+        const inAppIds = subscribedCustomers.filter(u => customerWantsInApp(u, "service_status")).map(u => u.id);
         for (const u of subscribedCustomers) {
           const statusWantsPush = customerWantsPush(u, "service_status");
           const statusWantsEmail = !!(u.email && customerWantsEmail(u, "service_status"));
@@ -2940,7 +2952,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             }, u.fullName);
           }
         }
-        storage.createContentNotificationBulk(subIds, "services", `${updated.name}: ${updated.status}`, updated.id).catch(() => {});
+        storage.createContentNotificationBulk(inAppIds, "services", `${updated.name}: ${updated.status}`, updated.id).catch(() => {});
       }
       res.json(updated);
     } catch (e) {
@@ -2972,6 +2984,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       logActivity,
       customerWantsPush,
       customerWantsEmail,
+      customerWantsInApp,
       sendPushToUser,
       sendTemplatedEmail,
       fireDiscordForServices,
@@ -3044,8 +3057,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }, u.fullName);
         }
       }
-      const subIds = subscribedCustomers.map(u => u.id);
-      storage.createContentNotificationBulk(subIds, "service-updates", title, update.id).catch(() => {});
+      const inAppIds = subscribedCustomers.filter(u => customerWantsInApp(u, "service_update")).map(u => u.id);
+      storage.createContentNotificationBulk(inAppIds, "service-updates", title, update.id).catch(() => {});
       fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description, baseUrl: getBaseUrl(req) }), "service_update", service?.discordWebhookUrl);
       fireTelegram(composeServiceUpdate({ serviceName, title, description }), "service_update");
       res.json(update);
@@ -3859,11 +3872,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }, reportNotifId ? { notificationId: reportNotifId } : { type: "report_update", referenceType: "report_request", referenceId: existing.id });
         }
 
-        void storage.createReportNotification({
-          userId: existing.customerId,
-          reportRequestId: existing.id,
-          message: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been updated to ${statusLabel}`,
-        });
+        if (customerWantsInApp(customer, "report_update")) {
+          void storage.createReportNotification({
+            userId: existing.customerId,
+            reportRequestId: existing.id,
+            message: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been updated to ${statusLabel}`,
+          });
+        }
 
         if (customer?.email && customerWantsEmail(customer, "report_update")) {
           const notesRaw = adminNotes || updated.adminNotes || "";

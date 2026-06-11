@@ -27,6 +27,7 @@ export interface AlertRouteDeps {
   logActivity: (category: string, action: string, opts: any) => void;
   customerWantsPush: (user: any, categoryKey: string, severity?: string | null) => boolean;
   customerWantsEmail: (user: any, categoryKey: string, severity?: string | null) => boolean;
+  customerWantsInApp: (user: any, categoryKey: string) => boolean;
   sendPushToUser: (userId: string, payload: any, notif?: any) => Promise<any> | any;
   sendTemplatedEmail: (to: string, template: string, vars: any, name?: string) => Promise<any> | any;
   fireDiscordForServices: (services: Service[], payload: any) => void;
@@ -83,6 +84,7 @@ export function registerAlertRoutes(
     logActivity,
     customerWantsPush,
     customerWantsEmail,
+    customerWantsInApp,
     sendPushToUser,
     sendTemplatedEmail,
     fireDiscordForServices,
@@ -143,7 +145,7 @@ export function registerAlertRoutes(
           }, u.fullName);
         }
       }
-      const subIds = subscribers.map(u => u.id);
+      const subIds = subscribers.filter(u => customerWantsInApp(u, "service_alert")).map(u => u.id);
       storage.createContentNotificationBulk(subIds, "alerts", `${serviceNameDisplay}: ${impactLabel} — ${alert.title}`, alert.id).catch(() => {});
       fireDiscordForServices(coveredServices, composeDiscordAlertCreated({
         serviceNames,
@@ -271,7 +273,7 @@ export function registerAlertRoutes(
             }, u.fullName);
           }
         }
-        const subIds = subscribers.map(u => u.id);
+        const subIds = subscribers.filter(u => customerWantsInApp(u, "service_alert")).map(u => u.id);
         const notifMsg = isResolved
           ? `${serviceName}: Resolved — ${alert.title}`
           : `${serviceName} Update: ${alert.title}`;
@@ -374,7 +376,7 @@ export function registerAlertRoutes(
           }, u.fullName);
         }
       }
-      const subIds = subscribers.map(u => u.id);
+      const subIds = subscribers.filter(u => customerWantsInApp(u, "service_alert")).map(u => u.id);
       storage.createContentNotificationBulk(subIds, "alerts", `${serviceName}: Resolved — ${updated.title}`, updated.id).catch(() => {});
       fireDiscordForServices(coveredServices, composeDiscordAlertResolved({
         serviceNames,

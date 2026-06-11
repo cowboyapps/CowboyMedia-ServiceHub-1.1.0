@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Bell, Mail, RotateCcw, BellOff, ChevronDown } from "lucide-react";
+import { Bell, Mail, RotateCcw, BellOff, ChevronDown, Smartphone } from "lucide-react";
 import type { User } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { QuietHoursSection } from "@/components/quiet-hours-section";
@@ -66,6 +66,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     }));
   }, [visibleCategories]);
 
+  const inAppSummary = countEnabledGroups(prefs, "in_app", visibleCategories);
   const pushSummary = countEnabledGroups(prefs, "push", visibleCategories);
   const emailSummary = countEnabledGroups(prefs, "email", visibleCategories);
   const currentPreset = matchPreset(prefs, visibleCategories);
@@ -161,8 +162,11 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
   const Header = (
     <>
       <div className="flex flex-wrap items-center gap-2 pt-1">
+        <Badge variant="secondary" className="gap-1" data-testid="badge-in-app-summary">
+          <Bell className="w-3 h-3" /> Bell {inAppSummary.enabled}/{inAppSummary.total} groups
+        </Badge>
         <Badge variant="secondary" className="gap-1" data-testid="badge-push-summary">
-          <Bell className="w-3 h-3" /> Push {pushSummary.enabled}/{pushSummary.total} groups
+          <Smartphone className="w-3 h-3" /> Push {pushSummary.enabled}/{pushSummary.total} groups
         </Badge>
         <Badge variant="secondary" className="gap-1" data-testid="badge-email-summary">
           <Mail className="w-3 h-3" /> Email {emailSummary.enabled}/{emailSummary.total} groups
@@ -226,8 +230,10 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
   );
 
   const renderCategoryRow = (cat: NotificationCategory) => {
+    const inAppEnabled = userWantsChannel(prefs, cat.key, "in_app");
     const pushEnabled = userWantsChannel(prefs, cat.key, "push");
     const emailEnabled = userWantsChannel(prefs, cat.key, "email");
+    const supportsInApp = cat.channels.includes("in_app");
     const supportsPush = cat.channels.includes("push");
     const supportsEmail = cat.channels.includes("email");
     return (
@@ -236,7 +242,29 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
           <p className="text-sm font-medium leading-snug">{cat.label}</p>
           <p className="text-xs text-muted-foreground leading-snug mt-0.5">{cat.description}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {supportsInApp ? (
+            <div
+              className="flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 min-h-[44px]"
+              data-testid={`tile-in-app-${cat.key}`}
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <Bell className="w-4 h-4 text-muted-foreground" /> Bell
+              </span>
+              <Switch
+                checked={inAppEnabled}
+                onCheckedChange={(checked) =>
+                  toggleMutation.mutate({ categoryKey: cat.key, channel: "in_app", enabled: checked })
+                }
+                data-testid={`switch-in-app-${cat.key}`}
+                aria-label={`In-app bell for ${cat.label}`}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 min-h-[44px] text-xs text-muted-foreground">
+              <Bell className="w-4 h-4" /> Bell not applicable
+            </div>
+          )}
           {supportsPush ? (
             <div
               className={`flex-1 flex items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 min-h-[44px] ${
@@ -245,7 +273,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
               data-testid={`tile-push-${cat.key}`}
             >
               <span className="flex items-center gap-2 text-sm">
-                <Bell className="w-4 h-4 text-muted-foreground" /> Push
+                <Smartphone className="w-4 h-4 text-muted-foreground" /> Push
               </span>
               <Switch
                 checked={pushAvailable && pushEnabled}
@@ -263,7 +291,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
             </div>
           ) : (
             <div className="flex-1 flex items-center gap-2 rounded-md border border-dashed px-3 py-2 min-h-[44px] text-xs text-muted-foreground">
-              <Bell className="w-4 h-4" /> Push not applicable
+              <Smartphone className="w-4 h-4" /> Push not applicable
             </div>
           )}
           {supportsEmail ? (
@@ -294,10 +322,11 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
   };
 
   const renderGroupCard = (group: string, categories: NotificationCategory[]) => {
+    const inAppState = getGroupChannelState(prefs, group, "in_app", visibleCategories);
     const pushState = getGroupChannelState(prefs, group, "push", visibleCategories);
     const emailState = getGroupChannelState(prefs, group, "email", visibleCategories);
     const isExpanded = !!expanded[group];
-    const isMixed = pushState === "mixed" || emailState === "mixed";
+    const isMixed = inAppState === "mixed" || pushState === "mixed" || emailState === "mixed";
 
     return (
       <Collapsible
@@ -325,10 +354,31 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
             </button>
           </CollapsibleTrigger>
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+            {inAppState !== "n/a" ? (
+              <label className="flex flex-col items-center gap-0.5 cursor-pointer" data-testid={`tile-group-in-app-${group}`}>
+                <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <Bell className={`w-3 h-3 ${inAppState === "mixed" ? "text-amber-500" : ""}`} />
+                  Bell
+                </span>
+                <Switch
+                  checked={inAppState === "on"}
+                  onCheckedChange={(checked) => handleGroupToggle(group, "in_app", checked)}
+                  data-testid={`switch-group-in-app-${group}`}
+                  aria-label={`In-app bell for ${group}`}
+                />
+              </label>
+            ) : (
+              <div className="flex flex-col items-center gap-0.5 opacity-30">
+                <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide">
+                  <Bell className="w-3 h-3" /> Bell
+                </span>
+                <span className="text-[10px]">—</span>
+              </div>
+            )}
             {pushState !== "n/a" ? (
               <label className="flex flex-col items-center gap-0.5 cursor-pointer" data-testid={`tile-group-push-${group}`}>
                 <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  <Bell className={`w-3 h-3 ${pushState === "mixed" ? "text-amber-500" : ""}`} />
+                  <Smartphone className={`w-3 h-3 ${pushState === "mixed" ? "text-amber-500" : ""}`} />
                   Push
                 </span>
                 <Switch

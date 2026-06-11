@@ -1,7 +1,8 @@
-export type NotificationChannel = "push" | "email";
+export type NotificationChannel = "in_app" | "push" | "email";
 export type NotificationRole = "customer" | "admin";
 
 export interface NotificationCategoryPref {
+  in_app?: boolean;
   push?: boolean;
   email?: boolean;
 }
@@ -29,28 +30,28 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     label: "Replies on your tickets",
     description: "When an admin responds to your support ticket",
     group: "Tickets",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "ticket_claimed",
     label: "Ticket claimed",
     description: "When an admin picks up your ticket",
     group: "Tickets",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "ticket_transferred",
     label: "Ticket transferred",
     description: "When your ticket is reassigned to a different admin",
     group: "Tickets",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "ticket_received",
     label: "Ticket submission confirmation",
     description: "Confirmation that we received your ticket",
     group: "Tickets",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "ticket_closed",
@@ -85,7 +86,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     label: "Report status updates",
     description: "When the status of your report changes",
     group: "Reports",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "private_message",
@@ -106,28 +107,28 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     label: "Service status changes",
     description: "When a service you follow changes status",
     group: "Service status",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "service_alert",
     label: "Service alerts",
     description: "New alerts for services you follow",
     group: "Service status",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "service_update",
     label: "Service updates",
     description: "General updates posted for services you follow",
     group: "Service status",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "news",
     label: "News stories",
     description: "When a new news story is published",
     group: "News",
-    channels: ["push", "email"],
+    channels: ["in_app", "push", "email"],
   },
   {
     key: "setup_reminder",
@@ -344,19 +345,19 @@ export const NOTIFICATION_PRESETS: NotificationPreset[] = [
     key: "everything",
     label: "Everything",
     description: "All notifications on (default).",
-    groups: { push: "*", email: "*" },
+    groups: { in_app: "*", push: "*", email: "*" },
   },
   {
     key: "important",
     label: "Important only",
     description: "Tickets, messages, and service status only.",
-    groups: { push: IMPORTANT_GROUPS, email: IMPORTANT_GROUPS },
+    groups: { in_app: IMPORTANT_GROUPS, push: IMPORTANT_GROUPS, email: IMPORTANT_GROUPS },
   },
   {
     key: "email_only",
     label: "Email only",
-    description: "Email notifications on, no push.",
-    groups: { push: [], email: "*" },
+    description: "Email and in-app bell on, no push.",
+    groups: { in_app: "*", push: [], email: "*" },
   },
 ];
 
@@ -377,6 +378,7 @@ export function buildPresetPrefs(
   const next: NotificationPrefs = {};
   for (const cat of categories) {
     const entry: NotificationCategoryPref = {};
+    if (cat.channels.includes("in_app")) entry.in_app = presetIncludes(preset, "in_app", cat.group);
     if (cat.channels.includes("push")) entry.push = presetIncludes(preset, "push", cat.group);
     if (cat.channels.includes("email")) entry.email = presetIncludes(preset, "email", cat.group);
     next[cat.key] = entry;

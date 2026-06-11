@@ -160,3 +160,52 @@ test("admin with email pref off is not surfaced as wanting email for that catego
   assert.equal(userWantsChannel(prefs, "news", "email"), false);
   assert.equal(userWantsChannel(prefs, "news", "push"), true);
 });
+
+test("bell-creating customer categories all support the in_app channel", () => {
+  const bellCategories = [
+    "ticket_reply",
+    "ticket_claimed",
+    "ticket_transferred",
+    "ticket_received",
+    "report_update",
+    "service_status",
+    "service_alert",
+    "service_update",
+    "news",
+  ];
+  for (const key of bellCategories) {
+    const cat = getNotificationCategory(key);
+    assert.ok(cat, `${key} should exist`);
+    assert.ok(cat!.channels.includes("in_app"), `${key} should support in_app`);
+  }
+});
+
+test("in_app defaults on for bell categories and is independently toggleable", () => {
+  assert.equal(userWantsChannel({}, "ticket_reply", "in_app"), true);
+  // Turning off push must not affect in_app, and vice versa.
+  const pushOff: NotificationPrefs = { ticket_reply: { push: false } };
+  assert.equal(userWantsChannel(pushOff, "ticket_reply", "in_app"), true);
+  assert.equal(userWantsChannel(pushOff, "ticket_reply", "push"), false);
+  const inAppOff: NotificationPrefs = { ticket_reply: { in_app: false } };
+  assert.equal(userWantsChannel(inAppOff, "ticket_reply", "in_app"), false);
+  assert.equal(userWantsChannel(inAppOff, "ticket_reply", "push"), true);
+});
+
+test("email-only and message categories do not support in_app", () => {
+  for (const key of ["ticket_closed", "report_received", "setup_reminder", "private_message", "thread_message"]) {
+    const cat = getNotificationCategory(key);
+    if (!cat) continue;
+    assert.ok(!cat.channels.includes("in_app"), `${key} should NOT support in_app`);
+    assert.equal(userWantsChannel({}, key, "in_app"), false);
+  }
+});
+
+test("countEnabledChannels supports the in_app channel", () => {
+  const inAppTotal = NOTIFICATION_CATEGORIES.filter((c) => c.channels.includes("in_app")).length;
+  const inAppDefaultOff = NOTIFICATION_CATEGORIES.filter(
+    (c) => c.channels.includes("in_app") && c.defaultOff,
+  ).length;
+  const allOn = countEnabledChannels({}, "in_app");
+  assert.equal(allOn.total, inAppTotal);
+  assert.equal(allOn.enabled, inAppTotal - inAppDefaultOff);
+});
