@@ -1768,6 +1768,9 @@ export class DatabaseStorage implements IStorage {
     if (data.baseUrl !== undefined) patch.baseUrl = data.baseUrl;
     if (data.enabled !== undefined) patch.enabled = data.enabled;
     if (data.autoMatchByEmail !== undefined) patch.autoMatchByEmail = data.autoMatchByEmail;
+    if (data.adminUsername !== undefined) {
+      patch.adminUsername = typeof data.adminUsername === "string" ? (data.adminUsername.trim() || null) : null;
+    }
     const [updated] = await db.update(whmcsSettings).set(patch).where(eq(whmcsSettings.id, "singleton")).returning();
     if (updated) return updated;
     const [created] = await db.insert(whmcsSettings).values({ id: "singleton", ...patch }).returning();

@@ -754,6 +754,12 @@ export const whmcsSettings = pgTable("whmcs_settings", {
   baseUrl: text("base_url"),
   enabled: boolean("enabled").notNull().default(false),
   autoMatchByEmail: boolean("auto_match_by_email").notNull().default(true),
+  // WHMCS admin username used to attribute staff replies posted from ServiceHub
+  // back to WHMCS support tickets (AddTicketReply needs an admin username to
+  // post a reply AS staff rather than as the client). Non-secret config, so it
+  // lives in the DB like the base URL. Optional: when unset, staff replies to
+  // WHMCS tickets are disabled (customer replies still work via clientid).
+  adminUsername: text("admin_username"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -763,6 +769,7 @@ export const updateWhmcsSettingsSchema = z.object({
   baseUrl: z.union([z.string().trim().url("Must be a valid URL"), z.literal("")]).nullable().optional(),
   enabled: z.boolean().optional(),
   autoMatchByEmail: z.boolean().optional(),
+  adminUsername: z.union([z.string().trim(), z.literal("")]).nullable().optional(),
 });
 
 export type UpdateWhmcsSettingsData = z.infer<typeof updateWhmcsSettingsSchema>;

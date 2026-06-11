@@ -407,3 +407,56 @@ export async function listProducts(): Promise<WhmcsProductList> {
 export async function getClientBillingDetails(clientId: number): Promise<WhmcsRawFetch> {
   return whmcsApiCall("GetClientsDetails", { clientid: clientId, stats: true });
 }
+
+// --- Support ticket read/write fetchers (Task #334) ---
+// Thin no-throw wrappers around the WHMCS ticket actions. They return the raw
+// tagged result; the pure assembler in whmcs-tickets.ts shapes the response.
+// WHMCS tickets are mirrored on read only — ServiceHub never stores them, so
+// native ticket behaviour is completely untouched.
+
+/**
+ * Raw GetTickets for a client. Caller normalizes `tickets.ticket`. The newest
+ * 100 are pulled (WHMCS defaults to oldest-first / 25 rows) so an active client
+ * always sees their current threads. `clientid` scopes the result server-side
+ * to that one client.
+ */
+export async function getClientTickets(clientId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetTickets", { clientid: clientId, limitnum: 100 });
+}
+
+/**
+ * Raw GetTicket for one ticket id. Returns the full thread (`replies.reply`)
+ * plus the owning `userid` used for ownership checks. The numeric ticket id
+ * (not the human "tid") is required by WHMCS here.
+ */
+export async function getTicket(ticketId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetTicket", { ticketid: ticketId });
+}
+
+/**
+ * Post a reply to a WHMCS ticket AS the client (clientid attribution). Used for
+ * customer-initiated replies — WHMCS records the reply under the client account
+ * and moves the ticket to "Customer-Reply", exactly as if posted in the client
+ * area.
+ */
+export async function addTicketReplyAsClient(
+  ticketId: number,
+  clientId: number,
+  message: string,
+): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("AddTicketReply", { ticketid: ticketId, clientid: clientId, message });
+}
+
+/**
+ * Post a reply to a WHMCS ticket AS staff (adminusername attribution). Used for
+ * admin-initiated replies so they show as a support response in WHMCS (and the
+ * client gets the staff-reply email). Requires a valid WHMCS admin username,
+ * configured in Admin Portal → WHMCS.
+ */
+export async function addTicketReplyAsAdmin(
+  ticketId: number,
+  adminUsername: string,
+  message: string,
+): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("AddTicketReply", { ticketid: ticketId, adminusername: adminUsername, message });
+}

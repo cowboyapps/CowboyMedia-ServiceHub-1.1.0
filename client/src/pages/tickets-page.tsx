@@ -41,7 +41,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen, Filter, X } from "lucide-react";
+import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen, Filter, X, CreditCard } from "lucide-react";
+import { WhmcsTicketList, type WhmcsTicketsListData } from "@/components/whmcs-tickets";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -194,6 +195,19 @@ export default function TicketsPage() {
   const { data: categories } = useQuery<TicketCategory[]>({
     queryKey: ["/api/ticket-categories"],
   });
+
+  // Billing & account support tickets mirrored from WHMCS — customer self-view
+  // only. Refreshes on view / window focus (no WebSocket). The component
+  // hides itself entirely when WHMCS is unconfigured/disabled or the user isn't
+  // linked, so native tickets stay the focus for everyone else.
+  const { data: whmcsTickets, isLoading: whmcsLoading } = useQuery<WhmcsTicketsListData>({
+    queryKey: ["/api/whmcs-tickets"],
+    enabled: !isAdmin,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+  const showWhmcsSection =
+    !isAdmin && !!whmcsTickets?.configured && !!whmcsTickets?.enabled && !!whmcsTickets?.linked;
 
   const form = useForm({
     resolver: zodResolver(createTicketSchema),
@@ -747,6 +761,28 @@ export default function TicketsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {showWhmcsSection && (
+        <Card data-testid="section-whmcs-tickets">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-primary" />
+              Billing &amp; account support
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Tickets from our billing system, kept separate from your support tickets above.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <WhmcsTicketList
+              data={whmcsTickets}
+              isLoading={whmcsLoading}
+              context="customer"
+              onOpen={(id) => setLocation(`/whmcs-tickets/${id}`)}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

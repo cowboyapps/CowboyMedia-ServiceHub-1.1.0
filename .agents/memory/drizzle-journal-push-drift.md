@@ -47,6 +47,25 @@ and skips it. `id` is serial — omit it.
   breaks for multi-statement migrations where the other statements already ran.
 - Don't hand-edit committed migration SQL (changes its hash → breaks prod).
 
+# Variant: dual-migration collision during rebase (renumber + full reconcile)
+
+When a rebase brings in an upstream migration that took **your same index** (e.g.
+both branches added `0016_*`), resolve by taking upstream's `migrations/meta/`
+(`git checkout --ours` during rebase — HEAD/ours is the rebase base), `git rm`
+your colliding `.sql`, then `npm run db:generate` to re-emit your change at the
+next free index (e.g. `0017_*`). `db:check` must be clean before continuing.
+
+The dev DB after this will have the **correct final schema** (post-merge push +
+your earlier pre-rebase run both already added the column/table) but a
+`__drizzle_migrations` table whose rows/timestamps no longer line up with the
+renumbered journal — so boot replays your renumbered migration and hits 42701.
+Because the schema is already correct, the cleanest fix is to **rebuild the whole
+bookkeeping table from the journal** (not just insert one row): inside a txn,
+`DELETE FROM drizzle.__drizzle_migrations`, then insert one `(hash, created_at)`
+per `_journal.json` entry (hash = sha256 of each `migrations/<tag>.sql`,
+created_at = its `when`). Restart → "migrations up to date". Prod is unaffected
+(fresh DB applies upstream-0016 → your-0017 in order).
+
 # Scope
 
 This is **local/dev-only** drift caused by db:push in post-merge setup. Prod

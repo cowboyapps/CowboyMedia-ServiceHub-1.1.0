@@ -33,8 +33,15 @@ import {
   listProducts as listWhmcsProducts,
   getClientProducts as getWhmcsClientProducts,
   normalizeListField as normalizeWhmcsListField,
+  addTicketReplyAsClient as addWhmcsTicketReplyAsClient,
+  addTicketReplyAsAdmin as addWhmcsTicketReplyAsAdmin,
 } from "./whmcs";
 import { loadBillingSummary, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import {
+  loadTicketsList as loadWhmcsTicketsList,
+  loadTicketDetail as loadWhmcsTicketDetail,
+  bustTicketsListCache as bustWhmcsTicketsListCache,
+} from "./whmcs-tickets";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
@@ -6210,6 +6217,216 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const { unreachable, services } = await deriveServicesForClient(clientId);
       return res.json({ configured, enabled, linked: true, unreachable, services });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // ---------- Support tickets (read-on-demand WHMCS mirror) ----------
+  // WHMCS tickets are mirrored on view only — never stored, never mixed with
+  // native ServiceHub tickets. A clean, fully-empty payload backs every
+  // unconfigured / disabled / unlinked / unreachable state so the frontend
+  // always gets the same locked shape and never branches on missing keys.
+  const emptyWhmcsTickets = (over: Record<string, unknown>) => ({
+    configured: false,
+    enabled: false,
+    linked: false,
+    unreachable: false,
+    tickets: [] as unknown[],
+    portalUrl: null as string | null,
+    ...over,
+  });
+
+  // Customer self-view list: only ever the logged-in user's OWN linked client.
+  // Never forwards raw WHMCS error strings and never 500s — degrades to a clean
+  // disabled / unlinked / unreachable state so the page always renders.
+  app.get("/api/whmcs-tickets", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.json(emptyWhmcsTickets({ configured, enabled }));
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.json(emptyWhmcsTickets({ configured, enabled, linked: false }));
+      }
+      const list = await loadWhmcsTicketsList(clientId, baseUrl);
+      return res.json({ configured, enabled, linked: true, ...list });
+    } catch {
+      return res.json(emptyWhmcsTickets({ configured: true, enabled: true, linked: true, unreachable: true }));
+    }
+  });
+
+  // Customer self-view single ticket. Ownership is enforced server-side: the
+  // ticket's owning WHMCS client id MUST equal the user's linked client id, so
+  // a customer can never read another client's ticket by guessing an id.
+  app.get("/api/whmcs-tickets/:id", requireAuth, async (req, res) => {
+    try {
+      const ticketId = Number(getParam(req, "id"));
+      if (!Number.isInteger(ticketId) || ticketId <= 0) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const detail = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      if (!detail || detail.ownerClientId !== clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      return res.json({ ticket: detail });
+    } catch {
+      return res.status(503).json({ message: "Billing system is temporarily unavailable" });
+    }
+  });
+
+  // Customer reply: posts back to WHMCS AS the client (clientid attribution).
+  // Ownership is re-verified before the write so a customer can only reply to
+  // their own ticket.
+  app.post("/api/whmcs-tickets/:id/reply", requireAuth, async (req, res) => {
+    try {
+      const ticketId = Number(getParam(req, "id"));
+      if (!Number.isInteger(ticketId) || ticketId <= 0) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const message = String(req.body?.message ?? "").trim();
+      if (!message) {
+        return res.status(400).json({ message: "A reply message is required" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const detail = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      if (!detail || detail.ownerClientId !== clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const r = await addWhmcsTicketReplyAsClient(ticketId, clientId, message);
+      if (!r.ok) {
+        return res.status(502).json({ message: "Could not post your reply. Please try again shortly." });
+      }
+      bustWhmcsTicketsListCache(clientId);
+      const updated = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      return res.json({ ok: true, ticket: updated ?? detail });
+    } catch {
+      return res.status(503).json({ message: "Billing system is temporarily unavailable" });
+    }
+  });
+
+  // Admin customer-detail ticket list for a linked customer. Permission-gated
+  // and MAY surface WHMCS/storage errors (admin-only, not customer-facing).
+  app.get("/api/admin/users/:id/whmcs/tickets", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      const clientId = user.whmcsClientId ?? null;
+      if (!configured || !enabled || !clientId) {
+        return res.json(emptyWhmcsTickets({ configured, enabled, linked: !!clientId }));
+      }
+      const list = await loadWhmcsTicketsList(clientId, baseUrl);
+      return res.json({ configured, enabled, linked: true, ...list });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Admin single ticket for a linked customer. Ownership enforced against the
+  // user's linked client id, same as the customer route.
+  app.get("/api/admin/users/:id/whmcs/tickets/:ticketId", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const ticketId = Number(getParam(req, "ticketId"));
+      if (!Number.isInteger(ticketId) || ticketId <= 0) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      const clientId = user.whmcsClientId ?? null;
+      if (!configured || !enabled || !clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const detail = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      if (!detail || detail.ownerClientId !== clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      return res.json({ ticket: detail });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Admin reply: posts back to WHMCS AS staff (adminusername attribution) so it
+  // shows as a support response in WHMCS. Requires a WHMCS admin username to be
+  // configured in Admin Portal → WHMCS; without it we fail loudly (400) rather
+  // than silently misattributing the reply to the client.
+  app.post("/api/admin/users/:id/whmcs/tickets/:ticketId/reply", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const ticketId = Number(getParam(req, "ticketId"));
+      if (!Number.isInteger(ticketId) || ticketId <= 0) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const message = String(req.body?.message ?? "").trim();
+      if (!message) {
+        return res.status(400).json({ message: "A reply message is required" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      const clientId = user.whmcsClientId ?? null;
+      if (!configured || !enabled || !clientId) {
+        return res.status(400).json({ message: "WHMCS is not configured or this user is not linked" });
+      }
+      const adminUsername = (settings?.adminUsername ?? "").trim();
+      if (!adminUsername) {
+        return res.status(400).json({ message: "Set a WHMCS admin username in Admin Portal → WHMCS to reply to WHMCS tickets from here." });
+      }
+      const detail = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      if (!detail || detail.ownerClientId !== clientId) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const r = await addWhmcsTicketReplyAsAdmin(ticketId, adminUsername, message);
+      if (!r.ok) {
+        return res.status(502).json({ message: `Could not post reply to WHMCS: ${r.error}` });
+      }
+      bustWhmcsTicketsListCache(clientId);
+      logActivity("user", "whmcs_ticket_reply", {
+        actorId: req.session.userId,
+        targetId: user.id,
+        targetType: "user",
+        summary: `Replied to WHMCS ticket #${detail.tid} for ${user.username}`,
+      });
+      const updated = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      return res.json({ ok: true, ticket: updated ?? detail });
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }

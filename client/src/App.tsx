@@ -46,6 +46,7 @@ import NewsPage from "@/pages/news-page";
 import NewsDetail from "@/pages/news-detail";
 import TicketsPage from "@/pages/tickets-page";
 import TicketDetail from "@/pages/ticket-detail";
+import WhmcsTicketDetail from "@/pages/whmcs-ticket-detail";
 import SettingsPage from "@/pages/settings-page";
 import BillingPage from "@/pages/billing-page";
 const AdminPortal = lazy(() => import("@/pages/admin-portal"));
@@ -110,6 +111,7 @@ function AppRouter() {
         <Route path="/news/:id" component={NewsDetail} />
         <Route path="/tickets" component={TicketsPage} />
         <Route path="/tickets/:id" component={TicketDetail} />
+        <Route path="/whmcs-tickets/:id" component={WhmcsTicketDetail} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/billing" component={BillingPage} />
         <Route path="/messages" component={MessagesPage} />

@@ -31,6 +31,7 @@ function shape(s: WhmcsSettings | undefined, hasCredentials: boolean) {
     baseUrl,
     enabled: !!s?.enabled,
     autoMatchByEmail: s?.autoMatchByEmail ?? true,
+    adminUsername: s?.adminUsername ?? "",
     hasCredentials,
     configured: hasCredentials && !!normalizeBaseUrl(baseUrl),
   };
@@ -43,6 +44,9 @@ export function normalizeWhmcsPatch(data: UpdateWhmcsSettingsData): UpdateWhmcsS
   }
   if (data.enabled !== undefined) patch.enabled = data.enabled;
   if (data.autoMatchByEmail !== undefined) patch.autoMatchByEmail = data.autoMatchByEmail;
+  if (data.adminUsername !== undefined) {
+    patch.adminUsername = typeof data.adminUsername === "string" ? (data.adminUsername.trim() || null) : null;
+  }
   return patch;
 }
 

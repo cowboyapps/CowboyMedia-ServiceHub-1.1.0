@@ -1,0 +1,1 @@
+ALTER TABLE "whmcs_settings" ADD COLUMN "admin_username" text;

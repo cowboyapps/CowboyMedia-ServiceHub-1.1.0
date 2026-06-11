@@ -34,6 +34,7 @@ import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
+import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail } from "@/components/whmcs-tickets";
 import { Download, ImagePlus, X as XIcon, Paperclip } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
@@ -7179,10 +7180,11 @@ function WhmcsTab() {
   const [baseUrl, setBaseUrl] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [autoMatchByEmail, setAutoMatchByEmail] = useState(true);
+  const [adminUsername, setAdminUsername] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; hint?: string } | null>(null);
 
-  const { data: settings, isLoading } = useQuery<{ baseUrl: string; enabled: boolean; autoMatchByEmail: boolean; hasCredentials: boolean; configured: boolean }>({
+  const { data: settings, isLoading } = useQuery<{ baseUrl: string; enabled: boolean; autoMatchByEmail: boolean; adminUsername: string; hasCredentials: boolean; configured: boolean }>({
     queryKey: ["/api/admin/whmcs-settings"],
   });
 
@@ -7191,11 +7193,12 @@ function WhmcsTab() {
       setBaseUrl(settings.baseUrl || "");
       setEnabled(!!settings.enabled);
       setAutoMatchByEmail(settings.autoMatchByEmail !== false);
+      setAdminUsername(settings.adminUsername || "");
     }
   }, [settings]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: { baseUrl: string; enabled: boolean; autoMatchByEmail: boolean }) => {
+    mutationFn: async (data: { baseUrl: string; enabled: boolean; autoMatchByEmail: boolean; adminUsername: string }) => {
       const res = await apiRequest("PATCH", "/api/admin/whmcs-settings", data);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -7211,7 +7214,7 @@ function WhmcsTab() {
   });
 
   const handleSave = () => {
-    saveMutation.mutate({ baseUrl: baseUrl.trim(), enabled, autoMatchByEmail });
+    saveMutation.mutate({ baseUrl: baseUrl.trim(), enabled, autoMatchByEmail, adminUsername: adminUsername.trim() });
   };
 
   const handleTest = async () => {
@@ -7290,6 +7293,21 @@ function WhmcsTab() {
               </p>
             </div>
             <Switch checked={autoMatchByEmail} onCheckedChange={setAutoMatchByEmail} data-testid="switch-whmcs-auto-match" />
+          </div>
+
+          <div>
+            <Label htmlFor="whmcs-admin-username">WHMCS admin username (for ticket replies)</Label>
+            <Input
+              id="whmcs-admin-username"
+              type="text"
+              placeholder="support"
+              value={adminUsername}
+              onChange={(e) => setAdminUsername(e.target.value)}
+              data-testid="input-whmcs-admin-username"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              The WHMCS staff username replies are posted under when an admin answers a customer's billing ticket from here. Leave blank to disable replying to WHMCS tickets from the admin portal.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -7474,6 +7492,7 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
         {link && <WhmcsBillingSection userId={userId} />}
 
         {link && <WhmcsDerivedServicesSection userId={userId} />}
+        {link && <WhmcsTicketsSection userId={userId} />}
 
         {!link && (
           <>
@@ -7609,6 +7628,67 @@ function WhmcsDerivedServicesSection({ userId }: { userId: string }) {
             </Badge>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Admin view of a linked customer's WHMCS support tickets. Read-on-demand
+// mirror (never stored). Selecting a ticket opens its thread inline; staff
+// replies post back to WHMCS under the configured admin username.
+function WhmcsTicketsSection({ userId }: { userId: string }) {
+  const { toast } = useToast();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const { data, isLoading } = useQuery<WhmcsTicketsListData>({
+    queryKey: ["/api/admin/users", userId, "whmcs", "tickets"],
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const { data: detail, isLoading: detailLoading, isError: detailError } = useQuery<{ ticket: WhmcsTicketDetail }>({
+    queryKey: ["/api/admin/users", userId, "whmcs", "tickets", selectedId],
+    enabled: selectedId !== null,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const replyMutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/whmcs/tickets/${selectedId}/reply`, { message });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to send reply");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "whmcs", "tickets", selectedId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "whmcs", "tickets"] });
+      toast({ title: "Reply sent to WHMCS" });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't send reply", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="border-t pt-3" data-testid="panel-whmcs-tickets">
+      <div className="flex items-center gap-2 mb-2">
+        <LifeBuoy className="w-4 h-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Billing &amp; account support tickets</h3>
+      </div>
+      {selectedId === null ? (
+        <WhmcsTicketList data={data} isLoading={isLoading} context="admin" onOpen={setSelectedId} />
+      ) : (
+        <WhmcsTicketThread
+          ticket={detail?.ticket}
+          isLoading={detailLoading}
+          isError={detailError}
+          context="admin"
+          onReply={(message) => replyMutation.mutate(message)}
+          replyPending={replyMutation.isPending}
+          onBack={() => setSelectedId(null)}
+          replyHint="Your reply posts to WHMCS as the configured support staff member."
+        />
       )}
     </div>
   );
