@@ -151,10 +151,23 @@ async function whmcsApiCall(
     let data: any = null;
     try { data = JSON.parse(text); } catch { /* non-JSON body handled below */ }
 
-    if (!res.ok || !data) {
+    if (!res.ok) {
       const err = `WHMCS API returned HTTP ${res.status}`;
       // NB: never log identifier/secret — only action + status + truncated body.
       logError("whmcs", err, { severity: "warn", summary: err, extra: { action, status: res.status, body: text.slice(0, 500) } });
+      return { ok: false, error: err, reason: "network" };
+    }
+
+    if (!data) {
+      // HTTP 200 but the body isn't JSON — almost always the base URL points at
+      // the wrong place (the /admin or client area instead of the WHMCS root),
+      // or WHMCS served an HTML error page. Surface that clearly instead of a
+      // misleading "HTTP 200" (which reads like success).
+      const looksHtml = /^\s*<(?:!doctype|html)/i.test(text);
+      const err = looksHtml
+        ? "WHMCS returned a web page instead of API data. Set the base URL to your WHMCS root (e.g. https://billing.example.com) — not the /admin or client area — and make sure WHMCS isn't showing an error page."
+        : "WHMCS returned an unreadable (non-JSON) response.";
+      logError("whmcs", err, { severity: "warn", summary: "WHMCS non-JSON response", extra: { action, status: res.status, body: text.slice(0, 500) } });
       return { ok: false, error: err, reason: "network" };
     }
 
