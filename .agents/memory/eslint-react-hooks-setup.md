@@ -9,6 +9,27 @@ The repo lints `client/src/**` with a flat `eslint.config.js` enabling only
 `react-hooks/rules-of-hooks` (catches the "hooks after an early return" white-screen
 bug). `lint` script + `prebuild` gate run it.
 
+## Server/shared coverage (type-aware block)
+`server/**` + `shared/**` are linted with a **type-aware** `@typescript-eslint`
+block, primarily for `no-floating-promises`/`no-misused-promises` (catch unawaited
+DB writes / notification fan-outs — a lost-data class).
+
+**Decision: fire-and-forget side effects are marked with `void`, never `await`ed.**
+Notification helpers (push/email/discord/telegram, `notifyServiceSubscribers`),
+background loops, startup IIFEs, and `setTimeout/setInterval(asyncFn)` are
+intentionally not awaited (awaiting would block the HTTP response). Prefix `void`
+to satisfy the rule — the idiom predates this block in `error-alerter.ts`.
+
+**Gotcha — type-aware lint is cache-sensitive.** A stale
+`node_modules/typescript/tsbuildinfo` made `npm run lint` pass locally while a clean
+CI run flagged 4 real floating promises in `alert-routes.ts`. Before trusting a
+green lint on type-aware rules, `rm -f node_modules/typescript/tsbuildinfo` and
+re-run.
+
+**Note:** `tsc`/`npm run check` has ~150 PRE-EXISTING errors (Express
+`string | string[]`, Set downlevel-iteration) and is NOT in the build gate — the
+lint block is independent and clean.
+
 ## Version pin — do not bump blindly
 `eslint-plugin-react-hooks@^5` + `eslint@^9` + `@typescript-eslint/parser@^8`.
 

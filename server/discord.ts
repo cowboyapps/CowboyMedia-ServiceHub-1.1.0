@@ -17,10 +17,6 @@ function stripHtmlPreserveBreaks(html: string): string {
   return s.trim();
 }
 
-function escapeMd(text: string): string {
-  return String(text ?? "").replace(/([\\*_`~|>])/g, "\\$1");
-}
-
 function truncate(text: string, max: number): string {
   const t = text ?? "";
   return t.length > max ? t.substring(0, max - 1) + "…" : t;

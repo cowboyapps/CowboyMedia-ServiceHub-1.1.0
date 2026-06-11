@@ -166,7 +166,7 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
+void (async () => {
   await runMigrations();
   await registerRoutes(httpServer, app);
 
@@ -183,8 +183,8 @@ app.use((req, res, next) => {
       console.error("[ErrorLog] Retention prune error:", e);
     }
   }
-  setTimeout(() => pruneOldErrorLogs(), 30000);
-  setInterval(() => pruneOldErrorLogs(), 24 * 60 * 60 * 1000);
+  setTimeout(() => void pruneOldErrorLogs(), 30000);
+  setInterval(() => void pruneOldErrorLogs(), 24 * 60 * 60 * 1000);
 
   try {
     await seed();
@@ -283,8 +283,8 @@ app.use((req, res, next) => {
     }
   }
 
-  setTimeout(() => checkSetupReminders(), 10000);
-  setInterval(() => checkSetupReminders(), 60 * 60 * 1000);
+  setTimeout(() => void checkSetupReminders(), 10000);
+  setInterval(() => void checkSetupReminders(), 60 * 60 * 1000);
 
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -347,18 +347,20 @@ app.use((req, res, next) => {
     }, 10000);
     forceExit.unref();
     // 1) stop accepting new HTTP/WS connections
-    httpServer.close(async (err) => {
-      if (err) {
-        log(`httpServer close error: ${err.message}`);
-      }
-      try {
-        await pool.end();
-        log("postgres pool drained");
-      } catch (e: any) {
-        log(`pool end error: ${e?.message ?? e}`);
-      }
-      clearTimeout(forceExit);
-      process.exit(0);
+    httpServer.close((err) => {
+      void (async () => {
+        if (err) {
+          log(`httpServer close error: ${err.message}`);
+        }
+        try {
+          await pool.end();
+          log("postgres pool drained");
+        } catch (e: any) {
+          log(`pool end error: ${e?.message ?? e}`);
+        }
+        clearTimeout(forceExit);
+        process.exit(0);
+      })();
     });
 
     // 2) explicitly close the WebSocket server and existing clients —

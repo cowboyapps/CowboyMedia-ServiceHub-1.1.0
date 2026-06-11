@@ -8,10 +8,6 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function stripHtml(html: string): string {
-  return String(html ?? "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
 function stripHtmlPreserveBreaks(html: string): string {
   let s = String(html ?? "");
   s = s.replace(/<br\s*\/?>/gi, "\n");

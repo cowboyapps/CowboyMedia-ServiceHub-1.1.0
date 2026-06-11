@@ -1,6 +1,4 @@
 import { storage } from "./storage";
-import { db } from "./db";
-import { users } from "@shared/schema";
 import crypto from "crypto";
 import { promisify } from "util";
 

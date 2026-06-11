@@ -86,7 +86,7 @@ async function pollOnce(): Promise<void> {
 
 export function startErrorAlerter(): void {
   if (timer) return;
-  timer = setInterval(pollOnce, POLL_INTERVAL_MS);
+  timer = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
   // Do the seed pass immediately so the cursor is initialized without
   // waiting a full minute.
   void pollOnce();

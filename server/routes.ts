@@ -1,8 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server, ServerResponse } from "http";
+import { type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { registerAlertRoutes } from "./alert-routes";
-import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
+import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getParam } from "./http-params";
@@ -13,7 +13,7 @@ import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { db } from "./db";
-import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
+import { uploadedFiles, newsStories, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
 import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles } from "./uploaded-file-cleanup";
 import { getErrorMessage, getErrorStatusCode, getErrorName, getErrorCode } from "./error-utils";
 import { queryString, queryInt } from "./request-utils";
@@ -27,7 +27,7 @@ import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
 import { createQuickResponseHandlers } from "./quick-responses";
 import { z } from "zod";
-import { eq, isNotNull, isNull, and, notInArray, sql } from "drizzle-orm";
+import { eq, isNotNull, isNull, and, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import crypto from "crypto";
@@ -36,14 +36,11 @@ import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
-import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeAlertCreated, composeAlertUpdate, composeAlertResolved, composeServiceUpdate, composeNews } from "./telegram";
+import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeServiceUpdate, composeNews } from "./telegram";
 import {
   fireDiscord,
   fireDiscordMany,
   sendDiscordTestMessage,
-  composeAlertCreated as composeDiscordAlertCreated,
-  composeAlertUpdate as composeDiscordAlertUpdate,
-  composeAlertResolved as composeDiscordAlertResolved,
   composeServiceUpdate as composeDiscordServiceUpdate,
   composeNews as composeDiscordNews,
   composeDiscordTest,
@@ -76,7 +73,6 @@ import {
   bypassRateLimitForAdmins,
 } from "./rate-limits";
 import { logError } from "./error-log";
-import { ERROR_LOG_SEVERITIES, ERROR_LOG_SOURCES } from "@shared/schema";
 import { createSearchHandler } from "./search";
 import { ChallengeStore } from "./totp";
 import { registerAuth2FARoutes } from "./totp-routes";
@@ -150,14 +146,6 @@ function escapeHtml(str: string): string {
 
 const scryptAsync = promisify(crypto.scrypt);
 
-function getBaseUrl(req: Request): string {
-  const envUrl = process.env.APP_URL || process.env.PUBLIC_URL;
-  if (envUrl) return envUrl.replace(/\/$/, "");
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
-  const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "";
-  return `${proto}://${host}`;
-}
-
 async function notifyServiceSubscribers(
   serviceId: string,
   event: "status" | "incident" | "resolved",
@@ -212,7 +200,7 @@ function fireDiscordForServices(coveredServices: Service[], payload: DiscordPayl
   // or the global webhook), then dedup by final URL so the same endpoint never
   // receives the same alert twice — including the case where an override URL
   // happens to equal the global webhook URL.
-  (async () => {
+  void (async () => {
     try {
       const settings = await storage.getDiscordSettings();
       const globalUrl = settings?.webhookUrl?.trim() || null;
@@ -695,19 +683,6 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
   }
 }
 
-async function sendPushToSubscribedUsers(serviceId: string, payload: { title: string; body: string; url?: string; tag?: string }) {
-  try {
-    const allUsers = await storage.getAllUsers();
-    const subscribedUsers = allUsers.filter(u => u.subscribedServices?.includes(serviceId));
-    for (const user of subscribedUsers) {
-      await sendPushToUser(user.id, payload);
-    }
-  } catch (e) {
-    console.error("Push notification error:", e);
-    logError("push", e, { severity: "error", summary: `Push to subscribed users failed for service ${serviceId}`, referenceType: "service", referenceId: serviceId });
-  }
-}
-
 function logActivity(category: string, action: string, opts: { actorId?: string; targetId?: string; targetType?: string; recipientId?: string; summary: string; details?: string }) {
   storage.createActivityLog({ category, action, ...opts }).catch(e => console.error("[ActivityLog] Failed to write:", getErrorMessage(e)));
 }
@@ -802,7 +777,7 @@ export async function registerRoutes(
       const admins = allUsers.filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support");
       for (const admin of admins) {
         if (shouldSuppressNotification({ user: admin, categoryKey: "admin_new_signup" })) continue;
-        sendPushToUser(admin.id, {
+        void sendPushToUser(admin.id, {
           title: "New Customer Signup",
           body: `${fullName} (${username}) just created an account`,
           url: "/admin",
@@ -814,7 +789,7 @@ export async function registerRoutes(
         .map(a => a.email)
         .filter(Boolean);
       if (adminEmails.length > 0) {
-        sendTemplatedEmail(adminEmails, "admin_new_signup", {
+        void sendTemplatedEmail(adminEmails, "admin_new_signup", {
           customer_name: fullName,
           customer_username: username,
           customer_email: email,
@@ -1164,7 +1139,7 @@ export async function registerRoutes(
       const removed = await storage.deletePublicStatusSubscriberByToken(token);
       res.set("Content-Type", "text/html");
       res.send(`<!doctype html><html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto;"><h2>${removed ? "Unsubscribed" : "Not found"}</h2><p>${removed ? "You've been unsubscribed from CowboyMedia status updates." : "That unsubscribe link is no longer valid."}</p></body></html>`);
-    } catch (e) {
+    } catch {
       res.status(500).send("Error");
     }
   });
@@ -1213,14 +1188,14 @@ export async function registerRoutes(
         baseUrl = `http://localhost:5000`;
       }
       const resetLink = `${baseUrl}/reset-password?token=${rawToken}`;
-      sendTemplatedEmail(user.email, "password_reset", {
+      void sendTemplatedEmail(user.email, "password_reset", {
         fullName: user.fullName,
         resetLink,
         expiryMinutes: "60",
       }, user.fullName);
       logActivity("user", "password_reset_requested", { targetId: user.id, targetType: "user", summary: `Password reset requested for ${user.fullName} (${user.username})` });
       res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
-    } catch (e) {
+    } catch {
       res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
     }
   });
@@ -1251,7 +1226,7 @@ export async function registerRoutes(
       const user = await storage.getUser(resetToken.userId);
       logActivity("user", "password_reset_completed", { targetId: resetToken.userId, targetType: "user", summary: `Password reset completed for ${user?.fullName || "unknown"} (${user?.username || "unknown"})` });
       res.json({ message: "Password has been reset successfully. You can now sign in with your new password." });
-    } catch (e) {
+    } catch {
       res.status(500).json({ message: "An error occurred. Please try again." });
     }
   });
@@ -1820,7 +1795,7 @@ export async function registerRoutes(
       }
       for (const admin of admins) {
         if (adminWantsPush(admin, "admin_new_ticket")) {
-          sendPushToUser(admin.id, {
+          void sendPushToUser(admin.id, {
             title: "New Support Ticket",
             body: `${customer?.fullName}: ${ticket.subject}`,
             url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
@@ -1829,14 +1804,14 @@ export async function registerRoutes(
             rollupNoun: "messages",
           }, { type: "new_ticket", referenceType: "ticket", referenceId: ticket.id });
         }
-        storage.createTicketNotification({
+        void storage.createTicketNotification({
           userId: admin.id,
           ticketId: ticket.id,
           type: "new_ticket",
           message: `New ticket from ${customer?.fullName}: ${ticket.subject}`,
         });
         if (admin.email && customer && !shouldSuppressNotification({ user: admin, categoryKey: "admin_new_ticket" })) {
-          sendTemplatedEmail(admin.email, "admin_new_ticket", {
+          void sendTemplatedEmail(admin.email, "admin_new_ticket", {
             customer_name: customer.fullName,
             customer_username: customer.username,
             customer_email: customer.email,
@@ -1880,7 +1855,7 @@ export async function registerRoutes(
         broadcast({ type: "ticket_message", ticketId: ticket.id, message: autoMessage });
 
         if (customerWantsPush(customer, "ticket_received")) {
-          sendPushToUser(req.session.userId!, {
+          void sendPushToUser(req.session.userId!, {
             title: "Ticket received",
             body: `We received: ${ticket.subject}`,
             url: `/tickets/${ticket.id}`,
@@ -1889,14 +1864,14 @@ export async function registerRoutes(
             rollupNoun: "messages",
           }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
         }
-        storage.createTicketNotification({
+        void storage.createTicketNotification({
           userId: req.session.userId!,
           ticketId: ticket.id,
           type: "ticket_reply",
           message: `New reply on: ${ticket.subject}`,
         });
         if (customer?.email && customerWantsEmail(customer, "ticket_received")) {
-          sendTemplatedEmail(customer.email, "customer_ticket_received", {
+          void sendTemplatedEmail(customer.email, "customer_ticket_received", {
             ticket_subject: ticket.subject,
             customer_name: customer.fullName,
           }, customer.fullName);
@@ -2031,7 +2006,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         for (const admin of admins) {
           const adminQuiet = shouldSuppressNotification({ user: admin, categoryKey: "admin_ticket_closed" });
           if (!adminQuiet) {
-            sendPushToUser(admin.id, {
+            void sendPushToUser(admin.id, {
               title: "Ticket Closed",
               body: `Ticket Closed: ${ticket.subject}`,
               url: `/tickets/${ticket.id}`,
@@ -2040,14 +2015,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               rollupNoun: "messages",
             }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
           }
-          storage.createTicketNotification({
+          void storage.createTicketNotification({
             userId: admin.id,
             ticketId: ticket.id,
             type: "ticket_closed",
             message: `Ticket closed: ${ticket.subject}`,
           });
           if (admin.email && customer && !adminQuiet) {
-            sendTemplatedEmail(admin.email, "admin_ticket_closed", {
+            void sendTemplatedEmail(admin.email, "admin_ticket_closed", {
               customer_name: customer.fullName,
               customer_username: customer.username,
               customer_email: customer.email || "",
@@ -2064,7 +2039,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
         if (customer?.email && customerWantsEmail(customer, "ticket_closed")) {
           try {
-            sendTemplatedEmail(customer.email, "ticket_transcript", {
+            void sendTemplatedEmail(customer.email, "ticket_transcript", {
               ticket_subject: ticket.subject,
               ticket_description: ticket.description,
               customer_name: customer.fullName,
@@ -2149,14 +2124,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const customer = await storage.getUser(ticket.customerId);
       const claimCategory = isTransfer ? "ticket_transferred" : "ticket_claimed";
       if (customerWantsPush(customer, claimCategory)) {
-        sendPushToUser(ticket.customerId, {
+        void sendPushToUser(ticket.customerId, {
           title: pushTitle,
           body: pushBody,
           url: `/tickets/${ticket.id}`,
           tag: `ticket-${ticket.id}`,
         }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
       }
-      storage.createTicketNotification({
+      void storage.createTicketNotification({
         userId: ticket.customerId,
         ticketId: ticket.id,
         type: isTransfer ? "ticket_transferred" : "ticket_claimed",
@@ -2167,7 +2142,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       if (customer?.email && customerWantsEmail(customer, claimCategory)) {
         const emailTemplate = isTransfer ? "customer_ticket_transferred" : "customer_ticket_claimed";
-        sendTemplatedEmail(customer.email, emailTemplate, {
+        void sendTemplatedEmail(customer.email, emailTemplate, {
           admin_name: admin.fullName,
           ticket_subject: ticket.subject,
           customer_name: customer.fullName,
@@ -2240,7 +2215,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const category = categories.find(c => c.id === ticket.categoryId);
 
       if (!shouldSuppressNotification({ user: targetAdmin, categoryKey: "ticket_transferred" })) {
-        sendPushToUser(toAdminId, {
+        void sendPushToUser(toAdminId, {
           title: "Ticket Transfer",
           body: `${admin.fullName} transferred a ticket to you: ${ticket.subject} — Reason: ${reason}`,
           url: `/tickets/${ticket.id}`,
@@ -2248,7 +2223,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }, { type: "ticket_transfer", referenceType: "ticket", referenceId: ticket.id });
       }
 
-      storage.createTicketNotification({
+      void storage.createTicketNotification({
         userId: toAdminId,
         ticketId: ticket.id,
         type: "ticket_transfer",
@@ -2256,7 +2231,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       if (targetAdmin.email && customerWantsEmail(targetAdmin, "ticket_transferred")) {
-        sendTemplatedEmail(targetAdmin.email, "admin_ticket_transfer", {
+        void sendTemplatedEmail(targetAdmin.email, "admin_ticket_transfer", {
           from_admin_name: admin.fullName,
           transfer_reason: reason,
           ticket_subject: ticket.subject,
@@ -2582,7 +2557,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         for (const admin of admins) {
           const adminViewingTicket = isUserViewingTicket(admin.id, ticket.id);
           if (adminWantsPush(admin, "admin_internal_note")) {
-            sendPushToUser(admin.id, {
+            void sendPushToUser(admin.id, {
               title: "Internal note",
               body: `${user.fullName} on: ${ticket.subject}`,
               url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
@@ -2598,7 +2573,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const customerViewingTicket = isUserViewingTicket(ticket.customerId, ticket.id);
         const customer = await storage.getUser(ticket.customerId);
         if (customerWantsPush(customer, "ticket_reply")) {
-          sendPushToUser(ticket.customerId, {
+          void sendPushToUser(ticket.customerId, {
             title: "New Ticket Reply",
             body: `Reply on: ${ticket.subject}`,
             url: `/tickets/${ticket.id}`,
@@ -2608,7 +2583,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }, customerViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
         }
         if (!customerViewingTicket) {
-          storage.createTicketNotification({
+          void storage.createTicketNotification({
             userId: ticket.customerId,
             ticketId: ticket.id,
             type: "ticket_reply",
@@ -2618,7 +2593,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (customer?.email && customerWantsEmail(customer, "ticket_reply") && !isUserViewingTicket(ticket.customerId, ticket.id)) {
           if (shouldSendTicketEmail(ticket.customerId, ticket.id)) {
             recordTicketEmailSent(ticket.customerId, ticket.id);
-            sendTemplatedEmail(customer.email, "customer_ticket_reply", {
+            void sendTemplatedEmail(customer.email, "customer_ticket_reply", {
               ticket_subject: ticket.subject,
               message: req.body.message,
               customer_name: customer.fullName,
@@ -2642,7 +2617,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           const wantsMine = isAssignee && adminWantsPush(admin, "admin_ticket_reply_mine");
           const wantsAny = adminWantsPush(admin, "admin_ticket_reply_any");
           if (wantsMine || wantsAny) {
-            sendPushToUser(admin.id, {
+            void sendPushToUser(admin.id, {
               title: "New Ticket Message",
               body: `${user.fullName}: ${ticket.subject}`,
               url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
@@ -2652,7 +2627,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             }, adminViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
           }
           if (!adminViewingTicket) {
-            storage.createTicketNotification({
+            void storage.createTicketNotification({
               userId: admin.id,
               ticketId: ticket.id,
               type: "ticket_reply",
@@ -2662,7 +2637,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           if (admin.email && !isUserViewingTicket(admin.id, ticket.id) && !shouldSuppressNotification({ user: admin, categoryKey: isAssignee ? "admin_ticket_reply_mine" : "admin_ticket_reply_any" })) {
             if (shouldSendTicketEmail(admin.id, ticket.id)) {
               recordTicketEmailSent(admin.id, ticket.id);
-              sendTemplatedEmail(admin.email, "admin_ticket_reply", {
+              void sendTemplatedEmail(admin.email, "admin_ticket_reply", {
                 customer_name: user.fullName,
                 customer_username: user.username,
                 ticket_subject: ticket.subject,
@@ -2822,7 +2797,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const subIds = subscribedCustomers.map(u => u.id);
         for (const u of subscribedCustomers) {
           if (customerWantsPush(u, "service_status")) {
-            sendPushToUser(u.id, {
+            void sendPushToUser(u.id, {
               title: "Service Status Update",
               body: `${updated.name}: ${updated.status}`,
               url: "/services",
@@ -2830,7 +2805,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             }, { type: "service_status", referenceType: "service", referenceId: updated.id });
           }
           if (u.email && customerWantsEmail(u, "service_status")) {
-            sendTemplatedEmail(u.email, "customer_service_status", {
+            void sendTemplatedEmail(u.email, "customer_service_status", {
               service_name: updated.name,
               service_status: updated.status,
               customer_name: u.fullName,
@@ -2910,7 +2885,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(serviceId));
       for (const u of subscribedCustomers) {
         if (customerWantsPush(u, "service_update")) {
-          sendPushToUser(u.id, {
+          void sendPushToUser(u.id, {
             title: `Service Update: ${serviceName}`,
             body: title,
             url: "/service-updates",
@@ -2923,7 +2898,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }, { type: "service_update", referenceType: "service_update_group", referenceId: serviceId });
         }
         if (u.email && customerWantsEmail(u, "service_update")) {
-          sendTemplatedEmail(u.email, "customer_service_update", {
+          void sendTemplatedEmail(u.email, "customer_service_update", {
             service_name: serviceName,
             update_title: title,
             update_description: description,
@@ -2991,7 +2966,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const author = await storage.getUser(story.authorId);
       const authorLabel = author?.fullName || "News";
       for (const u of selectNewsPushRecipients(allUsers)) {
-        sendPushToUser(u.id, {
+        void sendPushToUser(u.id, {
           title: "New News Story",
           body: story.title,
           url: `/news/${story.id}`,
@@ -3006,7 +2981,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (newsEmails.length > 0) {
         const plainContent = sanitizeHtml(story.content, { allowedTags: [], allowedAttributes: {} }).trim();
         const emailPreview = plainContent.length > 500 ? plainContent.substring(0, 500) + "..." : plainContent;
-        sendTemplatedEmail(newsEmails, "customer_news", {
+        void sendTemplatedEmail(newsEmails, "customer_news", {
           story_title: story.title,
           story_content: emailPreview,
         }, "Customers");
@@ -3110,7 +3085,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       broadcast({ type: "private_message", recipientId, messageId: message.id, subject: message.subject });
 
       if (customerWantsPush(recipient, "private_message")) {
-        sendPushToUser(recipientId, {
+        void sendPushToUser(recipientId, {
           title: "New Private Message",
           body: `${sender?.fullName}: ${subject}`,
           url: "/messages",
@@ -3119,7 +3094,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       if (recipient.email && customerWantsEmail(recipient, "private_message") && sender) {
-        sendTemplatedEmail(recipient.email, "customer_private_message", {
+        void sendTemplatedEmail(recipient.email, "customer_private_message", {
           sender_name: sender.fullName,
           message_subject: subject,
           message_body: body,
@@ -3208,7 +3183,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
       if (customerWantsPush(customer, "thread_message")) {
-        sendPushToUser(customerId, {
+        void sendPushToUser(customerId, {
           title: `Message from ${sender?.fullName || "Support"}`,
           body: `${subject}: ${previewBody.substring(0, 100)}`,
           url: `/messages/${thread.id}`,
@@ -3219,7 +3194,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       if (customer.email && customerWantsEmail(customer, "thread_message") && sender) {
-        sendTemplatedEmail(customer.email, "customer_thread_message", {
+        void sendTemplatedEmail(customer.email, "customer_thread_message", {
           sender_name: sender.fullName,
           thread_subject: subject,
           message_body: previewBody,
@@ -3372,7 +3347,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const recipientUser = await storage.getUser(recipientId);
       const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
       if (customerWantsPush(recipientUser, "thread_message")) {
-        sendPushToUser(recipientId, {
+        void sendPushToUser(recipientId, {
           title: `${sender?.fullName || "User"}`,
           body: previewBody.substring(0, 100),
           url: `/messages/${thread.id}`,
@@ -3386,7 +3361,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const recipient = recipientUser;
         if (recipient?.email && customerWantsEmail(recipient, "thread_message") && sender) {
           const templateKey = isAdminSending ? "customer_thread_message" : "admin_thread_message";
-          sendTemplatedEmail(recipient.email, templateKey, {
+          void sendTemplatedEmail(recipient.email, templateKey, {
             sender_name: sender.fullName,
             thread_subject: thread.subject,
             message_body: previewBody,
@@ -3627,7 +3602,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const typeLabel = typeLabels[type] || type;
 
       if (user.email && customerWantsEmail(user, "report_received")) {
-        sendTemplatedEmail(user.email, "customer_report_received", {
+        void sendTemplatedEmail(user.email, "customer_report_received", {
           type_label: typeLabel,
           service_name: service?.name || "N/A",
           report_title: title,
@@ -3641,7 +3616,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       for (const admin of admins) {
         const adminQuiet = shouldSuppressNotification({ user: admin, categoryKey: "admin_new_report" });
         if (!adminQuiet) {
-          sendPushToUser(admin.id, {
+          void sendPushToUser(admin.id, {
             title: `New ${typeLabel}`,
             body: `${user.fullName}: ${title}`,
             url: "/admin",
@@ -3649,7 +3624,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }, { type: "new_report", referenceType: "report_request", referenceId: rr.id });
         }
         if (admin.email && !adminQuiet) {
-          sendTemplatedEmail(admin.email, "admin_new_report", {
+          void sendTemplatedEmail(admin.email, "admin_new_report", {
             type_label: typeLabel,
             type_label_lower: typeLabel.toLowerCase(),
             customer_name: user.fullName,
@@ -3698,7 +3673,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
         const customer = await storage.getUser(existing.customerId);
         if (customerWantsPush(customer, "report_update")) {
-          sendPushToUser(existing.customerId, {
+          void sendPushToUser(existing.customerId, {
             title: `${typeLabel} Updated`,
             body: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been marked as ${statusLabel}`,
             url: "/report-request",
@@ -3706,7 +3681,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }, { type: "report_update", referenceType: "report_request", referenceId: existing.id });
         }
 
-        storage.createReportNotification({
+        void storage.createReportNotification({
           userId: existing.customerId,
           reportRequestId: existing.id,
           message: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been updated to ${statusLabel}`,
@@ -3715,7 +3690,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (customer?.email && customerWantsEmail(customer, "report_update")) {
           const notesRaw = adminNotes || updated.adminNotes || "";
           const notesBlock = notesRaw ? `<blockquote>${escapeHtml(notesRaw).replace(/\n/g, "<br/>")}</blockquote>` : "";
-          sendTemplatedEmail(customer.email, "customer_report_update", {
+          void sendTemplatedEmail(customer.email, "customer_report_update", {
             type_label: typeLabel,
             report_title: existing.title,
             status_label: statusLabel,
@@ -4103,7 +4078,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (!isUserViewingAdminChat(p.userId, getParam(req, "id"))) {
           const recipient = await storage.getUser(p.userId);
           if (adminWantsPush(recipient, "admin_chat_message")) {
-            sendPushToUser(p.userId, {
+            void sendPushToUser(p.userId, {
               title: `Admin Chat - ${threadLabel}`,
               body: `${user.fullName}: ${messagePreview}`,
               url: `/admin?tab=admin-chat&chat=${req.params.id}`,
@@ -5004,7 +4979,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     });
   });
 
-  (async () => {
+  void (async () => {
     try {
       const allFiles = await db.select({ filename: uploadedFiles.filename }).from(uploadedFiles);
       const validPaths = new Set(allFiles.map(f => `/uploads/${f.filename}`));
@@ -5086,8 +5061,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   const ALLOWED_INTERVALS = [30, 60, 120, 300, 600];
   const ALLOWED_TIMEOUTS = [5, 10, 30];
   const ALLOWED_THRESHOLDS = [1, 2, 3, 4, 5];
-
-  const ALLOWED_MONITOR_TYPES = ["http_status", "url_availability"];
 
   const monitorUpdateSchema = z.object({
     name: z.string().min(1).optional(),
@@ -5298,7 +5271,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
       res.json(enriched);
 
-      (async () => {
+      void (async () => {
         try {
           const allUsers = await storage.getAllUsers();
           const mentionRegex = /@([a-zA-Z0-9_\-]+)/g;
@@ -5329,7 +5302,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           if (hasEveryone) {
             for (const u of allUsers) {
               if (u.id === user.id) continue;
-              sendPushToUser(u.id, {
+              void sendPushToUser(u.id, {
                 ...pushPayload,
                 title: `📢 ${chatUsername} — @everyone`,
               }, notifMeta);
@@ -5343,9 +5316,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               const isMentioned = uChatName && mentionedNames.has(uChatName.toLowerCase());
 
               if (u.chatNotifications === "all") {
-                sendPushToUser(u.id, pushPayload, notifMeta);
+                void sendPushToUser(u.id, pushPayload, notifMeta);
               } else if (u.chatNotifications === "mentions" && isMentioned) {
-                sendPushToUser(u.id, {
+                void sendPushToUser(u.id, {
                   ...pushPayload,
                   title: `💬 ${chatUsername} mentioned you`,
                 }, notifMeta);
@@ -5619,7 +5592,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!userId || !warnMessage) return res.status(400).json({ error: "userId and message required" });
       const targetUser = await storage.getUser(userId);
       if (!targetUser) return res.status(404).json({ error: "User not found" });
-      const admin = await storage.getUser(req.session.userId!);
 
       const warnRow = await storage.createUserNotification({
         userId,
@@ -5629,7 +5601,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         url: "/community",
       });
 
-      sendPushToUser(userId, {
+      void sendPushToUser(userId, {
         title: "⚠️ Community Chat Warning",
         body: warnMessage,
         url: "/community",
@@ -5669,7 +5641,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         url: "/community",
       });
 
-      sendPushToUser(userId, {
+      void sendPushToUser(userId, {
         title: "🚫 Community Chat Ban",
         body: "You have been banned from the community chat.",
         url: "/community",
@@ -6075,7 +6047,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
     for (const admin of admins) {
       if (!adminWantsPush(admin, "admin_monitor_down")) continue;
-      sendPushToUser(admin.id, {
+      void sendPushToUser(admin.id, {
         title: `⚠️ ${monitor.name} is DOWN`,
         body: reason,
         url: `/admin?tab=monitoring&monitor=${monitor.id}`,
@@ -6123,7 +6095,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
     for (const admin of admins) {
       if (!adminWantsPush(admin, "admin_monitor_down")) continue;
-      sendPushToUser(admin.id, {
+      void sendPushToUser(admin.id, {
         title: `✅ ${monitor.name} is back UP`,
         body: `Recovered after ${downtimeDuration}`,
         url: `/admin?tab=monitoring&monitor=${monitor.id}`,
@@ -6280,8 +6252,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   }
 
-  setTimeout(() => runMonitoringLoop(), 5000);
-  setInterval(() => runMonitoringLoop(), 15000);
+  setTimeout(() => void runMonitoringLoop(), 5000);
+  setInterval(() => void runMonitoringLoop(), 15000);
 
   return httpServer;
 }

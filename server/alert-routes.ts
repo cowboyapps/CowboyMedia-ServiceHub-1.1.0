@@ -162,7 +162,7 @@ export function registerAlertRoutes(
         description: alert.description,
       }), "alert");
       for (const s of coveredServices) {
-        notifyServiceSubscribers(s.id, "incident", {
+        void notifyServiceSubscribers(s.id, "incident", {
           service_name: s.name,
           alert_title: alert.title,
           alert_description: alert.description,
@@ -294,7 +294,7 @@ export function registerAlertRoutes(
         }), "alert");
         if (isResolved) {
           for (const s of coveredServices) {
-            notifyServiceSubscribers(s.id, "resolved", {
+            void notifyServiceSubscribers(s.id, "resolved", {
               service_name: s.name,
               alert_title: alert.title,
               resolve_message: updateData.message,
@@ -302,7 +302,7 @@ export function registerAlertRoutes(
           }
         } else if (hasImpactChange) {
           for (const s of coveredServices) {
-            notifyServiceSubscribers(s.id, "status", {
+            void notifyServiceSubscribers(s.id, "status", {
               service_name: s.name,
               alert_title: alert.title,
               alert_description: updateData.message,
@@ -389,7 +389,7 @@ export function registerAlertRoutes(
         resolveMessage,
       }), "alert");
       for (const s of coveredServices) {
-        notifyServiceSubscribers(s.id, "resolved", {
+        void notifyServiceSubscribers(s.id, "resolved", {
           service_name: s.name,
           alert_title: updated.title,
           resolve_message: resolveMessage,

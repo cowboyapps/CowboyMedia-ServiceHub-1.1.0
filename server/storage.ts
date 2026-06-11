@@ -11,7 +11,6 @@ import {
   type PushSubscription, type InsertPushSubscription,
   type QuickResponse, type InsertQuickResponse,
   type QuickResponseCategory, type InsertQuickResponseCategory,
-  type QuickResponseFavorite,
   type ReportRequest, type InsertReportRequest,
   type ReportNotification, type InsertReportNotification,
   type ServiceUpdate, type InsertServiceUpdate,
@@ -22,7 +21,6 @@ import {
   type AdminChatParticipant, type InsertAdminChatParticipant,
   type AdminChatMessage, type InsertAdminChatMessage,
   type BroadcastMessage, type InsertBroadcastMessage,
-  type BroadcastRecipient, type InsertBroadcastRecipient,
   type TicketTransfer, type InsertTicketTransfer,
   type AdminActivityLog, type InsertAdminActivityLog,
   type ErrorLog, type InsertErrorLog,
@@ -35,9 +33,9 @@ import {
   type ThreadMessage, type InsertThreadMessage,
   type UserNotification, type InsertUserNotification,
   type CommunityMessage, type InsertCommunityMessage,
-  type CommunityReaction, type InsertCommunityReaction,
+  type CommunityReaction,
   type NewsReaction,
-  type Poll, type PollOption, type PollVote, type InsertPoll,
+  type Poll, type PollOption,
   type ChangelogEntry, type InsertChangelogEntry,
   polls, pollOptions, pollVotes,
   type ChatWordFilter,
@@ -2019,7 +2017,6 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const start7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const start14d = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const start24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     const openTicketRows = await db.select({ id: tickets.id, customerId: tickets.customerId }).from(tickets).where(ne(tickets.status, "closed"));

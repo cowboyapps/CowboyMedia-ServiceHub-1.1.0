@@ -1,4 +1,4 @@
-import type { QuickResponse, Ticket, TicketMessage } from "@shared/schema";
+import type { QuickResponse, Ticket } from "@shared/schema";
 
 const STOPWORDS = new Set([
   "a","an","and","are","as","at","be","but","by","can","could","did","do","does","doing","done","for","from","get","got","had","has","have","he","her","hers","him","his","how","i","if","in","into","is","it","its","just","me","my","no","not","now","of","on","or","our","out","over","please","so","some","than","that","the","their","them","then","there","these","they","this","those","to","too","up","us","was","we","were","what","when","where","which","who","why","will","with","you","your","yours","am","im","ive","ill","weve","were","youre","theyre","dont","cant","wont","didnt","doesnt","isnt","wasnt","arent","hi","hello","hey","thanks","thank","ok","okay","yes","no",
