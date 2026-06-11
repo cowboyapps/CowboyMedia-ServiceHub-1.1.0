@@ -34,7 +34,7 @@ import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
-import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail } from "@/components/whmcs-tickets";
+import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
 import { Download, ImagePlus, X as XIcon, Paperclip } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
@@ -7654,13 +7654,20 @@ function WhmcsTicketsSection({ userId }: { userId: string }) {
   });
 
   const replyMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const res = await apiRequest("POST", `/api/admin/users/${userId}/whmcs/tickets/${selectedId}/reply`, { message });
+    mutationFn: async ({ message, files }: { message: string; files: File[] }) => {
+      const form = new FormData();
+      form.append("message", message);
+      for (const f of files) form.append("attachments", f);
+      const res = await fetch(`/api/admin/users/${userId}/whmcs/tickets/${selectedId}/reply`, {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to send reply");
+        throw new Error(body.message || `Failed to send reply (${res.status})`);
       }
-      return res.json();
+      return res.json().catch(() => ({}));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "whmcs", "tickets", selectedId] });
@@ -7669,6 +7676,11 @@ function WhmcsTicketsSection({ userId }: { userId: string }) {
     },
     onError: (e: Error) => toast({ title: "Couldn't send reply", description: e.message, variant: "destructive" }),
   });
+
+  const buildAttachmentUrl = (a: WhmcsAttachment) =>
+    `/api/admin/users/${userId}/whmcs/tickets/${selectedId}/attachments?type=${encodeURIComponent(
+      a.type,
+    )}&relatedid=${encodeURIComponent(String(a.relatedId))}&index=${encodeURIComponent(String(a.index))}`;
 
   return (
     <div className="border-t pt-3" data-testid="panel-whmcs-tickets">
@@ -7684,10 +7696,11 @@ function WhmcsTicketsSection({ userId }: { userId: string }) {
           isLoading={detailLoading}
           isError={detailError}
           context="admin"
-          onReply={(message) => replyMutation.mutate(message)}
+          onReply={(message, files) => replyMutation.mutate({ message, files })}
           replyPending={replyMutation.isPending}
           onBack={() => setSelectedId(null)}
           replyHint="Your reply posts to WHMCS as the configured support staff member."
+          buildAttachmentUrl={buildAttachmentUrl}
         />
       )}
     </div>

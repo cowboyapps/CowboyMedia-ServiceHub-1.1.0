@@ -433,30 +433,89 @@ export async function getTicket(ticketId: number): Promise<WhmcsRawFetch> {
   return whmcsApiCall("GetTicket", { ticketid: ticketId });
 }
 
+/** One file to forward to WHMCS on a ticket reply (raw bytes, base64-encoded). */
+export interface TicketAttachmentUpload {
+  /** Original file name shown in WHMCS. */
+  name: string;
+  /** base64 of the raw file bytes (NOT a data: URL). */
+  base64: string;
+}
+
+/**
+ * Encode files into WHMCS's AddTicketReply `attachments` param. WHMCS expects a
+ * base64-encoded JSON array of `{ name, data }`, where `data` is itself the
+ * base64 of the raw file bytes. Returns null when there's nothing to attach so
+ * the caller simply omits the param. Pure — unit tested without network.
+ */
+export function encodeTicketAttachments(files: TicketAttachmentUpload[]): string | null {
+  const valid = (files ?? []).filter((f) => f && f.name && f.base64);
+  if (!valid.length) return null;
+  const arr = valid.map((f) => ({ name: f.name, data: f.base64 }));
+  return Buffer.from(JSON.stringify(arr)).toString("base64");
+}
+
 /**
  * Post a reply to a WHMCS ticket AS the client (clientid attribution). Used for
  * customer-initiated replies — WHMCS records the reply under the client account
  * and moves the ticket to "Customer-Reply", exactly as if posted in the client
- * area.
+ * area. Optional `attachments` are forwarded inline (base64) — nothing is stored
+ * in ServiceHub.
  */
 export async function addTicketReplyAsClient(
   ticketId: number,
   clientId: number,
   message: string,
+  attachments?: TicketAttachmentUpload[],
 ): Promise<WhmcsRawFetch> {
-  return whmcsApiCall("AddTicketReply", { ticketid: ticketId, clientid: clientId, message });
+  const params: Record<string, string | number | boolean> = { ticketid: ticketId, clientid: clientId, message };
+  const encoded = encodeTicketAttachments(attachments ?? []);
+  if (encoded) params.attachments = encoded;
+  return whmcsApiCall("AddTicketReply", params);
 }
 
 /**
  * Post a reply to a WHMCS ticket AS staff (adminusername attribution). Used for
  * admin-initiated replies so they show as a support response in WHMCS (and the
  * client gets the staff-reply email). Requires a valid WHMCS admin username,
- * configured in Admin Portal → WHMCS.
+ * configured in Admin Portal → WHMCS. Optional `attachments` are forwarded
+ * inline (base64) — nothing is stored in ServiceHub.
  */
 export async function addTicketReplyAsAdmin(
   ticketId: number,
   adminUsername: string,
   message: string,
+  attachments?: TicketAttachmentUpload[],
 ): Promise<WhmcsRawFetch> {
-  return whmcsApiCall("AddTicketReply", { ticketid: ticketId, adminusername: adminUsername, message });
+  const params: Record<string, string | number | boolean> = { ticketid: ticketId, adminusername: adminUsername, message };
+  const encoded = encodeTicketAttachments(attachments ?? []);
+  if (encoded) params.attachments = encoded;
+  return whmcsApiCall("AddTicketReply", params);
+}
+
+export interface WhmcsAttachmentDownload {
+  ok: boolean;
+  filename?: string;
+  /** base64 of the raw file bytes. */
+  data?: string;
+  error?: string;
+  reason?: WhmcsFailureReason;
+}
+
+/**
+ * Fetch a single ticket attachment's bytes via WHMCS GetTicketAttachment. WHMCS
+ * keys the owner as `relatedid` + `type` ("reply" for a ticket-reply attachment,
+ * "ticket" for the opening message) + a 0-based `index`. The data comes back
+ * base64-encoded. Used by the download proxy so attachments stay mirror-on-read
+ * (never stored in ServiceHub).
+ */
+export async function getTicketAttachment(
+  type: "reply" | "ticket",
+  relatedId: number,
+  index: number,
+): Promise<WhmcsAttachmentDownload> {
+  const r = await whmcsApiCall("GetTicketAttachment", { relatedid: relatedId, type, index });
+  if (!r.ok) return { ok: false, error: r.error, reason: r.reason };
+  const filename = String(r.data?.filename ?? r.data?.name ?? "").trim() || "attachment";
+  const data = typeof r.data?.data === "string" ? r.data.data : "";
+  return { ok: true, filename, data };
 }

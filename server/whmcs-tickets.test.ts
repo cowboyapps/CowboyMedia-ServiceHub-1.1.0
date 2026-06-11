@@ -10,6 +10,8 @@ import {
   parseReply,
   buildTicketDetail,
   buildTicketsList,
+  parseAttachments,
+  findTicketAttachment,
 } from "./whmcs-tickets";
 import type { WhmcsRawFetch } from "./whmcs";
 
@@ -188,4 +190,145 @@ test("buildTicketsList: single ticket object (not array) normalizes to one row",
   );
   assert.equal(list.tickets.length, 1);
   assert.equal(list.tickets[0].id, 3);
+});
+
+// ---------- parseAttachments ----------
+
+test("parseAttachments: returns [] when there is no owner or no positive id", () => {
+  assert.deepEqual(parseAttachments({ attachments: { attachment: ["a.png"] } }, null), []);
+  assert.deepEqual(parseAttachments({ attachments: { attachment: ["a.png"] } }, { type: "reply", relatedId: 0 }), []);
+});
+
+test("parseAttachments: structured array of name strings keys to owner + 0-based index", () => {
+  const out = parseAttachments(
+    { attachments: { attachment: ["one.png", "two.pdf"] } },
+    { type: "reply", relatedId: 42 },
+  );
+  assert.deepEqual(out, [
+    { filename: "one.png", index: 0, type: "reply", relatedId: 42 },
+    { filename: "two.pdf", index: 1, type: "reply", relatedId: 42 },
+  ]);
+});
+
+test("parseAttachments: tolerates {filename}/{name} objects and explicit index", () => {
+  const out = parseAttachments(
+    { attachments: [{ filename: "a.png", index: 3 }, { name: "b.txt" }] },
+    { type: "ticket", relatedId: 7 },
+  );
+  assert.deepEqual(out, [
+    { filename: "a.png", index: 3, type: "ticket", relatedId: 7 },
+    { filename: "b.txt", index: 1, type: "ticket", relatedId: 7 },
+  ]);
+});
+
+test("parseAttachments: legacy JSON-array string column", () => {
+  const out = parseAttachments(
+    { attachment: '["legacy, with comma.png","second.jpg"]' },
+    { type: "reply", relatedId: 9 },
+  );
+  assert.deepEqual(out, [
+    { filename: "legacy, with comma.png", index: 0, type: "reply", relatedId: 9 },
+    { filename: "second.jpg", index: 1, type: "reply", relatedId: 9 },
+  ]);
+});
+
+test("parseAttachments: legacy bare (non-JSON) string is one file name, never split on commas", () => {
+  const out = parseAttachments({ attachment: "my, report.pdf" }, { type: "reply", relatedId: 1 });
+  assert.deepEqual(out, [{ filename: "my, report.pdf", index: 0, type: "reply", relatedId: 1 }]);
+});
+
+test("parseAttachments: drops blank names, [] when nothing attached", () => {
+  assert.deepEqual(parseAttachments({}, { type: "reply", relatedId: 1 }), []);
+  assert.deepEqual(
+    parseAttachments({ attachments: { attachment: ["", "  "] } }, { type: "reply", relatedId: 1 }),
+    [],
+  );
+});
+
+test("parseReply: folds attachments keyed on the reply id by default", () => {
+  const r = parseReply(
+    { replyid: 12, requestor_type: "Owner", name: "Bob", message: "see file", attachments: { attachment: ["x.png"] } },
+    0,
+  );
+  assert.deepEqual(r.attachments, [{ filename: "x.png", index: 0, type: "reply", relatedId: 12 }]);
+});
+
+test("parseReply: attachmentOwner override keys to a ticket (synthesized opening)", () => {
+  const r = parseReply(
+    { name: "Bob", message: "opening", attachments: { attachment: ["intro.pdf"] } },
+    0,
+    { type: "ticket", relatedId: 99 },
+  );
+  assert.deepEqual(r.attachments, [{ filename: "intro.pdf", index: 0, type: "ticket", relatedId: 99 }]);
+});
+
+test("parseReply: no reply id and no owner override yields no attachments", () => {
+  const r = parseReply({ name: "Bob", message: "hi", attachments: { attachment: ["x.png"] } }, 0);
+  assert.deepEqual(r.attachments, []);
+});
+
+test("buildTicketDetail: exposes downloadable attachments on replies and opening post", () => {
+  const detail = buildTicketDetail(
+    okFetch({
+      id: 7,
+      tid: "7",
+      subject: "Files",
+      status: "Open",
+      userid: 1,
+      date: "2026-06-01",
+      name: "Bob",
+      message: "Opening",
+      attachments: { attachment: ["open.png"] },
+      replies: {
+        reply: [
+          { replyid: 1, requestor_type: "Owner", name: "Bob", message: "Opening", attachments: { attachment: ["open.png"] } },
+          { replyid: 2, requestor_type: "Operator", admin: "Jane", message: "Reply", attachments: { attachment: ["resp.pdf"] } },
+        ],
+      },
+    }),
+    BASE,
+  );
+  assert.ok(detail);
+  assert.deepEqual(detail!.messages[0].attachments, [{ filename: "open.png", index: 0, type: "reply", relatedId: 1 }]);
+  assert.deepEqual(detail!.messages[1].attachments, [{ filename: "resp.pdf", index: 0, type: "reply", relatedId: 2 }]);
+});
+
+test("buildTicketDetail: synthesized opening keys attachments to the ticket id", () => {
+  const detail = buildTicketDetail(
+    okFetch({ id: 8, tid: "8", subject: "S", status: "Open", userid: 5, name: "Bob", message: "Opening", attachments: { attachment: ["spec.pdf"] } }),
+    BASE,
+  );
+  assert.ok(detail);
+  assert.equal(detail!.messages.length, 1);
+  assert.deepEqual(detail!.messages[0].attachments, [{ filename: "spec.pdf", index: 0, type: "ticket", relatedId: 8 }]);
+});
+
+// ---------- findTicketAttachment ----------
+
+const detailWithAttachments = buildTicketDetail(
+  okFetch({
+    id: 7,
+    tid: "7",
+    subject: "Files",
+    status: "Open",
+    userid: 1,
+    replies: {
+      reply: [
+        { replyid: 1, requestor_type: "Owner", name: "Bob", message: "a", attachments: { attachment: ["one.png", "two.pdf"] } },
+        { replyid: 2, requestor_type: "Operator", admin: "Jane", message: "b", attachments: { attachment: ["resp.pdf"] } },
+      ],
+    },
+  }),
+  BASE,
+)!;
+
+test("findTicketAttachment: returns the matching (type, relatedId, index) attachment", () => {
+  const a = findTicketAttachment(detailWithAttachments, "reply", 1, 1);
+  assert.deepEqual(a, { filename: "two.pdf", index: 1, type: "reply", relatedId: 1 });
+});
+
+test("findTicketAttachment: null when index / relatedId / type miss", () => {
+  assert.equal(findTicketAttachment(detailWithAttachments, "reply", 1, 5), null);
+  assert.equal(findTicketAttachment(detailWithAttachments, "reply", 999, 0), null);
+  assert.equal(findTicketAttachment(detailWithAttachments, "ticket", 1, 0), null);
 });

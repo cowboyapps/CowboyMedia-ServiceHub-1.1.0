@@ -35,12 +35,16 @@ import {
   normalizeListField as normalizeWhmcsListField,
   addTicketReplyAsClient as addWhmcsTicketReplyAsClient,
   addTicketReplyAsAdmin as addWhmcsTicketReplyAsAdmin,
+  getTicketAttachment as getWhmcsTicketAttachment,
+  type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
 import { loadBillingSummary, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
   bustTicketsListCache as bustWhmcsTicketsListCache,
+  findTicketAttachment as findWhmcsTicketAttachment,
+  type AttachmentOwnerType as WhmcsAttachmentOwnerType,
 } from "./whmcs-tickets";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
@@ -316,6 +320,43 @@ function withUpload(field: string) {
   return <P>(req: Request<P>, res: Response, next: NextFunction): void => {
     handler(req as Request, res, next);
   };
+}
+
+// Same as withUpload but for multiple files under one field (e.g. WHMCS ticket
+// reply attachments). Preserves route-param inference like withUpload does.
+function withUploadArray(field: string, maxCount: number) {
+  const handler = upload.array(field, maxCount);
+  return <P>(req: Request<P>, res: Response, next: NextFunction): void => {
+    handler(req as Request, res, next);
+  };
+}
+
+// Cap files per WHMCS ticket reply (multer also caps each file at 25MB).
+const WHMCS_REPLY_MAX_ATTACHMENTS = 5;
+
+// Turn multer's in-memory files into the base64 shape the WHMCS client forwards.
+function toWhmcsAttachmentUploads(files: Express.Multer.File[] | undefined): WhmcsTicketAttachmentUpload[] {
+  return (files ?? []).map((f) => ({ name: f.originalname, base64: f.buffer.toString("base64") }));
+}
+
+// Strip characters that would break a Content-Disposition filename (quotes,
+// path separators, CR/LF) so a WHMCS-supplied name can't inject headers.
+function safeDownloadFilename(name: string): string {
+  return (name || "attachment").replace(/[\r\n"\\/]+/g, "_").trim() || "attachment";
+}
+
+// Validate + coerce the (type, relatedid, index) attachment locator from a
+// download request's query string. Returns null when anything is malformed.
+function parseWhmcsAttachmentLocator(
+  query: any,
+): { type: WhmcsAttachmentOwnerType; relatedId: number; index: number } | null {
+  const type = String(query?.type ?? "");
+  if (type !== "reply" && type !== "ticket") return null;
+  const relatedId = Number(query?.relatedid);
+  const index = Number(query?.index);
+  if (!Number.isInteger(relatedId) || relatedId <= 0) return null;
+  if (!Number.isInteger(index) || index < 0) return null;
+  return { type, relatedId, index };
 }
 
 async function saveUploadedFile(file: Express.Multer.File): Promise<string> {
@@ -6295,7 +6336,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // Customer reply: posts back to WHMCS AS the client (clientid attribution).
   // Ownership is re-verified before the write so a customer can only reply to
   // their own ticket.
-  app.post("/api/whmcs-tickets/:id/reply", requireAuth, async (req, res) => {
+  app.post("/api/whmcs-tickets/:id/reply", requireAuth, withUploadArray("attachments", WHMCS_REPLY_MAX_ATTACHMENTS), async (req, res) => {
     try {
       const ticketId = Number(getParam(req, "id"));
       if (!Number.isInteger(ticketId) || ticketId <= 0) {
@@ -6305,6 +6346,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!message) {
         return res.status(400).json({ message: "A reply message is required" });
       }
+      const attachments = toWhmcsAttachmentUploads(req.files as Express.Multer.File[] | undefined);
       const settings = await storage.getWhmcsSettings();
       const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
       const configured = hasWhmcsCredentials() && !!baseUrl;
@@ -6321,13 +6363,61 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!detail || detail.ownerClientId !== clientId) {
         return res.status(404).json({ message: "Ticket not found" });
       }
-      const r = await addWhmcsTicketReplyAsClient(ticketId, clientId, message);
+      const r = await addWhmcsTicketReplyAsClient(ticketId, clientId, message, attachments);
       if (!r.ok) {
         return res.status(502).json({ message: "Could not post your reply. Please try again shortly." });
       }
       bustWhmcsTicketsListCache(clientId);
       const updated = await loadWhmcsTicketDetail(ticketId, baseUrl);
       return res.json({ ok: true, ticket: updated ?? detail });
+    } catch {
+      return res.status(503).json({ message: "Billing system is temporarily unavailable" });
+    }
+  });
+
+  // Customer attachment download proxy. Streams a WHMCS ticket attachment's
+  // bytes through ServiceHub (mirror-on-read — nothing stored). Ownership is
+  // enforced exactly like the thread read, AND the requested (type, relatedid,
+  // index) must be an attachment that actually belongs to THIS ticket, so a
+  // customer can't pull attachments off another client's reply ids.
+  app.get("/api/whmcs-tickets/:id/attachments", requireAuth, async (req, res) => {
+    try {
+      const ticketId = Number(getParam(req, "id"));
+      if (!Number.isInteger(ticketId) || ticketId <= 0) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const locator = parseWhmcsAttachmentLocator(req.query);
+      if (!locator) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const detail = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      if (!detail || detail.ownerClientId !== clientId) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      if (!findWhmcsTicketAttachment(detail, locator.type, locator.relatedId, locator.index)) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const dl = await getWhmcsTicketAttachment(locator.type, locator.relatedId, locator.index);
+      if (!dl.ok || !dl.data) {
+        return res.status(502).json({ message: "Could not download this attachment. Please try again shortly." });
+      }
+      const buffer = Buffer.from(dl.data, "base64");
+      res.set("Content-Type", "application/octet-stream");
+      res.set("Content-Disposition", `attachment; filename="${safeDownloadFilename(dl.filename ?? "")}"`);
+      res.set("Cache-Control", "private, max-age=300");
+      return res.send(buffer);
     } catch {
       return res.status(503).json({ message: "Billing system is temporarily unavailable" });
     }
@@ -6386,7 +6476,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // shows as a support response in WHMCS. Requires a WHMCS admin username to be
   // configured in Admin Portal → WHMCS; without it we fail loudly (400) rather
   // than silently misattributing the reply to the client.
-  app.post("/api/admin/users/:id/whmcs/tickets/:ticketId/reply", requirePermission("users.view", "users.manage"), async (req, res) => {
+  app.post("/api/admin/users/:id/whmcs/tickets/:ticketId/reply", requirePermission("users.view", "users.manage"), withUploadArray("attachments", WHMCS_REPLY_MAX_ATTACHMENTS), async (req, res) => {
     try {
       const user = await storage.getUser(getParam(req, "id"));
       if (!user) return res.status(404).json({ message: "User not found" });
@@ -6398,6 +6488,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!message) {
         return res.status(400).json({ message: "A reply message is required" });
       }
+      const attachments = toWhmcsAttachmentUploads(req.files as Express.Multer.File[] | undefined);
       const settings = await storage.getWhmcsSettings();
       const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
       const configured = hasWhmcsCredentials() && !!baseUrl;
@@ -6414,7 +6505,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!detail || detail.ownerClientId !== clientId) {
         return res.status(404).json({ message: "Ticket not found" });
       }
-      const r = await addWhmcsTicketReplyAsAdmin(ticketId, adminUsername, message);
+      const r = await addWhmcsTicketReplyAsAdmin(ticketId, adminUsername, message, attachments);
       if (!r.ok) {
         return res.status(502).json({ message: `Could not post reply to WHMCS: ${r.error}` });
       }
@@ -6427,6 +6518,51 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
       const updated = await loadWhmcsTicketDetail(ticketId, baseUrl);
       return res.json({ ok: true, ticket: updated ?? detail });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Admin attachment download proxy for a linked customer's WHMCS ticket.
+  // Permission-gated; ownership enforced against the user's linked client id and
+  // the requested attachment must belong to THIS ticket (same guard as the
+  // customer route). Streams bytes through — nothing is stored in ServiceHub.
+  app.get("/api/admin/users/:id/whmcs/tickets/:ticketId/attachments", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const ticketId = Number(getParam(req, "ticketId"));
+      if (!Number.isInteger(ticketId) || ticketId <= 0) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const locator = parseWhmcsAttachmentLocator(req.query);
+      if (!locator) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      const clientId = user.whmcsClientId ?? null;
+      if (!configured || !enabled || !clientId) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const detail = await loadWhmcsTicketDetail(ticketId, baseUrl);
+      if (!detail || detail.ownerClientId !== clientId) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      if (!findWhmcsTicketAttachment(detail, locator.type, locator.relatedId, locator.index)) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+      const dl = await getWhmcsTicketAttachment(locator.type, locator.relatedId, locator.index);
+      if (!dl.ok || !dl.data) {
+        return res.status(502).json({ message: `Could not download this attachment: ${dl.error ?? "unknown error"}` });
+      }
+      const buffer = Buffer.from(dl.data, "base64");
+      res.set("Content-Type", "application/octet-stream");
+      res.set("Content-Disposition", `attachment; filename="${safeDownloadFilename(dl.filename ?? "")}"`);
+      res.set("Cache-Control", "private, max-age=300");
+      return res.send(buffer);
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }

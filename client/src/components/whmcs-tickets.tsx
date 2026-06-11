@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,9 @@ import {
   User as UserIcon,
   Send,
   ArrowLeft,
+  Paperclip,
+  X,
+  Download,
 } from "lucide-react";
 
 // Shared, read-on-demand presentation of WHMCS support tickets. Driven entirely
@@ -57,12 +60,22 @@ export interface WhmcsTicketsListData {
 
 export type ReplyAuthorType = "client" | "staff" | "other";
 
+export type AttachmentOwnerType = "reply" | "ticket";
+
+export interface WhmcsAttachment {
+  filename: string;
+  index: number;
+  type: AttachmentOwnerType;
+  relatedId: number;
+}
+
 export interface WhmcsReply {
   id: string;
   authorName: string;
   authorType: ReplyAuthorType;
   date: string | null;
   message: string;
+  attachments: WhmcsAttachment[];
 }
 
 export interface WhmcsTicketDetail {
@@ -286,16 +299,21 @@ export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen,
   );
 }
 
+/** Max files per reply — mirror of the server cap (WHMCS_REPLY_MAX_ATTACHMENTS). */
+const MAX_REPLY_ATTACHMENTS = 5;
+
 interface TicketThreadProps {
   ticket: WhmcsTicketDetail | undefined;
   isLoading: boolean;
   isError?: boolean;
   context?: "customer" | "admin";
-  onReply: (message: string) => void;
+  onReply: (message: string, files: File[]) => void;
   replyPending: boolean;
   onBack?: () => void;
   /** Hint shown above the composer (e.g. admin staff-reply attribution note). */
   replyHint?: string;
+  /** Build a download URL for an existing attachment (call-site supplies the base path). */
+  buildAttachmentUrl?: (a: WhmcsAttachment) => string;
 }
 
 /** The full thread for one WHMCS ticket plus an inline reply composer. */
@@ -308,8 +326,21 @@ export function WhmcsTicketThread({
   replyPending,
   onBack,
   replyHint,
+  buildAttachmentUrl,
 }: TicketThreadProps) {
   const [draft, setDraft] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming || incoming.length === 0) return;
+    setFiles((prev) => [...prev, ...Array.from(incoming)].slice(0, MAX_REPLY_ATTACHMENTS));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   if (isLoading) {
     return (
@@ -344,8 +375,9 @@ export function WhmcsTicketThread({
   const submit = () => {
     const trimmed = draft.trim();
     if (!trimmed || replyPending) return;
-    onReply(trimmed);
+    onReply(trimmed, files);
     setDraft("");
+    setFiles([]);
   };
 
   return (
@@ -395,6 +427,41 @@ export function WhmcsTicketThread({
                 >
                   {m.message || <span className="opacity-60">(no message)</span>}
                 </div>
+                {m.attachments.length > 0 && (
+                  <div className={`flex flex-wrap gap-1.5 ${isStaff ? "" : "justify-end"}`} data-testid={`whmcs-message-attachments-${m.id}`}>
+                    {m.attachments.map((a) => {
+                      const url = buildAttachmentUrl?.(a);
+                      const key = `${a.type}-${a.relatedId}-${a.index}`;
+                      const inner = (
+                        <>
+                          <Paperclip className="w-3 h-3 shrink-0" />
+                          <span className="truncate max-w-[180px]">{a.filename}</span>
+                          {url && <Download className="w-3 h-3 shrink-0 opacity-70" />}
+                        </>
+                      );
+                      return url ? (
+                        <a
+                          key={key}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs text-foreground hover-elevate"
+                          data-testid={`link-whmcs-attachment-${key}`}
+                        >
+                          {inner}
+                        </a>
+                      ) : (
+                        <span
+                          key={key}
+                          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground"
+                          data-testid={`text-whmcs-attachment-${key}`}
+                        >
+                          {inner}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <p className={`text-[10px] text-muted-foreground ${isStaff ? "" : "text-right"}`}>{formatTicketDate(m.date)}</p>
               </div>
             </div>
@@ -425,12 +492,59 @@ export function WhmcsTicketThread({
             className="min-h-[90px]"
             data-testid="input-whmcs-reply"
           />
-          <div className="flex justify-end">
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5" data-testid="whmcs-reply-attachments">
+              {files.map((f, i) => (
+                <span
+                  key={`${f.name}-${i}`}
+                  className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+                  data-testid={`chip-whmcs-reply-attachment-${i}`}
+                >
+                  <Paperclip className="w-3 h-3 shrink-0" />
+                  <span className="truncate max-w-[160px]">{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    disabled={replyPending}
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${f.name}`}
+                    data-testid={`button-whmcs-remove-attachment-${i}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
+            data-testid="input-whmcs-reply-file"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={replyPending || files.length >= MAX_REPLY_ATTACHMENTS}
+              data-testid="button-whmcs-attach"
+            >
+              <Paperclip className="w-4 h-4" />
+              Attach
+            </Button>
             <Button onClick={submit} disabled={replyPending || !draft.trim()} className="gap-1.5" data-testid="button-whmcs-reply-send">
               <Send className="w-4 h-4" />
               {replyPending ? "Sending…" : "Send reply"}
             </Button>
           </div>
+          {files.length >= MAX_REPLY_ATTACHMENTS && (
+            <p className="text-[10px] text-muted-foreground text-right">Up to {MAX_REPLY_ATTACHMENTS} files per reply.</p>
+          )}
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@ import {
   normalizeClientsArray,
   toClientSummary,
   pickUnambiguousMatchByEmail,
+  encodeTicketAttachments,
 } from "./whmcs";
 
 // ---------- normalizeBaseUrl ----------
@@ -140,4 +141,29 @@ test("pickUnambiguousMatchByEmail: zero matches / empty target return null", () 
   assert.equal(pickUnambiguousMatchByEmail([{ id: 1, email: "x@example.com" }], "none@example.com"), null);
   assert.equal(pickUnambiguousMatchByEmail([], "x@example.com"), null);
   assert.equal(pickUnambiguousMatchByEmail([{ id: 1, email: "x@example.com" }], ""), null);
+});
+
+// ---------- encodeTicketAttachments ----------
+// WHMCS AddTicketReply wants a base64-encoded JSON array of { name, data },
+// where data is the base64 of the raw file bytes.
+
+test("encodeTicketAttachments: null when there's nothing valid to attach", () => {
+  assert.equal(encodeTicketAttachments([]), null);
+  assert.equal(encodeTicketAttachments(undefined as any), null);
+  assert.equal(encodeTicketAttachments([{ name: "", base64: "" }] as any), null);
+  assert.equal(encodeTicketAttachments([{ name: "a.png", base64: "" }] as any), null);
+});
+
+test("encodeTicketAttachments: base64 of JSON [{name,data}], dropping invalid entries", () => {
+  const encoded = encodeTicketAttachments([
+    { name: "a.png", base64: "QUJD" },
+    { name: "", base64: "skip" } as any,
+    { name: "b.txt", base64: "REVG" },
+  ]);
+  assert.ok(encoded);
+  const decoded = JSON.parse(Buffer.from(encoded!, "base64").toString("utf8"));
+  assert.deepEqual(decoded, [
+    { name: "a.png", data: "QUJD" },
+    { name: "b.txt", data: "REVG" },
+  ]);
 });

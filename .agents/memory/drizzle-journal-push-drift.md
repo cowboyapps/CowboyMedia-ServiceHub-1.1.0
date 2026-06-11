@@ -66,6 +66,21 @@ per `_journal.json` entry (hash = sha256 of each `migrations/<tag>.sql`,
 created_at = its `when`). Restart → "migrations up to date". Prod is unaffected
 (fresh DB applies upstream-0016 → your-0017 in order).
 
+# Variant: push is PARTIAL — verify each unjournaled migration's effect in the DB before journaling it
+
+db:push does not guarantee all pending migrations got applied. Seen in practice:
+a `CREATE TABLE` migration (e.g. `whmcs_product_mappings`) was pushed (table
+exists) but the *next* migration's `ADD COLUMN admin_username` was NOT. If you
+blindly insert journal rows for **every** unjournaled migration, you mark the
+ADD COLUMN as applied and the column never gets created — boot is green but the
+app crashes at runtime with `column "x" does not exist`.
+
+**Rule:** for each unjournaled migration, check whether its actual DDL effect
+exists in the DB (`\d <table>`, `to_regclass('public.<table>')`) BEFORE inserting
+its journal row. Journal only the ones already applied; leave the genuinely-missing
+ones unjournaled so the migrator runs them on next boot. Confirm with
+`SELECT migrationsApplied` in `/api/health` AND a direct `\d` column check.
+
 # Scope
 
 This is **local/dev-only** drift caused by db:push in post-merge setup. Prod

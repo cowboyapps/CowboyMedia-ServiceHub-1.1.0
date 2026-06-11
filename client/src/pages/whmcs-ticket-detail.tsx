@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { markTicketSeen } from "@/lib/whmcs-unread";
 import { latestReplyDate } from "@shared/whmcs-unread";
-import { WhmcsTicketThread, type WhmcsTicketDetail } from "@/components/whmcs-tickets";
+import { WhmcsTicketThread, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
 
 interface TicketDetailResponse {
   ticket: WhmcsTicketDetail;
@@ -40,8 +40,20 @@ export default function WhmcsTicketDetailPage() {
   }, [data?.ticket, user?.id]);
 
   const replyMutation = useMutation({
-    mutationFn: async (message: string) => {
-      return apiRequest("POST", `/api/whmcs-tickets/${id}/reply`, { message });
+    mutationFn: async ({ message, files }: { message: string; files: File[] }) => {
+      const form = new FormData();
+      form.append("message", message);
+      for (const f of files) form.append("attachments", f);
+      const res = await fetch(`/api/whmcs-tickets/${id}/reply`, {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        throw new Error(msg || `Reply failed (${res.status})`);
+      }
+      return res.json().catch(() => ({}));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/whmcs-tickets", id] });
@@ -53,6 +65,11 @@ export default function WhmcsTicketDetailPage() {
     },
   });
 
+  const buildAttachmentUrl = (a: WhmcsAttachment) =>
+    `/api/whmcs-tickets/${id}/attachments?type=${encodeURIComponent(a.type)}&relatedid=${encodeURIComponent(
+      String(a.relatedId),
+    )}&index=${encodeURIComponent(String(a.index))}`;
+
   return (
     <div className="max-w-3xl mx-auto" data-testid="page-whmcs-ticket-detail">
       <WhmcsTicketThread
@@ -60,9 +77,10 @@ export default function WhmcsTicketDetailPage() {
         isLoading={isLoading}
         isError={isError}
         context="customer"
-        onReply={(message) => replyMutation.mutate(message)}
+        onReply={(message, files) => replyMutation.mutate({ message, files })}
         replyPending={replyMutation.isPending}
         onBack={() => setLocation("/tickets")}
+        buildAttachmentUrl={buildAttachmentUrl}
       />
     </div>
   );

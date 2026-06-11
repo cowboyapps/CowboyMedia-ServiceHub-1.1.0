@@ -104,6 +104,68 @@ export function parseTicketSummary(raw: any): ParsedTicketSummary {
 
 export type ReplyAuthorType = "client" | "staff" | "other";
 
+/** Where a WHMCS attachment lives so the download proxy can fetch its bytes. */
+export type AttachmentOwnerType = "reply" | "ticket";
+
+export interface ParsedAttachment {
+  filename: string;
+  /** 0-based position within its owning reply/ticket (WHMCS GetTicketAttachment index). */
+  index: number;
+  /** "reply" for a ticket-reply attachment, "ticket" for the opening message. */
+  type: AttachmentOwnerType;
+  /** The reply id (type=reply) or ticket id (type=ticket) GetTicketAttachment keys on. */
+  relatedId: number;
+}
+
+/**
+ * Pull a serialized legacy `attachment` string into a list of file names. WHMCS
+ * historically stored this column as a JSON array (sometimes of strings,
+ * sometimes of `{filename}` objects); older rows may carry a single bare name.
+ * We never split on commas — file names can legitimately contain them.
+ */
+function parseLegacyAttachmentString(s: string): string[] {
+  const trimmed = s.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((x) => String(typeof x === "string" ? x : x?.filename ?? x?.name ?? "").trim())
+        .filter(Boolean);
+    }
+  } catch {
+    /* not JSON — treat the whole string as one file name */
+  }
+  return [trimmed];
+}
+
+/**
+ * Map the attachment metadata on a raw WHMCS reply/ticket record into our shape.
+ * Tolerates every WHMCS variant: the structured `attachments` field (array, the
+ * `{attachment:[...]}` wrapper, an array of plain name strings) and the legacy
+ * `attachment` string. `owner` carries the type + related id the download proxy
+ * needs; returns [] when there's no owner (no id to fetch by). Pure.
+ */
+export function parseAttachments(
+  raw: any,
+  owner: { type: AttachmentOwnerType; relatedId: number } | null,
+): ParsedAttachment[] {
+  if (!owner || !(owner.relatedId > 0)) return [];
+  const items = normalizeListField(raw?.attachments, "attachment");
+  let names: { filename: string; index: number }[] = [];
+  if (items.length) {
+    names = items.map((it: any, i: number) => ({
+      filename: String((typeof it === "string" ? it : it?.filename ?? it?.name) ?? "").trim(),
+      index: Number.isInteger(Number(it?.index)) ? Number(it.index) : i,
+    }));
+  } else if (typeof raw?.attachment === "string" && raw.attachment.trim()) {
+    names = parseLegacyAttachmentString(raw.attachment).map((filename, i) => ({ filename, index: i }));
+  }
+  return names
+    .filter((n) => n.filename)
+    .map((n) => ({ filename: n.filename, index: n.index, type: owner.type, relatedId: owner.relatedId }));
+}
+
 export interface ParsedReply {
   /** Stable id for React keys: real replyid when present, else a synthesized one. */
   id: string;
@@ -111,6 +173,7 @@ export interface ParsedReply {
   authorType: ReplyAuthorType;
   date: string | null;
   message: string;
+  attachments: ParsedAttachment[];
 }
 
 /**
@@ -127,8 +190,17 @@ export function deriveReplyAuthorType(raw: any): ReplyAuthorType {
   return requestor ? "other" : "client";
 }
 
-/** Map a raw WHMCS reply record (and the opening message) into our shape. */
-export function parseReply(raw: any, index: number): ParsedReply {
+/**
+ * Map a raw WHMCS reply record (and the opening message) into our shape.
+ * `attachmentOwner` overrides where attachments are fetched from — passed by the
+ * synthesized-opening path (type "ticket"). When omitted, attachments are keyed
+ * off the reply id (type "reply") when one is present.
+ */
+export function parseReply(
+  raw: any,
+  index: number,
+  attachmentOwner?: { type: AttachmentOwnerType; relatedId: number },
+): ParsedReply {
   const authorType = deriveReplyAuthorType(raw);
   const adminName = String(raw?.admin ?? "").trim();
   const name = String(raw?.name ?? "").trim();
@@ -137,12 +209,16 @@ export function parseReply(raw: any, index: number): ParsedReply {
       ? adminName || name || "Support"
       : name || "You";
   const replyId = raw?.replyid ?? raw?.id;
+  const replyIdNum = Number(replyId ?? 0);
+  const owner =
+    attachmentOwner ?? (replyIdNum > 0 ? { type: "reply" as const, relatedId: replyIdNum } : null);
   return {
     id: replyId ? String(replyId) : `msg-${index}`,
     authorName,
     authorType,
     date: normalizeWhmcsDate(raw?.date),
     message: String(raw?.message ?? "").trim(),
+    attachments: parseAttachments(raw, owner),
   };
 }
 
@@ -189,8 +265,11 @@ export function buildTicketDetail(result: WhmcsRawFetch, baseUrl: string | null)
             admin: d?.admin,
             date: d?.date,
             message: d?.message,
+            attachments: d?.attachments,
+            attachment: d?.attachment,
           },
           0,
+          { type: "ticket", relatedId: id },
         ),
       ];
 
@@ -208,6 +287,26 @@ export function buildTicketDetail(result: WhmcsRawFetch, baseUrl: string | null)
     messages,
     viewUrl: buildTicketViewUrl(baseUrl, id),
   };
+}
+
+/**
+ * Find the attachment in a parsed ticket matching the requested owner + index,
+ * or null. The download proxy uses this to reject any (type, relatedId, index)
+ * that isn't actually part of THIS ticket — so a caller can't pump arbitrary
+ * reply ids (from another client's ticket) through GetTicketAttachment. Pure.
+ */
+export function findTicketAttachment(
+  detail: ParsedTicketDetail,
+  type: AttachmentOwnerType,
+  relatedId: number,
+  index: number,
+): ParsedAttachment | null {
+  for (const m of detail.messages) {
+    for (const a of m.attachments) {
+      if (a.type === type && a.relatedId === relatedId && a.index === index) return a;
+    }
+  }
+  return null;
 }
 
 export interface TicketsListData {
