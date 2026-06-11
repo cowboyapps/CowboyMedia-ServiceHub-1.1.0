@@ -11,6 +11,7 @@ import type { Express, Request, Response, NextFunction, RequestHandler } from "e
 import type { Service } from "@shared/schema";
 import { getParam } from "./http-params";
 import { recomputeForCoveredServices, recomputeForServiceChange } from "./alert-status";
+import { getErrorMessage } from "./error-utils";
 import { composeAlertCreated, composeAlertUpdate, composeAlertResolved, type TelegramCategory } from "./telegram";
 import {
   composeAlertCreated as composeDiscordAlertCreated,
@@ -169,8 +170,8 @@ export function registerAlertRoutes(
         }, getBaseUrl(req));
       }
       res.json(alert);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -198,8 +199,8 @@ export function registerAlertRoutes(
         return res.json(refreshed ?? updated);
       }
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -311,8 +312,8 @@ export function registerAlertRoutes(
         }
       }
       res.json(update);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -326,8 +327,8 @@ export function registerAlertRoutes(
       const updated = await storage.updateAlertUpdate(getParam(req, "updateId"), data);
       if (!updated) return res.status(404).json({ message: "Alert update not found" });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -395,8 +396,8 @@ export function registerAlertRoutes(
         }, getBaseUrl(req));
       }
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -408,8 +409,8 @@ export function registerAlertRoutes(
       await recomputeForCoveredServices(alertToDelete?.serviceIds || [], alertStatusDeps);
       logActivity("alert", "alert_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert deleted: ${alertToDelete?.title || req.params.id}` });
       res.json({ message: "Alert deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 }

@@ -15,6 +15,8 @@ import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, tickets, ticketMessages, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
 import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles } from "./uploaded-file-cleanup";
+import { getErrorMessage, getErrorStatusCode, getErrorName, getErrorCode } from "./error-utils";
+import { queryString, queryInt } from "./request-utils";
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
 import { createDashboardHandler } from "./dashboard";
@@ -633,8 +635,8 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
         url: payload.url || null,
       });
       notificationId = row.id;
-    } catch (e: any) {
-      console.error("[UserNotif] Failed to create:", e.message);
+    } catch (e) {
+      console.error("[UserNotif] Failed to create:", getErrorMessage(e));
       logError("push", e, { severity: "warn", userId, summary: "Failed to create user_notification row before push" });
     }
   }
@@ -663,17 +665,17 @@ async function sendPushToUser(userId: string, payload: { title: string; body: st
           JSON.stringify(richPayload)
         );
         sent++;
-      } catch (err: any) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
+      } catch (err) {
+        if (getErrorStatusCode(err) === 404 || getErrorStatusCode(err) === 410) {
           await storage.deletePushSubscription(sub.endpoint);
-          console.log(`[Push] User ${userId} — removed stale subscription (${err.statusCode})`);
+          console.log(`[Push] User ${userId} — removed stale subscription (${getErrorStatusCode(err)})`);
         } else {
-          console.error(`[Push] User ${userId} — push failed (${err.statusCode}):`, err.message);
+          console.error(`[Push] User ${userId} — push failed (${getErrorStatusCode(err)}):`, getErrorMessage(err));
           logError("push", err, {
             severity: "warn",
             userId,
-            summary: `Push failed (${err.statusCode}): ${payload.title}`.slice(0, 500),
-            extra: { statusCode: err.statusCode, endpoint: sub.endpoint, title: payload.title },
+            summary: `Push failed (${getErrorStatusCode(err)}): ${payload.title}`.slice(0, 500),
+            extra: { statusCode: getErrorStatusCode(err), endpoint: sub.endpoint, title: payload.title },
           });
         }
         failed++;
@@ -707,7 +709,7 @@ async function sendPushToSubscribedUsers(serviceId: string, payload: { title: st
 }
 
 function logActivity(category: string, action: string, opts: { actorId?: string; targetId?: string; targetType?: string; recipientId?: string; summary: string; details?: string }) {
-  storage.createActivityLog({ category, action, ...opts }).catch(e => console.error("[ActivityLog] Failed to write:", e.message));
+  storage.createActivityLog({ category, action, ...opts }).catch(e => console.error("[ActivityLog] Failed to write:", getErrorMessage(e)));
 }
 
 export async function registerRoutes(
@@ -718,13 +720,13 @@ export async function registerRoutes(
 
   pool.query("UPDATE users SET username = TRIM(username) WHERE username != TRIM(username)")
     .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Trimmed whitespace from ${r.rowCount} username(s)`); })
-    .catch((e) => console.error("[Migration] Failed to trim usernames:", e.message));
+    .catch((e) => console.error("[Migration] Failed to trim usernames:", getErrorMessage(e)));
   pool.query("UPDATE users SET full_name = TRIM(full_name) WHERE full_name != TRIM(full_name)")
     .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Trimmed whitespace from ${r.rowCount} full_name(s)`); })
-    .catch((e) => console.error("[Migration] Failed to trim full_names:", e.message));
+    .catch((e) => console.error("[Migration] Failed to trim full_names:", getErrorMessage(e)));
   pool.query(`UPDATE admin_roles SET permissions = array_append(permissions, 'dashboard.view') WHERE NOT ('dashboard.view' = ANY(permissions))`)
     .then((r) => { if (r.rowCount && r.rowCount > 0) console.log(`[Migration] Added dashboard.view permission to ${r.rowCount} admin role(s)`); })
-    .catch((e) => console.error("[Migration] Failed to seed dashboard.view:", e.message));
+    .catch((e) => console.error("[Migration] Failed to seed dashboard.view:", getErrorMessage(e)));
 
   app.set("trust proxy", 1);
 
@@ -771,8 +773,8 @@ export async function registerRoutes(
       res.set("Content-Type", file.mimetype);
       res.set("Cache-Control", "public, max-age=31536000, immutable");
       res.send(buffer);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -820,8 +822,8 @@ export async function registerRoutes(
       }
       const adminIds = admins.map(a => a.id);
       storage.createContentNotificationBulk(adminIds, "admin-users", `New signup: ${fullName} (${username})`, user.id).catch(() => {});
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -864,8 +866,8 @@ export async function registerRoutes(
           current: s.sid === currentSid,
         };
       }));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -878,8 +880,8 @@ export async function registerRoutes(
       await deleteSessionRow(pool, targetSid);
       const isSelf = targetSid === req.sessionID;
       res.json({ ok: true, self: isSelf });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -887,8 +889,8 @@ export async function registerRoutes(
     try {
       const removed = await deleteSessionsForUser(pool, req.session.userId!, req.sessionID);
       res.json({ ok: true, removed });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1005,8 +1007,8 @@ export async function registerRoutes(
       };
       setCachedPublicStatus(payload);
       res.json(payload);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1067,8 +1069,8 @@ export async function registerRoutes(
           createdAt: u.createdAt,
         })),
       });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1123,8 +1125,8 @@ export async function registerRoutes(
       }
 
       return res.status(400).json({ message: "serviceId is required" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1134,7 +1136,7 @@ export async function registerRoutes(
 </head><body><div class="card"><div class="icon">${ok ? "✓" : "ⓘ"}</div><h1>${title}</h1><p>${message}</p><a href="/status">Back to status page</a></div></body></html>`;
 
   app.get("/api/public/subscribe/confirm", async (req, res) => {
-    const token = (req.query.token as string) || "";
+    const token = queryString(req.query.token) || "";
     if (!token) return res.status(400).type("html").send(subscribeHtmlPage("Invalid link", "Missing confirmation token.", false));
     const sub = await storage.getServiceSubscriberByToken(token);
     if (!sub) return res.status(404).type("html").send(subscribeHtmlPage("Link not found", "This confirmation link is no longer valid.", false));
@@ -1162,7 +1164,7 @@ export async function registerRoutes(
       const removed = await storage.deletePublicStatusSubscriberByToken(token);
       res.set("Content-Type", "text/html");
       res.send(`<!doctype html><html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto;"><h2>${removed ? "Unsubscribed" : "Not found"}</h2><p>${removed ? "You've been unsubscribed from CowboyMedia status updates." : "That unsubscribe link is no longer valid."}</p></body></html>`);
-    } catch (e: any) {
+    } catch (e) {
       res.status(500).send("Error");
     }
   });
@@ -1218,7 +1220,7 @@ export async function registerRoutes(
       }, user.fullName);
       logActivity("user", "password_reset_requested", { targetId: user.id, targetType: "user", summary: `Password reset requested for ${user.fullName} (${user.username})` });
       res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
-    } catch (e: any) {
+    } catch (e) {
       res.json({ message: "If an account with that username or email exists, a password reset link has been sent." });
     }
   });
@@ -1249,7 +1251,7 @@ export async function registerRoutes(
       const user = await storage.getUser(resetToken.userId);
       logActivity("user", "password_reset_completed", { targetId: resetToken.userId, targetType: "user", summary: `Password reset completed for ${user?.fullName || "unknown"} (${user?.username || "unknown"})` });
       res.json({ message: "Password has been reset successfully. You can now sign in with your new password." });
-    } catch (e: any) {
+    } catch (e) {
       res.status(500).json({ message: "An error occurred. Please try again." });
     }
   });
@@ -1276,8 +1278,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1290,8 +1292,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, { lastVersionWelcomeSeen: version.trim() });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1310,8 +1312,8 @@ export async function registerRoutes(
         user.lastVersionWelcomeSeen,
       );
       res.json(selected);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1329,8 +1331,8 @@ export async function registerRoutes(
         bodyHtml: sanitizeNewsContent(r.bodyHtml),
         publishedAt: r.publishedAt,
       })));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1342,7 +1344,7 @@ export async function registerRoutes(
       // never masked by a stale copy.
       res.set("Cache-Control", "no-store");
       res.json(await storage.getAllChangelogEntries());
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });
 
   app.post("/api/admin/changelog", requireMasterAdmin, async (req, res) => {
@@ -1362,7 +1364,7 @@ export async function registerRoutes(
         publishedBy: null,
       });
       res.status(201).json(created);
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });
 
   app.patch("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
@@ -1374,7 +1376,7 @@ export async function registerRoutes(
       const updated = await storage.updateChangelogEntry(getParam(req, "version"), patch);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });
 
   // Agent-friendly bullet appender. The agent (and any other automated
@@ -1414,7 +1416,7 @@ export async function registerRoutes(
         bodyHtml: sanitizeNewsContent(merged),
       });
       res.json(updated);
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   }
 
   app.post("/api/admin/changelog/:version/append", requireMasterAdmin, handleChangelogAppend);
@@ -1436,7 +1438,7 @@ export async function registerRoutes(
       const updated = await storage.publishChangelogEntry(getParam(req, "version"), req.session.userId!);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });
 
   app.delete("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
@@ -1444,7 +1446,7 @@ export async function registerRoutes(
       const ok = await storage.deleteChangelogEntry(getParam(req, "version"));
       if (!ok) return res.status(409).json({ message: "Cannot delete: entry not found or already published" });
       res.json({ ok: true });
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });
 
   app.patch("/api/auth/onboarding-complete", requireAuth, async (req, res) => {
@@ -1452,8 +1454,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, { onboardingTourCompletedAt: new Date() });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1508,8 +1510,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, { notificationPrefs: next });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1528,8 +1530,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, data);
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1556,8 +1558,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1571,8 +1573,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, { avatarUrl: url });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json({ url, user: sanitizeUser(updated) });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1602,8 +1604,8 @@ export async function registerRoutes(
         badges,
         ticketCount: stats.ticketCount,
       });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1614,8 +1616,8 @@ export async function registerRoutes(
       const updated = await storage.updateUser(getParam(req, "id"), { notificationPrefs: {} });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -1690,8 +1692,8 @@ export async function registerRoutes(
         result[id] = aggregateNewsReactions(byStory[id], userId);
       }
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -1700,8 +1702,8 @@ export async function registerRoutes(
       const userId = req.session.userId!;
       const rows = await storage.getNewsReactionsForStory(getParam(req, "id"));
       res.json(aggregateNewsReactions(rows, userId));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -1720,8 +1722,8 @@ export async function registerRoutes(
       const result = await storage.toggleNewsReaction(getParam(req, "id"), userId, emoji);
       const rows = await storage.getNewsReactionsForStory(getParam(req, "id"));
       res.json({ ...result, reactions: aggregateNewsReactions(rows, userId) });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -1784,8 +1786,8 @@ export async function registerRoutes(
         claimedByName = claimedAdmin?.fullName || "Unknown";
       }
       res.json({ ...ticket, claimedByName });
-    } catch (e: any) {
-      if (e?.code === "22P02") return res.status(404).json({ message: "Ticket not found" });
+    } catch (e) {
+      if (getErrorCode(e) === "22P02") return res.status(404).json({ message: "Ticket not found" });
       throw e;
     }
   });
@@ -1904,8 +1906,8 @@ export async function registerRoutes(
       }
 
       res.json(ticket);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2078,8 +2080,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2173,8 +2175,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2286,8 +2288,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       res.json(transfer);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2322,8 +2324,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         };
       }));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2334,8 +2336,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         .filter(u => (u.role === "admin" || u.role === "master_admin") && u.id !== req.session.userId)
         .map(u => ({ id: u.id, fullName: u.fullName }));
       res.json(admins);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2401,8 +2403,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
     }));
     res.json(enriched);
-   } catch (e: any) {
-     if (e?.code === "22P02") return res.status(404).json({ message: "Ticket not found" });
+   } catch (e) {
+     if (getErrorCode(e) === "22P02") return res.status(404).json({ message: "Ticket not found" });
      throw e;
    }
   });
@@ -2414,7 +2416,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(403).json({ message: "Forbidden" });
       }
       const customerTickets = await storage.getTicketsByCustomer(getParam(req, "customerId"));
-      const excludeId = req.query.excludeTicketId as string | undefined;
+      const excludeId = queryString(req.query.excludeTicketId);
       let filtered = excludeId ? customerTickets.filter(t => t.id !== excludeId) : customerTickets;
       if (user.role === "admin") {
         const accessibleIds = await getAdminCategoryAccess(user.id);
@@ -2436,8 +2438,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         closedAt: t.closedAt,
       }));
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2472,8 +2474,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           imageUrl: ticket.imageUrl,
         },
       });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2673,8 +2675,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
       res.json(messageWithKb);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2698,8 +2700,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
       broadcastToAdmins({ type: "ticket_message_edited", ticketId: ticket.id, message: updated, isInternal: true });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2722,8 +2724,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
       broadcastToAdmins({ type: "ticket_message_deleted", ticketId: ticket.id, messageId: msg!.id });
       res.json({ message: "Deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2742,8 +2744,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         status[uid] = true;
       }
       res.json(status);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2757,8 +2759,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const hashed = await hashPassword(password);
       const user = await storage.createUser({ username, password: hashed, email, fullName, role: role || "customer", theme: "light" });
       res.json(sanitizeUser(user));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2770,8 +2772,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateUser(getParam(req, "id"), data);
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2785,8 +2787,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateUser(getParam(req, "id"), { password: hashed });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json({ message: "Password reset successfully" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2794,8 +2796,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       await storage.deleteUser(getParam(req, "id"));
       res.json({ message: "User deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2803,8 +2805,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const service = await storage.createService(req.body);
       res.json(service);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2838,8 +2840,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         storage.createContentNotificationBulk(subIds, "services", `${updated.name}: ${updated.status}`, updated.id).catch(() => {});
       }
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2847,8 +2849,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       await storage.deleteService(getParam(req, "id"));
       res.json({ message: "Service deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2886,8 +2888,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.json(filtered);
       }
       res.json(updates);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2934,8 +2936,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description, baseUrl: getBaseUrl(req) }), "service_update", service?.discordWebhookUrl);
       fireTelegram(composeServiceUpdate({ serviceName, title, description }), "service_update");
       res.json(update);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2950,8 +2952,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!updated) return res.status(404).json({ message: "Service update not found" });
       logActivity("service_update", "service_update_edited", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "service_update", summary: `Service update edited: ${updated.title}` });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -2969,8 +2971,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       await storage.hideServiceUpdate(req.session.userId!, getParam(req, "id"));
       res.json({ message: "Service update hidden" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3014,8 +3016,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       fireDiscordMany(composeDiscordNews({ title: story.title, content: story.content || "", newsId: story.id, baseUrl: getBaseUrl(req) }), "news");
       fireTelegramMany(composeNews({ title: story.title, content: story.content || "" }), "news");
       res.json(story);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3036,8 +3038,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateNewsStory(getParam(req, "id"), updateData);
       logActivity("news", "news_edited", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "news", summary: `News story edited: ${updated?.title || getParam(req, "id")}` });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3047,8 +3049,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.deleteNewsStory(getParam(req, "id"));
       logActivity("news", "news_deleted", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "news", summary: `News story deleted: ${storyToDelete?.title || getParam(req, "id")}` });
       res.json({ message: "News story deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3057,8 +3059,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!req.file) return res.status(400).json({ message: "No image provided" });
       const url = await saveUploadedFile(req.file);
       res.json({ url });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3082,8 +3084,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await deleteUploadedFileIfUnreferenced(url);
       }
       res.json({ message: "Ticket deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3126,8 +3128,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       res.json(message);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3135,8 +3137,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const messages = await storage.getPrivateMessagesBySender(req.session.userId!);
       res.json(messages);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3147,8 +3149,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!msg) return res.status(404).json({ message: "Message not found" });
       await storage.deletePrivateMessage(getParam(req, "id"));
       res.json({ message: "Message deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3228,8 +3230,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       logActivity("messages", "thread_created", { actorId: req.session.userId!, targetId: thread.id, targetType: "message_thread", summary: `Started conversation "${subject}" with ${customer.fullName}` });
 
       res.json({ thread, message: msgWithKb });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3253,8 +3255,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         };
       }));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3262,8 +3264,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.getUnreadThreadMessageCount(req.session.userId!);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3278,8 +3280,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const admin = await storage.getUser(thread.adminId);
       const customer = await storage.getUser(thread.customerId);
       res.json({ ...thread, adminName: admin?.fullName || "Admin", customerName: customer?.fullName || "Customer" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3305,8 +3307,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
       }));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3394,8 +3396,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       res.json(msgWithKb);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3418,8 +3420,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         ));
       broadcastToThreadParticipants({ type: "thread_messages_read", threadId: req.params.id, readBy: req.session.userId! }, [thread.adminId, thread.customerId]);
       res.json({ message: "Marked as read" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3441,8 +3443,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await deleteUploadedFileIfUnreferenced(url);
       }
       res.json({ message: "Thread deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3450,8 +3452,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const responses = await storage.getAllQuickResponses();
       res.json(responses);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3465,8 +3467,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const responses = await storage.getAllQuickResponses();
       res.json(responses);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3492,8 +3494,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const lastCustomer = [...msgs].reverse().find((m) => m.senderId === ticket.customerId);
       const top = suggestQuickResponses(ticket, lastCustomer?.message ?? null, allQrs, 3);
       res.json(top.map((qr) => ({ id: qr.id, title: qr.title, message: qr.message })));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3565,9 +3567,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!draft) return res.status(502).json({ message: "AI returned an empty response." });
 
       res.json({ draft, remaining: limit.remaining });
-    } catch (e: any) {
+    } catch (e) {
       console.error("AI draft error:", e);
-      res.status(500).json({ message: e?.message || "Failed to generate AI draft" });
+      res.status(500).json({ message: getErrorMessage(e) || "Failed to generate AI draft" });
     }
   });
 
@@ -3591,8 +3593,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }));
         res.json(enriched);
       }
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3663,8 +3665,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       storage.createContentNotificationBulk(adminIds, "admin-reports", `${typeLabel}: ${title}`, rr.id).catch(() => {});
 
       res.json(rr);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3724,8 +3726,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3733,8 +3735,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.getUnreadReportNotificationCount(req.session.userId!);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3743,8 +3745,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.markReportNotificationsRead(req.session.userId!);
       await storage.markUserNotificationsByTypeRead(req.session.userId!, ["report_update", "new_report"]);
       res.json({ message: "Marked as read" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3755,8 +3757,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.deleteReportRequest(getParam(req, "id"));
       logActivity("report", "report_deleted", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "report", summary: `Report deleted: "${reportToDelete?.title || getParam(req, "id")}" by ${delCustomer?.fullName || "Unknown"}`, details: JSON.stringify({ title: reportToDelete?.title, customer: delCustomer?.fullName }) });
       res.json({ message: "Deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3764,8 +3766,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const templates = await storage.getAllEmailTemplates();
       res.json(templates);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3780,8 +3782,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updated = await storage.updateEmailTemplate(getParam(req, "id"), updateData);
       if (!updated) return res.status(404).json({ message: "Template not found" });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3798,8 +3800,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         customized: false,
       });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3815,8 +3817,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const role = await storage.getAdminRole(user.adminRoleId);
       return res.json({ permissions: role?.permissions || [] });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3824,8 +3826,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const roles = await storage.getAllAdminRoles();
       res.json(roles);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3839,8 +3841,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const categories = await storage.getAllTicketCategories();
       res.json(categories);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3852,8 +3854,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       await storage.deleteTicketCategory(getParam(req, "id"));
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3882,16 +3884,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               JSON.stringify({ title: "Urgent Admin Alert", body: message, url })
             );
             sent++;
-          } catch (err: any) {
-            if (err.statusCode === 410) {
+          } catch (err) {
+            if (getErrorStatusCode(err) === 410) {
               await storage.deletePushSubscription(sub.endpoint);
             }
           }
         }
       }
       res.json({ success: true, sent });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3899,8 +3901,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const broadcasts = await storage.getUnreadBroadcasts(req.session.userId!);
       res.json(broadcasts);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3908,8 +3910,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       await storage.markBroadcastRead(getParam(req, "id"), req.session.userId!);
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3934,8 +3936,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         logActivity("user", "user_role_changed", { actorId: req.session.userId!, targetId: targetUser.id, targetType: "user", summary: `${targetUser.fullName} role changed to ${role}`, details: JSON.stringify({ username: targetUser.username, oldRole: targetUser.role, newRole: role, adminRoleId }) });
       }
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3946,8 +3948,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         .filter(u => (u.role === "admin" || u.role === "master_admin") && u.username !== "cowboymedia-support" && u.id !== req.session.userId)
         .map(u => ({ id: u.id, username: u.username, fullName: u.fullName, role: u.role }));
       res.json(adminUsers);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3955,8 +3957,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.getAdminChatUnreadCounts(req.session.userId!);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3964,8 +3966,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const threadIds = await storage.getAdminChatUnreadThreadIds(req.session.userId!);
       res.json(threadIds);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -3973,8 +3975,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       await storage.markAdminChatThreadRead(getParam(req, "id"), req.session.userId!);
       res.json({ message: "Marked as read" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4008,8 +4010,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         };
       }));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4027,8 +4029,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
       res.json(thread);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4048,8 +4050,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return { ...msg, senderName: sender?.fullName || "Unknown" };
       }));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4114,8 +4116,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       res.json({ ...msg, senderName: user.fullName });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4123,8 +4125,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       await storage.deleteAdminChatThread(getParam(req, "id"));
       res.json({ message: "Thread deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4142,8 +4144,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         senderName: senderMap.get(m.senderId) || "Unknown",
       }));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4151,8 +4153,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.getUnreadPrivateMessageCount(req.session.userId!);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4163,8 +4165,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!msg) return res.status(404).json({ message: "Message not found" });
       await storage.deletePrivateMessage(getParam(req, "id"));
       res.json({ message: "Message deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4175,8 +4177,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!msg) return res.status(404).json({ message: "Message not found" });
       const updated = await storage.markPrivateMessageRead(getParam(req, "id"));
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4185,8 +4187,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.getUnreadTicketNotificationCount(req.session.userId!);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4195,8 +4197,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.markTicketNotificationsRead(req.session.userId!);
       await storage.markUserNotificationsByTypeRead(req.session.userId!, ["ticket_update", "new_ticket"]);
       res.json({ message: "Notifications marked as read" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4204,8 +4206,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const counts = await storage.getUnreadContentNotificationCounts(req.session.userId!);
       res.json(counts);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4213,8 +4215,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const referenceIds = await storage.getUnreadContentNotificationReferenceIds(req.session.userId!, getParam(req, "category"));
       res.json(referenceIds);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4235,8 +4237,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await storage.markUserNotificationsByTypeRead(req.session.userId!, notifTypes);
       }
       res.json({ message: "Marked as read" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4254,8 +4256,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         auth: keys.auth,
       });
       res.json(sub);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4266,8 +4268,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await storage.deletePushSubscription(endpoint);
       }
       res.json({ message: "Unsubscribed" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4304,8 +4306,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get("/api/admin/online-users", requireAdmin, async (_req, res) => {
     try {
       res.json(await buildOnlineUsersResponse());
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4329,11 +4331,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const { category, action, search, page, limit } = req.query;
       const result = await storage.getActivityLogs({
-        category: category as string | undefined,
-        action: action as string | undefined,
-        search: search as string | undefined,
-        page: page ? parseInt(page as string) : 1,
-        limit: limit ? parseInt(limit as string) : 50,
+        category: queryString(category),
+        action: queryString(action),
+        search: queryString(search),
+        page: queryInt(page, 1),
+        limit: queryInt(limit, 50),
       });
       const allUsers = await storage.getAllUsers();
       const userMap = new Map(allUsers.map(u => [u.id, u.fullName]));
@@ -4343,8 +4345,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         recipientName: log.recipientId ? userMap.get(log.recipientId) || null : null,
       }));
       res.json({ logs: enrichedLogs, total: result.total });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4353,12 +4355,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const { severity, source, search, resolved, page, limit } = req.query;
       const resolvedParsed = resolved === "true" ? true : resolved === "false" ? false : undefined;
       const result = await storage.getErrorLogs({
-        severity: severity as string | undefined,
-        source: source as string | undefined,
-        search: search as string | undefined,
+        severity: queryString(severity),
+        source: queryString(source),
+        search: queryString(search),
         resolved: resolvedParsed,
-        page: page ? parseInt(page as string) : 1,
-        limit: limit ? parseInt(limit as string) : 50,
+        page: queryInt(page, 1),
+        limit: queryInt(limit, 50),
       });
       const userIds = new Set<string>();
       result.logs.forEach(l => { if (l.userId) userIds.add(l.userId); if (l.resolvedBy) userIds.add(l.resolvedBy); });
@@ -4373,8 +4375,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         resolvedByName: l.resolvedBy ? userMap.get(l.resolvedBy) || null : null,
       }));
       res.json({ logs: enriched, total: result.total });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4383,8 +4385,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const count = await storage.countUnresolvedErrorLogsSince(since);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4411,8 +4413,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const settings = await storage.getAppSettings();
       res.json(settings);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4451,10 +4453,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } finally {
         clearTimeout(timer);
       }
-    } catch (e: any) {
+    } catch (e) {
       return res.json({
         available: false,
-        reason: `listener unreachable: ${e?.message || "error"}`,
+        reason: `listener unreachable: ${getErrorMessage(e) || "error"}`,
       });
     }
   });
@@ -4494,10 +4496,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } finally {
         clearTimeout(timer);
       }
-    } catch (e: any) {
+    } catch (e) {
       return res.json({
         available: false,
-        reason: `listener unreachable: ${e?.message || "error"}`,
+        reason: `listener unreachable: ${getErrorMessage(e) || "error"}`,
         deploys: [],
       });
     }
@@ -4539,10 +4541,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } finally {
         clearTimeout(timer);
       }
-    } catch (e: any) {
+    } catch (e) {
       return res.json({
         available: false,
-        reason: `listener unreachable: ${e?.message || "error"}`,
+        reason: `listener unreachable: ${getErrorMessage(e) || "error"}`,
       });
     }
   });
@@ -4576,8 +4578,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } finally {
         clearTimeout(timer);
       }
-    } catch (e: any) {
-      return res.status(502).type("text/plain").send(`listener unreachable: ${e?.message || "error"}`);
+    } catch (e) {
+      return res.status(502).type("text/plain").send(`listener unreachable: ${getErrorMessage(e) || "error"}`);
     }
   });
 
@@ -4593,8 +4595,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const updated = await storage.updateAppSettings(patch);
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4639,8 +4641,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           resolvedAt: l.resolvedAt,
         })),
       });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4649,8 +4651,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const log = await storage.getErrorLog(getParam(req, "id"));
       if (!log) return res.status(404).json({ message: "Error log not found" });
       res.json(log);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4661,8 +4663,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const log = await storage.setErrorLogResolved(getParam(req, "id"), resolved, resolved ? userId : null);
       if (!log) return res.status(404).json({ message: "Error log not found" });
       res.json(log);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4679,8 +4681,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         (log as any).recipientName = recipient?.fullName || null;
       }
       res.json(log);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4688,8 +4690,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const result = await storage.getAllDownloads();
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4697,13 +4699,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const parsed = insertDownloadSchema.omit({ imageUrl: true }).safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors.map(e => e.message).join(", ") });
+        return res.status(400).json({ message: parsed.error.errors.map(e => getErrorMessage(e)).join(", ") });
       }
       const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
       const dl = await storage.createDownload({ ...parsed.data, imageUrl });
       res.json(dl);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4723,8 +4725,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const dl = await storage.updateDownload(getParam(req, "id"), updateData);
       if (!dl) return res.status(404).json({ message: "Download not found" });
       res.json(dl);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4734,23 +4736,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!existing) return res.status(404).json({ message: "Download not found" });
       await storage.deleteDownload(getParam(req, "id"));
       res.json({ message: "Deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
   storage.deleteExpiredUserNotifications(30).then(count => {
     if (count > 0) console.log(`[Cleanup] Deleted ${count} expired notification(s) older than 30 days`);
-  }).catch(e => console.error("[Cleanup] Failed to delete expired notifications:", e.message));
+  }).catch(e => console.error("[Cleanup] Failed to delete expired notifications:", getErrorMessage(e)));
 
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(queryInt(req.query.limit, 50), 100);
+      const offset = queryInt(req.query.offset, 0);
       const notifications = await storage.getUserNotifications(req.session.userId!, limit, offset);
       res.json(notifications);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4758,8 +4760,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.getUnreadUserNotificationCount(req.session.userId!);
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4778,8 +4780,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } else if (notif.type === "service_status") {
         await storage.markContentNotificationsRead(userId, "services");
       }
-    } catch (e: any) {
-      console.error("[NotifBadge] Failed to clear related badge:", e.message);
+    } catch (e) {
+      console.error("[NotifBadge] Failed to clear related badge:", getErrorMessage(e));
     }
   }
 
@@ -4795,8 +4797,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const groupCleared = await markGroupRead(storage, req.session.userId!, notif);
       await clearRelatedBadge(req.session.userId!, notif);
       res.json({ message: "Marked as read", groupCleared });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4807,8 +4809,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.dismissUserNotification(getParam(req, "id"), req.session.userId!);
       await clearRelatedBadge(req.session.userId!, notif);
       res.json({ message: "Dismissed" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4816,8 +4818,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const count = await storage.deleteExpiredUserNotifications(30);
       res.json({ deleted: count });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -4834,8 +4836,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.markContentNotificationsRead(userId, "admin-users");
       await storage.markContentNotificationsRead(userId, "admin-reports");
       res.json({ message: "All marked as read" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5171,8 +5173,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const incArrays = await Promise.all(monitors.map((m) => storage.getMonitorIncidents(m.id)));
       const uptime = computeUptimeFn(incArrays.flat(), monitors.length > 0);
       res.json({ ...uptime, hasMonitor: monitors.length > 0 });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5183,15 +5185,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const incArrays = await Promise.all(monitors.map((m) => storage.getMonitorIncidents(m.id)));
       const uptime = computeUptimeFn(incArrays.flat(), monitors.length > 0);
       res.json({ ...uptime, hasMonitor: monitors.length > 0 });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
   app.get("/api/community-chat/messages", requireAuth, async (req, res) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 50;
-      const before = req.query.before as string | undefined;
+      const limit = queryInt(req.query.limit, 50);
+      const before = queryString(req.query.before);
       const messages = await storage.getCommunityMessages(limit, before);
       const messageIds = messages.map(m => m.id);
       const reactions = await storage.getCommunityReactions(messageIds);
@@ -5219,8 +5221,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }));
       enriched.reverse();
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5354,8 +5356,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           console.error("Community chat push notification error:", e);
         }
       })();
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5372,8 +5374,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await deleteUploadedFileIfUnreferenced(existingMsg?.imageUrl);
       broadcast({ type: "community_message_deleted", messageId: req.params.id });
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5399,8 +5401,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         added: result.added,
       });
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5470,8 +5472,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const enriched = await enrichPoll(poll.id, user.id);
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5480,8 +5482,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const enriched = await enrichPoll(getParam(req, "id"), req.session.userId!);
       if (!enriched) return res.status(404).json({ error: "Poll not found" });
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5499,8 +5501,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         userVotes: await storage.getUserPollVotes(p.id, userId),
       })));
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5526,8 +5528,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const enriched = await enrichPoll(poll.id, userId);
       broadcast({ type: "poll_vote", pollId: poll.id, parentType: poll.parentType, parentId: poll.parentId });
       res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5546,8 +5548,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       broadcast({ type: "poll_deleted", pollId: req.params.id, parentType: poll.parentType, parentId: poll.parentId });
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5563,19 +5565,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
       res.json(participants);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
   app.get("/api/community-chat/username-available", requireAuth, async (req, res) => {
     try {
-      const username = req.query.username as string;
+      const username = queryString(req.query.username);
       if (!username) return res.status(400).json({ error: "Username required" });
       const taken = await storage.isChatUsernameTaken(username, req.session.userId);
       res.json({ available: !taken });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5606,8 +5608,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const updated = await storage.updateUser(req.session.userId!, updateData);
       res.json({ chatUsername: updated?.chatUsername, chatNotifications: updated?.chatNotifications });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5642,8 +5644,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5682,8 +5684,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5704,8 +5706,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
 
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5713,8 +5715,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const filters = await storage.getAllWordFilters();
       res.json(filters);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5738,8 +5740,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `Added word filter: ${cleaned}`,
       });
       res.json(filter);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5751,8 +5753,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `Removed word filter (ID: ${req.params.id})`,
       });
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5779,8 +5781,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         totalTickets: tickets.length,
         chatBanned: target.chatBanned || false,
       });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5795,8 +5797,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         email: u.email,
       }));
       res.json(safe);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -5813,8 +5815,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       );
       if (!result.ok) return res.status(400).json(result);
       res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ ok: false, error: e.message });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: getErrorMessage(e) });
     }
   });
 
@@ -5828,8 +5830,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const result = await sendDiscordTestMessage(composeDiscordTest());
       if (!result.ok) return res.status(400).json(result);
       res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ ok: false, error: e.message });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: getErrorMessage(e) });
     }
   });
 
@@ -5849,8 +5851,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const list = await storage.listAnnouncements();
       res.json(list);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5880,8 +5882,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `Announcement created: ${created.title}`,
       });
       res.json(created);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5906,8 +5908,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `Announcement updated: ${updated.title}${data.active !== undefined ? ` (active=${updated.active})` : ""}`,
       });
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5922,8 +5924,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `Announcement deleted: ${existing?.title || req.params.id}`,
       });
       res.json({ message: "Announcement deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5935,8 +5937,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!active) return res.json(null);
       const alreadySeen = await storage.hasUserSeenAnnouncement(active.id, req.session.userId);
       res.json({ ...active, alreadySeen });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5947,8 +5949,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!u || u.role !== "customer") return res.status(403).json({ message: "Forbidden" });
       await storage.markAnnouncementSeen(req.params.id, req.session.userId);
       res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5957,8 +5959,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const list = await storage.listKbCategories();
       res.json(list);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5977,8 +5979,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const list = await storage.listKbArticles({ publishedOnly, categoryId });
       res.json(list);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -5993,8 +5995,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         storage.incrementKbArticleViewCount(article.id).catch(() => {});
       }
       res.json(article);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -6005,16 +6007,16 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const helpful = req.body?.helpful === true || req.body?.helpful === "true";
       const updated = await storage.recordKbArticleHelpful(article.id, helpful);
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
   app.get("/api/admin/kb/categories", requirePermission("knowledge_base", "knowledge_base"), async (_req, res) => {
     try {
       res.json(await storage.listKbCategories());
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -6033,8 +6035,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `KB category deleted: ${existing?.name || req.params.id}`,
       });
       res.json({ message: "Category deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -6042,8 +6044,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const categoryId = typeof req.query.categoryId === "string" && req.query.categoryId ? req.query.categoryId : undefined;
       res.json(await storage.listKbArticles({ categoryId }));
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -6061,8 +6063,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `KB article deleted: ${existing?.title || req.params.id}`,
       });
       res.json({ message: "Article deleted" });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 
@@ -6200,11 +6202,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           failureReason = `HTTP ${response.status} server error`;
         }
       }
-    } catch (err: any) {
-      if (err.name === "AbortError") {
+    } catch (err) {
+      if (getErrorName(err) === "AbortError") {
         failureReason = `Timeout after ${monitor.timeoutSeconds}s`;
       } else {
-        failureReason = err.message || "Connection failed";
+        failureReason = getErrorMessage(err) || "Connection failed";
       }
     }
 
