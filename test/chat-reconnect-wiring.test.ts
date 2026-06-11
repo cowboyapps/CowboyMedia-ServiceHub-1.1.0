@@ -281,10 +281,13 @@ test("messages-page wiring: sends left_thread on unmount when socket is OPEN", (
 });
 
 // ---------------------------------------------------------------------------
-// 2. Admin portal thread chat — same contract as customer-side.
+// 2. Admins on the shared /messages screen — since Task #297 unified admin +
+//    customer Messages, admins drive the same messages-page wiring as
+//    customers (there's no separate admin thread tab anymore). These pin that
+//    an admin user gets the same viewing_thread/left_thread contract.
 // ---------------------------------------------------------------------------
 
-test("admin-portal thread wiring: re-sends viewing_thread on visibility-driven reconnect", () => {
+test("messages-page wiring (admin user): re-sends viewing_thread on visibility-driven reconnect", () => {
   const threadId = "thread-9";
   const userId = "admin-1";
   const expectedViewing = JSON.stringify({ type: "viewing_thread", threadId, userId });
@@ -325,7 +328,7 @@ test("admin-portal thread wiring: re-sends viewing_thread on visibility-driven r
   }
 });
 
-test("admin-portal thread wiring: sends left_thread on unmount when socket is OPEN", () => {
+test("messages-page wiring (admin user): sends left_thread on unmount when socket is OPEN", () => {
   const threadId = "thread-9";
   const userId = "admin-1";
   const expectedLeft = JSON.stringify({ type: "left_thread", threadId, userId });
@@ -496,7 +499,12 @@ test("messages-page wiring: thread_typing updates indicator, clears after 3s, ig
   }
 });
 
-test("admin-portal wiring: thread_typing updates indicator, clears after 3s, ignores self", () => {
+// Admins no longer get a dedicated thread tab inside the Admin Portal: since
+// Task #297 unified admin + customer Messages into the shared /messages screen,
+// admins drive the exact same messages-page wiring. This pins that an admin
+// user on /messages still sees typing indicators (and that self-typing frames
+// are ignored), mirroring the customer case above.
+test("messages-page wiring (admin user): thread_typing updates indicator, clears after 3s, ignores self", () => {
   const threadId = "thread-9";
   const userId = "admin-1";
   const h = mountTypingHarness(threadId, userId);
@@ -517,76 +525,6 @@ test("admin-portal wiring: thread_typing updates indicator, clears after 3s, ign
 
     act(() => advanceTime(3000));
     assert.equal(h.getTypingUser(), null, "admin indicator clears after 3s");
-  } finally {
-    h.unmount();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 6. thread_messages_read — admin-portal invalidates the thread messages
-//    query only when readBy is someone other than the current admin.
-// ---------------------------------------------------------------------------
-
-test("admin-portal wiring: thread_messages_read invalidates only when readBy is someone else", () => {
-  const threadId = "thread-9";
-  const userId = "admin-1";
-  const invalidatedKeys: unknown[][] = [];
-  const fakeQueryClient = {
-    invalidateQueries: ({ queryKey }: { queryKey: unknown[] }) => {
-      invalidatedKeys.push(queryKey);
-    },
-  };
-
-  const h = mountWithOptions(() => ({
-    path: "/ws",
-    onMessage: (e) => {
-      try {
-        const d = JSON.parse(e.data);
-        if (
-          d.type === "thread_messages_read" &&
-          d.threadId === threadId &&
-          d.readBy !== userId
-        ) {
-          fakeQueryClient.invalidateQueries({
-            queryKey: ["/api/message-threads", threadId, "messages"],
-          });
-        }
-      } catch {}
-    },
-  }));
-
-  try {
-    const first = h.sockets[0];
-    act(() => first.fireOpen());
-
-    // Read receipt from the current admin — must be ignored.
-    act(() => first.fireMessage({
-      type: "thread_messages_read", threadId, readBy: userId,
-    }));
-    assert.equal(invalidatedKeys.length, 0, "self read receipt ignored");
-
-    // Read receipt for a different thread — must be ignored.
-    act(() => first.fireMessage({
-      type: "thread_messages_read", threadId: "other", readBy: "customer-7",
-    }));
-    assert.equal(invalidatedKeys.length, 0, "other-thread read receipt ignored");
-
-    // Read receipt from another user — invalidates once.
-    act(() => first.fireMessage({
-      type: "thread_messages_read", threadId, readBy: "customer-7",
-    }));
-    assert.equal(invalidatedKeys.length, 1, "invalidated when readBy is someone else");
-    assert.deepEqual(invalidatedKeys[0], ["/api/message-threads", threadId, "messages"]);
-
-    // Survives a reconnect.
-    act(() => first.fireClose());
-    act(() => advanceTime(2000));
-    const second = h.sockets[1];
-    act(() => second.fireOpen());
-    act(() => second.fireMessage({
-      type: "thread_messages_read", threadId, readBy: "customer-7",
-    }));
-    assert.equal(invalidatedKeys.length, 2, "still wired after reconnect");
   } finally {
     h.unmount();
   }
