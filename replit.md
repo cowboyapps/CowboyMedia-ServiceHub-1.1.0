@@ -5,8 +5,8 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 ## Run & Operate
 
 - **Run Dev Server**: `npm run dev`
-- **Build**: `npm run build` (runs `npm test` first via `prebuild`)
-- **Typecheck**: `npm run typecheck`
+- **Build**: `npm run build`. The `prebuild` gate runs first, in order: `npm run lint` → `npm run check` (tsc) → `npm run db:migrate` → `npm run db:check` → `npm run db:check:columns` → `npm test`. Chained with `&&`, so the first failure (lint, **type error**, schema drift, or test) fails the build fast before `script/build.ts` runs — keeping type errors from ever reaching a deploy.
+- **Typecheck**: `npm run check` (runs `tsc`). Also enforced automatically as part of `prebuild`/the deploy gate (see Build above), so a new type error blocks the build instead of slipping through.
 - **Test**: `npm test` (runs every `*.test.ts` under `test/`, `shared/`, `server/` via `script/run-tests.ts`, which runs each file in its own `tsx --test` subprocess sequentially so heavy jsdom tests don't OOM the runner; always prints an aggregated pass/fail summary and exits non-zero on any failure/hang). Tunable via `TEST_CONCURRENCY` (default 1) and `TEST_FILE_TIMEOUT_MS` (default 180000). Pass file paths as args to run a subset, e.g. `tsx script/run-tests.ts test/sw.test.ts`.
 - **Codegen**: `npm run codegen`
 - **DB Migrations**:
