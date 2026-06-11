@@ -1,0 +1,68 @@
+root@greenest-ant:~# echo '--- ALL MOUNTS ---'; df -h
+--- ALL MOUNTS ---
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           619M  1.1M  618M   1% /run
+/dev/vda3       117G  8.8G  102G   8% /
+tmpfs           3.1G  1.1M  3.1G   1% /dev/shm
+tmpfs           5.0M     0  5.0M   0% /run/lock
+tmpfs           619M  4.0K  619M   1% /run/user/0
+root@greenest-ant:~# echo '--- LATEST NPM DEBUG LOG ---'
+--- LATEST NPM DEBUG LOG ---
+root@greenest-ant:~# L="$(ls -t /home/servicehub/.npm/_logs/*-debug-0.log | head -1)"; echo "file: $L"; echo '==='
+file: /home/servicehub/.npm/_logs/2026-06-11T15_12_16_494Z-debug-0.log
+===
+root@greenest-ant:~# L="$(ls -t /home/servicehub/.npm/_logs/*-debug-0.log | head -1)"; df -i /; echo "=== $L ==="; grep -vE ' (silly|verbose|http fetch) ' "$L" | tail -50
+Filesystem      Inodes  IUsed   IFree IUse% Mounted on
+/dev/vda3      7733248 193230 7540018    3% /
+=== /home/servicehub/.npm/_logs/2026-06-11T15_12_16_494Z-debug-0.log ===
+1104 http cache webidl-conversions@https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-8.0.1.tgz 0ms (cache hit)
+1105 http cache tr46@https://registry.npmjs.org/tr46/-/tr46-6.0.0.tgz 0ms (cache hit)
+1106 http cache wrap-ansi@https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-7.0.0.tgz 0ms (cache hit)
+1107 http cache strip-ansi@https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz 0ms (cache hit)
+1108 http cache string-width@https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz 0ms (cache hit)
+1109 http cache emoji-regex@https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz 0ms (cache hit)
+1110 http cache ansi-styles@https://registry.npmjs.org/ansi-styles/-/ansi-styles-4.3.0.tgz 0ms (cache hit)
+1111 http cache ansi-regex@https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz 0ms (cache hit)
+1112 http cache glob-parent@https://registry.npmjs.org/glob-parent/-/glob-parent-5.1.2.tgz 0ms (cache hit)
+1113 http cache ansi-styles@http://package-firewall.replit.local/npm/ansi-styles/-/ansi-styles-4.3.0.tgz 0ms (cache hit)
+1114 http cache semver@http://package-firewall.replit.local/npm/semver/-/semver-7.8.4.tgz 0ms (cache hit)
+1115 http cache minimatch@http://package-firewall.replit.local/npm/minimatch/-/minimatch-10.2.5.tgz 0ms (cache hit)
+1116 http cache brace-expansion@http://package-firewall.replit.local/npm/brace-expansion/-/brace-expansion-5.0.6.tgz 0ms (cache hit)
+1117 http cache balanced-match@http://package-firewall.replit.local/npm/balanced-match/-/balanced-match-4.0.4.tgz 0ms (cache hit)
+1118 http cache ignore@http://package-firewall.replit.local/npm/ignore/-/ignore-7.0.5.tgz 0ms (cache hit)
+1119 http cache mime-types@https://registry.npmjs.org/mime-types/-/mime-types-2.1.35.tgz 0ms (cache hit)
+1120 http cache mime-db@https://registry.npmjs.org/mime-db/-/mime-db-1.52.0.tgz 0ms (cache hit)
+1121 http cache form-data@https://registry.npmjs.org/form-data/-/form-data-2.5.5.tgz 0ms (cache hit)
+1122 http cache undici-types@https://registry.npmjs.org/undici-types/-/undici-types-7.25.0.tgz 0ms (cache hit)
+1123 http cache tailwindcss@https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.1.18.tgz 0ms (cache hit)
+1124 http cache postcss-selector-parser@https://registry.npmjs.org/postcss-selector-parser/-/postcss-selector-parser-6.0.10.tgz 0ms (cache hit)
+1125 http cache tailwindcss@https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.1.18.tgz 0ms (cache hit)
+1126 http cache jiti@https://registry.npmjs.org/jiti/-/jiti-2.6.1.tgz 0ms (cache hit)
+1127 http cache @radix-ui/react-use-controllable-state@https://registry.npmjs.org/@radix-ui/react-use-controllable-state/-/react-use-controllable-state-1.2.2.tgz 0ms (cache hit)
+1128 http cache @radix-ui/react-slot@https://registry.npmjs.org/@radix-ui/react-slot/-/react-slot-1.2.3.tgz 0ms (cache hit)
+1129 http cache @radix-ui/react-roving-focus@https://registry.npmjs.org/@radix-ui/react-roving-focus/-/react-roving-focus-1.1.11.tgz 0ms (cache hit)
+1130 http cache @radix-ui/react-primitive@https://registry.npmjs.org/@radix-ui/react-primitive/-/react-primitive-2.1.3.tgz 0ms (cache hit)
+1131 http cache @radix-ui/react-presence@https://registry.npmjs.org/@radix-ui/react-presence/-/react-presence-1.1.5.tgz 0ms (cache hit)
+1132 http cache @radix-ui/react-portal@https://registry.npmjs.org/@radix-ui/react-portal/-/react-portal-1.1.9.tgz 0ms (cache hit)
+1133 http cache @radix-ui/react-popper@https://registry.npmjs.org/@radix-ui/react-popper/-/react-popper-1.2.8.tgz 0ms (cache hit)
+1134 http cache @radix-ui/react-menu@https://registry.npmjs.org/@radix-ui/react-menu/-/react-menu-2.1.16.tgz 0ms (cache hit)
+1135 http cache @radix-ui/react-focus-scope@https://registry.npmjs.org/@radix-ui/react-focus-scope/-/react-focus-scope-1.1.7.tgz 0ms (cache hit)
+1136 http cache @radix-ui/react-focus-guards@https://registry.npmjs.org/@radix-ui/react-focus-guards/-/react-focus-guards-1.1.3.tgz 0ms (cache hit)
+1137 http cache @radix-ui/react-dismissable-layer@https://registry.npmjs.org/@radix-ui/react-dismissable-layer/-/react-dismissable-layer-1.1.11.tgz 0ms (cache hit)
+1138 http cache @radix-ui/react-collection@https://registry.npmjs.org/@radix-ui/react-collection/-/react-collection-1.1.7.tgz 0ms (cache hit)
+1139 http cache @radix-ui/react-arrow@https://registry.npmjs.org/@radix-ui/react-arrow/-/react-arrow-1.1.7.tgz 0ms (cache hit)
+1140 http cache @radix-ui/primitive@https://registry.npmjs.org/@radix-ui/primitive/-/primitive-1.1.3.tgz 0ms (cache hit)
+1141 http cache @grpc/proto-loader@https://registry.npmjs.org/@grpc/proto-loader/-/proto-loader-0.8.0.tgz 0ms (cache hit)
+1142 http cache yocto-queue@https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz 0ms (cache hit)
+1143 http cache uuid@https://registry.npmjs.org/uuid/-/uuid-8.3.2.tgz 0ms (cache hit)
+1144 http cache p-limit@https://registry.npmjs.org/p-limit/-/p-limit-3.1.0.tgz 0ms (cache hit)
+1145 http cache minimatch@http://package-firewall.replit.local/npm/minimatch/-/minimatch-3.1.5.tgz 0ms (cache hit)
+1146 http cache brace-expansion@http://package-firewall.replit.local/npm/brace-expansion/-/brace-expansion-1.1.15.tgz 0ms (cache hit)
+1147 http cache minimatch@http://package-firewall.replit.local/npm/minimatch/-/minimatch-3.1.5.tgz 0ms (cache hit)
+1148 http cache brace-expansion@http://package-firewall.replit.local/npm/brace-expansion/-/brace-expansion-1.1.15.tgz 0ms (cache hit)
+1149 http cache eslint-visitor-keys@http://package-firewall.replit.local/npm/eslint-visitor-keys/-/eslint-visitor-keys-3.4.3.tgz 0ms (cache hit)
+3094 error Exit handler never called!
+3095 error This is an error with npm itself. Please report this error at:
+3096 error   <https://github.com/npm/cli/issues>
+3099 error A complete log of this run can be found in: /home/servicehub/.npm/_logs/2026-06-11T15_12_16_494Z-debug-0.log
+root@greenest-ant:~# 
