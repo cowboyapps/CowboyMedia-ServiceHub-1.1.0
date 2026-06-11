@@ -5047,6 +5047,7 @@ interface ChatMessage {
   message: string;
   fileUrl: string | null;
   fileType: string | null;
+  fileName: string | null;
   createdAt: string;
 }
 

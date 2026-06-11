@@ -7,10 +7,10 @@
 // broadcast, notification fan-out) are injected via AlertRouteDeps so tests can
 // pass spies and assert the recompute/broadcast orchestration fires per path.
 
-import type { Express, Request, RequestHandler } from "express";
+import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import type { Service } from "@shared/schema";
 import { recomputeForCoveredServices, recomputeForServiceChange } from "./alert-status";
-import { composeAlertCreated, composeAlertUpdate, composeAlertResolved } from "./telegram";
+import { composeAlertCreated, composeAlertUpdate, composeAlertResolved, type TelegramCategory } from "./telegram";
 import {
   composeAlertCreated as composeDiscordAlertCreated,
   composeAlertUpdate as composeDiscordAlertUpdate,
@@ -28,14 +28,30 @@ export interface AlertRouteDeps {
   sendPushToUser: (userId: string, payload: any, notif?: any) => Promise<any> | any;
   sendTemplatedEmail: (to: string, template: string, vars: any, name?: string) => Promise<any> | any;
   fireDiscordForServices: (services: Service[], payload: any) => void;
-  fireTelegram: (payload: any, type?: string) => void;
+  fireTelegram: (text: string, category?: TelegramCategory) => void;
   getBaseUrl: (req: Request) => string;
-  notifyServiceSubscribers: (serviceId: string, type: string, vars: any, baseUrl: string) => any;
+  notifyServiceSubscribers: (
+    serviceId: string,
+    event: "status" | "incident" | "resolved",
+    vars: {
+      service_name: string;
+      alert_title: string;
+      alert_description?: string;
+      impact_label?: string;
+      resolve_message?: string;
+    },
+    baseUrl: string,
+  ) => any;
 }
 
 export interface AlertRouteMiddleware {
   // Mirrors server/routes.ts requirePermission(viewPerm, managePerm) → RequestHandler.
-  requirePermission: (viewPerm: string, managePerm?: string) => RequestHandler;
+  // Generic-over-P so route-param inference survives this middleware on the
+  // injected routes (see server/routes.ts for the rationale).
+  requirePermission: (
+    viewPerm: string,
+    managePerm?: string,
+  ) => <P>(req: Request<P>, res: Response, next: NextFunction) => unknown;
   // Mirrors multer's instance: upload.single(field) → RequestHandler.
   upload: { single: (field: string) => RequestHandler };
 }
@@ -49,6 +65,14 @@ export function registerAlertRoutes(
   deps: AlertRouteDeps,
 ): void {
   const { requirePermission, upload } = middleware;
+  // Generic-over-P wrapper so route-param inference survives the multer
+  // middleware (see the matching helper in server/routes.ts for the rationale).
+  const withUpload = (field: string) => {
+    const handler = upload.single(field);
+    return <P>(req: Request<P>, res: Response, next: NextFunction): void => {
+      handler(req as Request, res, next);
+    };
+  };
   const {
     storage,
     broadcast,
@@ -72,7 +96,7 @@ export function registerAlertRoutes(
     broadcast: (message: { type: "service_updated"; serviceId: string }) => broadcast(message),
   };
 
-  app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, ...alertData } = req.body;
@@ -149,7 +173,7 @@ export function registerAlertRoutes(
     }
   });
 
-  app.patch("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const data: Record<string, any> = {};
@@ -178,7 +202,7 @@ export function registerAlertRoutes(
     }
   });
 
-  app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const { sendPush, sendEmail, serviceImpact, ...updateData } = req.body;
@@ -291,7 +315,7 @@ export function registerAlertRoutes(
     }
   });
 
-  app.patch("/api/admin/alerts/:alertId/updates/:updateId", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/alerts/:alertId/updates/:updateId", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const data: Record<string, any> = {};
@@ -306,7 +330,7 @@ export function registerAlertRoutes(
     }
   });
 
-  app.patch("/api/admin/alerts/:id/resolve", requirePermission("alerts.view", "alerts.manage"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/alerts/:id/resolve", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const resolveMessage = req.body?.message || "Issue has been resolved.";

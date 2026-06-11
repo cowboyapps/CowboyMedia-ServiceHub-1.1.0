@@ -295,6 +295,18 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
+// Generic-over-P wrapper around multer's upload.single so that route-param
+// inference (e.g. `:id`) is preserved on the final handler. A middleware typed
+// with the concrete Request (ParamsDictionary) otherwise pins req.params values
+// to `string | string[]`; keeping the wrapper generic lets TS infer the params
+// from the route literal instead.
+function withUpload(field: string) {
+  const handler = upload.single(field);
+  return <P>(req: Request<P>, res: Response, next: NextFunction): void => {
+    handler(req as Request, res, next);
+  };
+}
+
 async function saveUploadedFile(file: Express.Multer.File): Promise<string> {
   const ext = path.extname(file.originalname);
   const filename = `${crypto.randomUUID()}${ext}`;
@@ -317,14 +329,14 @@ declare module "express-session" {
   }
 }
 
-function requireAuth(req: Request, res: Response, next: NextFunction) {
+function requireAuth<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
   next();
 }
 
-async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+async function requireAdmin<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
@@ -335,7 +347,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-async function requireMasterAdmin(req: Request, res: Response, next: NextFunction) {
+async function requireMasterAdmin<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
@@ -347,7 +359,7 @@ async function requireMasterAdmin(req: Request, res: Response, next: NextFunctio
 }
 
 function requirePermission(viewPerm: string, managePerm?: string) {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return async <P>(req: Request<P>, res: Response, next: NextFunction) => {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -1548,7 +1560,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/profile/avatar", requireAuth, upload.single("image"), async (req, res) => {
+  app.post("/api/auth/profile/avatar", requireAuth, withUpload("image"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No image provided" });
       if (!req.file.mimetype.startsWith("image/")) {
@@ -1777,7 +1789,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/tickets", requireAuth, bypassRateLimitForAdmins, createTicketLimiter(), upload.single("image"), async (req, res) => {
+  app.post("/api/tickets", requireAuth, bypassRateLimitForAdmins, createTicketLimiter(), withUpload("image"), async (req, res) => {
     try {
       const { subject, description, serviceId, priority, categoryId } = req.body;
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
@@ -2464,7 +2476,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/tickets/:id/messages", requireAuth, upload.single("image"), async (req, res) => {
+  app.post("/api/tickets/:id/messages", requireAuth, withUpload("image"), async (req, res) => {
     try {
       const ticket = await storage.getTicket(req.params.id);
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
@@ -2961,7 +2973,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/news", requirePermission("news.view", "news.manage"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/news", requirePermission("news.view", "news.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const story = await storage.createNewsStory({
@@ -3006,7 +3018,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.patch("/api/admin/news/:id", requirePermission("news.view", "news.manage"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/news/:id", requirePermission("news.view", "news.manage"), withUpload("image"), async (req, res) => {
     try {
       const existing = await storage.getNewsStory(req.params.id);
       if (!existing) return res.status(404).json({ message: "News story not found" });
@@ -3039,7 +3051,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/upload-inline-image", requirePermission("news.view", "news.manage"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/upload-inline-image", requirePermission("news.view", "news.manage"), withUpload("image"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No image provided" });
       const url = await saveUploadedFile(req.file);
@@ -3141,7 +3153,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   // === Message Threads (Conversational Messaging) ===
 
-  app.post("/api/message-threads", requirePermission("messages.manage"), upload.single("image"), async (req, res) => {
+  app.post("/api/message-threads", requirePermission("messages.manage"), withUpload("image"), async (req, res) => {
     try {
       const customerId = typeof req.body.customerId === "string" ? req.body.customerId : "";
       const subject = typeof req.body.subject === "string" ? req.body.subject : "";
@@ -3297,7 +3309,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/message-threads/:id/messages", requireAuth, upload.single("image"), async (req, res) => {
+  app.post("/api/message-threads/:id/messages", requireAuth, withUpload("image"), async (req, res) => {
     try {
       const thread = await storage.getMessageThread(req.params.id);
       if (!thread) return res.status(404).json({ message: "Thread not found" });
@@ -3583,7 +3595,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/report-requests", requireAuth, bypassRateLimitForAdmins, createReportLimiter(), upload.single("image"), async (req, res) => {
+  app.post("/api/report-requests", requireAuth, bypassRateLimitForAdmins, createReportLimiter(), withUpload("image"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -4040,7 +4052,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/chat/threads/:id/messages", requirePermission("admin_chat"), upload.single("file"), async (req, res) => {
+  app.post("/api/admin/chat/threads/:id/messages", requirePermission("admin_chat"), withUpload("file"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -4680,7 +4692,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/downloads", requirePermission("downloads.view", "downloads.manage"), upload.single("image"), async (req, res) => {
+  app.post("/api/admin/downloads", requirePermission("downloads.view", "downloads.manage"), withUpload("image"), async (req, res) => {
     try {
       const parsed = insertDownloadSchema.omit({ imageUrl: true }).safeParse(req.body);
       if (!parsed.success) {
@@ -4694,7 +4706,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.patch("/api/admin/downloads/:id", requirePermission("downloads.view", "downloads.manage"), upload.single("image"), async (req, res) => {
+  app.patch("/api/admin/downloads/:id", requirePermission("downloads.view", "downloads.manage"), withUpload("image"), async (req, res) => {
     try {
       const { title, description, downloaderCode, downloadUrl, removeImage } = req.body;
       const updateData: Partial<{ title: string; description: string; downloaderCode: string; downloadUrl: string; imageUrl: string | null }> = {};
@@ -5211,7 +5223,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/community-chat/messages", requireAuth, bypassRateLimitForAdmins, createCommunityChatPostLimiter(), upload.single("image"), async (req, res) => {
+  app.post("/api/community-chat/messages", requireAuth, bypassRateLimitForAdmins, createCommunityChatPostLimiter(), withUpload("image"), async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ error: "User not found" });
@@ -5262,7 +5274,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (wordFilters.length > 0) {
         for (const filter of wordFilters) {
           const pattern = new RegExp(filter.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-          trimmedContent = trimmedContent.replace(pattern, (match) => {
+          trimmedContent = trimmedContent.replace(pattern, (match: string) => {
             if (match.length <= 3) return match[0] + "*".repeat(match.length - 1);
             return match[0] + "*".repeat(match.length - 2) + match[match.length - 1];
           });
@@ -5376,10 +5388,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!allowedEmojis.includes(emoji)) {
         return res.status(400).json({ error: "Invalid emoji" });
       }
-      const result = await storage.toggleCommunityReaction(req.params.id, user.id, emoji);
+      const messageId = req.params.id as string;
+      const result = await storage.toggleCommunityReaction(messageId, user.id, emoji);
       broadcast({
         type: "community_reaction",
-        messageId: req.params.id,
+        messageId,
         userId: user.id,
         emoji,
         added: result.added,

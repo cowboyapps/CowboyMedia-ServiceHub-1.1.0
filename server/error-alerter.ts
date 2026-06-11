@@ -70,7 +70,12 @@ async function pollOnce(): Promise<void> {
 
     await sendDiscordMessage(
       {
-        content: `:rotating_light: ServiceHub error alert (v${APP_VERSION})\n${lines.join("\n")}`,
+        embeds: [
+          {
+            title: `:rotating_light: ServiceHub error alert (v${APP_VERSION})`,
+            description: lines.join("\n"),
+          },
+        ],
       },
       "alert",
     );

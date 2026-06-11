@@ -645,7 +645,7 @@ function WelcomeDialog() {
 
 interface TransferData {
   id: number;
-  ticketId: number;
+  ticketId: string;
   fromAdminId: number;
   toAdminId: number;
   reason: string;

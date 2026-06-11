@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "prebuild": "npm run lint && NODE_ENV=test npm run db:migrate && NODE_ENV=test npm run db:check && NODE_ENV=test npm run db:check:columns && NODE_ENV=test npm test",
+    "prebuild": "npm run lint && npm run check && NODE_ENV=test npm run db:migrate && NODE_ENV=test npm run db:check && NODE_ENV=test npm run db:check:columns && NODE_ENV=test npm test",
     "build": "tsx script/build.ts",
     "lint": "eslint client/src",
     "start": "NODE_ENV=production node dist/index.cjs",

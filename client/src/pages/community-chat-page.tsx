@@ -459,7 +459,7 @@ function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, on
 
   if (action.type === "warn") {
     return (
-      <Dialog open onOpenChange={onClose}>
+      <Dialog open onOpenChange={() => onClose()}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-warn-user">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -478,7 +478,7 @@ function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, on
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={onClose} data-testid="button-cancel-warn">Cancel</Button>
+            <Button variant="outline" size="sm" onClick={() => onClose()} data-testid="button-cancel-warn">Cancel</Button>
             <Button
               size="sm"
               variant="destructive"
@@ -500,7 +500,7 @@ function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, on
 
   if (action.type === "reply-only") {
     return (
-      <Dialog open onOpenChange={onClose}>
+      <Dialog open onOpenChange={() => onClose()}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[280px] p-0 gap-0" data-testid="dialog-reply-actions">
           <div className="px-4 py-3 border-b">
             <p className="text-sm font-medium truncate">{action.username}</p>
@@ -521,7 +521,7 @@ function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, on
   }
 
   return (
-    <Dialog open onOpenChange={onClose}>
+    <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[280px] p-0 gap-0" data-testid="dialog-admin-actions">
         <div className="px-4 py-3 border-b">
           <p className="text-sm font-medium truncate">{action.username}</p>
@@ -646,7 +646,7 @@ function MentionAutocomplete({
 }
 
 interface CommunityRowProps {
-  msg: CommunityMessage;
+  msg: EnrichedMessage;
   isMe: boolean;
   msgIsAdmin: boolean;
   isFirstInRun: boolean;

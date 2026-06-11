@@ -31,7 +31,7 @@ export function createStaleDeployReloadHandler(deps: StaleDeployReloadHandlerDep
 
 export interface RecoverFromStaleDeployDeps {
   serviceWorker?: {
-    getRegistrations: () => Promise<Array<{ unregister: () => Promise<boolean> }>>;
+    getRegistrations: () => Promise<ReadonlyArray<{ unregister: () => Promise<boolean> }>>;
   };
   caches?: {
     keys: () => Promise<string[]>;
