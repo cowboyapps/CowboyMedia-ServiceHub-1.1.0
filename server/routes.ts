@@ -665,6 +665,34 @@ interface NotifMeta {
 //   signup-<userId>             — admin "new signup" toast
 // ───────────────────────────────────────────────────────────────────────
 
+// Create the in-app (bell) `user_notifications` row and return its id (or null
+// on failure). Decoupled from push so a customer who wants email (or in-app)
+// but not push still gets a bell entry — the caller then reuses the returned id
+// when firing push via `{ notificationId }` so push users still get exactly one
+// row (Task #350/#352). Never throws.
+export async function createBellNotification(
+  userId: string,
+  notif: NotifMeta,
+  payload: { title: string; body: string; url?: string },
+): Promise<string | null> {
+  try {
+    const row = await storage.createUserNotification({
+      userId,
+      type: notif.type,
+      title: payload.title,
+      body: payload.body,
+      referenceType: notif.referenceType || null,
+      referenceId: notif.referenceId || null,
+      url: payload.url || null,
+    });
+    return row.id;
+  } catch (e) {
+    console.error("[UserNotif] Failed to create:", getErrorMessage(e));
+    logError("push", e, { severity: "warn", userId, summary: "Failed to create user_notification row" });
+    return null;
+  }
+}
+
 export async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string; resourceLabel?: string; rollupNoun?: string }, notif?: NotifMeta | { notificationId: string }) {
   let notificationId: string | null = null;
   if (notif && "notificationId" in notif) {
@@ -673,21 +701,7 @@ export async function sendPushToUser(userId: string, payload: { title: string; b
     // use the "Mark as read" action.
     notificationId = notif.notificationId;
   } else if (notif) {
-    try {
-      const row = await storage.createUserNotification({
-        userId,
-        type: notif.type,
-        title: payload.title,
-        body: payload.body,
-        referenceType: notif.referenceType || null,
-        referenceId: notif.referenceId || null,
-        url: payload.url || null,
-      });
-      notificationId = row.id;
-    } catch (e) {
-      console.error("[UserNotif] Failed to create:", getErrorMessage(e));
-      logError("push", e, { severity: "warn", userId, summary: "Failed to create user_notification row before push" });
-    }
+    notificationId = await createBellNotification(userId, notif, payload);
   }
   const richPayload = buildPushPayload(
     {
@@ -1915,7 +1929,20 @@ export async function registerRoutes(
         });
         broadcast({ type: "ticket_message", ticketId: ticket.id, message: autoMessage });
 
-        if (customerWantsPush(customer, "ticket_received")) {
+        const receivedWantsPush = customerWantsPush(customer, "ticket_received");
+        const receivedWantsEmail = !!(customer?.email && customerWantsEmail(customer, "ticket_received"));
+        // Create the bell row whenever the customer would be notified through
+        // any channel, so email-only customers still get an in-app entry; push
+        // reuses the same row so push users still get exactly one (Task #352).
+        let receivedNotifId: string | null = null;
+        if (receivedWantsPush || receivedWantsEmail) {
+          receivedNotifId = await createBellNotification(req.session.userId!, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }, {
+            title: "Ticket received",
+            body: `We received: ${ticket.subject}`,
+            url: `/tickets/${ticket.id}`,
+          });
+        }
+        if (receivedWantsPush) {
           void sendPushToUser(req.session.userId!, {
             title: "Ticket received",
             body: `We received: ${ticket.subject}`,
@@ -1923,7 +1950,7 @@ export async function registerRoutes(
             tag: `ticket-${ticket.id}`,
             resourceLabel: `Ticket: ${ticket.subject}`,
             rollupNoun: "messages",
-          }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+          }, receivedNotifId ? { notificationId: receivedNotifId } : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
         }
         void storage.createTicketNotification({
           userId: req.session.userId!,
@@ -2098,7 +2125,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           }
         }
 
+        // ticket_closed is an email-only category (no push), but email-only
+        // customers should still see it in the bell (Task #352).
         if (customer?.email && customerWantsEmail(customer, "ticket_closed")) {
+          await createBellNotification(ticket.customerId, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }, {
+            title: "Ticket closed",
+            body: `Closed: ${ticket.subject}`,
+            url: `/tickets/${ticket.id}`,
+          });
           try {
             void sendTemplatedEmail(customer.email, "ticket_transcript", {
               ticket_subject: ticket.subject,
@@ -2184,13 +2218,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const customer = await storage.getUser(ticket.customerId);
       const claimCategory = isTransfer ? "ticket_transferred" : "ticket_claimed";
-      if (customerWantsPush(customer, claimCategory)) {
+      const claimWantsPush = customerWantsPush(customer, claimCategory);
+      const claimWantsEmail = !!(customer?.email && customerWantsEmail(customer, claimCategory));
+      let claimNotifId: string | null = null;
+      if (claimWantsPush || claimWantsEmail) {
+        claimNotifId = await createBellNotification(ticket.customerId, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }, {
+          title: pushTitle,
+          body: pushBody,
+          url: `/tickets/${ticket.id}`,
+        });
+      }
+      if (claimWantsPush) {
         void sendPushToUser(ticket.customerId, {
           title: pushTitle,
           body: pushBody,
           url: `/tickets/${ticket.id}`,
           tag: `ticket-${ticket.id}`,
-        }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+        }, claimNotifId ? { notificationId: claimNotifId } : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
       }
       void storage.createTicketNotification({
         userId: ticket.customerId,
@@ -2633,7 +2677,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (isAdmin) {
         const customerViewingTicket = isUserViewingTicket(ticket.customerId, ticket.id);
         const customer = await storage.getUser(ticket.customerId);
-        if (customerWantsPush(customer, "ticket_reply")) {
+        const replyWantsPush = customerWantsPush(customer, "ticket_reply");
+        const replyWantsEmail = !!(customer?.email && customerWantsEmail(customer, "ticket_reply"));
+        // Bell row only when the customer isn't already viewing the ticket
+        // (matches the existing push/notification suppression), but created for
+        // email-only customers too so they get an in-app entry (Task #352).
+        let replyNotifId: string | null = null;
+        if (!customerViewingTicket && (replyWantsPush || replyWantsEmail)) {
+          replyNotifId = await createBellNotification(ticket.customerId, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }, {
+            title: "New Ticket Reply",
+            body: `Reply on: ${ticket.subject}`,
+            url: `/tickets/${ticket.id}`,
+          });
+        }
+        if (replyWantsPush) {
           void sendPushToUser(ticket.customerId, {
             title: "New Ticket Reply",
             body: `Reply on: ${ticket.subject}`,
@@ -2641,7 +2698,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             tag: `ticket-${ticket.id}`,
             resourceLabel: `Ticket: ${ticket.subject}`,
             rollupNoun: "replies",
-          }, customerViewingTicket ? undefined : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+          }, customerViewingTicket ? undefined : (replyNotifId ? { notificationId: replyNotifId } : { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }));
         }
         if (!customerViewingTicket) {
           void storage.createTicketNotification({
@@ -2857,13 +2914,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(existing.id));
         const subIds = subscribedCustomers.map(u => u.id);
         for (const u of subscribedCustomers) {
-          if (customerWantsPush(u, "service_status")) {
+          const statusWantsPush = customerWantsPush(u, "service_status");
+          const statusWantsEmail = !!(u.email && customerWantsEmail(u, "service_status"));
+          let statusNotifId: string | null = null;
+          if (statusWantsPush || statusWantsEmail) {
+            statusNotifId = await createBellNotification(u.id, { type: "service_status", referenceType: "service", referenceId: updated.id }, {
+              title: "Service Status Update",
+              body: `${updated.name}: ${updated.status}`,
+              url: "/services",
+            });
+          }
+          if (statusWantsPush) {
             void sendPushToUser(u.id, {
               title: "Service Status Update",
               body: `${updated.name}: ${updated.status}`,
               url: "/services",
               tag: `service-${updated.id}`,
-            }, { type: "service_status", referenceType: "service", referenceId: updated.id });
+            }, statusNotifId ? { notificationId: statusNotifId } : { type: "service_status", referenceType: "service", referenceId: updated.id });
           }
           if (u.email && customerWantsEmail(u, "service_status")) {
             void sendTemplatedEmail(u.email, "customer_service_status", {
@@ -2945,7 +3012,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const allUsers = await storage.getAllUsers();
       const subscribedCustomers = allUsers.filter(u => u.role === "customer" && u.subscribedServices?.includes(serviceId));
       for (const u of subscribedCustomers) {
-        if (customerWantsPush(u, "service_update")) {
+        const updateWantsPush = customerWantsPush(u, "service_update");
+        const updateWantsEmail = !!(u.email && customerWantsEmail(u, "service_update"));
+        let updateNotifId: string | null = null;
+        if (updateWantsPush || updateWantsEmail) {
+          updateNotifId = await createBellNotification(u.id, { type: "service_update", referenceType: "service_update_group", referenceId: serviceId }, {
+            title: `Service Update: ${serviceName}`,
+            body: title,
+            url: "/service-updates",
+          });
+        }
+        if (updateWantsPush) {
           void sendPushToUser(u.id, {
             title: `Service Update: ${serviceName}`,
             body: title,
@@ -2956,7 +3033,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             // Group key matches the OS toast `tag` (service-update-<serviceId>)
             // so PATCH /api/notifications/:id/read sweeps every unread peer
             // for the same service in one go.
-          }, { type: "service_update", referenceType: "service_update_group", referenceId: serviceId });
+          }, updateNotifId ? { notificationId: updateNotifId } : { type: "service_update", referenceType: "service_update_group", referenceId: serviceId });
         }
         if (u.email && customerWantsEmail(u, "service_update")) {
           void sendTemplatedEmail(u.email, "customer_service_update", {
@@ -3145,13 +3222,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       broadcast({ type: "private_message", recipientId, messageId: message.id, subject: message.subject });
 
-      if (customerWantsPush(recipient, "private_message")) {
+      const pmWantsPush = customerWantsPush(recipient, "private_message");
+      const pmWantsEmail = !!(recipient.email && customerWantsEmail(recipient, "private_message") && sender);
+      let pmNotifId: string | null = null;
+      if (pmWantsPush || pmWantsEmail) {
+        pmNotifId = await createBellNotification(recipientId, { type: "private_message", referenceType: "private_message", referenceId: message.id }, {
+          title: "New Private Message",
+          body: `${sender?.fullName}: ${subject}`,
+          url: "/messages",
+        });
+      }
+      if (pmWantsPush) {
         void sendPushToUser(recipientId, {
           title: "New Private Message",
           body: `${sender?.fullName}: ${subject}`,
           url: "/messages",
           tag: `pm-${message.id}`,
-        }, { type: "private_message", referenceType: "private_message", referenceId: message.id });
+        }, pmNotifId ? { notificationId: pmNotifId } : { type: "private_message", referenceType: "private_message", referenceId: message.id });
       }
 
       if (recipient.email && customerWantsEmail(recipient, "private_message") && sender) {
@@ -3243,7 +3330,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msgWithKb, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
 
       const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
-      if (customerWantsPush(customer, "thread_message")) {
+      const threadWantsPush = customerWantsPush(customer, "thread_message");
+      const threadWantsEmail = !!(customer.email && customerWantsEmail(customer, "thread_message") && sender);
+      let threadNotifId: string | null = null;
+      if (threadWantsPush || threadWantsEmail) {
+        threadNotifId = await createBellNotification(customerId, { type: "message", referenceType: "message_thread", referenceId: thread.id }, {
+          title: `Message from ${sender?.fullName || "Support"}`,
+          body: `${subject}: ${previewBody.substring(0, 100)}`,
+          url: `/messages/${thread.id}`,
+        });
+      }
+      if (threadWantsPush) {
         void sendPushToUser(customerId, {
           title: `Message from ${sender?.fullName || "Support"}`,
           body: `${subject}: ${previewBody.substring(0, 100)}`,
@@ -3251,7 +3348,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           tag: `thread-${thread.id}`,
           resourceLabel: `your conversation "${subject}"`,
           rollupNoun: "messages",
-        }, { type: "message", referenceType: "message_thread", referenceId: thread.id });
+        }, threadNotifId ? { notificationId: threadNotifId } : { type: "message", referenceType: "message_thread", referenceId: thread.id });
       }
 
       if (customer.email && customerWantsEmail(customer, "thread_message") && sender) {
@@ -3407,7 +3504,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const shouldCreateNotif = !isRecipientViewing;
       const recipientUser = await storage.getUser(recipientId);
       const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
-      if (customerWantsPush(recipientUser, "thread_message")) {
+      const replyWantsPush = customerWantsPush(recipientUser, "thread_message");
+      const replyWantsEmail = !!(recipientUser?.email && customerWantsEmail(recipientUser, "thread_message") && sender);
+      let threadReplyNotifId: string | null = null;
+      if (shouldCreateNotif && (replyWantsPush || replyWantsEmail)) {
+        threadReplyNotifId = await createBellNotification(recipientId, { type: "message", referenceType: "message_thread", referenceId: thread.id }, {
+          title: `${sender?.fullName || "User"}`,
+          body: previewBody.substring(0, 100),
+          url: `/messages/${thread.id}`,
+        });
+      }
+      if (replyWantsPush) {
         void sendPushToUser(recipientId, {
           title: `${sender?.fullName || "User"}`,
           body: previewBody.substring(0, 100),
@@ -3415,7 +3522,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           tag: `thread-${thread.id}`,
           resourceLabel: `your conversation "${thread.subject}"`,
           rollupNoun: "messages",
-        }, shouldCreateNotif ? { type: "message", referenceType: "message_thread", referenceId: thread.id } : undefined);
+        }, shouldCreateNotif ? (threadReplyNotifId ? { notificationId: threadReplyNotifId } : { type: "message", referenceType: "message_thread", referenceId: thread.id }) : undefined);
       }
 
       if (!isRecipientViewing) {
@@ -3733,13 +3840,23 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
         const customer = await storage.getUser(existing.customerId);
-        if (customerWantsPush(customer, "report_update")) {
+        const reportWantsPush = customerWantsPush(customer, "report_update");
+        const reportWantsEmail = !!(customer?.email && customerWantsEmail(customer, "report_update"));
+        let reportNotifId: string | null = null;
+        if (reportWantsPush || reportWantsEmail) {
+          reportNotifId = await createBellNotification(existing.customerId, { type: "report_update", referenceType: "report_request", referenceId: existing.id }, {
+            title: `${typeLabel} Updated`,
+            body: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been marked as ${statusLabel}`,
+            url: "/report-request",
+          });
+        }
+        if (reportWantsPush) {
           void sendPushToUser(existing.customerId, {
             title: `${typeLabel} Updated`,
             body: `Your ${typeLabel.toLowerCase()} "${existing.title}" has been marked as ${statusLabel}`,
             url: "/report-request",
             tag: `report-${existing.id}`,
-          }, { type: "report_update", referenceType: "report_request", referenceId: existing.id });
+          }, reportNotifId ? { notificationId: reportNotifId } : { type: "report_update", referenceType: "report_request", referenceId: existing.id });
         }
 
         void storage.createReportNotification({
