@@ -7784,7 +7784,7 @@ export default function AdminPortal() {
 
   if (!isAdmin) {
     return (
-      <div className="text-center py-12">
+      <div className="text-center py-12" data-testid="text-admin-access-denied">
         <Shield className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
         <p className="text-lg font-semibold">Access Denied</p>
         <p className="text-sm text-muted-foreground mt-1">You must be an admin to access this page</p>
