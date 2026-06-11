@@ -20,6 +20,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
     - `SENDGRID_API_KEY`
     - `TELEGRAM_BOT_TOKEN` (optional)
     - `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (optional)
+    - `WHMCS_API_IDENTIFIER`, `WHMCS_API_SECRET` (optional — WHMCS billing API credentials. The base URL is NOT an env var; it lives in the `whmcs_settings` DB row and is edited in Admin Portal → WHMCS Billing. The integration no-ops when any of {identifier, secret, baseUrl} is missing.)
     - `DEPLOY_GATE_TOKEN` (production only — long random string. Bearer token the VPS deploy webhook listener uses to read `app_settings.auto_deploy_enabled` over HTTP before invoking `update.sh`. Must match the value in `/etc/servicehub-deploy.env` on the VPS. If unset, the listener fails closed and refuses to deploy.)
     - `CHANGELOG_APPEND_TOKEN` (long random string, **must be set on prod AND mirrored to Replit Secrets**). Bearer token the agent uses to append changelog bullets straight at production via `POST /api/agent/changelog/:version/append`. Without this, the agent can't satisfy the auto-append rule below — its appends would land in the dev DB and never reach customers. On the VPS it lives in `/etc/servicehub.env`; the prod server reads it via PM2's process env. Rotation: `openssl rand -hex 32`, update Replit Secrets, update `/etc/servicehub.env`, then `sudo -u servicehub pm2 reload servicehub --update-env` (remember to source the env file first — see "Manual deploy" below). The route fails closed (HTTP 503) when the env var is unset, so a typo'd or missing prod value blocks appends loudly instead of silently dropping them.
 
@@ -115,6 +116,7 @@ Reports tables defined in `shared/schema.ts` missing from the DB, or extra table
 - **Knowledge Base Helpers**: `shared/kb.ts`
 - **Announcement Routes Allowlist**: `shared/announcement-routes.ts`
 - **OpenAI Client**: `server/openai-client.ts`
+- **WHMCS Client**: `server/whmcs.ts` (stateless API wrapper + pure parsing helpers) + `server/whmcs-settings.ts` (admin settings handler)
 
 ## Architecture decisions
 
@@ -126,6 +128,7 @@ Reports tables defined in `shared/schema.ts` missing from the DB, or extra table
 - **Business Hours Logic**: Centralized configuration + server-side calculation for customer interactions and auto-responses, accounting for timezones and DST.
 - **AI Integration**: Optional AI features for canned response suggestions and drafting replies, via OpenAI.
 - **Broadcast Channels**: Telegram and Discord fan-out modules (`server/telegram.ts`, `server/discord.ts`) mirror each other; admin call sites fire both side-by-side via fire-and-forget helpers. Discord supports per-service webhook overrides (`services.discord_webhook_url`) for alert / alert update / resolve / service update fan-outs; news still uses the global webhook.
+- **WHMCS Billing Integration**: `server/whmcs.ts` is a stateless WHMCS API client mirroring the Telegram pattern — API identifier/secret from env secrets, base URL from the `whmcs_settings` DB singleton, never throws into handlers (returns tagged `{ok,...}` results), no-ops when unconfigured. Account linking stores `users.whmcs_client_id` (nullable, **UNIQUE**) + `users.whmcs_linked_at` — this is the cross-cutting contract downstream billing features build on (one WHMCS client ↔ at most one ServiceHub user). The admin customer-detail panel GET `/api/admin/users/:id/whmcs` is **PURE** (never writes, never 500s) and returns a **locked shape** `{ configured, enabled, link, linkedClient, suggestion }`; `linkedClient`/`suggestion` are null when WHMCS is unreachable. Auto-link by email happens via the separate POST `/api/admin/users/:id/whmcs/auto-match` (idempotent, 409 on conflict), which the frontend fires once when a `suggestion` is present. Email matching is exact + case-insensitive (WHMCS substring `search` results are filtered to a single exact email or no match).
 
 ## Product
 
