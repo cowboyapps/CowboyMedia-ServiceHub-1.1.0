@@ -21,6 +21,15 @@ identifier resolves to the global, so this satisfies the classic transform.
 **Why:** tsconfig `jsx` is `preserve`; esbuild/tsx falls back to the classic
 runtime, and changing tsconfig would risk the Vite build.
 
+## Radix dialogs need `MutationObserver` + a complete query stub
+Mounting a tree that opens a Radix Dialog/Popover (focus-scope) throws
+`ReferenceError: MutationObserver is not defined` — jsdom exposes it on `window`
+but not as a bare global. Add `"MutationObserver"` to the BROWSER_GLOBALS copy
+list. Separately, a dialog that fetches its own data (e.g. `UserProfileDialog`
+reads `data.badges.some(...)`) will crash on a `{}` catch-all stub — serve the
+real response shape (arrays present) for its endpoint, don't rely on the quiet
+`return jsonResponse({})` fallback.
+
 ## Clean teardown so the suite doesn't hang
 React Query's default `gcTime` (5 min) leaves a live timer after unmount that keeps
 the node:test subprocess alive (exit blocked until killed). Set `gcTime: 0` on both
