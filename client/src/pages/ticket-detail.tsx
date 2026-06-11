@@ -673,7 +673,7 @@ export default function TicketDetail() {
     if (ws && ws.readyState === WebSocket.OPEN && user?.id) {
       ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: user.id, userRole: isAdmin ? "admin" : "user" }));
     }
-  }, [user?.id, params.id]);
+  }, [user?.id, params.id, isAdmin]);
 
   const cleanupBodyStyles = () => {
     document.body.style.removeProperty("pointer-events");

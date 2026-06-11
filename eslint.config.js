@@ -38,9 +38,9 @@ export default [
       "react-hooks/rules-of-hooks": "error",
       // Catches effects/memos/callbacks that read a value but omit it from the
       // dependency array (a common source of stale-data-on-screen bugs). Set to
-      // warn so newly surfaced latent issues don't break the build; each
-      // intentional exception carries a one-line `// Keep:` justification.
-      "react-hooks/exhaustive-deps": "warn",
+      // error now that all pre-existing warnings are resolved; each intentional
+      // exception carries a one-line `// Keep:` justification.
+      "react-hooks/exhaustive-deps": "error",
     },
   },
 ];

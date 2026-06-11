@@ -181,6 +181,9 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
 
   useEffect(() => {
     markReadMutation.mutate();
+  // Keep: mutation object identity is unstable, but `.mutate` is stable. We want
+  // this to fire once per thread open, not on every render the mutation re-creates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
   const wsStatus = useReconnectingWebSocket({

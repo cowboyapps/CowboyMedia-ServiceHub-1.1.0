@@ -5184,6 +5184,10 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       setTypingUser(null);
     };
+  // Keep: mutation object identity is unstable, but `.mutate` is stable, so
+  // omitting `markReadMutation` avoids re-subscribing the websocket handler on
+  // every render. The effect should only re-run when the thread/connection changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId, user?.id, sendMessage, subscribe]);
 
   useEffect(() => {

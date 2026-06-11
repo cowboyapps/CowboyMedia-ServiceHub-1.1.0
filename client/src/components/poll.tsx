@@ -81,7 +81,7 @@ export function Poll({ pollId, onDeleted, compact }: { pollId: string; onDeleted
       for (const id of pendingSelection) next[id] = (next[id] || 0) + 1;
     }
     return next;
-  }, [poll?.counts, poll?.userVotes, pendingSelection, poll]);
+  }, [poll, pendingSelection]);
   const total = useMemo(() => Object.values(counts).reduce((a, b) => a + b, 0), [counts]);
 
   if (isLoading) return <Skeleton className="h-32 w-full" />;

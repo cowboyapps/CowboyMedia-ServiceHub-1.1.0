@@ -212,7 +212,7 @@ export default function PublicStatusPage() {
     queryKey: ["/api/public/status"],
   });
 
-  const services = data?.services || [];
+  const services = useMemo(() => data?.services || [], [data?.services]);
   const alerts = data?.alerts || [];
   const updates = data?.updates || [];
   const banner = useMemo(() => computeBanner(services), [services]);

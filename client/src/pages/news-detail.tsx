@@ -48,6 +48,10 @@ export default function NewsDetail() {
       }
       img.style.cursor = "zoom-in";
     });
+  // Keep: the DOM decoration only depends on the rendered HTML, so re-running on
+  // `story.content` is exactly right. Depending on the whole `story` object would
+  // re-run on unrelated refetches without changing what gets decorated.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [story?.content]);
 
   const wsStatus = useReconnectingWebSocket({

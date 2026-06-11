@@ -880,6 +880,10 @@ function AnnouncementPopup() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
+  // Keep: the effect only reads `user.id` and `user.role`, both already listed.
+  // Depending on the whole `user` object would re-register the visibility
+  // listener on every auth refetch (new object identity) with no benefit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role]);
 
   useEffect(() => {
