@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { Response } from "express";
 import {
   createKbAdminHandlers,
   type KbAdminStorage,
@@ -238,20 +239,17 @@ test("updateKbArticleSchema: rejects invalid partial fields", () => {
 
 // ---------- Mocks ----------
 
-interface MockRes {
-  statusCode: number;
+interface MockRes extends Response {
   body: any;
-  status: (n: number) => MockRes;
-  json: (b: any) => MockRes;
 }
 function mockRes(): MockRes {
-  const res: MockRes = {
+  const res = {
     statusCode: 200,
     body: undefined,
-    status(n) { this.statusCode = n; return this; },
-    json(b) { this.body = b; return this; },
+    status(n: number) { this.statusCode = n; return this; },
+    json(b: any) { this.body = b; return this; },
   };
-  return res;
+  return res as unknown as MockRes;
 }
 
 interface StorageState {

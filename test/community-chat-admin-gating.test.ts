@@ -247,8 +247,10 @@ async function mountChat(user: typeof CUSTOMER_USER | typeof ADMIN_USER): Promis
         null,
         React.createElement(
           Router,
-          { hook },
-          React.createElement(Route, { path: "/community", component: CommunityChatPage }),
+          {
+            hook,
+            children: React.createElement(Route, { path: "/community", component: CommunityChatPage }),
+          },
         ),
       ),
     );

@@ -241,9 +241,13 @@ async function mountMessages(path: string, user: typeof CUSTOMER_USER | typeof A
         null,
         React.createElement(
           Router,
-          { hook },
-          React.createElement(Route, { path: "/messages", component: MessagesPage }),
-          React.createElement(Route, { path: "/messages/:id", component: MessagesPage }),
+          {
+            hook,
+            children: [
+              React.createElement(Route, { key: "m", path: "/messages", component: MessagesPage }),
+              React.createElement(Route, { key: "mid", path: "/messages/:id", component: MessagesPage }),
+            ],
+          },
         ),
       ),
     );

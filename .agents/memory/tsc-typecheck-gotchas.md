@@ -13,4 +13,5 @@ description: Non-obvious things that make `npm run check` (tsc) behave unexpecte
 
 - **`target` must be ≥ ES2020** in `tsconfig.json` or Set/Map iteration triggers `--downlevelIteration` errors. Keep the `target` line.
 
-- **Tests are excluded from typecheck.** `**/*.test.ts` are not type-checked by `tsc`, so type drift in test files (e.g. reading optional fields) won't fail `npm run check` — but it also won't be caught. Verify test runtime separately via `script/run-tests.ts`.
+- **Tests ARE type-checked now.** `tsconfig.json` includes `test/**/*` and no longer excludes `**/*.test.ts`, so `npm run check` (and the prebuild gate) catches type drift in test files. Keep them honest against `shared/schema.ts`.
+  **Why:** excluded tests could compile-rot silently until they crashed at runtime. **How to apply:** when a test mock is passed where a real type is expected (e.g. an Express `Response`), type the mock as `Response & { extra }` and cast the factory return `as unknown as MockRes` — import `Response` from `express`, NOT the global DOM `Response`, or `statusCode`/`status()` won't resolve. For `React.createElement(Component, props, ...children)` where the component's props require `children` (e.g. wouter's `Router`), pass children inside the props object — variadic children don't satisfy a required `children` prop and trigger TS2769.

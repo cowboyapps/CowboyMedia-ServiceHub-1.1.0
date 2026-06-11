@@ -34,6 +34,7 @@ function msg(partial: Partial<TicketMessage>): TicketMessage {
     imageUrl: partial.imageUrl ?? null,
     readAt: partial.readAt ?? null,
     isInternal: partial.isInternal ?? false,
+    kbArticleSlug: partial.kbArticleSlug ?? null,
     createdAt: partial.createdAt ?? new Date(),
   };
 }

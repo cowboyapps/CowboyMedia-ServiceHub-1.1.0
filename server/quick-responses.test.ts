@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { Response } from "express";
 import {
   createQuickResponseHandlers,
   type QuickResponseStorage,
@@ -11,20 +12,17 @@ import type {
   InsertQuickResponseCategory,
 } from "../shared/schema";
 
-interface MockRes {
-  statusCode: number;
+interface MockRes extends Response {
   body: any;
-  status: (n: number) => MockRes;
-  json: (b: any) => MockRes;
 }
 function mockRes(): MockRes {
-  const r: MockRes = {
+  const r = {
     statusCode: 200,
     body: undefined,
-    status(n) { this.statusCode = n; return this; },
-    json(b) { this.body = b; return this; },
+    status(n: number) { this.statusCode = n; return this; },
+    json(b: any) { this.body = b; return this; },
   };
-  return r;
+  return r as unknown as MockRes;
 }
 
 function makeReq(opts: { body?: any; params?: any; userId?: string | null } = {}): any {

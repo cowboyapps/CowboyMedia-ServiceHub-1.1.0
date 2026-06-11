@@ -56,7 +56,7 @@ function makeHarness() {
     React.useEffect(() => {
       const action = helpers.computeInitialUserAction({
         initialUserId,
-        users: users ?? null,
+        users: (users ?? null) as unknown as Parameters<typeof helpers.computeInitialUserAction>[0]["users"],
         didFocus,
       });
       if (action.kind === "wait") return;

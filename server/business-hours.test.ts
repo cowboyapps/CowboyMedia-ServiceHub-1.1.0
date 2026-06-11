@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { Response } from "express";
 import {
   createBusinessHoursHandlers,
   type BusinessHoursStorage,
@@ -95,25 +96,21 @@ test("updateBusinessHoursSchema: rejects empty/oversize timezone", () => {
 
 // ---------- Route handler tests ----------
 
-interface MockRes {
-  statusCode: number;
+type MockRes = Response & {
   body: any;
   headers: Record<string, string>;
-  status: (n: number) => MockRes;
-  json: (b: any) => MockRes;
-  set: (k: string, v: string) => MockRes;
-}
+};
 
 function mockRes(): MockRes {
-  const res: MockRes = {
+  const res = {
     statusCode: 200,
-    body: undefined,
-    headers: {},
+    body: undefined as any,
+    headers: {} as Record<string, string>,
     status(n: number) { this.statusCode = n; return this; },
     json(b: any) { this.body = b; return this; },
     set(k: string, v: string) { this.headers[k] = v; return this; },
   };
-  return res;
+  return res as unknown as MockRes;
 }
 
 function mockStorage(initial: BusinessHours = DEFAULT_BH): BusinessHoursStorage & {

@@ -232,8 +232,11 @@ async function mountAdmin(
         null,
         React.createElement(
           Router,
-          { hook, searchHook },
-          React.createElement(Route, { path: "/admin", component: AdminPortal }),
+          {
+            hook,
+            searchHook,
+            children: React.createElement(Route, { path: "/admin", component: AdminPortal }),
+          },
         ),
       ),
     );

@@ -176,6 +176,7 @@ interface NotificationClickHarness {
   fire: (event: {
     action?: string;
     notification: {
+      tag?: string;
       data?: Record<string, unknown>;
       close: () => void;
     };

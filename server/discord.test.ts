@@ -27,6 +27,7 @@ function longParagraphs(totalLen: number): string {
 }
 
 function assertEmbedWithinLimits(payload: DiscordPayload, label: string) {
+  assert.ok(payload.embeds, `${label}: expected embeds to be defined`);
   for (const embed of payload.embeds) {
     if (embed.title !== undefined) {
       assert.ok(
@@ -73,7 +74,7 @@ test("composeAlertCreated: short input passes through unchanged", () => {
     baseUrl: "https://example.com",
   });
   assertEmbedWithinLimits(payload, "alert created (short)");
-  const e = payload.embeds[0]!;
+  const e = payload.embeds![0]!;
   assert.equal(e.description, "We are investigating a login outage.");
   assert.match(e.title!, /Login is down/);
   assert.equal(e.url, "https://example.com/alerts/abc");
@@ -103,7 +104,7 @@ test("composeAlertUpdate: short input passes through unchanged", () => {
     baseUrl: "https://example.com",
   });
   assertEmbedWithinLimits(payload, "alert update (short)");
-  const e = payload.embeds[0]!;
+  const e = payload.embeds![0]!;
   assert.equal(e.description, "Still investigating the cause.");
   assert.match(e.title!, /Login is down/);
   assert.equal(e.url, "https://example.com/alerts/abc");
@@ -132,7 +133,7 @@ test("composeAlertUpdate: resolved status uses correct label and stays in limits
     baseUrl: "https://example.com",
   });
   assertEmbedWithinLimits(payload, "alert update resolved (long)");
-  assert.match(payload.embeds[0]!.title!, /Resolved/);
+  assert.match(payload.embeds![0]!.title!, /Resolved/);
 });
 
 test("composeAlertResolved: short input passes through unchanged", () => {
@@ -144,7 +145,7 @@ test("composeAlertResolved: short input passes through unchanged", () => {
     baseUrl: "https://example.com",
   });
   assertEmbedWithinLimits(payload, "alert resolved (short)");
-  const e = payload.embeds[0]!;
+  const e = payload.embeds![0]!;
   assert.equal(e.description, "Issue resolved by rolling back the deploy.");
   assert.match(e.title!, /Resolved/);
   assert.equal(e.url, "https://example.com/alerts/abc");
@@ -169,7 +170,7 @@ test("composeServiceUpdate: short input passes through unchanged", () => {
     baseUrl: "https://example.com",
   });
   assertEmbedWithinLimits(payload, "service update (short)");
-  const e = payload.embeds[0]!;
+  const e = payload.embeds![0]!;
   assert.equal(e.description, "We've launched a new EU region.");
   assert.match(e.title!, /New region available/);
   assert.equal(e.url, "https://example.com/service-updates");
@@ -206,8 +207,8 @@ test("composeNews: very long content is split into multiple payloads, each withi
   });
   assert.ok(payloads.length > 1, "expected splitting into multiple payloads");
   for (const p of payloads) assertEmbedWithinLimits(p, "news (long)");
-  assert.match(payloads[0]!.embeds[0]!.title!, /^📰 /);
-  assert.match(payloads[1]!.embeds[0]!.title!, /continued/);
+  assert.match(payloads[0]!.embeds![0]!.title!, /^📰 /);
+  assert.match(payloads[1]!.embeds![0]!.title!, /continued/);
 });
 
 test("composeAlertCreated: rejects unsafe URLs (non-http(s)) by omitting them", () => {
@@ -219,7 +220,7 @@ test("composeAlertCreated: rejects unsafe URLs (non-http(s)) by omitting them", 
     alertId: "abc",
     baseUrl: "javascript:alert(1)",
   });
-  assert.equal(payload.embeds[0]!.url, undefined);
+  assert.equal(payload.embeds![0]!.url, undefined);
 });
 
 test("compose helpers tolerate empty strings without throwing", () => {

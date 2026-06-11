@@ -204,8 +204,10 @@ async function mountAuth(
         null,
         React.createElement(
           Router,
-          { hook },
-          React.createElement(AuthPage),
+          {
+            hook,
+            children: React.createElement(AuthPage),
+          },
         ),
       ),
     );
