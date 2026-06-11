@@ -56,8 +56,15 @@ the node:test subprocess alive (exit blocked until killed). Set `gcTime: 0` on b
 - When building the file list for `bash -c "...$FILES..."`, flatten it with
   `find ... | tr '\n' ' '` — embedded newlines split the `-c` string into multiple
   commands and you get `Permission denied` on a `.test.ts` path.
-- **Large jsdom batches OOM-kill partway** in this container. Running all ~53
-  `*.test.ts` together dies mid-run (lost buffered output, no summary). Run jsdom
-  tests in small batches (a few files) or per-file. Each file runs in its own
-  node:test subprocess, so globals don't leak between files and a purely additive
-  new test file can't regress others.
+- **Large jsdom batches OOM-kill partway** in this container. The OOM is driven
+  by node:test's *file-level concurrency* (default = `availableParallelism`, 8
+  here): several jsdom files land in the same wave, each loading jsdom + the full
+  React client tree into its own subprocess, and collectively exhaust memory.
+  **Fix shipped:** `npm test` runs `script/run-tests.ts`, which runs every
+  `*.test.ts` file in its own `tsx --test` subprocess **sequentially** (default
+  `TEST_CONCURRENCY=1`, per-file `TEST_FILE_TIMEOUT_MS=180000`), so at most one
+  heavy subprocess is resident and the whole suite runs as one batch (and in CI)
+  without OOM. It prints an aggregated pass/fail summary and exits non-zero on
+  any failure/hang. Pass file paths as args to run a subset. Each file runs in
+  its own subprocess, so globals don't leak and a purely additive file can't
+  regress others.
