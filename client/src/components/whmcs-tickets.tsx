@@ -19,6 +19,7 @@ import {
   Paperclip,
   X,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 
 // Shared, read-on-demand presentation of WHMCS support tickets. Driven entirely
@@ -302,6 +303,22 @@ export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen,
 /** Max files per reply — mirror of the server cap (WHMCS_REPLY_MAX_ATTACHMENTS). */
 const MAX_REPLY_ATTACHMENTS = 5;
 
+/**
+ * Max bytes per attachment — mirror of the server's multer cap (25MB in
+ * server/routes.ts). The server stays the source of truth; this only lets the
+ * composer warn the customer before they hit send.
+ */
+const MAX_REPLY_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** Human-readable file size, e.g. "4.2 MB" / "812 KB". */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
 interface TicketThreadProps {
   ticket: WhmcsTicketDetail | undefined;
   isLoading: boolean;
@@ -372,9 +389,11 @@ export function WhmcsTicketThread({
 
   const isClosed = ticket.statusKey === "closed";
 
+  const hasOversizeFile = files.some((f) => f.size > MAX_REPLY_ATTACHMENT_BYTES);
+
   const submit = () => {
     const trimmed = draft.trim();
-    if (!trimmed || replyPending) return;
+    if (!trimmed || replyPending || hasOversizeFile) return;
     onReply(trimmed, files);
     setDraft("");
     setFiles([]);
@@ -494,27 +513,53 @@ export function WhmcsTicketThread({
           />
           {files.length > 0 && (
             <div className="flex flex-wrap gap-1.5" data-testid="whmcs-reply-attachments">
-              {files.map((f, i) => (
-                <span
-                  key={`${f.name}-${i}`}
-                  className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-xs"
-                  data-testid={`chip-whmcs-reply-attachment-${i}`}
-                >
-                  <Paperclip className="w-3 h-3 shrink-0" />
-                  <span className="truncate max-w-[160px]">{f.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeFile(i)}
-                    disabled={replyPending}
-                    className="ml-0.5 text-muted-foreground hover:text-foreground"
-                    aria-label={`Remove ${f.name}`}
-                    data-testid={`button-whmcs-remove-attachment-${i}`}
+              {files.map((f, i) => {
+                const oversize = f.size > MAX_REPLY_ATTACHMENT_BYTES;
+                return (
+                  <span
+                    key={`${f.name}-${i}`}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
+                      oversize
+                        ? "border-destructive/50 bg-destructive/10 text-destructive"
+                        : "bg-muted/40"
+                    }`}
+                    data-testid={`chip-whmcs-reply-attachment-${i}`}
                   >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
+                    {oversize ? (
+                      <AlertTriangle className="w-3 h-3 shrink-0" />
+                    ) : (
+                      <Paperclip className="w-3 h-3 shrink-0" />
+                    )}
+                    <span className="truncate max-w-[160px]">{f.name}</span>
+                    <span
+                      className={oversize ? "shrink-0" : "shrink-0 text-muted-foreground"}
+                      data-testid={`text-whmcs-reply-attachment-size-${i}`}
+                    >
+                      ({formatFileSize(f.size)})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      disabled={replyPending}
+                      className={`ml-0.5 ${oversize ? "hover:opacity-70" : "text-muted-foreground hover:text-foreground"}`}
+                      aria-label={`Remove ${f.name}`}
+                      data-testid={`button-whmcs-remove-attachment-${i}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
             </div>
+          )}
+          {hasOversizeFile && (
+            <p
+              className="flex items-center gap-1.5 text-[11px] text-destructive"
+              data-testid="text-whmcs-reply-oversize-warning"
+            >
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              Each file must be {formatFileSize(MAX_REPLY_ATTACHMENT_BYTES)} or smaller. Remove the flagged file(s) to send.
+            </p>
           )}
           <input
             ref={fileInputRef}
@@ -537,7 +582,7 @@ export function WhmcsTicketThread({
               <Paperclip className="w-4 h-4" />
               Attach
             </Button>
-            <Button onClick={submit} disabled={replyPending || !draft.trim()} className="gap-1.5" data-testid="button-whmcs-reply-send">
+            <Button onClick={submit} disabled={replyPending || !draft.trim() || hasOversizeFile} className="gap-1.5" data-testid="button-whmcs-reply-send">
               <Send className="w-4 h-4" />
               {replyPending ? "Sending…" : "Send reply"}
             </Button>
