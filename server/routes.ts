@@ -3346,6 +3346,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const recipientId = isAdminSending ? thread.customerId : thread.adminId;
       const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
 
+      // If the recipient has any live connection, the WebSocket fan-out above
+      // reached their client — mark the message delivered and tell the sender.
+      if (presenceMap.hasUser(recipientId)) {
+        await storage.markThreadMessagesDelivered(thread.id, recipientId);
+        broadcastToThreadParticipants({ type: "thread_messages_delivered", threadId: thread.id, deliveredTo: recipientId }, [thread.adminId, thread.customerId]);
+      }
+
       const shouldCreateNotif = !isRecipientViewing;
       const recipientUser = await storage.getUser(recipientId);
       const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
@@ -4852,6 +4859,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } else {
         broadcastPresenceToAdmins({ type: "presence_changed", userId: sessionUserId, status: "tab_added" });
       }
+      // The user just (re)connected — any messages sent to them while they were
+      // offline have now reached a live client. Flip those to "Delivered" and
+      // notify the senders so their "Sent" receipts advance live.
+      storage.markUndeliveredThreadMessagesForUser(sessionUserId).then((threads) => {
+        for (const t of threads) {
+          broadcastToThreadParticipants({ type: "thread_messages_delivered", threadId: t.id, deliveredTo: sessionUserId }, [t.adminId, t.customerId]);
+        }
+      }).catch(() => {});
     }
 
     ws.on("message", (raw) => {

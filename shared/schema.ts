@@ -568,6 +568,7 @@ export const threadMessages = pgTable("thread_messages", {
   body: text("body").notNull(),
   imageUrl: text("image_url"),
   kbArticleSlug: text("kb_article_slug"),
+  deliveredAt: timestamp("delivered_at"),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
@@ -578,7 +579,7 @@ export const insertMessageThreadSchema = createInsertSchema(messageThreads).omit
 export type InsertMessageThread = z.infer<typeof insertMessageThreadSchema>;
 export type MessageThread = typeof messageThreads.$inferSelect;
 
-export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, readAt: true, createdAt: true });
+export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, deliveredAt: true, readAt: true, createdAt: true });
 export type InsertThreadMessage = z.infer<typeof insertThreadMessageSchema>;
 export type ThreadMessage = typeof threadMessages.$inferSelect;
 

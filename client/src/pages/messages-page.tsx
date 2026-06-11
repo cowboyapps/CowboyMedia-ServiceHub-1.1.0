@@ -46,6 +46,14 @@ type EnrichedThread = MessageThread & {
 
 type EnrichedThreadMessage = ThreadMessage & { senderName?: string; kbArticle?: KbArticleRef | null };
 
+// Receipt label for the sender's own messages: progresses Sent → Delivered → Read.
+// `readAt` wins over `deliveredAt` because reading implies delivery.
+export function messageReceiptLabel(msg: Pick<ThreadMessage, "deliveredAt" | "readAt">): "Sent" | "Delivered" | "Read" {
+  if (msg.readAt) return "Read";
+  if (msg.deliveredAt) return "Delivered";
+  return "Sent";
+}
+
 const newThreadSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   subject: z.string().min(1, "Subject is required"),
@@ -212,6 +220,9 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
         if (data.type === "thread_messages_read" && data.threadId === threadId && data.readBy !== user?.id) {
           queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
         }
+        if (data.type === "thread_messages_delivered" && data.threadId === threadId && data.deliveredTo !== user?.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+        }
       } catch {}
     },
     onVisible: (ws) => {
@@ -352,7 +363,11 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
                       {msg.kbArticle && <ThreadKbCard article={msg.kbArticle} isMe={isMe} />}
                       <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                         {format(msgDate, "h:mm a")}
-                        {isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
+                        {isMe && (
+                          <span className="ml-1.5" data-testid={`status-receipt-${msg.id}`}>
+                            · {messageReceiptLabel(msg)}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>

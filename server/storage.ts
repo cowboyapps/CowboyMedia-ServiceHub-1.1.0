@@ -318,6 +318,8 @@ export interface IStorage {
   getThreadMessages(threadId: string): Promise<ThreadMessage[]>;
   createThreadMessage(data: InsertThreadMessage): Promise<ThreadMessage>;
   markThreadMessagesRead(threadId: string, userId: string): Promise<void>;
+  markThreadMessagesDelivered(threadId: string, recipientUserId: string): Promise<void>;
+  markUndeliveredThreadMessagesForUser(userId: string): Promise<MessageThread[]>;
   getUnreadThreadMessageCount(userId: string): Promise<number>;
 
   createUserNotification(data: InsertUserNotification): Promise<UserNotification>;
@@ -1475,6 +1477,39 @@ export class DatabaseStorage implements IStorage {
         sql`${threadMessages.senderId} != ${userId}`
       )
     );
+  }
+
+  async markThreadMessagesDelivered(threadId: string, recipientUserId: string): Promise<void> {
+    await db.update(threadMessages).set({ deliveredAt: new Date() }).where(
+      and(
+        eq(threadMessages.threadId, threadId),
+        isNull(threadMessages.deliveredAt),
+        sql`${threadMessages.senderId} != ${recipientUserId}`
+      )
+    );
+  }
+
+  async markUndeliveredThreadMessagesForUser(userId: string): Promise<MessageThread[]> {
+    const pending = await db.select({ threadId: threadMessages.threadId })
+      .from(threadMessages)
+      .innerJoin(messageThreads, eq(threadMessages.threadId, messageThreads.id))
+      .where(
+        and(
+          isNull(threadMessages.deliveredAt),
+          sql`${threadMessages.senderId} != ${userId}`,
+          sql`(${messageThreads.adminId} = ${userId} OR ${messageThreads.customerId} = ${userId})`
+        )
+      );
+    const ids = Array.from(new Set(pending.map(p => p.threadId)));
+    if (ids.length === 0) return [];
+    await db.update(threadMessages).set({ deliveredAt: new Date() }).where(
+      and(
+        inArray(threadMessages.threadId, ids),
+        isNull(threadMessages.deliveredAt),
+        sql`${threadMessages.senderId} != ${userId}`
+      )
+    );
+    return db.select().from(messageThreads).where(inArray(messageThreads.id, ids));
   }
 
   async getUnreadThreadMessageCount(userId: string): Promise<number> {
