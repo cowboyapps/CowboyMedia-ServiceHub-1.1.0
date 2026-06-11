@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { APP_VERSION } from "@shared/version";
 import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
 import splashVideoUrl from "@assets/ServiceHub_Loading_Screen_1778502829390.mp4";
 
@@ -81,14 +82,26 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
       className={`fixed inset-0 z-[100] flex items-center justify-center bg-black transition-opacity duration-500 ${fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"}`}
       data-testid="splash-screen"
     >
-      {/* Always-visible logo so the user has something to look at even if
-          the splash video fails to decode/load on this device. */}
-      <img
-        src={logoImg}
-        alt="CowboyMedia"
-        className={`absolute w-[60%] max-w-[260px] object-contain transition-opacity duration-300 ${videoReady ? "opacity-0" : "opacity-100"}`}
+      {/* Always-visible logo (with the app version beneath it) so the user has
+          something to look at even if the splash video fails to decode/load on
+          this device. The version reads from APP_VERSION, so it tracks every
+          future version bump automatically. */}
+      <div
+        className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-300 ${videoReady ? "opacity-0" : "opacity-100"}`}
         data-testid="splash-logo-fallback"
-      />
+      >
+        <img
+          src={logoImg}
+          alt="CowboyMedia"
+          className="w-[60%] max-w-[260px] object-contain"
+        />
+        <p
+          className="mt-3 text-xs font-medium tracking-wide text-white/70"
+          data-testid="text-splash-version"
+        >
+          Version {APP_VERSION}
+        </p>
+      </div>
       <video
         ref={videoRef}
         src={splashVideoUrl}
