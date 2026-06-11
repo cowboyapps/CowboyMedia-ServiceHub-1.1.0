@@ -53,8 +53,18 @@ export interface WhmcsNotifierDeps {
   getNotifyState: (userId: string) => Promise<SeenMap>;
   /** Persist that we notified `userId` about `ticketId`'s reply dated `date`. */
   recordNotified: (userId: string, ticketId: number, date: string) => Promise<void>;
-  /** Fire a push notification (caller decides delivery; never throws). */
-  sendPush: (user: NotifierUser, ticket: NotifierTicket) => void;
+  /**
+   * Create the in-app (bell) notification row for this reply and return its id
+   * (or null if creation failed). Decoupled from push so email-only users still
+   * get a bell entry. Never throws.
+   */
+  createInApp: (user: NotifierUser, ticket: NotifierTicket) => Promise<string | null>;
+  /**
+   * Fire a push notification (caller decides delivery; never throws). When an
+   * in-app row already exists (`notificationId`), reuse it instead of creating
+   * a second bell row.
+   */
+  sendPush: (user: NotifierUser, ticket: NotifierTicket, notificationId: string | null) => void;
   /** Fire an email (caller decides delivery; never throws). */
   sendEmail: (user: NotifierUser, ticket: NotifierTicket) => void;
   /** Does the user want push for this category? */
@@ -117,7 +127,15 @@ export async function runWhmcsTicketNotifyPass(deps: WhmcsNotifierDeps): Promise
         if (!ticket.lastReply) continue;
         const wantsPush = deps.wantsPush(user, CATEGORY_KEY);
         const wantsEmail = !!user.email && deps.wantsEmail(user, CATEGORY_KEY);
-        if (wantsPush) deps.sendPush(user, ticket);
+        // Create the in-app (bell) record whenever the customer would be
+        // notified through any channel — decoupled from push so email-only
+        // users still get a bell entry (Task #350). The push then reuses this
+        // row instead of creating its own, so push users still get exactly one.
+        let notificationId: string | null = null;
+        if (wantsPush || wantsEmail) {
+          notificationId = await deps.createInApp(user, ticket);
+        }
+        if (wantsPush) deps.sendPush(user, ticket, notificationId);
         if (wantsEmail) deps.sendEmail(user, ticket);
         // Record the marker even when both channels are off, so toggling a
         // channel on later doesn't replay every already-seen reply. The reply

@@ -208,7 +208,26 @@ void (async () => {
     },
     getNotifyState: (userId) => storage.getWhmcsTicketNotifyState(userId),
     recordNotified: (userId, ticketId, date) => storage.recordWhmcsTicketNotified(userId, ticketId, date),
-    sendPush: (user, ticket) => {
+    createInApp: async (user, ticket) => {
+      // Decoupled from push (Task #350) so email-only customers still get a
+      // bell entry. Never throws — a failure here must not abort the pass.
+      try {
+        const row = await storage.createUserNotification({
+          userId: user.id,
+          type: "whmcs_ticket_reply",
+          title: "New Billing Ticket Reply",
+          body: `Reply on: ${ticket.subject || "your billing ticket"}`,
+          referenceType: "whmcs_ticket",
+          referenceId: String(ticket.id),
+          url: whmcsTicketPath(ticket.id),
+        });
+        return row.id;
+      } catch (e) {
+        console.error("[whmcs-notifier] createInApp failed:", (e as Error)?.message);
+        return null;
+      }
+    },
+    sendPush: (user, ticket, notificationId) => {
       void sendPushToUser(
         user.id,
         {
@@ -219,7 +238,11 @@ void (async () => {
           resourceLabel: `Billing ticket: ${ticket.subject || ticket.id}`,
           rollupNoun: "replies",
         },
-        { type: "whmcs_ticket_reply", referenceType: "whmcs_ticket", referenceId: String(ticket.id) },
+        // Reuse the already-created bell row so push users get exactly one;
+        // fall back to creating one in sendPushToUser if createInApp failed.
+        notificationId
+          ? { notificationId }
+          : { type: "whmcs_ticket_reply", referenceType: "whmcs_ticket", referenceId: String(ticket.id) },
       );
     },
     sendEmail: (user, ticket) => {

@@ -31,7 +31,9 @@ const mkTicket = (over: Partial<NotifierTicket> = {}): NotifierTicket => ({
 });
 
 interface Recorder {
-  pushes: Array<{ userId: string; ticketId: number }>;
+  // In-app (bell) rows created, decoupled from push (Task #350).
+  inApp: Array<{ userId: string; ticketId: number }>;
+  pushes: Array<{ userId: string; ticketId: number; notificationId: string | null }>;
   emails: Array<{ userId: string; ticketId: number }>;
   recorded: Array<{ userId: string; ticketId: number; date: string }>;
   loads: Array<{ clientId: number }>;
@@ -40,6 +42,8 @@ interface Recorder {
 /**
  * Build a fully-faked deps object with sensible defaults. State maps let
  * `recordNotified` feed back into `getNotifyState` so multi-pass dedupe works.
+ * `createInApp` returns "notif-1" by default; pass `createInAppReturns: null`
+ * to simulate a failed bell-row creation (push then falls back to its own row).
  */
 function makeDeps(opts: {
   active?: boolean;
@@ -52,8 +56,9 @@ function makeDeps(opts: {
   wantsEmail?: boolean;
   getConfigThrows?: boolean;
   getLinkedUsersThrows?: boolean;
+  createInAppReturns?: string | null;
 }): { deps: WhmcsNotifierDeps; rec: Recorder; state: Record<string, SeenMap> } {
-  const rec: Recorder = { pushes: [], emails: [], recorded: [], loads: [] };
+  const rec: Recorder = { inApp: [], pushes: [], emails: [], recorded: [], loads: [] };
   const state: Record<string, SeenMap> = JSON.parse(JSON.stringify(opts.notifyState ?? {}));
   const unreachable = opts.unreachableClients ?? new Set<number>();
 
@@ -77,7 +82,12 @@ function makeDeps(opts: {
       rec.recorded.push({ userId, ticketId, date });
       state[userId] = { ...(state[userId] ?? {}), [String(ticketId)]: date };
     },
-    sendPush: (user, ticket) => rec.pushes.push({ userId: user.id, ticketId: ticket.id }),
+    createInApp: async (user, ticket) => {
+      rec.inApp.push({ userId: user.id, ticketId: ticket.id });
+      return opts.createInAppReturns === undefined ? "notif-1" : opts.createInAppReturns;
+    },
+    sendPush: (user, ticket, notificationId) =>
+      rec.pushes.push({ userId: user.id, ticketId: ticket.id, notificationId }),
     sendEmail: (user, ticket) => rec.emails.push({ userId: user.id, ticketId: ticket.id }),
     wantsPush: () => opts.wantsPush ?? true,
     wantsEmail: () => opts.wantsEmail ?? true,
@@ -144,6 +154,7 @@ test("unreachable WHMCS for a user → no marker written (retries next pass)", a
   assert.equal(result.ticketsNotified, 0);
   assert.equal(rec.pushes.length, 0);
   assert.equal(rec.emails.length, 0);
+  assert.equal(rec.inApp.length, 0);
   assert.equal(rec.recorded.length, 0);
 });
 
@@ -156,12 +167,14 @@ test("a qualifying reply fires push AND email, then records a marker", async () 
   });
   const result = await runWhmcsTicketNotifyPass(deps);
   assert.equal(result.ticketsNotified, 1);
-  assert.deepEqual(rec.pushes, [{ userId: "u1", ticketId: 7 }]);
+  // Exactly one bell row, and the push reuses it (no duplicate).
+  assert.deepEqual(rec.inApp, [{ userId: "u1", ticketId: 7 }]);
+  assert.deepEqual(rec.pushes, [{ userId: "u1", ticketId: 7, notificationId: "notif-1" }]);
   assert.deepEqual(rec.emails, [{ userId: "u1", ticketId: 7 }]);
   assert.deepEqual(rec.recorded, [{ userId: "u1", ticketId: 7, date: "2026-06-10" }]);
 });
 
-test("channel gating: push-off + email-on sends only email, still records marker", async () => {
+test("channel gating: push-off + email-on sends only email, still creates bell row + marker", async () => {
   const { deps, rec } = makeDeps({
     users: [mkUser({ id: "u1", whmcsClientId: 100 })],
     ticketsByClient: { 100: [mkTicket({ id: 7 })] },
@@ -171,6 +184,8 @@ test("channel gating: push-off + email-on sends only email, still records marker
   const result = await runWhmcsTicketNotifyPass(deps);
   assert.equal(result.ticketsNotified, 1);
   assert.equal(rec.pushes.length, 0);
+  // Task #350: email-only customers still get a bell entry.
+  assert.deepEqual(rec.inApp, [{ userId: "u1", ticketId: 7 }]);
   assert.deepEqual(rec.emails, [{ userId: "u1", ticketId: 7 }]);
   assert.equal(rec.recorded.length, 1);
 });
@@ -185,10 +200,11 @@ test("email gated off when user has no email address, even if wantsEmail=true", 
   const result = await runWhmcsTicketNotifyPass(deps);
   assert.equal(result.ticketsNotified, 0);
   assert.equal(rec.emails.length, 0);
+  assert.equal(rec.inApp.length, 0); // no deliverable channel → no bell row
   assert.equal(rec.recorded.length, 1); // marker still recorded so it won't replay
 });
 
-test("both channels off still records the marker (no replay later) and counts nothing", async () => {
+test("both channels off: no bell row, but marker still recorded (no replay later)", async () => {
   const { deps, rec } = makeDeps({
     users: [mkUser({ id: "u1", whmcsClientId: 100 })],
     ticketsByClient: { 100: [mkTicket({ id: 7 })] },
@@ -199,7 +215,34 @@ test("both channels off still records the marker (no replay later) and counts no
   assert.equal(result.ticketsNotified, 0);
   assert.equal(rec.pushes.length, 0);
   assert.equal(rec.emails.length, 0);
+  assert.equal(rec.inApp.length, 0);
   assert.deepEqual(rec.recorded, [{ userId: "u1", ticketId: 7, date: "2026-06-10" }]);
+});
+
+test("push reuses the created bell row id (push users get exactly one row)", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    ticketsByClient: { 100: [mkTicket({ id: 7 })] },
+    wantsPush: true,
+    wantsEmail: false,
+  });
+  await runWhmcsTicketNotifyPass(deps);
+  assert.equal(rec.inApp.length, 1);
+  assert.equal(rec.pushes.length, 1);
+  assert.equal(rec.pushes[0].notificationId, "notif-1");
+});
+
+test("push falls back to creating its own row when createInApp fails", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    ticketsByClient: { 100: [mkTicket({ id: 7 })] },
+    wantsPush: true,
+    wantsEmail: false,
+    createInAppReturns: null,
+  });
+  await runWhmcsTicketNotifyPass(deps);
+  assert.equal(rec.pushes.length, 1);
+  assert.equal(rec.pushes[0].notificationId, null); // push creates its own row
 });
 
 test("dedupe across two consecutive passes: second pass sends nothing", async () => {
@@ -264,7 +307,7 @@ test("a throw for one user does not abort the pass for the rest", async () => {
   assert.equal(result.usersScanned, 2);
   assert.equal(result.ticketsNotified, 1);
   assert.deepEqual(rec.recorded, [{ userId: "ok", ticketId: 9, date: "2026-06-10" }]);
-  assert.deepEqual(rec.pushes, [{ userId: "ok", ticketId: 9 }]);
+  assert.deepEqual(rec.pushes, [{ userId: "ok", ticketId: 9, notificationId: "notif-1" }]);
   // First user wrote nothing.
   assert.equal(state["boom"], undefined);
 });
