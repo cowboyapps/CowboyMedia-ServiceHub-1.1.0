@@ -6,6 +6,27 @@ on:
   pull_request:
 
 jobs:
+  # Fast-fail typecheck. Runs on its own, with no Postgres service and no
+  # migrations, so a type regression surfaces in seconds — well before the
+  # heavier test/build job (or the VPS deploy webhook's prebuild chain) even
+  # starts spinning up a database.
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
   test:
     runs-on: ubuntu-latest
 
@@ -50,9 +71,6 @@ jobs:
       # migration is malformed it fails here, not in prod.
       - name: Apply migrations cold
         run: npx tsx -e "import('./server/migrate').then(m => m.runMigrations()).catch(e => { console.error(e); process.exit(1); })"
-
-      - name: Typecheck
-        run: npm run check
 
       - name: Tests
         run: npm test
