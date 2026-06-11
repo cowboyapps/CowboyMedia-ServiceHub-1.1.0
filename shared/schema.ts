@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, integer, primaryKey, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, primaryKey, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { NotificationPrefs } from "./notification-categories";
@@ -34,8 +34,17 @@ export const users = pgTable("users", {
   quietHoursAllowCritical: boolean("quiet_hours_allow_critical").notNull().default(true),
   lastVersionWelcomeSeen: text("last_version_welcome_seen"),
   servicesPickerDismissed: boolean("services_picker_dismissed").notNull().default(false),
+  // WHMCS billing-platform link. Stores the WHMCS client id (integer) this
+  // ServiceHub user maps to, plus when the link was established. Nullable —
+  // most users are unlinked. The unique index relies on Postgres' default
+  // NULLS DISTINCT so many unlinked users coexist while each WHMCS client id
+  // links to at most one user. This is the cross-cutting contract downstream
+  // billing features key their data off of.
+  whmcsClientId: integer("whmcs_client_id"),
+  whmcsLinkedAt: timestamp("whmcs_linked_at"),
 }, (table) => ({
   roleIdx: index("users_role_idx").on(table.role),
+  whmcsClientIdx: uniqueIndex("users_whmcs_client_id_idx").on(table.whmcsClientId),
 }));
 
 export const totpBackupCodes = pgTable("totp_backup_codes", {
@@ -462,7 +471,7 @@ export type ErrorLog = typeof errorLogs.$inferSelect;
 export const ERROR_LOG_SEVERITIES = ["warn", "error", "fatal"] as const;
 export type ErrorLogSeverity = typeof ERROR_LOG_SEVERITIES[number];
 
-export const ERROR_LOG_SOURCES = ["push", "email", "discord", "telegram", "webhook", "route", "job"] as const;
+export const ERROR_LOG_SOURCES = ["push", "email", "discord", "telegram", "whmcs", "webhook", "route", "job"] as const;
 export type ErrorLogSource = typeof ERROR_LOG_SOURCES[number];
 
 export const downloads = pgTable("downloads", {
@@ -733,6 +742,30 @@ export const discordSettings = pgTable("discord_settings", {
 });
 
 export type DiscordSettings = typeof discordSettings.$inferSelect;
+
+// WHMCS billing-platform connection settings (singleton row). Holds only
+// non-secret config: the base URL of the WHMCS install (admin-editable in the
+// portal), the master enable toggle, and whether to auto-match customers to
+// WHMCS clients by email. The API identifier + secret live ONLY in env secrets
+// (WHMCS_API_IDENTIFIER / WHMCS_API_SECRET), never in the DB — mirrors the
+// Telegram split (token=env, chatId=DB).
+export const whmcsSettings = pgTable("whmcs_settings", {
+  id: varchar("id").primaryKey().default("singleton"),
+  baseUrl: text("base_url"),
+  enabled: boolean("enabled").notNull().default(false),
+  autoMatchByEmail: boolean("auto_match_by_email").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type WhmcsSettings = typeof whmcsSettings.$inferSelect;
+
+export const updateWhmcsSettingsSchema = z.object({
+  baseUrl: z.union([z.string().trim().url("Must be a valid URL"), z.literal("")]).nullable().optional(),
+  enabled: z.boolean().optional(),
+  autoMatchByEmail: z.boolean().optional(),
+});
+
+export type UpdateWhmcsSettingsData = z.infer<typeof updateWhmcsSettingsSchema>;
 
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production

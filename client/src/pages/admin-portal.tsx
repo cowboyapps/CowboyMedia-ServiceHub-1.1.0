@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -450,6 +450,8 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   </span>
                 </div>
               )}
+
+              <WhmcsCustomerPanel userId={detailUser.id} />
 
               {detailUser.role === "customer" && (() => {
                 const prefs: NotificationPrefs | null | undefined = detailUser.notificationPrefs;
@@ -6944,6 +6946,386 @@ function DiscordTab() {
   );
 }
 
+interface WhmcsClientSummary {
+  id: number;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  companyName: string;
+  email: string;
+  status: string;
+}
+
+interface WhmcsPanelData {
+  configured: boolean;
+  enabled: boolean;
+  link: { whmcsClientId: number; whmcsLinkedAt: string | null } | null;
+  linkedClient: WhmcsClientSummary | null;
+  suggestion: WhmcsClientSummary | null;
+}
+
+function WhmcsTab() {
+  const { toast } = useToast();
+  const [baseUrl, setBaseUrl] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [autoMatchByEmail, setAutoMatchByEmail] = useState(true);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; hint?: string } | null>(null);
+
+  const { data: settings, isLoading } = useQuery<{ baseUrl: string; enabled: boolean; autoMatchByEmail: boolean; hasCredentials: boolean; configured: boolean }>({
+    queryKey: ["/api/admin/whmcs-settings"],
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setBaseUrl(settings.baseUrl || "");
+      setEnabled(!!settings.enabled);
+      setAutoMatchByEmail(settings.autoMatchByEmail !== false);
+    }
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: { baseUrl: string; enabled: boolean; autoMatchByEmail: boolean }) => {
+      const res = await apiRequest("PATCH", "/api/admin/whmcs-settings", data);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to save settings");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/whmcs-settings"] });
+      toast({ title: "WHMCS settings saved" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const handleSave = () => {
+    saveMutation.mutate({ baseUrl: baseUrl.trim(), enabled, autoMatchByEmail });
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/whmcs-settings/test", { method: "POST", credentials: "include" });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        const msg = typeof data.totalClients === "number"
+          ? `Connected. WHMCS reports ${data.totalClients} client${data.totalClients === 1 ? "" : "s"}.`
+          : "Connected successfully.";
+        setTestResult({ ok: true, message: msg });
+        toast({ title: "WHMCS connection OK" });
+      } else {
+        setTestResult({ ok: false, message: data.error || "Connection failed", hint: data.hint });
+        toast({ title: "Connection failed", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (e: any) {
+      setTestResult({ ok: false, message: e.message });
+      toast({ title: "Connection failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full" /></div>;
+
+  const hasCredentials = !!settings?.hasCredentials;
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5" /> WHMCS Billing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${hasCredentials ? "" : "border-amber-500/40 bg-amber-500/5"}`} data-testid="status-whmcs-credentials">
+            {hasCredentials ? (
+              <><CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 shrink-0" /> <span>API credentials detected.</span></>
+            ) : (
+              <><AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> <span>API credentials are not set. Add <code>WHMCS_API_IDENTIFIER</code> and <code>WHMCS_API_SECRET</code> in Secrets to enable the connection.</span></>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor="whmcs-base-url">WHMCS base URL</Label>
+            <Input
+              id="whmcs-base-url"
+              type="text"
+              placeholder="https://billing.example.com"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              data-testid="input-whmcs-base-url"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              The root URL of your WHMCS install (without the trailing <code>/includes/api.php</code>). The API identifier and secret are stored as server secrets, not here.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Enable WHMCS integration</p>
+              <p className="text-xs text-muted-foreground">
+                When off, no WHMCS lookups run and the billing panel on customer profiles stays hidden.
+              </p>
+            </div>
+            <Switch checked={enabled} onCheckedChange={setEnabled} data-testid="switch-whmcs-enabled" />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Auto-match customers by email</p>
+              <p className="text-xs text-muted-foreground">
+                Suggest and link a WHMCS client automatically when its email exactly matches a ServiceHub user.
+              </p>
+            </div>
+            <Switch checked={autoMatchByEmail} onCheckedChange={setAutoMatchByEmail} data-testid="switch-whmcs-auto-match" />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-whmcs">
+              {saveMutation.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleTest}
+              disabled={testing || !hasCredentials || !baseUrl.trim()}
+              data-testid="button-test-whmcs"
+            >
+              {testing ? "Testing..." : "Test Connection"}
+            </Button>
+          </div>
+
+          {testResult && (
+            <div className={`rounded-md border p-3 text-sm ${testResult.ok ? "border-green-500/40 bg-green-500/5" : "border-red-500/40 bg-red-500/5"}`} data-testid="text-whmcs-test-result">
+              <p className={testResult.ok ? "text-green-600" : "text-red-600"}>{testResult.message}</p>
+              {testResult.hint && <p className="text-xs text-muted-foreground mt-1">{testResult.hint}</p>}
+            </div>
+          )}
+
+          <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground">How linking works:</p>
+            <p>Open a customer under <strong>Users</strong> to link them to a WHMCS client — automatically by matching email, or manually by searching.</p>
+            <p className="mt-2">This is the foundation for upcoming billing features.</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function WhmcsCustomerPanel({ userId }: { userId: string }) {
+  const { toast } = useToast();
+  const [searchQ, setSearchQ] = useState("");
+  const [searchResults, setSearchResults] = useState<WhmcsClientSummary[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [autoMatchError, setAutoMatchError] = useState<string | null>(null);
+  const autoFiredRef = useRef(false);
+
+  const { data, isLoading } = useQuery<WhmcsPanelData>({
+    queryKey: ["/api/admin/users", userId, "whmcs"],
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "whmcs"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+  };
+
+  const linkMutation = useMutation({
+    mutationFn: async (clientId: number) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/whmcs/link`, { clientId });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to link");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      setSearchResults(null);
+      setSearchQ("");
+      toast({ title: "Linked to WHMCS client" });
+    },
+    onError: (e: Error) => toast({ title: "Link failed", description: e.message, variant: "destructive" }),
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/admin/users/${userId}/whmcs/link`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to unlink");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Unlinked from WHMCS" });
+    },
+    onError: (e: Error) => toast({ title: "Unlink failed", description: e.message, variant: "destructive" }),
+  });
+
+  const autoMatchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/whmcs/auto-match`, {});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Auto-match failed");
+      }
+      return res.json();
+    },
+    onSuccess: (result: { matched?: boolean }) => {
+      invalidate();
+      if (result?.matched) toast({ title: "Auto-linked by email" });
+    },
+    onError: (e: Error) => setAutoMatchError(e.message),
+  });
+
+  // The panel GET is pure — it never persists. When the server returns a
+  // suggestion (unambiguous email match, nothing linked yet) the frontend
+  // fires the auto-match POST exactly once to perform the link.
+  useEffect(() => {
+    if (autoFiredRef.current) return;
+    if (data && !data.link && data.suggestion) {
+      autoFiredRef.current = true;
+      autoMatchMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSearch = async () => {
+    const q = searchQ.trim();
+    if (!q) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/admin/whmcs/clients/search?q=${encodeURIComponent(q)}`, { credentials: "include" });
+      const body = await res.json();
+      if (res.ok && body.ok) setSearchResults(body.clients || []);
+      else toast({ title: "Search failed", description: body.error || "Unknown error", variant: "destructive" });
+    } catch (e: any) {
+      toast({ title: "Search failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  if (isLoading) return null;
+  if (!data || !data.configured || !data.enabled) return null;
+
+  const link = data.link;
+  const linkedClient = data.linkedClient;
+
+  return (
+    <div className="border rounded-md" data-testid="panel-whmcs">
+      <div className="flex items-center gap-2 px-3 py-3 border-b">
+        <CreditCard className="w-4 h-4 text-muted-foreground" />
+        <p className="text-sm font-medium">Billing (WHMCS)</p>
+      </div>
+      <div className="p-3 space-y-3">
+        {link ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 text-sm" data-testid="text-whmcs-linked-client">
+              {linkedClient ? (
+                <>
+                  <p className="font-medium truncate">
+                    {linkedClient.fullName}
+                    {linkedClient.status && (
+                      <Badge variant="outline" className="ml-2 h-5 px-1.5 text-xs">{linkedClient.status}</Badge>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {linkedClient.email || "no email"} · WHMCS client #{link.whmcsClientId}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-medium">WHMCS client #{link.whmcsClientId}</p>
+                  <p className="text-xs text-muted-foreground">Details unavailable — WHMCS could not be reached.</p>
+                </>
+              )}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs gap-1 shrink-0"
+              onClick={() => unlinkMutation.mutate()}
+              disabled={unlinkMutation.isPending}
+              data-testid="button-whmcs-unlink"
+            >
+              <Unlink className="w-3 h-3" />
+              {unlinkMutation.isPending ? "Unlinking..." : "Unlink"}
+            </Button>
+          </div>
+        ) : (
+          <>
+            {autoMatchMutation.isPending ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-whmcs-matching">Matching by email…</p>
+            ) : autoMatchError ? (
+              <p className="text-sm text-amber-600" data-testid="text-whmcs-automatch-error">{autoMatchError}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="text-whmcs-not-linked">Not linked to a WHMCS client.</p>
+            )}
+
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  className="pl-8 h-9"
+                  placeholder="Search WHMCS clients by name or email…"
+                  value={searchQ}
+                  onChange={(e) => setSearchQ(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearch(); } }}
+                  data-testid="input-whmcs-search"
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-9 text-xs"
+                onClick={handleSearch}
+                disabled={searching || !searchQ.trim()}
+                data-testid="button-whmcs-search"
+              >
+                {searching ? "Searching..." : "Search"}
+              </Button>
+            </div>
+
+            {searchResults && (
+              searchResults.length === 0 ? (
+                <p className="text-xs text-muted-foreground" data-testid="text-whmcs-no-results">No matching WHMCS clients.</p>
+              ) : (
+                <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+                  {searchResults.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 px-2.5 py-2" data-testid={`row-whmcs-client-${c.id}`}>
+                      <div className="min-w-0 text-sm">
+                        <p className="font-medium truncate">{c.fullName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{c.email || "no email"} · #{c.id}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 shrink-0"
+                        onClick={() => linkMutation.mutate(c.id)}
+                        disabled={linkMutation.isPending}
+                        data-testid={`button-whmcs-link-${c.id}`}
+                      >
+                        <Link2 className="w-3 h-3" /> Link
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TelegramTab() {
   const { toast } = useToast();
   const [chatId, setChatId] = useState("");
@@ -7848,6 +8230,7 @@ export default function AdminPortal() {
     { key: "error-log", label: "Error Log", icon: Bug, color: "text-red-500", bg: "bg-red-500/10", group: "system" },
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10", group: "integrations" },
     { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10", group: "integrations" },
+    { key: "whmcs", label: "WHMCS Billing", icon: CreditCard, color: "text-emerald-400", bg: "bg-emerald-400/10", group: "integrations" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10", group: "system" },
     { key: "support-away", label: "Support Away", icon: Clock, color: "text-orange-500", bg: "bg-orange-500/10", group: "support" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10", group: "content" },
@@ -7901,6 +8284,7 @@ export default function AdminPortal() {
       case "error-log": return <ErrorLogsTab />;
       case "telegram": return <TelegramTab />;
       case "discord": return <DiscordTab />;
+      case "whmcs": return <WhmcsTab />;
       case "business-hours": return <BusinessHoursTab />;
       case "support-away": return <SupportAwayTab />;
       case "announcements": return <AnnouncementsTab />;

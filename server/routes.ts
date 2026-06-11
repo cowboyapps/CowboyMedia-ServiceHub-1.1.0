@@ -22,6 +22,15 @@ import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-a
 import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
 import { createDiscordSettingsHandlers } from "./discord-settings";
+import { createWhmcsSettingsHandlers } from "./whmcs-settings";
+import {
+  hasWhmcsCredentials,
+  normalizeBaseUrl as normalizeWhmcsBaseUrl,
+  testConnection as testWhmcsConnection,
+  searchClients as searchWhmcsClients,
+  getClientById as getWhmcsClientById,
+  getClientByEmail as getWhmcsClientByEmail,
+} from "./whmcs";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
@@ -5804,6 +5813,177 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ ok: false, error: getErrorMessage(e) });
+    }
+  });
+
+  // ===== WHMCS billing integration (admin only) =====
+  const whmcsSettingsHandlers = createWhmcsSettingsHandlers({ storage, logActivity });
+  app.get("/api/admin/whmcs-settings", requireAdmin, whmcsSettingsHandlers.getAdmin);
+  app.patch("/api/admin/whmcs-settings", requireAdmin, whmcsSettingsHandlers.patchAdmin);
+
+  // Verify connectivity + credentials. Surfaces the raw WHMCS message so an
+  // admin can tell an auth failure from an IP-allowlist miss ("Invalid IP
+  // <ip>") — the rejected IP is in the message itself, so we add a hint that
+  // points them at the WHMCS API allowlist.
+  app.post("/api/admin/whmcs-settings/test", requireAdmin, async (_req, res) => {
+    try {
+      const result = await testWhmcsConnection();
+      if (!result.ok) {
+        const isIpError = /invalid ip/i.test(result.error ?? "");
+        const hint = isIpError
+          ? "WHMCS rejected this server's IP. Add the IP address shown in the message above to your WHMCS API IP allowlist (Configuration → System Settings → API Credentials, or the legacy API IP access list)."
+          : undefined;
+        return res.status(400).json({ ok: false, error: result.error, reason: result.reason, hint });
+      }
+      res.json({ ok: true, totalClients: result.totalClients });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: getErrorMessage(e) });
+    }
+  });
+
+  // Free-text WHMCS client search for the manual-link picker.
+  app.get("/api/admin/whmcs/clients/search", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim();
+      if (!q) return res.json({ ok: true, clients: [] });
+      const result = await searchWhmcsClients(q);
+      if (!result.ok) return res.status(400).json({ ok: false, error: result.error, reason: result.reason });
+      res.json({ ok: true, clients: result.clients });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: getErrorMessage(e) });
+    }
+  });
+
+  // PURE read of a user's WHMCS link state. Locked response contract:
+  // { configured, enabled, link, linkedClient, suggestion }. Has NO
+  // side-effects (no auto-persist) and never 500s on WHMCS unreachability —
+  // linkedClient/suggestion degrade to null instead. The frontend fires the
+  // POST /auto-match mutation when it sees a suggestion.
+  app.get("/api/admin/users/:id/whmcs", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const settings = await storage.getWhmcsSettings();
+      const configured = hasWhmcsCredentials() && !!normalizeWhmcsBaseUrl(settings?.baseUrl);
+      const enabled = !!settings?.enabled;
+      const autoMatch = settings?.autoMatchByEmail ?? true;
+
+      const link = user.whmcsClientId
+        ? { whmcsClientId: user.whmcsClientId, whmcsLinkedAt: user.whmcsLinkedAt }
+        : null;
+
+      let linkedClient = null;
+      if (configured && link) {
+        const r = await getWhmcsClientById(link.whmcsClientId);
+        linkedClient = r.ok ? (r.client ?? null) : null;
+      }
+
+      let suggestion = null;
+      if (configured && enabled && autoMatch && !link && user.email) {
+        const r = await getWhmcsClientByEmail(user.email);
+        suggestion = r.ok ? (r.client ?? null) : null;
+      }
+
+      res.json({ configured, enabled, link, linkedClient, suggestion });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Manually link a user to a specific WHMCS client id. Verifies the client
+  // exists and is not already linked to a different user (409).
+  app.post("/api/admin/users/:id/whmcs/link", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const userId = getParam(req, "id");
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const clientId = Number(req.body?.clientId);
+      if (!Number.isInteger(clientId) || clientId <= 0) {
+        return res.status(400).json({ message: "A valid WHMCS client id is required" });
+      }
+      if (!hasWhmcsCredentials()) {
+        return res.status(400).json({ message: "WHMCS is not configured" });
+      }
+      const lookup = await getWhmcsClientById(clientId);
+      if (!lookup.ok) {
+        return res.status(502).json({ message: `Could not verify WHMCS client: ${lookup.error}` });
+      }
+      if (!lookup.client) {
+        return res.status(404).json({ message: `WHMCS client #${clientId} was not found` });
+      }
+      const existing = await storage.getUserByWhmcsClientId(clientId);
+      if (existing && existing.id !== userId) {
+        return res.status(409).json({ message: `WHMCS client #${clientId} is already linked to ${existing.username}` });
+      }
+      const updated = await storage.updateUser(userId, { whmcsClientId: clientId, whmcsLinkedAt: new Date() });
+      logActivity("user", "whmcs_linked", {
+        actorId: req.session.userId,
+        targetId: userId,
+        targetType: "user",
+        summary: `Linked ${user.username} to WHMCS client #${clientId} (${lookup.client.email || lookup.client.fullName})`,
+      });
+      res.json({ ok: true, link: { whmcsClientId: clientId, whmcsLinkedAt: updated?.whmcsLinkedAt ?? null }, linkedClient: lookup.client });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Remove a user's WHMCS link.
+  app.delete("/api/admin/users/:id/whmcs/link", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const userId = getParam(req, "id");
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const prev = user.whmcsClientId;
+      await storage.updateUser(userId, { whmcsClientId: null, whmcsLinkedAt: null });
+      logActivity("user", "whmcs_unlinked", {
+        actorId: req.session.userId,
+        targetId: userId,
+        targetType: "user",
+        summary: `Unlinked ${user.username} from WHMCS client${prev ? ` #${prev}` : ""}`,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Auto-match a user to a WHMCS client by exact email. Idempotent: a no-op
+  // (matched:false) when already linked or when there is no unambiguous match;
+  // 409 when the matched client belongs to another user.
+  app.post("/api/admin/users/:id/whmcs/auto-match", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const userId = getParam(req, "id");
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!hasWhmcsCredentials()) {
+        return res.status(400).json({ message: "WHMCS is not configured" });
+      }
+      if (user.whmcsClientId) {
+        const r = await getWhmcsClientById(user.whmcsClientId);
+        return res.json({ ok: true, matched: false, alreadyLinked: true, link: { whmcsClientId: user.whmcsClientId, whmcsLinkedAt: user.whmcsLinkedAt }, linkedClient: r.ok ? (r.client ?? null) : null });
+      }
+      if (!user.email) return res.json({ ok: true, matched: false, reason: "no_email" });
+      const lookup = await getWhmcsClientByEmail(user.email);
+      if (!lookup.ok) {
+        return res.status(502).json({ message: `WHMCS lookup failed: ${lookup.error}` });
+      }
+      if (!lookup.client) return res.json({ ok: true, matched: false, reason: "no_match" });
+      const clientId = lookup.client.id;
+      const existing = await storage.getUserByWhmcsClientId(clientId);
+      if (existing && existing.id !== userId) {
+        return res.status(409).json({ message: `WHMCS client #${clientId} is already linked to ${existing.username}` });
+      }
+      const updated = await storage.updateUser(userId, { whmcsClientId: clientId, whmcsLinkedAt: new Date() });
+      logActivity("user", "whmcs_auto_matched", {
+        actorId: req.session.userId,
+        targetId: userId,
+        targetType: "user",
+        summary: `Auto-matched ${user.username} to WHMCS client #${clientId} by email`,
+      });
+      res.json({ ok: true, matched: true, link: { whmcsClientId: clientId, whmcsLinkedAt: updated?.whmcsLinkedAt ?? null }, linkedClient: lookup.client });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 

@@ -42,6 +42,9 @@ import {
   type TelegramSettings,
   discordSettings,
   type DiscordSettings,
+  whmcsSettings,
+  type WhmcsSettings,
+  type UpdateWhmcsSettingsData,
   appSettings,
   type AppSettings,
   type BusinessHours,
@@ -350,6 +353,9 @@ export interface IStorage {
 
   getTelegramSettings(): Promise<TelegramSettings | undefined>;
   updateTelegramSettings(data: { chatId?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<TelegramSettings>;
+  getWhmcsSettings(): Promise<WhmcsSettings | undefined>;
+  updateWhmcsSettings(data: UpdateWhmcsSettingsData): Promise<WhmcsSettings>;
+  getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
   getDiscordSettings(): Promise<DiscordSettings | undefined>;
   updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
   getAppSettings(): Promise<AppSettings>;
@@ -1308,6 +1314,11 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.whmcsClientId, whmcsClientId));
+    return user;
+  }
+
   async createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken> {
     const [token] = await db.insert(passwordResetTokens).values(data).returning();
     return token;
@@ -1719,6 +1730,22 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(telegramSettings).set(patch).where(eq(telegramSettings.id, "singleton")).returning();
     if (updated) return updated;
     const [created] = await db.insert(telegramSettings).values({ id: "singleton", ...patch }).returning();
+    return created;
+  }
+
+  async getWhmcsSettings(): Promise<WhmcsSettings | undefined> {
+    const [row] = await db.select().from(whmcsSettings).where(eq(whmcsSettings.id, "singleton"));
+    return row;
+  }
+
+  async updateWhmcsSettings(data: UpdateWhmcsSettingsData): Promise<WhmcsSettings> {
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    if (data.baseUrl !== undefined) patch.baseUrl = data.baseUrl;
+    if (data.enabled !== undefined) patch.enabled = data.enabled;
+    if (data.autoMatchByEmail !== undefined) patch.autoMatchByEmail = data.autoMatchByEmail;
+    const [updated] = await db.update(whmcsSettings).set(patch).where(eq(whmcsSettings.id, "singleton")).returning();
+    if (updated) return updated;
+    const [created] = await db.insert(whmcsSettings).values({ id: "singleton", ...patch }).returning();
     return created;
   }
 
