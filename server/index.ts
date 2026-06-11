@@ -1,5 +1,9 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, getWebSocketServer } from "./routes";
+import { registerRoutes, getWebSocketServer, sendPushToUser, sendTemplatedEmail, customerWantsPush, customerWantsEmail } from "./routes";
+import { hasWhmcsCredentials, normalizeBaseUrl as normalizeWhmcsBaseUrl } from "./whmcs";
+import { loadTicketsList as loadWhmcsTicketsList } from "./whmcs-tickets";
+import { startWhmcsTicketNotifier, type NotifierUser, type NotifierTicket } from "./whmcs-ticket-notifier";
+import { whmcsTicketPath, whmcsTicketUrl } from "@shared/whmcs-notify";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
@@ -174,6 +178,70 @@ void (async () => {
   // alert Discord channel on fatal errors or 5xx bursts.
   const { startErrorAlerter } = await import("./error-alerter");
   startErrorAlerter();
+
+  // Notify customers (push + email) when one of their mirrored WHMCS billing
+  // tickets gets a staff reply. Polls linked customers; no-ops when WHMCS is
+  // unconfigured/disabled. De-dupes via a per-ticket server-side marker.
+  startWhmcsTicketNotifier({
+    getConfig: async () => {
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const active = hasWhmcsCredentials() && !!baseUrl && !!settings?.enabled;
+      return { active, baseUrl };
+    },
+    getLinkedUsers: async () => {
+      const all = await storage.getAllUsers();
+      return all.filter((u) => u.whmcsClientId != null) as unknown as NotifierUser[];
+    },
+    loadTickets: async (clientId, baseUrl) => {
+      const list = await loadWhmcsTicketsList(clientId, baseUrl);
+      return {
+        tickets: list.tickets.map((t) => ({
+          id: t.id,
+          statusKey: t.statusKey,
+          lastReply: t.lastReply,
+          tid: t.tid,
+          subject: t.subject,
+        })) as NotifierTicket[],
+        unreachable: list.unreachable,
+      };
+    },
+    getNotifyState: (userId) => storage.getWhmcsTicketNotifyState(userId),
+    recordNotified: (userId, ticketId, date) => storage.recordWhmcsTicketNotified(userId, ticketId, date),
+    sendPush: (user, ticket) => {
+      void sendPushToUser(
+        user.id,
+        {
+          title: "New Billing Ticket Reply",
+          body: `Reply on: ${ticket.subject || "your billing ticket"}`,
+          url: whmcsTicketPath(ticket.id),
+          tag: `whmcs-ticket-${ticket.id}`,
+          resourceLabel: `Billing ticket: ${ticket.subject || ticket.id}`,
+          rollupNoun: "replies",
+        },
+        { type: "whmcs_ticket_reply", referenceType: "whmcs_ticket", referenceId: String(ticket.id) },
+      );
+    },
+    sendEmail: (user, ticket) => {
+      if (!user.email) return;
+      // Email has no relative base, so deep-link with an absolute URL built
+      // from APP_BASE_URL (falls back to localhost in dev). Mirrors the
+      // password-reset link-building convention in routes.ts.
+      const base = (process.env.APP_BASE_URL || "http://localhost:5000").replace(/\/+$/, "");
+      void sendTemplatedEmail(
+        user.email,
+        "customer_whmcs_ticket_reply",
+        {
+          ticket_subject: ticket.subject || "your billing ticket",
+          customer_name: user.fullName,
+          ticket_url: whmcsTicketUrl(base, ticket.id),
+        },
+        user.fullName,
+      );
+    },
+    wantsPush: (user, categoryKey) => customerWantsPush(user as any, categoryKey),
+    wantsEmail: (user, categoryKey) => customerWantsEmail(user as any, categoryKey),
+  });
 
   async function pruneOldErrorLogs() {
     try {

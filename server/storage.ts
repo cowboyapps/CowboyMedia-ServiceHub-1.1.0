@@ -47,6 +47,7 @@ import {
   type UpdateWhmcsSettingsData,
   whmcsProductMappings,
   type WhmcsProductMapping,
+  whmcsTicketNotifications,
   appSettings,
   type AppSettings,
   type BusinessHours,
@@ -358,6 +359,8 @@ export interface IStorage {
   getWhmcsSettings(): Promise<WhmcsSettings | undefined>;
   updateWhmcsSettings(data: UpdateWhmcsSettingsData): Promise<WhmcsSettings>;
   getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
+  getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>>;
+  recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
   deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
@@ -1342,6 +1345,26 @@ export class DatabaseStorage implements IStorage {
   async getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.whmcsClientId, whmcsClientId));
     return user;
+  }
+
+  async getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>> {
+    const rows = await db
+      .select()
+      .from(whmcsTicketNotifications)
+      .where(eq(whmcsTicketNotifications.userId, userId));
+    const map: Record<string, string> = {};
+    for (const r of rows) map[String(r.whmcsTicketId)] = r.lastNotifiedReply;
+    return map;
+  }
+
+  async recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void> {
+    await db
+      .insert(whmcsTicketNotifications)
+      .values({ userId, whmcsTicketId, lastNotifiedReply })
+      .onConflictDoUpdate({
+        target: [whmcsTicketNotifications.userId, whmcsTicketNotifications.whmcsTicketId],
+        set: { lastNotifiedReply, updatedAt: new Date() },
+      });
   }
 
   async createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken> {

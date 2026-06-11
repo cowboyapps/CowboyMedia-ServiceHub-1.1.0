@@ -240,6 +240,16 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the customer when an admin replies to their ticket",
   },
   {
+    templateKey: "customer_whmcs_ticket_reply",
+    name: "New Reply on Billing Ticket (Customer)",
+    subject: "New Reply to Your Billing Ticket: {ticket_subject}",
+    body: `<h2>New Reply on Your Billing Ticket</h2>
+<p>Our team has replied to your billing &amp; account support ticket: <strong>{ticket_subject}</strong></p>
+<p><a href="{ticket_url}">Open the ticket</a> to read the reply and respond.</p>`,
+    availableVariables: ["ticket_subject", "customer_name", "ticket_url"],
+    description: "Sent to the customer when our team replies to one of their WHMCS billing tickets",
+  },
+  {
     templateKey: "admin_ticket_reply",
     name: "New Ticket Message (Admin)",
     subject: "New Ticket Message: {ticket_subject}",

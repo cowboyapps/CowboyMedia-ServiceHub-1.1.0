@@ -60,6 +60,13 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["email"],
   },
   {
+    key: "whmcs_ticket_reply",
+    label: "Replies on your billing tickets",
+    description: "When our team replies to one of your billing & account support tickets",
+    group: "Tickets",
+    channels: ["push", "email"],
+  },
+  {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",

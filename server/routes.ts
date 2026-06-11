@@ -123,14 +123,14 @@ function isAdminRole(role: string | null | undefined): boolean {
 
 type NotifUser = Pick<User, "role" | "notificationPrefs"> & Partial<Pick<User, "quietHoursEnabled" | "quietHoursStart" | "quietHoursEnd" | "quietHoursTimezone" | "quietHoursAllowCritical">>;
 
-function customerWantsPush(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
+export function customerWantsPush(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
   if (!user) return false;
   if (!userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "push")) return false;
   if (shouldSuppressNotification({ user, categoryKey, severity })) return false;
   return true;
 }
 
-function customerWantsEmail(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
+export function customerWantsEmail(user: NotifUser | null | undefined, categoryKey: string, severity?: string | null): boolean {
   if (!user) return false;
   if (!userWantsChannel(user.notificationPrefs as NotificationPrefs | null | undefined, categoryKey, "email")) return false;
   if (shouldSuppressNotification({ user, categoryKey, severity })) return false;
@@ -254,7 +254,7 @@ function checkSubscribeRateLimit(ip: string): boolean {
   return true;
 }
 
-async function sendTemplatedEmail(
+export async function sendTemplatedEmail(
   to: string | string[],
   templateKey: string,
   variables: Record<string, string>,
@@ -665,7 +665,7 @@ interface NotifMeta {
 //   signup-<userId>             — admin "new signup" toast
 // ───────────────────────────────────────────────────────────────────────
 
-async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string; resourceLabel?: string; rollupNoun?: string }, notif?: NotifMeta | { notificationId: string }) {
+export async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string; resourceLabel?: string; rollupNoun?: string }, notif?: NotifMeta | { notificationId: string }) {
   let notificationId: string | null = null;
   if (notif && "notificationId" in notif) {
     // Caller already created the user_notifications row and is just

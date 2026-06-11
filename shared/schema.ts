@@ -800,6 +800,25 @@ export const insertWhmcsProductMappingSchema = createInsertSchema(whmcsProductMa
 export type WhmcsProductMapping = typeof whmcsProductMappings.$inferSelect;
 export type InsertWhmcsProductMapping = z.infer<typeof insertWhmcsProductMappingSchema>;
 
+// Per-(user, WHMCS ticket) marker recording the last staff-reply date we have
+// already notified the customer about (Task #344). WHMCS tickets are never
+// stored (read-on-demand), so this is the ONLY server-side state for the
+// "staff replied to your billing ticket" push/email — the background poller
+// reads it to de-duplicate, so the same reply never notifies twice across
+// poll passes or app restarts. `lastNotifiedReply` is a YYYY-MM-DD date string
+// to match WHMCS list-payload day granularity (see shared/whmcs-unread.ts).
+export const whmcsTicketNotifications = pgTable("whmcs_ticket_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  whmcsTicketId: integer("whmcs_ticket_id").notNull(),
+  lastNotifiedReply: text("last_notified_reply").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userTicketUniq: uniqueIndex("whmcs_ticket_notifications_user_ticket_uniq").on(table.userId, table.whmcsTicketId),
+}));
+
+export type WhmcsTicketNotification = typeof whmcsTicketNotifications.$inferSelect;
+
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production
 // deploys from the UI during a maintenance window without touching the VPS.
