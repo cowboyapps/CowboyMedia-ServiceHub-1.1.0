@@ -48,20 +48,30 @@ export function normalizeBaseUrl(raw: string | null | undefined): string | null 
 // --- Pure helpers (unit-tested without network) ---
 
 /**
- * Normalize the `clients` field of a WHMCS GetClients response into an array.
- * WHMCS returns `clients.client` as an array for many results, a single object
- * for exactly one result, and omits the key entirely for zero results.
+ * Normalize a WHMCS list field into a plain array. WHMCS list responses nest
+ * records under a singular key (e.g. `clients.client`, `invoices.invoice`,
+ * `products.product`): an array for many results, a single object for exactly
+ * one result, and the key omitted entirely for zero results. All three shapes
+ * (plus a bare array) collapse to a plain array so callers never branch.
  */
-export function normalizeClientsArray(clientsField: any): any[] {
-  if (!clientsField) return [];
-  // Tolerate a bare array passed straight in (no `.client` wrapper).
-  if (Array.isArray(clientsField)) return clientsField;
-  // The real WHMCS wrapper always nests records under `.client`. An object
-  // WITHOUT that key means zero results — never treat it as a phantom client.
-  const inner = clientsField.client;
+export function normalizeListField(field: any, key: string): any[] {
+  if (!field) return [];
+  // Tolerate a bare array passed straight in (no wrapper key).
+  if (Array.isArray(field)) return field;
+  // The real WHMCS wrapper nests records under `key`. An object WITHOUT that
+  // key means zero results — never treat it as a phantom record.
+  const inner = field[key];
   if (Array.isArray(inner)) return inner;
   if (inner && typeof inner === "object") return [inner];
   return [];
+}
+
+/**
+ * Normalize the `clients` field of a WHMCS GetClients response into an array.
+ * Thin wrapper over {@link normalizeListField} for the `clients.client` shape.
+ */
+export function normalizeClientsArray(clientsField: any): any[] {
+  return normalizeListField(clientsField, "client");
 }
 
 /** Map a raw WHMCS client record to our normalized summary shape. */
@@ -236,4 +246,43 @@ export async function getClientById(clientId: number): Promise<WhmcsClientLookup
   // `client` object; prefer the nested object when present.
   const record = r.data?.client ?? r.data;
   return { ok: true, client: toClientSummary(record) };
+}
+
+// --- Billing read fetchers (Task #333) ---
+// Thin no-throw wrappers around the relevant WHMCS read actions. They return
+// the raw tagged result; the pure assembler in whmcs-billing.ts shapes the
+// response. Kept here so all network access stays in this one stateless client.
+
+/** Tagged raw result of a single WHMCS read action. */
+export interface WhmcsRawFetch {
+  ok: boolean;
+  data?: any;
+  error?: string;
+  reason?: WhmcsFailureReason;
+}
+
+/**
+ * Raw GetInvoices for a client. WHMCS keys the client param as `userid` here
+ * (not `clientid`) and defaults to 25 rows, so an explicit limit is passed.
+ * `orderby/order` pull the NEWEST 100 (WHMCS otherwise returns oldest-first, so
+ * a client with >100 invoices would miss their current unpaid/overdue ones —
+ * exactly the rows this feature is meant to surface). Caller normalizes
+ * `invoices.invoice`.
+ */
+export async function getClientInvoices(clientId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetInvoices", { userid: clientId, limitnum: 100, orderby: "id", order: "desc" });
+}
+
+/** Raw GetClientsProducts for a client. Caller normalizes `products.product`. */
+export async function getClientProducts(clientId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetClientsProducts", { clientid: clientId, stats: true });
+}
+
+/**
+ * Raw GetClientsDetails(stats=true) — provides the client identity/status,
+ * currency, and the pre-formatted `stats.creditbalance` display string used
+ * for the account balance.
+ */
+export async function getClientBillingDetails(clientId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetClientsDetails", { clientid: clientId, stats: true });
 }

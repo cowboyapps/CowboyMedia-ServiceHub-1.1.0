@@ -33,6 +33,7 @@ import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@/components/poll-composer";
 import { TemplateMessageEditor } from "@/components/template-message-editor";
+import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { Download, ImagePlus, X as XIcon, Paperclip } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
@@ -7257,7 +7258,11 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
               {unlinkMutation.isPending ? "Unlinking..." : "Unlink"}
             </Button>
           </div>
-        ) : (
+        ) : null}
+
+        {link && <WhmcsBillingSection userId={userId} />}
+
+        {!link && (
           <>
             {autoMatchMutation.isPending ? (
               <p className="text-sm text-muted-foreground" data-testid="text-whmcs-matching">Matching by email…</p>
@@ -7322,6 +7327,18 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function WhmcsBillingSection({ userId }: { userId: string }) {
+  const { data, isLoading } = useQuery<BillingSummary>({
+    queryKey: ["/api/admin/users", userId, "whmcs", "billing"],
+  });
+
+  return (
+    <div className="border-t pt-3" data-testid="panel-whmcs-billing">
+      <BillingSummaryView data={data} isLoading={isLoading} context="admin" />
     </div>
   );
 }

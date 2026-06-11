@@ -31,6 +31,7 @@ import {
   getClientById as getWhmcsClientById,
   getClientByEmail as getWhmcsClientByEmail,
 } from "./whmcs";
+import { loadBillingSummary } from "./whmcs-billing";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
@@ -5988,6 +5989,71 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         summary: `Auto-matched ${user.username} to WHMCS client #${clientId} by email`,
       });
       res.json({ ok: true, matched: true, link: { whmcsClientId: clientId, whmcsLinkedAt: updated?.whmcsLinkedAt ?? null }, linkedClient: lookup.client });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // ---------- Billing (read-only WHMCS) ----------
+  // A clean, fully-empty billing payload. Both routes fall back to this for the
+  // unconfigured / disabled / unlinked / unreachable states so the frontend
+  // always receives the same locked shape and never has to branch on missing
+  // keys. Callers override the few flags that differ per state.
+  const emptyBilling = (over: Record<string, unknown>) => ({
+    configured: false,
+    enabled: false,
+    linked: false,
+    unreachable: false,
+    client: null,
+    balance: null,
+    invoices: [],
+    products: [],
+    portalUrl: null,
+    ...over,
+  });
+
+  // Customer self-view: only ever reads the logged-in user's OWN linked WHMCS
+  // client. Never accepts a clientId param, never forwards raw WHMCS error
+  // strings (they can leak server IPs), and never 500s — it degrades to a clean
+  // disabled / unlinked / unreachable state so the page always renders.
+  app.get("/api/billing", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.json(emptyBilling({ configured, enabled }));
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.json(emptyBilling({ configured, enabled, linked: false }));
+      }
+      const summary = await loadBillingSummary(clientId, baseUrl);
+      return res.json({ configured, enabled, linked: true, ...summary });
+    } catch {
+      // Never leak / never 500 for the customer — show a clean unreachable state.
+      return res.json(emptyBilling({ configured: true, enabled: true, linked: true, unreachable: true }));
+    }
+  });
+
+  // Admin customer-detail view: any linked customer's billing. Permission-gated
+  // and MAY surface the WHMCS/storage error (it's admin-only, not customer-facing).
+  app.get("/api/admin/users/:id/whmcs/billing", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      const clientId = user.whmcsClientId ?? null;
+      if (!configured || !enabled || !clientId) {
+        return res.json(emptyBilling({ configured, enabled, linked: !!clientId }));
+      }
+      const summary = await loadBillingSummary(clientId, baseUrl);
+      return res.json({ configured, enabled, linked: true, ...summary });
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }

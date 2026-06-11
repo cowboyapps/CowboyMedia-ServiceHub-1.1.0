@@ -17,7 +17,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, ExternalLink, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2 } from "lucide-react";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, CreditCard, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
@@ -561,22 +561,17 @@ export default function SettingsPage() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <ExternalLink className="w-4 h-4" />
-            Online Account
+            <CreditCard className="w-4 h-4" />
+            Billing &amp; Invoices
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <a
-            href="http://cowboymedia.net/billing"
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid="button-online-account"
-          >
+          <Link href="/billing" data-testid="button-online-account">
             <Button>
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Login to my online account
+              <CreditCard className="w-4 h-4 mr-2" />
+              View billing &amp; invoices
             </Button>
-          </a>
+          </Link>
         </CardContent>
       </Card>
 

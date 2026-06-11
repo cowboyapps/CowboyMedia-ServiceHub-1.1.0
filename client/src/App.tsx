@@ -47,6 +47,7 @@ import NewsDetail from "@/pages/news-detail";
 import TicketsPage from "@/pages/tickets-page";
 import TicketDetail from "@/pages/ticket-detail";
 import SettingsPage from "@/pages/settings-page";
+import BillingPage from "@/pages/billing-page";
 const AdminPortal = lazy(() => import("@/pages/admin-portal"));
 import MessagesPage from "@/pages/messages-page";
 import ReportRequestPage from "@/pages/report-request-page";
@@ -110,6 +111,7 @@ function AppRouter() {
         <Route path="/tickets" component={TicketsPage} />
         <Route path="/tickets/:id" component={TicketDetail} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/billing" component={BillingPage} />
         <Route path="/messages" component={MessagesPage} />
         <Route path="/messages/:id" component={MessagesPage} />
         <Route path="/service-updates" component={ServiceUpdatesPage} />
