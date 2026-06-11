@@ -303,3 +303,26 @@ export async function loadBillingSummary(clientId: number, baseUrl: string | nul
   if (!data.unreachable) cache.set(clientId, { at: now, data });
   return data;
 }
+
+export interface InvoicesListData {
+  invoices: ParsedInvoice[];
+  /** True when the single GetInvoices read failed (outage or missing perm). */
+  unreachable: boolean;
+}
+
+/**
+ * Fetch + assemble ONLY a client's invoices — a lighter read than
+ * loadBillingSummary (one WHMCS call, not three) for the invoice-due notifier
+ * that polls every linked customer on a schedule. Never throws (the fetcher is
+ * no-throw). `unreachable` is true when GetInvoices failed — e.g. the API role
+ * still lacks the GetInvoices permission — so the notifier skips marker writes
+ * and retries next pass. Not cached: the notifier runs on a long interval and
+ * must see fresh due/overdue state each pass.
+ */
+export async function loadInvoicesList(clientId: number, baseUrl: string | null): Promise<InvoicesListData> {
+  const result = await getClientInvoices(clientId);
+  if (!result.ok) return { invoices: [], unreachable: true };
+  const today = todayUtc();
+  const invoices = normalizeListField(result.data?.invoices, "invoice").map((raw) => parseInvoice(raw, baseUrl, today));
+  return { invoices, unreachable: false };
+}

@@ -463,6 +463,68 @@ test("notificationclick default click opens a new window when no same-origin cli
   assert.deepEqual(h.badgeCalls, ["clear"]);
 });
 
+test("notificationclick opens an external (cross-origin) URL in a NEW window, never hijacking an open PWA tab", async () => {
+  const h = loadNotificationClickHandler();
+  h.setNotifications([]);
+  // A live, same-origin ServiceHub tab is open — but the target is the WHMCS
+  // pay page (different origin), so it must NOT be navigated/hijacked.
+  let focused = false;
+  let navigatedTo: string | null = null;
+  const client: FakeClient = {
+    url: "https://example.test/billing",
+    focus: async () => {
+      focused = true;
+      return client;
+    },
+    navigate: async (u: string) => {
+      navigatedTo = u;
+    },
+  };
+  h.setClients([client]);
+
+  const payUrl = "https://cowboymedia.net/billing/viewinvoice.php?id=1234";
+  await h.fire({
+    notification: {
+      data: { url: payUrl },
+      close: () => {},
+    },
+  });
+
+  assert.equal(focused, false, "must not focus the same-origin PWA tab for an external URL");
+  assert.equal(navigatedTo, null, "must not navigate the same-origin PWA tab to an external URL");
+  assert.equal(h.openedWindows.length, 1, "external URL must open its own window");
+  assert.equal(h.openedWindows[0], payUrl);
+});
+
+test("notificationclick treats a same-origin absolute URL as internal (focuses the open tab)", async () => {
+  const h = loadNotificationClickHandler();
+  h.setNotifications([]);
+  let focused = false;
+  let navigatedTo: string | null = null;
+  const client: FakeClient = {
+    url: "https://example.test/dashboard",
+    focus: async () => {
+      focused = true;
+      return client;
+    },
+    navigate: async (u: string) => {
+      navigatedTo = u;
+    },
+  };
+  h.setClients([client]);
+
+  await h.fire({
+    notification: {
+      data: { url: "https://example.test/billing" },
+      close: () => {},
+    },
+  });
+
+  assert.equal(focused, true, "same-origin absolute URL should reuse the open tab");
+  assert.equal(navigatedTo, "https://example.test/billing");
+  assert.equal(h.openedWindows.length, 0);
+});
+
 interface PushHarness {
   fire: (payload: unknown) => Promise<void>;
   shown: Array<{ title: string; options: any }>;

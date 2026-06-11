@@ -134,6 +134,13 @@
       "when": 1781202020099,
       "tag": "0018_wide_ser_duncan",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781204784368,
+      "tag": "0019_condemned_wither",
+      "breakpoints": true
     }
   ]
 }

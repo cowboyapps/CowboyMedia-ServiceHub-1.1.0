@@ -4,6 +4,20 @@ import { hasWhmcsCredentials, normalizeBaseUrl as normalizeWhmcsBaseUrl } from "
 import { loadTicketsList as loadWhmcsTicketsList } from "./whmcs-tickets";
 import { startWhmcsTicketNotifier, type NotifierUser, type NotifierTicket } from "./whmcs-ticket-notifier";
 import { whmcsTicketPath, whmcsTicketUrl } from "@shared/whmcs-notify";
+import { loadInvoicesList as loadWhmcsInvoicesList } from "./whmcs-billing";
+import {
+  startWhmcsInvoiceNotifier,
+  type InvoiceNotifierUser,
+  type NotifierInvoice,
+} from "./whmcs-invoice-notifier";
+import {
+  invoiceNotifTitle,
+  invoiceNotifBody,
+  invoiceLabel,
+  invoiceAmountLabel,
+  invoiceDuePhrase,
+  type InvoiceStageMap,
+} from "@shared/whmcs-invoice-notify";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
@@ -264,6 +278,113 @@ void (async () => {
     },
     wantsPush: (user, categoryKey) => customerWantsPush(user as any, categoryKey),
     wantsEmail: (user, categoryKey) => customerWantsEmail(user as any, categoryKey),
+  });
+
+  // Notify customers (push + email + bell) as one of their unpaid WHMCS
+  // invoices nears its due date, and again once it goes overdue, with a one-tap
+  // action that opens the WHMCS payment page for that invoice. Polls linked
+  // customers; no-ops when WHMCS is unconfigured/disabled; de-dupes via a
+  // per-invoice STAGE marker. Degrades cleanly (no marker writes, no crash)
+  // while the WHMCS API role still lacks the GetInvoices permission — every
+  // list comes back unreachable and nothing is recorded.
+  startWhmcsInvoiceNotifier({
+    getConfig: async () => {
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const active = hasWhmcsCredentials() && !!baseUrl && !!settings?.enabled;
+      return { active, baseUrl };
+    },
+    getLinkedUsers: async () => {
+      const all = await storage.getAllUsers();
+      return all.filter((u) => u.whmcsClientId != null) as unknown as InvoiceNotifierUser[];
+    },
+    loadInvoices: async (clientId, baseUrl) => {
+      const list = await loadWhmcsInvoicesList(clientId, baseUrl);
+      return {
+        invoices: list.invoices as unknown as NotifierInvoice[],
+        unreachable: list.unreachable,
+      };
+    },
+    getNotifyState: (userId) =>
+      storage.getWhmcsInvoiceNotifyState(userId) as Promise<InvoiceStageMap>,
+    recordNotified: (userId, invoiceId, stage) =>
+      storage.recordWhmcsInvoiceNotified(userId, invoiceId, stage),
+    createInApp: async (user, invoice, stage) => {
+      // Decoupled from push so email-only customers still get a bell entry. The
+      // bell row deep-links to the in-app /billing screen (not the external pay
+      // page). Never throws — a failure here must not abort the pass.
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const row = await storage.createUserNotification({
+          userId: user.id,
+          type: "whmcs_invoice_due",
+          title: invoiceNotifTitle(stage),
+          body: invoiceNotifBody(invoice, stage, today),
+          referenceType: "whmcs_invoice",
+          referenceId: String(invoice.id),
+          url: "/billing",
+        });
+        return row.id;
+      } catch (e) {
+        console.error("[whmcs-invoice-notifier] createInApp failed:", (e as Error)?.message);
+        return null;
+      }
+    },
+    sendPush: (user, invoice, stage, notificationId) => {
+      const today = new Date().toISOString().slice(0, 10);
+      // PUSH deep-links straight to the WHMCS pay page (absolute, cross-origin)
+      // so one tap opens checkout; the service worker opens it in its own window
+      // rather than hijacking an open ServiceHub tab. Falls back to the in-app
+      // /billing screen when WHMCS gave us no pay URL.
+      const payUrl = invoice.payUrl || "/billing";
+      void sendPushToUser(
+        user.id,
+        {
+          title: invoiceNotifTitle(stage),
+          body: invoiceNotifBody(invoice, stage, today),
+          url: payUrl,
+          tag: `whmcs-invoice-${invoice.id}`,
+          resourceLabel: `Invoice ${invoiceLabel(invoice)}`,
+          rollupNoun: "reminders",
+        },
+        // Reuse the already-created bell row so push users get exactly one;
+        // fall back to creating one in sendPushToUser if createInApp failed.
+        notificationId
+          ? { notificationId }
+          : { type: "whmcs_invoice_due", referenceType: "whmcs_invoice", referenceId: String(invoice.id) },
+      );
+    },
+    sendEmail: (user, invoice, stage) => {
+      if (!user.email) return;
+      const today = new Date().toISOString().slice(0, 10);
+      // Email has no relative base — build the in-app fallback link from
+      // APP_BASE_URL (matches the ticket notifier / password-reset convention).
+      const base = (process.env.APP_BASE_URL || "http://localhost:5000").replace(/\/+$/, "");
+      void sendTemplatedEmail(
+        user.email,
+        "customer_whmcs_invoice_due",
+        {
+          invoice_num: invoiceLabel(invoice),
+          invoice_amount: invoiceAmountLabel(invoice),
+          due_phrase: invoiceDuePhrase(stage, today, invoice.dueDate),
+          invoice_url: invoice.payUrl || `${base}/billing`,
+          customer_name: user.fullName,
+        },
+        user.fullName,
+      );
+    },
+    wantsPush: (user, categoryKey) => customerWantsPush(user as any, categoryKey),
+    wantsEmail: (user, categoryKey) => customerWantsEmail(user as any, categoryKey),
+    prefsOn: (user, categoryKey) => {
+      // Channel prefs only, IGNORING quiet hours: did the customer enable push
+      // or email for this category at all? Distinguishes "turned it off" (record
+      // the marker so it won't replay later) from "quiet-hours suppressed it
+      // right now" (skip the marker so the next post-quiet-hours pass retries).
+      const prefs = (user as any).notificationPrefs;
+      return (
+        userWantsChannel(prefs, categoryKey, "push") || userWantsChannel(prefs, categoryKey, "email")
+      );
+    },
   });
 
   async function pruneOldErrorLogs() {

@@ -250,6 +250,17 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the customer when our team replies to one of their WHMCS billing tickets",
   },
   {
+    templateKey: "customer_whmcs_invoice_due",
+    name: "Invoice Due Reminder (Customer)",
+    subject: "Reminder: Invoice {invoice_num} {due_phrase}",
+    body: `<h2>Invoice Reminder</h2>
+<p>Hi {customer_name},</p>
+<p>Invoice <strong>{invoice_num}</strong> for <strong>{invoice_amount}</strong> {due_phrase}.</p>
+<p><a href="{invoice_url}">Pay your invoice</a> to keep your services active.</p>`,
+    availableVariables: ["invoice_num", "invoice_amount", "due_phrase", "invoice_url", "customer_name"],
+    description: "Sent to the customer when one of their WHMCS invoices is due soon or becomes overdue",
+  },
+  {
     templateKey: "admin_ticket_reply",
     name: "New Ticket Message (Admin)",
     subject: "New Ticket Message: {ticket_subject}",

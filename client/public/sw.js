@@ -330,9 +330,21 @@ self.addEventListener('notificationclick', (event) => {
 
   event.notification.close();
   const url = data.url || '/';
+  // Absolute, cross-origin targets (e.g. a WHMCS invoice pay page) must open in
+  // their own window — navigating an already-open same-origin ServiceHub tab to
+  // an external URL would hijack the PWA away from itself.
+  let isExternal = false;
+  try {
+    isExternal = new URL(url, self.location.origin).origin !== self.location.origin;
+  } catch (e) {
+    isExternal = false;
+  }
   event.waitUntil(
-    refreshAppBadge().then(() =>
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    refreshAppBadge().then(() => {
+      if (isExternal) {
+        return self.clients.openWindow(url);
+      }
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         for (const client of clients) {
           if (client.url.includes(self.location.origin) && 'focus' in client) {
             client.navigate(url);
@@ -340,7 +352,7 @@ self.addEventListener('notificationclick', (event) => {
           }
         }
         return self.clients.openWindow(url);
-      })
-    )
+      });
+    })
   );
 });

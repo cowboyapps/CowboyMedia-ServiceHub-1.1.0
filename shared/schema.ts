@@ -819,6 +819,23 @@ export const whmcsTicketNotifications = pgTable("whmcs_ticket_notifications", {
 
 export type WhmcsTicketNotification = typeof whmcsTicketNotifications.$inferSelect;
 
+// Per-(user, WHMCS invoice) marker for the "your invoice is due soon / overdue"
+// push notifier. Like the ticket-reply marker above, it de-dupes reminders
+// across poll passes and restarts. `lastNotifiedStage` is the ordered reminder
+// stage we last told the customer about ("due_soon" | "overdue") — an invoice
+// escalates at most once per stage (see shared/whmcs-invoice-notify.ts).
+export const whmcsInvoiceNotifications = pgTable("whmcs_invoice_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  whmcsInvoiceId: integer("whmcs_invoice_id").notNull(),
+  lastNotifiedStage: text("last_notified_stage").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userInvoiceUniq: uniqueIndex("whmcs_invoice_notifications_user_invoice_uniq").on(table.userId, table.whmcsInvoiceId),
+}));
+
+export type WhmcsInvoiceNotification = typeof whmcsInvoiceNotifications.$inferSelect;
+
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production
 // deploys from the UI during a maintenance window without touching the VPS.

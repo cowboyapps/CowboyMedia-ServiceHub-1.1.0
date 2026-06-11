@@ -48,6 +48,7 @@ import {
   whmcsProductMappings,
   type WhmcsProductMapping,
   whmcsTicketNotifications,
+  whmcsInvoiceNotifications,
   appSettings,
   type AppSettings,
   type BusinessHours,
@@ -361,6 +362,8 @@ export interface IStorage {
   getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
   getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>>;
   recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void>;
+  getWhmcsInvoiceNotifyState(userId: string): Promise<Record<string, string>>;
+  recordWhmcsInvoiceNotified(userId: string, whmcsInvoiceId: number, lastNotifiedStage: string): Promise<void>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
   deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
@@ -1364,6 +1367,26 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoUpdate({
         target: [whmcsTicketNotifications.userId, whmcsTicketNotifications.whmcsTicketId],
         set: { lastNotifiedReply, updatedAt: new Date() },
+      });
+  }
+
+  async getWhmcsInvoiceNotifyState(userId: string): Promise<Record<string, string>> {
+    const rows = await db
+      .select()
+      .from(whmcsInvoiceNotifications)
+      .where(eq(whmcsInvoiceNotifications.userId, userId));
+    const map: Record<string, string> = {};
+    for (const r of rows) map[String(r.whmcsInvoiceId)] = r.lastNotifiedStage;
+    return map;
+  }
+
+  async recordWhmcsInvoiceNotified(userId: string, whmcsInvoiceId: number, lastNotifiedStage: string): Promise<void> {
+    await db
+      .insert(whmcsInvoiceNotifications)
+      .values({ userId, whmcsInvoiceId, lastNotifiedStage })
+      .onConflictDoUpdate({
+        target: [whmcsInvoiceNotifications.userId, whmcsInvoiceNotifications.whmcsInvoiceId],
+        set: { lastNotifiedStage, updatedAt: new Date() },
       });
   }
 

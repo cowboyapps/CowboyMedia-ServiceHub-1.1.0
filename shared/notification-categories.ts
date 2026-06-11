@@ -67,6 +67,13 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["push", "email"],
   },
   {
+    key: "whmcs_invoice_due",
+    label: "Upcoming invoice reminders",
+    description: "When one of your invoices is due soon or becomes overdue, with a one-tap link to pay",
+    group: "Billing",
+    channels: ["push", "email"],
+  },
+  {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",
@@ -330,7 +337,7 @@ export interface NotificationPreset {
   groups: Record<NotificationChannel, string[] | "*">;
 }
 
-const IMPORTANT_GROUPS = ["Tickets", "Messages", "Service status", "Admin tickets", "Admin chat", "Admin monitoring", "Admin broadcasts"];
+const IMPORTANT_GROUPS = ["Tickets", "Billing", "Messages", "Service status", "Admin tickets", "Admin chat", "Admin monitoring", "Admin broadcasts"];
 
 export const NOTIFICATION_PRESETS: NotificationPreset[] = [
   {
