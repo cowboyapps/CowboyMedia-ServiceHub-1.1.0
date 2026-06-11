@@ -160,6 +160,9 @@ export function useReconnectingWebSocket(
       }
       ws = null;
     };
+    // Keep: callbacks are read through refs (onVisibleRef/onBeforeUnmountRef
+    // etc.) so they intentionally aren't deps; caller-supplied reconnect
+    // triggers come in via the `...deps` spread, which ESLint can't verify.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, reconnectDelayMs, ...deps]);
 

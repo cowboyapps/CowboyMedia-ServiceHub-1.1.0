@@ -875,10 +875,14 @@ export default function TicketDetail() {
   }, []);
   const handleSaveEdit = useCallback((id: string, text: string) => {
     editNoteMutation.mutate({ id, text });
+  // Keep: mutation object identity is unstable, but `.mutate` is stable, so an
+  // empty dep array keeps this callback referentially stable for child memos.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const handleDeleteNote = useCallback((id: string) => {
     deleteNoteMutation.mutate(id);
+  // Keep: mutation object identity is unstable, but `.mutate` is stable, so an
+  // empty dep array keeps this callback referentially stable for child memos.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

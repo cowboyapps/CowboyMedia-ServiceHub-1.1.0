@@ -118,8 +118,6 @@ export function VersionWelcomeDialog() {
     setDismissedFor(user.id);
     sendSeenBeacon(welcome.version);
     invalidateAfterSeen();
-    // queryClient is stable across renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, welcome, dismissedFor]);
 
   const close = () => {

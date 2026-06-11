@@ -28,14 +28,19 @@ export default [
     plugins: {
       "react-hooks": reactHooks,
     },
-    // We intentionally enable only rules-of-hooks, so pre-existing
-    // `eslint-disable react-hooks/exhaustive-deps` comments would otherwise be
-    // flagged as "unused directive" noise. Don't report them.
+    // exhaustive-deps is on (warn), so every remaining
+    // `eslint-disable react-hooks/exhaustive-deps` comment must justify a real
+    // suppression — report any that no longer suppress anything as an error.
     linterOptions: {
-      reportUnusedDisableDirectives: "off",
+      reportUnusedDisableDirectives: "error",
     },
     rules: {
       "react-hooks/rules-of-hooks": "error",
+      // Catches effects/memos/callbacks that read a value but omit it from the
+      // dependency array (a common source of stale-data-on-screen bugs). Set to
+      // warn so newly surfaced latent issues don't break the build; each
+      // intentional exception carries a one-line `// Keep:` justification.
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
 ];

@@ -293,7 +293,6 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
         }
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialUserId, users, didFocusInitialUser]);
 
   const handleSaveUser = () => {

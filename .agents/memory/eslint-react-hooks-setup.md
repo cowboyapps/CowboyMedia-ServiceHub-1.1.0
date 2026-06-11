@@ -21,7 +21,16 @@ v5 of the plugin has no such transitive dep.
 load (not at a rule), this transitive zod mismatch is the likely cause — stay on v5/v9
 or resolve the zod-validation-error version conflict first.
 
-## Other notes
-- `reportUnusedDisableDirectives` is off because the client has pre-existing
-  `eslint-disable react-hooks/exhaustive-deps` comments and that rule is intentionally
-  NOT enabled (would otherwise flag them as unused-directive noise).
+## Rules enabled
+- `react-hooks/rules-of-hooks` = error (white-screen guard).
+- `react-hooks/exhaustive-deps` = warn (stale-data guard). Kept at *warn* on purpose:
+  surfaces latent missing-dep issues without failing the build. Each intentional
+  exception carries a one-line `// Keep:` justification above the disable comment.
+- `reportUnusedDisableDirectives` = error. Because exhaustive-deps is now on, a stale
+  `eslint-disable react-hooks/exhaustive-deps` that no longer suppresses anything fails
+  lint — so don't leave dead disable comments behind.
+
+**How to apply:** `npm run lint` passes with warnings present (exit 0 when 0 errors).
+Don't blanket-suppress the warnings; fixing a dep array can change effect re-run
+behavior, so review case-by-case. Before adding a disable, confirm it actually
+suppresses a real warning or reportUnusedDisableDirectives will error.
