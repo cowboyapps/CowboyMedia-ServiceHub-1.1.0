@@ -9,6 +9,7 @@
 
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import type { Service } from "@shared/schema";
+import { getParam } from "./http-params";
 import { recomputeForCoveredServices, recomputeForServiceChange } from "./alert-status";
 import { composeAlertCreated, composeAlertUpdate, composeAlertResolved, type TelegramCategory } from "./telegram";
 import {
@@ -41,7 +42,7 @@ export interface AlertRouteDeps {
       resolve_message?: string;
     },
     baseUrl: string,
-  ) => any;
+  ) => Promise<void> | void;
 }
 
 export interface AlertRouteMiddleware {
@@ -182,7 +183,7 @@ export function registerAlertRoutes(
       if (req.body.severity !== undefined) data.severity = req.body.severity;
       if (imageUrl) data.imageUrl = imageUrl;
       if (req.body.removeImage === "true") data.imageUrl = null;
-      const updated = await storage.updateAlert(req.params.id, data);
+      const updated = await storage.updateAlert(getParam(req, "id"), data);
       if (!updated) return res.status(404).json({ message: "Alert not found" });
       if (req.body.serviceIds !== undefined) {
         const newServiceIds = parseServiceIds(req.body.serviceIds);
@@ -190,10 +191,10 @@ export function registerAlertRoutes(
           return res.status(400).json({ message: "At least one service is required" });
         }
         const previousServiceIds = updated.serviceIds;
-        await storage.setAlertServices(req.params.id, newServiceIds);
+        await storage.setAlertServices(getParam(req, "id"), newServiceIds);
         // Recompute every service that gained or lost this alert so statuses stay correct.
         await recomputeForServiceChange(previousServiceIds, newServiceIds, alertStatusDeps);
-        const refreshed = await storage.getAlert(req.params.id);
+        const refreshed = await storage.getAlert(getParam(req, "id"));
         return res.json(refreshed ?? updated);
       }
       res.json(updated);
@@ -209,19 +210,19 @@ export function registerAlertRoutes(
       const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
       const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
       const update = await storage.createAlertUpdate({
-        alertId: req.params.id,
+        alertId: getParam(req, "id"),
         message: updateData.message,
         status: updateData.status,
         ...(imageUrl ? { imageUrl } : {}),
       });
       if (updateData.status === "resolved") {
-        await storage.updateAlert(req.params.id, { status: "resolved", resolvedAt: new Date() });
+        await storage.updateAlert(getParam(req, "id"), { status: "resolved", resolvedAt: new Date() });
       } else {
-        await storage.updateAlert(req.params.id, { status: updateData.status });
+        await storage.updateAlert(getParam(req, "id"), { status: updateData.status });
       }
       broadcast({ type: "alert_update", alertId: req.params.id, update });
       logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact }) });
-      const alert = await storage.getAlert(req.params.id);
+      const alert = await storage.getAlert(getParam(req, "id"));
       if (alert) {
         const isResolved = updateData.status === "resolved";
         const impactLabels: Record<string, string> = { operational: "Operational", degraded: "Degraded", outage: "Outage", maintenance: "Maintenance" };
@@ -229,7 +230,7 @@ export function registerAlertRoutes(
         const impactLabel = hasImpactChange ? impactLabels[serviceImpact] || serviceImpact : null;
         // Persist the new impact on the alert so status recompute reflects it for all covered services.
         if (hasImpactChange) {
-          await storage.updateAlert(req.params.id, { impact: serviceImpact });
+          await storage.updateAlert(getParam(req, "id"), { impact: serviceImpact });
         }
         const coveredServices = (await Promise.all(alert.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
         const serviceNames = coveredServices.map(s => s.name);
@@ -322,7 +323,7 @@ export function registerAlertRoutes(
       if (req.body.message !== undefined) data.message = req.body.message;
       if (imageUrl) data.imageUrl = imageUrl;
       if (req.body.removeImage === "true") data.imageUrl = null;
-      const updated = await storage.updateAlertUpdate(req.params.updateId, data);
+      const updated = await storage.updateAlertUpdate(getParam(req, "updateId"), data);
       if (!updated) return res.status(404).json({ message: "Alert update not found" });
       res.json(updated);
     } catch (e: any) {
@@ -334,10 +335,10 @@ export function registerAlertRoutes(
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const resolveMessage = req.body?.message || "Issue has been resolved.";
-      const updated = await storage.updateAlert(req.params.id, { status: "resolved", resolvedAt: new Date() });
+      const updated = await storage.updateAlert(getParam(req, "id"), { status: "resolved", resolvedAt: new Date() });
       if (!updated) return res.status(404).json({ message: "Alert not found" });
       await storage.createAlertUpdate({
-        alertId: req.params.id,
+        alertId: getParam(req, "id"),
         message: resolveMessage,
         status: "resolved",
         ...(imageUrl ? { imageUrl } : {}),
@@ -402,8 +403,8 @@ export function registerAlertRoutes(
   app.delete("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
     try {
       // Capture the covered ids BEFORE deletion — the junction rows go away with the alert.
-      const alertToDelete = await storage.getAlert(req.params.id);
-      await storage.deleteAlert(req.params.id);
+      const alertToDelete = await storage.getAlert(getParam(req, "id"));
+      await storage.deleteAlert(getParam(req, "id"));
       await recomputeForCoveredServices(alertToDelete?.serviceIds || [], alertStatusDeps);
       logActivity("alert", "alert_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert deleted: ${alertToDelete?.title || req.params.id}` });
       res.json({ message: "Alert deleted" });

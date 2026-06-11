@@ -5,6 +5,7 @@ import { registerAlertRoutes } from "./alert-routes";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag, INTERNAL_NOTE_EDIT_WINDOW_MS } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { resolveKbAttachmentForSender } from "./message-attachments";
+import { getParam } from "./http-params";
 import { getCachedPublicStatus, setCachedPublicStatus } from "./public-status-cache";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
@@ -870,7 +871,7 @@ export async function registerRoutes(
 
   app.delete("/api/me/sessions/:sid", requireAuth, async (req, res) => {
     try {
-      const targetSid = req.params.sid;
+      const targetSid = getParam(req, "sid");
       const rows = await getSessionsForUser(pool, req.session.userId!);
       const owned = rows.find(r => r.sid === targetSid);
       if (!owned) return res.status(404).json({ message: "Session not found" });
@@ -1370,7 +1371,7 @@ export async function registerRoutes(
       const patch: Partial<Pick<InsertChangelogEntry, "title" | "bodyHtml">> = {};
       if (typeof body?.title === "string") patch.title = body.title;
       if (typeof body?.bodyHtml === "string") patch.bodyHtml = sanitizeNewsContent(body.bodyHtml);
-      const updated = await storage.updateChangelogEntry(req.params.version, patch);
+      const updated = await storage.updateChangelogEntry(getParam(req, "version"), patch);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -1432,7 +1433,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/changelog/:version/publish", requireMasterAdmin, async (req, res) => {
     try {
-      const updated = await storage.publishChangelogEntry(req.params.version, req.session.userId!);
+      const updated = await storage.publishChangelogEntry(getParam(req, "version"), req.session.userId!);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -1440,7 +1441,7 @@ export async function registerRoutes(
 
   app.delete("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
     try {
-      const ok = await storage.deleteChangelogEntry(req.params.version);
+      const ok = await storage.deleteChangelogEntry(getParam(req, "version"));
       if (!ok) return res.status(409).json({ message: "Cannot delete: entry not found or already published" });
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -1577,7 +1578,7 @@ export async function registerRoutes(
 
   app.get("/api/users/:id/profile", requireAuth, async (req, res) => {
     try {
-      const target = await storage.getUser(req.params.id);
+      const target = await storage.getUser(getParam(req, "id"));
       if (!target) return res.status(404).json({ message: "User not found" });
       const viewer = await storage.getUser(req.session.userId!);
       const viewerIsAdmin = viewer?.role === "admin" || viewer?.role === "master_admin";
@@ -1608,9 +1609,9 @@ export async function registerRoutes(
 
   app.post("/api/admin/users/:id/reset-notification-prefs", requirePermission("users.view", "users.manage"), async (req, res) => {
     try {
-      const target = await storage.getUser(req.params.id);
+      const target = await storage.getUser(getParam(req, "id"));
       if (!target) return res.status(404).json({ message: "User not found" });
-      const updated = await storage.updateUser(req.params.id, { notificationPrefs: {} });
+      const updated = await storage.updateUser(getParam(req, "id"), { notificationPrefs: {} });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
     } catch (e: any) {
@@ -1643,13 +1644,13 @@ export async function registerRoutes(
   });
 
   app.get("/api/alerts/:id", requireAuth, async (req, res) => {
-    const alert = await storage.getAlert(req.params.id);
+    const alert = await storage.getAlert(getParam(req, "id"));
     if (!alert) return res.status(404).json({ message: "Alert not found" });
     res.json(alert);
   });
 
   app.get("/api/alerts/:id/updates", requireAuth, async (req, res) => {
-    const updates = await storage.getAlertUpdates(req.params.id);
+    const updates = await storage.getAlertUpdates(getParam(req, "id"));
     res.json(updates);
   });
 
@@ -1659,7 +1660,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/news/:id", requireAuth, async (req, res) => {
-    const story = await storage.getNewsStory(req.params.id);
+    const story = await storage.getNewsStory(getParam(req, "id"));
     if (!story) return res.status(404).json({ message: "Story not found" });
     res.json(story);
   });
@@ -1697,7 +1698,7 @@ export async function registerRoutes(
   app.get("/api/news/:id/reactions", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const rows = await storage.getNewsReactionsForStory(req.params.id);
+      const rows = await storage.getNewsReactionsForStory(getParam(req, "id"));
       res.json(aggregateNewsReactions(rows, userId));
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -1714,10 +1715,10 @@ export async function registerRoutes(
       if (!(NEWS_REACTION_EMOJIS as readonly string[]).includes(emoji)) {
         return res.status(400).json({ error: "Invalid emoji" });
       }
-      const story = await storage.getNewsStory(req.params.id);
+      const story = await storage.getNewsStory(getParam(req, "id"));
       if (!story) return res.status(404).json({ error: "Story not found" });
-      const result = await storage.toggleNewsReaction(req.params.id, userId, emoji);
-      const rows = await storage.getNewsReactionsForStory(req.params.id);
+      const result = await storage.toggleNewsReaction(getParam(req, "id"), userId, emoji);
+      const rows = await storage.getNewsReactionsForStory(getParam(req, "id"));
       res.json({ ...result, reactions: aggregateNewsReactions(rows, userId) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -1758,7 +1759,7 @@ export async function registerRoutes(
 
   app.get("/api/tickets/:id", requireAuth, async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -1910,7 +1911,7 @@ export async function registerRoutes(
 
   app.patch("/api/tickets/:id", requireAuth, async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -1933,7 +1934,7 @@ export async function registerRoutes(
         }
         if (resolutionNote && resolutionNote.trim()) data.resolutionNote = resolutionNote.trim();
       }
-      const updated = await storage.updateTicket(req.params.id, data);
+      const updated = await storage.updateTicket(getParam(req, "id"), data);
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
       const ticketCustomer = await storage.getUser(ticket.customerId);
@@ -2084,7 +2085,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/tickets/:id/claim", requirePermission("support_tickets"), async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       if (ticket.claimedBy) {
         const claimedAdmin = await storage.getUser(ticket.claimedBy);
@@ -2099,13 +2100,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
 
-      const updated = await storage.updateTicket(req.params.id, { claimedBy: admin.id });
+      const updated = await storage.updateTicket(getParam(req, "id"), { claimedBy: admin.id });
       if (!updated) return res.status(404).json({ message: "Ticket not found" });
       broadcast({ type: "ticket_updated", ticket: updated });
       const claimCustomer = await storage.getUser(ticket.customerId);
       logActivity("ticket", "ticket_claimed", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", summary: `${admin.fullName} claimed ticket: "${ticket.subject}" (customer: ${claimCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ admin: admin.fullName, customer: claimCustomer?.fullName, customerEmail: claimCustomer?.email, subject: ticket.subject }) });
 
-      const pendingTransfer = await storage.getPendingTransferByTicketId(req.params.id);
+      const pendingTransfer = await storage.getPendingTransferByTicketId(getParam(req, "id"));
       const isTransfer = pendingTransfer && pendingTransfer.toAdminId === admin.id;
 
       if (isTransfer) {
@@ -2181,7 +2182,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const { toAdminId, reason } = req.body;
       if (!toAdminId || !reason) return res.status(400).json({ message: "Target admin and reason are required" });
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const admin = await storage.getUser(req.session.userId!);
       if (!admin) return res.status(401).json({ message: "Unauthorized" });
@@ -2202,7 +2203,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const transferCustomer = await storage.getUser(ticket.customerId);
       logActivity("ticket", "ticket_transferred", { actorId: admin.id, targetId: ticket.id, targetType: "ticket", recipientId: toAdminId, summary: `${admin.fullName} transferred ticket "${ticket.subject}" to ${targetAdmin.fullName} (customer: ${transferCustomer?.fullName || "Unknown"})`, details: JSON.stringify({ reason, fromAdmin: admin.fullName, toAdmin: targetAdmin.fullName, customer: transferCustomer?.fullName, customerEmail: transferCustomer?.email }) });
 
-      await storage.updateTicket(req.params.id, { claimedBy: null });
+      await storage.updateTicket(getParam(req, "id"), { claimedBy: null });
 
       try {
         let supportUser = await storage.getUserByUsername("cowboymedia-support");
@@ -2340,7 +2341,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/tickets/:id/messages", requireAuth, async (req, res) => {
    try {
-    const ticket = await storage.getTicket(req.params.id);
+    const ticket = await storage.getTicket(getParam(req, "id"));
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
     const user = await storage.getUser(req.session.userId!);
     if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -2361,12 +2362,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
     const isCustomer = user.role === "customer";
     const includeInternal = !isCustomer;
-    const messages = await storage.getTicketMessages(req.params.id, includeInternal);
+    const messages = await storage.getTicketMessages(getParam(req, "id"), includeInternal);
     if (isCustomer) {
       const hasUnread = messages.some(m => m.senderId !== user.id && !m.readAt);
       if (hasUnread) {
-        await storage.markTicketMessagesRead(req.params.id, user.id);
-        const updatedMessages = await storage.getTicketMessages(req.params.id, false);
+        await storage.markTicketMessagesRead(getParam(req, "id"), user.id);
+        const updatedMessages = await storage.getTicketMessages(getParam(req, "id"), false);
         const senderIds = [...new Set(updatedMessages.map(m => m.senderId))];
         const senderMap = new Map<string, { name: string; role: string; avatarUrl: string | null }>();
         await Promise.all(senderIds.map(async (id) => {
@@ -2412,7 +2413,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
         return res.status(403).json({ message: "Forbidden" });
       }
-      const customerTickets = await storage.getTicketsByCustomer(req.params.customerId);
+      const customerTickets = await storage.getTicketsByCustomer(getParam(req, "customerId"));
       const excludeId = req.query.excludeTicketId as string | undefined;
       let filtered = excludeId ? customerTickets.filter(t => t.id !== excludeId) : customerTickets;
       if (user.role === "admin") {
@@ -2446,7 +2447,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
         return res.status(403).json({ message: "Forbidden" });
       }
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const customer = await storage.getUser(ticket.customerId);
       if (!customer) return res.status(404).json({ message: "Customer not found" });
@@ -2478,7 +2479,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/tickets/:id/messages", requireAuth, withUpload("image"), async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -2518,7 +2519,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         kbArticleInfo = resolved.info;
       }
       if (user.role === "master_admin" && ticket.claimedBy && ticket.claimedBy !== user.id) {
-        const existingMessages = await storage.getTicketMessages(req.params.id, true);
+        const existingMessages = await storage.getTicketMessages(getParam(req, "id"), true);
         const joinedMessage = `${user.fullName} has joined the conversation`;
         const alreadyJoined = existingMessages.some(m => m.message === joinedMessage);
         if (!alreadyJoined) {
@@ -2550,7 +2551,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(400).json({ message: "Message is required" });
       }
       const message = await storage.createTicketMessage({
-        ticketId: req.params.id,
+        ticketId: getParam(req, "id"),
         senderId: req.session.userId!,
         message: rawMessage,
         imageUrl: imageUrl || null,
@@ -2679,15 +2680,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/tickets/:id/messages/:messageId", requireAdmin, async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-      const msg = await storage.getTicketMessage(req.params.messageId);
+      const msg = await storage.getTicketMessage(getParam(req, "messageId"));
       const actor = await storage.getUser(req.session.userId!);
       const check = canMutateInternalNote(msg, ticket.id, actor);
       if (!check.ok) return res.status(check.status).json({ message: check.message });
       const newText = typeof req.body.message === "string" ? req.body.message.trim() : "";
       if (!newText) return res.status(400).json({ message: "Message cannot be empty" });
-      const updated = await storage.updateTicketMessage(req.params.messageId, { message: newText });
+      const updated = await storage.updateTicketMessage(getParam(req, "messageId"), { message: newText });
       logActivity("ticket", "ticket_internal_note_edited", {
         actorId: req.session.userId!,
         targetId: ticket.id,
@@ -2704,13 +2705,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-      const msg = await storage.getTicketMessage(req.params.messageId);
+      const msg = await storage.getTicketMessage(getParam(req, "messageId"));
       const actor = await storage.getUser(req.session.userId!);
       const check = canMutateInternalNote(msg, ticket.id, actor);
       if (!check.ok) return res.status(check.status).json({ message: check.message });
-      await storage.deleteTicketMessage(req.params.messageId);
+      await storage.deleteTicketMessage(getParam(req, "messageId"));
       await deleteUploadedFileIfUnreferenced(msg!.imageUrl);
       logActivity("ticket", "ticket_internal_note_deleted", {
         actorId: req.session.userId!,
@@ -2766,7 +2767,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const { emailNotifications: _ignoredEmailNotifications, ...data } = req.body ?? {};
       if (data.username) data.username = data.username.trim();
       if (data.fullName) data.fullName = data.fullName.trim();
-      const updated = await storage.updateUser(req.params.id, data);
+      const updated = await storage.updateUser(getParam(req, "id"), data);
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
     } catch (e: any) {
@@ -2781,7 +2782,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
       const hashed = await hashPassword(password);
-      const updated = await storage.updateUser(req.params.id, { password: hashed });
+      const updated = await storage.updateUser(getParam(req, "id"), { password: hashed });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json({ message: "Password reset successfully" });
     } catch (e: any) {
@@ -2791,7 +2792,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/users/:id", requirePermission("users.view", "users.manage"), async (req, res) => {
     try {
-      await storage.deleteUser(req.params.id);
+      await storage.deleteUser(getParam(req, "id"));
       res.json({ message: "User deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2809,9 +2810,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/admin/services/:id", requirePermission("services.view", "services.manage"), async (req, res) => {
     try {
-      const existing = await storage.getService(req.params.id);
+      const existing = await storage.getService(getParam(req, "id"));
       if (!existing) return res.status(404).json({ message: "Service not found" });
-      const updated = await storage.updateService(req.params.id, req.body);
+      const updated = await storage.updateService(getParam(req, "id"), req.body);
       if (!updated) return res.status(404).json({ message: "Service not found" });
       if (req.body.status && req.body.status !== existing.status) {
         const allUsers = await storage.getAllUsers();
@@ -2844,7 +2845,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/services/:id", requirePermission("services.view", "services.manage"), async (req, res) => {
     try {
-      await storage.deleteService(req.params.id);
+      await storage.deleteService(getParam(req, "id"));
       res.json({ message: "Service deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2945,9 +2946,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (title !== undefined) data.title = title;
       if (description !== undefined) data.description = description;
       if (matureContent !== undefined) data.matureContent = matureContent;
-      const updated = await storage.updateServiceUpdate(req.params.id, data);
+      const updated = await storage.updateServiceUpdate(getParam(req, "id"), data);
       if (!updated) return res.status(404).json({ message: "Service update not found" });
-      logActivity("service_update", "service_update_edited", { actorId: req.session.userId!, targetId: req.params.id, targetType: "service_update", summary: `Service update edited: ${updated.title}` });
+      logActivity("service_update", "service_update_edited", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "service_update", summary: `Service update edited: ${updated.title}` });
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -2959,14 +2960,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const user = await storage.getUser(req.session.userId!);
       if (user && (user.role === "admin" || user.role === "master_admin")) {
         if (req.body?.hideOnly) {
-          await storage.hideServiceUpdate(req.session.userId!, req.params.id);
+          await storage.hideServiceUpdate(req.session.userId!, getParam(req, "id"));
           return res.json({ message: "Service update hidden for you" });
         }
-        await storage.deleteServiceUpdate(req.params.id);
-        logActivity("service_update", "service_update_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "service_update", summary: `Service update deleted` });
+        await storage.deleteServiceUpdate(getParam(req, "id"));
+        logActivity("service_update", "service_update_deleted", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "service_update", summary: `Service update deleted` });
         return res.json({ message: "Service update deleted" });
       }
-      await storage.hideServiceUpdate(req.session.userId!, req.params.id);
+      await storage.hideServiceUpdate(req.session.userId!, getParam(req, "id"));
       res.json({ message: "Service update hidden" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3020,7 +3021,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/admin/news/:id", requirePermission("news.view", "news.manage"), withUpload("image"), async (req, res) => {
     try {
-      const existing = await storage.getNewsStory(req.params.id);
+      const existing = await storage.getNewsStory(getParam(req, "id"));
       if (!existing) return res.status(404).json({ message: "News story not found" });
 
       const updateData: any = {};
@@ -3032,8 +3033,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         updateData.imageUrl = null;
       }
 
-      const updated = await storage.updateNewsStory(req.params.id, updateData);
-      logActivity("news", "news_edited", { actorId: req.session.userId!, targetId: req.params.id, targetType: "news", summary: `News story edited: ${updated?.title || req.params.id}` });
+      const updated = await storage.updateNewsStory(getParam(req, "id"), updateData);
+      logActivity("news", "news_edited", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "news", summary: `News story edited: ${updated?.title || getParam(req, "id")}` });
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3042,9 +3043,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/news/:id", requirePermission("news.view", "news.manage"), async (req, res) => {
     try {
-      const storyToDelete = await storage.getNewsStory(req.params.id);
-      await storage.deleteNewsStory(req.params.id);
-      logActivity("news", "news_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "news", summary: `News story deleted: ${storyToDelete?.title || req.params.id}` });
+      const storyToDelete = await storage.getNewsStory(getParam(req, "id"));
+      await storage.deleteNewsStory(getParam(req, "id"));
+      logActivity("news", "news_deleted", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "news", summary: `News story deleted: ${storyToDelete?.title || getParam(req, "id")}` });
       res.json({ message: "News story deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3064,7 +3065,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // Delete ticket route (admin only)
   app.delete("/api/admin/tickets/:id", requirePermission("support_tickets"), async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       if (ticket.status !== "closed") {
         return res.status(400).json({ message: "Only closed tickets can be deleted" });
@@ -3074,9 +3075,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // ticket + its messages are deleted.
       const ticketImageUrls = [
         ticket.imageUrl,
-        ...(await storage.getTicketMessages(req.params.id, true)).map((m) => m.imageUrl),
+        ...(await storage.getTicketMessages(getParam(req, "id"), true)).map((m) => m.imageUrl),
       ].filter((u): u is string => !!u);
-      await storage.deleteTicket(req.params.id);
+      await storage.deleteTicket(getParam(req, "id"));
       for (const url of ticketImageUrls) {
         await deleteUploadedFileIfUnreferenced(url);
       }
@@ -3144,7 +3145,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const sentMessages = await storage.getPrivateMessagesBySender(req.session.userId!);
       const msg = sentMessages.find(m => m.id === req.params.id);
       if (!msg) return res.status(404).json({ message: "Message not found" });
-      await storage.deletePrivateMessage(req.params.id);
+      await storage.deletePrivateMessage(getParam(req, "id"));
       res.json({ message: "Message deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3268,7 +3269,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/message-threads/:id", requireAuth, async (req, res) => {
     try {
-      const thread = await storage.getMessageThread(req.params.id);
+      const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const reqUser = await storage.getUser(req.session.userId!);
       if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser?.role !== "master_admin") {
@@ -3284,13 +3285,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/message-threads/:id/messages", requireAuth, async (req, res) => {
     try {
-      const thread = await storage.getMessageThread(req.params.id);
+      const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const reqUser2 = await storage.getUser(req.session.userId!);
       if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser2?.role !== "master_admin") {
         return res.status(403).json({ message: "Forbidden" });
       }
-      const messages = await storage.getThreadMessages(req.params.id);
+      const messages = await storage.getThreadMessages(getParam(req, "id"));
       const senderIds = [...new Set(messages.map(m => m.senderId))];
       const senderMap = new Map<string, string>();
       await Promise.all(senderIds.map(async (id) => {
@@ -3311,7 +3312,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/message-threads/:id/messages", requireAuth, withUpload("image"), async (req, res) => {
     try {
-      const thread = await storage.getMessageThread(req.params.id);
+      const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const reqUser3 = await storage.getUser(req.session.userId!);
       if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser3?.role !== "master_admin") {
@@ -3400,18 +3401,18 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/message-threads/:id/read", requireAuth, async (req, res) => {
     try {
-      const thread = await storage.getMessageThread(req.params.id);
+      const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const reqUser4 = await storage.getUser(req.session.userId!);
       if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser4?.role !== "master_admin") {
         return res.status(403).json({ message: "Forbidden" });
       }
-      await storage.markThreadMessagesRead(req.params.id, req.session.userId!);
+      await storage.markThreadMessagesRead(getParam(req, "id"), req.session.userId!);
       await db.update(userNotifications).set({ readAt: new Date() })
         .where(and(
           eq(userNotifications.userId, req.session.userId!),
           eq(userNotifications.type, "message"),
-          eq(userNotifications.referenceId, req.params.id),
+          eq(userNotifications.referenceId, getParam(req, "id")),
           isNull(userNotifications.readAt),
           isNull(userNotifications.dismissedAt)
         ));
@@ -3424,7 +3425,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/message-threads/:id", requirePermission("messages.manage"), async (req, res) => {
     try {
-      const thread = await storage.getMessageThread(req.params.id);
+      const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const delUser = await storage.getUser(req.session.userId!);
       if (thread.adminId !== req.session.userId && delUser?.role !== "master_admin") {
@@ -3432,10 +3433,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       // Capture attached image URLs BEFORE the rows are gone, then tidy up any
       // upload no longer referenced once the thread + its messages are deleted.
-      const threadImageUrls = (await storage.getThreadMessages(req.params.id))
+      const threadImageUrls = (await storage.getThreadMessages(getParam(req, "id")))
         .map((m) => m.imageUrl)
         .filter((u): u is string => !!u);
-      await storage.deleteMessageThread(req.params.id);
+      await storage.deleteMessageThread(getParam(req, "id"));
       for (const url of threadImageUrls) {
         await deleteUploadedFileIfUnreferenced(url);
       }
@@ -3481,12 +3482,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/tickets/:id/suggestions", requireAdmin, async (req, res) => {
     try {
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const [allQrs, msgs] = await Promise.all([
         storage.getAllQuickResponses(),
         // Suggestions feed customer-facing replies; exclude internal notes.
-        storage.getTicketMessages(req.params.id, false),
+        storage.getTicketMessages(getParam(req, "id"), false),
       ]);
       const lastCustomer = [...msgs].reverse().find((m) => m.senderId === ticket.customerId);
       const top = suggestQuickResponses(ticket, lastCustomer?.message ?? null, allQrs, 3);
@@ -3514,13 +3515,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         });
       }
 
-      const ticket = await storage.getTicket(req.params.id);
+      const ticket = await storage.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
 
       const [allQrs, msgs, customer] = await Promise.all([
         storage.getAllQuickResponses(),
         // AI draft becomes a customer-facing reply; exclude internal notes from the prompt context.
-        storage.getTicketMessages(req.params.id, false),
+        storage.getTicketMessages(getParam(req, "id"), false),
         storage.getUser(ticket.customerId),
       ]);
 
@@ -3677,11 +3678,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (status) updateData.status = status;
       if (adminNotes !== undefined) updateData.adminNotes = adminNotes;
 
-      const updated = await storage.updateReportRequest(req.params.id, updateData);
+      const updated = await storage.updateReportRequest(getParam(req, "id"), updateData);
       if (!updated) return res.status(404).json({ message: "Not found" });
       if (status) {
         const reportCustomer = existing.customerId ? await storage.getUser(existing.customerId) : null;
-        logActivity("report", "report_status_changed", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report "${existing.title}" by ${reportCustomer?.fullName || "Unknown"} status changed to ${status}`, details: JSON.stringify({ customer: reportCustomer?.fullName, customerEmail: reportCustomer?.email, title: existing.title, oldStatus: existing.status, newStatus: status, adminNotes }) });
+        logActivity("report", "report_status_changed", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "report", summary: `Report "${existing.title}" by ${reportCustomer?.fullName || "Unknown"} status changed to ${status}`, details: JSON.stringify({ customer: reportCustomer?.fullName, customerEmail: reportCustomer?.email, title: existing.title, oldStatus: existing.status, newStatus: status, adminNotes }) });
       }
 
       if (status && status !== existing.status) {
@@ -3751,8 +3752,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const reportToDelete = await storage.getAllReportRequests().then(all => all.find(r => r.id === req.params.id));
       const delCustomer = reportToDelete?.customerId ? await storage.getUser(reportToDelete.customerId) : null;
-      await storage.deleteReportRequest(req.params.id);
-      logActivity("report", "report_deleted", { actorId: req.session.userId!, targetId: req.params.id, targetType: "report", summary: `Report deleted: "${reportToDelete?.title || req.params.id}" by ${delCustomer?.fullName || "Unknown"}`, details: JSON.stringify({ title: reportToDelete?.title, customer: delCustomer?.fullName }) });
+      await storage.deleteReportRequest(getParam(req, "id"));
+      logActivity("report", "report_deleted", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "report", summary: `Report deleted: "${reportToDelete?.title || getParam(req, "id")}" by ${delCustomer?.fullName || "Unknown"}`, details: JSON.stringify({ title: reportToDelete?.title, customer: delCustomer?.fullName }) });
       res.json({ message: "Deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3776,7 +3777,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (body !== undefined) updateData.body = body;
       if (enabled !== undefined) updateData.enabled = enabled;
       if (subject !== undefined || body !== undefined) updateData.customized = true;
-      const updated = await storage.updateEmailTemplate(req.params.id, updateData);
+      const updated = await storage.updateEmailTemplate(getParam(req, "id"), updateData);
       if (!updated) return res.status(404).json({ message: "Template not found" });
       res.json(updated);
     } catch (e: any) {
@@ -3791,7 +3792,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!template) return res.status(404).json({ message: "Template not found" });
       const defaultTpl = getDefaultTemplate(template.templateKey);
       if (!defaultTpl) return res.status(404).json({ message: "Default template not found" });
-      const updated = await storage.updateEmailTemplate(req.params.id, {
+      const updated = await storage.updateEmailTemplate(getParam(req, "id"), {
         subject: defaultTpl.subject,
         body: defaultTpl.body,
         customized: false,
@@ -3849,7 +3850,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/ticket-categories/:id", requireMasterAdmin, async (req, res) => {
     try {
-      await storage.deleteTicketCategory(req.params.id);
+      await storage.deleteTicketCategory(getParam(req, "id"));
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3905,7 +3906,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/broadcasts/:id/acknowledge", requireAuth, async (req, res) => {
     try {
-      await storage.markBroadcastRead(req.params.id, req.session.userId!);
+      await storage.markBroadcastRead(getParam(req, "id"), req.session.userId!);
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -3914,7 +3915,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/admin/users/:id/role", requireMasterAdmin, async (req, res) => {
     try {
-      const targetUser = await storage.getUser(req.params.id);
+      const targetUser = await storage.getUser(getParam(req, "id"));
       if (!targetUser) return res.status(404).json({ message: "User not found" });
       const protectedUsernames = ["cowboy"];
       if (protectedUsernames.includes(targetUser.username.toLowerCase())) {
@@ -3927,7 +3928,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const updateData: any = {};
       if (role !== undefined) updateData.role = role;
       if (adminRoleId !== undefined) updateData.adminRoleId = adminRoleId;
-      const updated = await storage.updateUser(req.params.id, updateData);
+      const updated = await storage.updateUser(getParam(req, "id"), updateData);
       if (!updated) return res.status(404).json({ message: "User not found" });
       if (role !== undefined) {
         logActivity("user", "user_role_changed", { actorId: req.session.userId!, targetId: targetUser.id, targetType: "user", summary: `${targetUser.fullName} role changed to ${role}`, details: JSON.stringify({ username: targetUser.username, oldRole: targetUser.role, newRole: role, adminRoleId }) });
@@ -3970,7 +3971,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/admin/chat/threads/:id/read", requirePermission("admin_chat"), async (req, res) => {
     try {
-      await storage.markAdminChatThreadRead(req.params.id, req.session.userId!);
+      await storage.markAdminChatThreadRead(getParam(req, "id"), req.session.userId!);
       res.json({ message: "Marked as read" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -4036,12 +4037,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       if (user.role !== "master_admin") {
-        const participants = await storage.getAdminChatParticipants(req.params.id);
+        const participants = await storage.getAdminChatParticipants(getParam(req, "id"));
         if (!participants.some(p => p.userId === user.id)) {
           return res.status(403).json({ message: "Not a participant" });
         }
       }
-      const messages = await storage.getAdminChatMessages(req.params.id);
+      const messages = await storage.getAdminChatMessages(getParam(req, "id"));
       const enriched = await Promise.all(messages.map(async (msg) => {
         const sender = await storage.getUser(msg.senderId);
         return { ...msg, senderName: sender?.fullName || "Unknown" };
@@ -4057,7 +4058,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       if (user.role !== "master_admin") {
-        const participants = await storage.getAdminChatParticipants(req.params.id);
+        const participants = await storage.getAdminChatParticipants(getParam(req, "id"));
         if (!participants.some(p => p.userId === user.id)) {
           return res.status(403).json({ message: "Not a participant" });
         }
@@ -4069,13 +4070,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         fileType = req.file.mimetype;
       }
       const msg = await storage.createAdminChatMessage({
-        threadId: req.params.id,
+        threadId: getParam(req, "id"),
         senderId: req.session.userId!,
         message: req.body.message || "",
         fileUrl,
         fileType,
       });
-      const participants = await storage.getAdminChatParticipants(req.params.id);
+      const participants = await storage.getAdminChatParticipants(getParam(req, "id"));
       broadcast({
         type: "admin_chat_message",
         threadId: req.params.id,
@@ -4083,7 +4084,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         participantIds: participants.map(p => p.userId),
       });
 
-      const thread = await storage.getAdminChatThread(req.params.id);
+      const thread = await storage.getAdminChatThread(getParam(req, "id"));
       const otherParticipants = participants.filter(p => p.userId !== req.session.userId!);
       let threadLabel = thread?.name || "";
       if (!threadLabel) {
@@ -4097,7 +4098,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const messagePreview = (req.body.message || "").substring(0, 100) || (req.file ? "Sent an attachment" : "New message");
       for (const p of otherParticipants) {
-        if (!isUserViewingAdminChat(p.userId, req.params.id)) {
+        if (!isUserViewingAdminChat(p.userId, getParam(req, "id"))) {
           const recipient = await storage.getUser(p.userId);
           if (adminWantsPush(recipient, "admin_chat_message")) {
             sendPushToUser(p.userId, {
@@ -4107,7 +4108,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
               tag: `admin-chat-${req.params.id}`,
               resourceLabel: `Admin Chat — ${threadLabel}`,
               rollupNoun: "messages",
-            }, { type: "admin_chat_message", referenceType: "admin_chat_thread", referenceId: req.params.id });
+            }, { type: "admin_chat_message", referenceType: "admin_chat_thread", referenceId: getParam(req, "id") });
           }
         }
       }
@@ -4120,7 +4121,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/chat/threads/:id", requireMasterAdmin, async (req, res) => {
     try {
-      await storage.deleteAdminChatThread(req.params.id);
+      await storage.deleteAdminChatThread(getParam(req, "id"));
       res.json({ message: "Thread deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -4160,7 +4161,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const messages = await storage.getPrivateMessagesByUser(req.session.userId!);
       const msg = messages.find(m => m.id === req.params.id);
       if (!msg) return res.status(404).json({ message: "Message not found" });
-      await storage.deletePrivateMessage(req.params.id);
+      await storage.deletePrivateMessage(getParam(req, "id"));
       res.json({ message: "Message deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -4172,7 +4173,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const messages = await storage.getPrivateMessagesByUser(req.session.userId!);
       const msg = messages.find(m => m.id === req.params.id);
       if (!msg) return res.status(404).json({ message: "Message not found" });
-      const updated = await storage.markPrivateMessageRead(req.params.id);
+      const updated = await storage.markPrivateMessageRead(getParam(req, "id"));
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -4210,7 +4211,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/content-notifications/unread-references/:category", requireAuth, async (req, res) => {
     try {
-      const referenceIds = await storage.getUnreadContentNotificationReferenceIds(req.session.userId!, req.params.category);
+      const referenceIds = await storage.getUnreadContentNotificationReferenceIds(req.session.userId!, getParam(req, "category"));
       res.json(referenceIds);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -4645,7 +4646,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/admin/error-logs/:id", requirePermission("error_log.view"), async (req, res) => {
     try {
-      const log = await storage.getErrorLog(req.params.id);
+      const log = await storage.getErrorLog(getParam(req, "id"));
       if (!log) return res.status(404).json({ message: "Error log not found" });
       res.json(log);
     } catch (e: any) {
@@ -4657,7 +4658,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const resolved = req.body?.resolved !== false;
       const userId = (req as any).session?.userId || null;
-      const log = await storage.setErrorLogResolved(req.params.id, resolved, resolved ? userId : null);
+      const log = await storage.setErrorLogResolved(getParam(req, "id"), resolved, resolved ? userId : null);
       if (!log) return res.status(404).json({ message: "Error log not found" });
       res.json(log);
     } catch (e: any) {
@@ -4667,7 +4668,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/admin/activity-logs/:id", requirePermission("logs.view"), async (req, res) => {
     try {
-      const log = await storage.getActivityLog(req.params.id);
+      const log = await storage.getActivityLog(getParam(req, "id"));
       if (!log) return res.status(404).json({ message: "Log entry not found" });
       if (log.actorId) {
         const actor = await storage.getUser(log.actorId);
@@ -4719,7 +4720,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } else if (removeImage === "true") {
         updateData.imageUrl = null;
       }
-      const dl = await storage.updateDownload(req.params.id, updateData);
+      const dl = await storage.updateDownload(getParam(req, "id"), updateData);
       if (!dl) return res.status(404).json({ message: "Download not found" });
       res.json(dl);
     } catch (e: any) {
@@ -4729,9 +4730,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/downloads/:id", requirePermission("downloads.view", "downloads.manage"), async (req, res) => {
     try {
-      const existing = await storage.getDownload(req.params.id);
+      const existing = await storage.getDownload(getParam(req, "id"));
       if (!existing) return res.status(404).json({ message: "Download not found" });
-      await storage.deleteDownload(req.params.id);
+      await storage.deleteDownload(getParam(req, "id"));
       res.json({ message: "Deleted" });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -4784,7 +4785,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
     try {
-      const notif = await storage.getUserNotification(req.params.id, req.session.userId!);
+      const notif = await storage.getUserNotification(getParam(req, "id"), req.session.userId!);
       if (!notif) return res.status(404).json({ message: "Notification not found" });
       // Coalesced rollup support: when the user taps "Mark as read" on a
       // single OS toast, also flip every other unread row that points at
@@ -4801,9 +4802,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.patch("/api/notifications/:id/dismiss", requireAuth, async (req, res) => {
     try {
-      const notif = await storage.getUserNotification(req.params.id, req.session.userId!);
+      const notif = await storage.getUserNotification(getParam(req, "id"), req.session.userId!);
       if (!notif) return res.status(404).json({ message: "Notification not found" });
-      await storage.dismissUserNotification(req.params.id, req.session.userId!);
+      await storage.dismissUserNotification(getParam(req, "id"), req.session.userId!);
       await clearRelatedBadge(req.session.userId!, notif);
       res.json({ message: "Dismissed" });
     } catch (e: any) {
@@ -5031,7 +5032,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   app.get("/api/admin/monitors/:id", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
-    const monitor = await storage.getUrlMonitor(req.params.id);
+    const monitor = await storage.getUrlMonitor(getParam(req, "id"));
     if (!monitor) return res.status(404).json({ message: "Monitor not found" });
     res.json(monitor);
   });
@@ -5124,7 +5125,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   app.patch("/api/admin/monitors/:id", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
-    const monitor = await storage.getUrlMonitor(req.params.id);
+    const monitor = await storage.getUrlMonitor(getParam(req, "id"));
     if (!monitor) return res.status(404).json({ message: "Monitor not found" });
     const parsed = monitorUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
@@ -5132,10 +5133,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const urlError = await validateMonitorUrlDns(parsed.data.url);
       if (urlError) return res.status(400).json({ message: urlError });
     }
-    const updated = await storage.updateUrlMonitor(req.params.id, parsed.data);
+    const updated = await storage.updateUrlMonitor(getParam(req, "id"), parsed.data);
     logActivity("monitoring", "monitor_updated", {
       actorId: req.session.userId,
-      targetId: req.params.id,
+      targetId: getParam(req, "id"),
       targetType: "url_monitor",
       summary: `Updated URL monitor: ${monitor.name}`,
     });
@@ -5143,12 +5144,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   app.delete("/api/admin/monitors/:id", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
-    const monitor = await storage.getUrlMonitor(req.params.id);
+    const monitor = await storage.getUrlMonitor(getParam(req, "id"));
     if (!monitor) return res.status(404).json({ message: "Monitor not found" });
-    await storage.deleteUrlMonitor(req.params.id);
+    await storage.deleteUrlMonitor(getParam(req, "id"));
     logActivity("monitoring", "monitor_deleted", {
       actorId: req.session.userId,
-      targetId: req.params.id,
+      targetId: getParam(req, "id"),
       targetType: "url_monitor",
       summary: `Deleted URL monitor: ${monitor.name} (${monitor.url})`,
     });
@@ -5156,7 +5157,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   app.get("/api/admin/monitors/:id/incidents", requirePermission("monitoring.view", "monitoring.manage"), async (req, res) => {
-    const incidents = await storage.getMonitorIncidents(req.params.id);
+    const incidents = await storage.getMonitorIncidents(getParam(req, "id"));
     res.json(incidents);
   });
 
@@ -5178,7 +5179,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // Logged-in service uptime block (used by /services/:id detail page)
   app.get("/api/services/:id/uptime", requireAuth, async (req, res) => {
     try {
-      const monitors = await storage.getMonitorsByService(req.params.id);
+      const monitors = await storage.getMonitorsByService(getParam(req, "id"));
       const incArrays = await Promise.all(monitors.map((m) => storage.getMonitorIncidents(m.id)));
       const uptime = computeUptimeFn(incArrays.flat(), monitors.length > 0);
       res.json({ ...uptime, hasMonitor: monitors.length > 0 });
@@ -5366,8 +5367,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!isAdminUser) return res.status(403).json({ error: "Only admins can delete messages" });
       // Capture the attached image URL BEFORE the row is gone, then tidy up the
       // upload if no other record still references it.
-      const existingMsg = await storage.getCommunityMessage(req.params.id);
-      await storage.deleteCommunityMessage(req.params.id);
+      const existingMsg = await storage.getCommunityMessage(getParam(req, "id"));
+      await storage.deleteCommunityMessage(getParam(req, "id"));
       await deleteUploadedFileIfUnreferenced(existingMsg?.imageUrl);
       broadcast({ type: "community_message_deleted", messageId: req.params.id });
       res.json({ success: true });
@@ -5388,7 +5389,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!allowedEmojis.includes(emoji)) {
         return res.status(400).json({ error: "Invalid emoji" });
       }
-      const messageId = req.params.id as string;
+      const messageId = getParam(req, "id");
       const result = await storage.toggleCommunityReaction(messageId, user.id, emoji);
       broadcast({
         type: "community_reaction",
@@ -5476,7 +5477,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/polls/:id", requireAuth, async (req, res) => {
     try {
-      const enriched = await enrichPoll(req.params.id, req.session.userId!);
+      const enriched = await enrichPoll(getParam(req, "id"), req.session.userId!);
       if (!enriched) return res.status(404).json({ error: "Poll not found" });
       res.json(enriched);
     } catch (e: any) {
@@ -5506,7 +5507,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post("/api/polls/:id/vote", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const poll = await storage.getPollWithOptions(req.params.id);
+      const poll = await storage.getPollWithOptions(getParam(req, "id"));
       if (!poll) return res.status(404).json({ error: "Poll not found" });
       if (poll.closesAt && new Date(poll.closesAt) <= new Date()) {
         return res.status(400).json({ error: "Poll is closed" });
@@ -5536,9 +5537,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
         return res.status(403).json({ error: "Only admins can delete polls" });
       }
-      const poll = await storage.getPollWithOptions(req.params.id);
+      const poll = await storage.getPollWithOptions(getParam(req, "id"));
       if (!poll) return res.status(404).json({ error: "Poll not found" });
-      await storage.deletePoll(req.params.id);
+      await storage.deletePoll(getParam(req, "id"));
       if (poll.parentType === "community") {
         await storage.deleteCommunityMessage(poll.parentId);
         broadcast({ type: "community_message_deleted", messageId: poll.parentId });
@@ -5744,7 +5745,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/community-chat/word-filters/:id", requireAdmin, async (req, res) => {
     try {
-      await storage.deleteWordFilter(req.params.id);
+      await storage.deleteWordFilter(getParam(req, "id"));
       logActivity("community_chat", "word_filter_removed", {
         actorId: req.session.userId!,
         summary: `Removed word filter (ID: ${req.params.id})`,
@@ -5757,7 +5758,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/admin/community-chat/user-snapshot/:userId", requireAdmin, async (req, res) => {
     try {
-      const target = await storage.getUser(req.params.userId);
+      const target = await storage.getUser(getParam(req, "userId"));
       if (!target || target.role === "admin" || target.role === "master_admin") {
         return res.status(404).json({ error: "Customer not found" });
       }
@@ -5896,7 +5897,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const patch: UpdateAnnouncement = { ...data };
       if (patch.bodyHtml !== undefined) patch.bodyHtml = sanitizeNewsContent(patch.bodyHtml);
-      const updated = await storage.updateAnnouncement(req.params.id, patch);
+      const updated = await storage.updateAnnouncement(getParam(req, "id"), patch);
       if (!updated) return res.status(404).json({ message: "Announcement not found" });
       logActivity("system", "announcement_updated", {
         actorId: req.session.userId!,
@@ -5912,11 +5913,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/announcements/:id", requirePermission("announcements", "announcements"), async (req, res) => {
     try {
-      const existing = await storage.getAnnouncement(req.params.id);
-      await storage.deleteAnnouncement(req.params.id);
+      const existing = await storage.getAnnouncement(getParam(req, "id"));
+      await storage.deleteAnnouncement(getParam(req, "id"));
       logActivity("system", "announcement_deleted", {
         actorId: req.session.userId!,
-        targetId: req.params.id,
+        targetId: getParam(req, "id"),
         targetType: "announcement",
         summary: `Announcement deleted: ${existing?.title || req.params.id}`,
       });
@@ -5983,7 +5984,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/kb/articles/:slug", requireAuth, async (req, res) => {
     try {
-      const article = await storage.getKbArticleBySlug(req.params.slug);
+      const article = await storage.getKbArticleBySlug(getParam(req, "slug"));
       if (!article) return res.status(404).json({ message: "Article not found" });
       const u = await storage.getUser(req.session.userId!);
       const isStaff = u?.role === "admin" || u?.role === "master_admin";
@@ -5999,7 +6000,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.post("/api/kb/articles/:slug/helpful", requireAuth, async (req, res) => {
     try {
-      const article = await storage.getKbArticleBySlug(req.params.slug);
+      const article = await storage.getKbArticleBySlug(getParam(req, "slug"));
       if (!article || !article.published) return res.status(404).json({ message: "Article not found" });
       const helpful = req.body?.helpful === true || req.body?.helpful === "true";
       const updated = await storage.recordKbArticleHelpful(article.id, helpful);
@@ -6023,11 +6024,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/kb/categories/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
     try {
-      const existing = await storage.getKbCategory(req.params.id);
-      await storage.deleteKbCategory(req.params.id);
+      const existing = await storage.getKbCategory(getParam(req, "id"));
+      await storage.deleteKbCategory(getParam(req, "id"));
       logActivity("system", "kb_category_deleted", {
         actorId: req.session.userId!,
-        targetId: req.params.id,
+        targetId: getParam(req, "id"),
         targetType: "kb_category",
         summary: `KB category deleted: ${existing?.name || req.params.id}`,
       });
@@ -6051,11 +6052,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.delete("/api/admin/kb/articles/:id", requirePermission("knowledge_base", "knowledge_base"), async (req, res) => {
     try {
-      const existing = await storage.getKbArticleById(req.params.id);
-      await storage.deleteKbArticle(req.params.id);
+      const existing = await storage.getKbArticleById(getParam(req, "id"));
+      await storage.deleteKbArticle(getParam(req, "id"));
       logActivity("system", "kb_article_deleted", {
         actorId: req.session.userId!,
-        targetId: req.params.id,
+        targetId: getParam(req, "id"),
         targetType: "kb_article",
         summary: `KB article deleted: ${existing?.title || req.params.id}`,
       });

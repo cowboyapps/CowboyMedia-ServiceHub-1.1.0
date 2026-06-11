@@ -70,7 +70,7 @@ export type DiscordEmbed = {
   timestamp?: string;
 };
 
-export type DiscordPayload = { embeds: DiscordEmbed[] };
+export type DiscordPayload = { embeds?: DiscordEmbed[]; content?: string };
 
 async function postToDiscord(webhookUrl: string, payload: DiscordPayload): Promise<{ ok: boolean; error?: string }> {
   try {
