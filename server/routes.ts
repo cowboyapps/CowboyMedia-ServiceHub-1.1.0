@@ -5906,6 +5906,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const lookup = await getWhmcsClientById(clientId);
       if (!lookup.ok) {
+        if (lookup.reason === "not_configured") {
+          return res.status(400).json({ message: "WHMCS is not configured" });
+        }
         return res.status(502).json({ message: `Could not verify WHMCS client: ${lookup.error}` });
       }
       if (!lookup.client) {
@@ -5966,6 +5969,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!user.email) return res.json({ ok: true, matched: false, reason: "no_email" });
       const lookup = await getWhmcsClientByEmail(user.email);
       if (!lookup.ok) {
+        if (lookup.reason === "not_configured") {
+          return res.status(400).json({ message: "WHMCS is not configured" });
+        }
         return res.status(502).json({ message: `WHMCS lookup failed: ${lookup.error}` });
       }
       if (!lookup.client) return res.json({ ok: true, matched: false, reason: "no_match" });
