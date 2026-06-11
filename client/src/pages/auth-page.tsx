@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLocation } from "wouter";
@@ -22,11 +22,6 @@ export default function AuthPage() {
   const [pendingChallengeId, setPendingChallengeId] = useState<string | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState("");
 
-  if (user) {
-    navigate((user.role === "admin" || user.role === "master_admin") ? "/admin" : "/");
-    return null;
-  }
-
   const loginForm = useForm<LoginData>({
     resolver: zodResolver(loginSchema),
     defaultValues: { username: "", password: "" },
@@ -36,6 +31,18 @@ export default function AuthPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: { username: "", password: "", email: "", fullName: "" },
   });
+
+  // Redirect already-authenticated users away from the auth screen. This runs
+  // in an effect (not during render) and only AFTER every hook above has been
+  // called unconditionally. The previous version early-returned here, before
+  // the useForm hooks below, so when auth resolved (null -> user) after the
+  // first render the hook count changed and React crashed with "Rendered more
+  // hooks than during the previous render", white-screening the page.
+  useEffect(() => {
+    if (user) {
+      navigate((user.role === "admin" || user.role === "master_admin") ? "/admin" : "/");
+    }
+  }, [user, navigate]);
 
   const handleLogin = async (data: LoginData) => {
     setIsSubmitting(true);
@@ -94,6 +101,11 @@ export default function AuthPage() {
       setIsSubmitting(false);
     }
   };
+
+  // Safe to bail here — every hook above has already run on this render, so the
+  // hook count stays stable whether or not the user is signed in. The effect
+  // above performs the actual redirect; this just avoids flashing the form.
+  if (user) return null;
 
   return (
     <div className="min-h-dvh flex">

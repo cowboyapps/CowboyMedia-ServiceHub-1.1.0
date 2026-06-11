@@ -30,6 +30,18 @@ reads `data.badges.some(...)`) will crash on a `{}` catch-all stub — serve the
 real response shape (arrays present) for its endpoint, don't rely on the quiet
 `return jsonResponse({})` fallback.
 
+## Components that import `@assets/*` images need a loader stub
+The `@assets` alias is Vite-only (it's NOT in tsconfig paths — only `@/*` and
+`@shared/*` are). Under `tsx --test` Node can't import a `.png` as a module, so
+any component pulling in an image (e.g. `brand-logo.tsx`, dragged in by
+`auth-page.tsx`) dies with `ERR_MODULE_NOT_FOUND` before render.
+**Fix in the test:** register a tiny ESM loader hook
+(`test/helpers/asset-stub-loader.mjs`) that short-circuits `@assets/*`
+specifiers to a `data:` module exporting `''`. Call
+`register("./helpers/asset-stub-loader.mjs", import.meta.url)` (from
+`node:module`) at the very top of the test, BEFORE the dynamic `await import`
+of the component tree — registered hooks only affect later imports.
+
 ## Clean teardown so the suite doesn't hang
 React Query's default `gcTime` (5 min) leaves a live timer after unmount that keeps
 the node:test subprocess alive (exit blocked until killed). Set `gcTime: 0` on both
