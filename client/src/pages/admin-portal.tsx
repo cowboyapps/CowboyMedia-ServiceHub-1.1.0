@@ -7782,6 +7782,29 @@ export default function AdminPortal() {
     "reports-requests": "admin-reports",
   };
 
+  const goToSection = useCallback((section: string | null) => {
+    if (!section) {
+      navigate("/admin");
+      return;
+    }
+    const sp = new URLSearchParams();
+    sp.set("tab", section);
+    navigate(`/admin?${sp.toString()}`);
+  }, [navigate]);
+
+  // Admins with dashboard.view auto-land on Overview. Without an
+  // explicit sentinel, navigating to /admin would just bounce back to
+  // Overview, leaving them no way to reach the tile menu. Always go
+  // through the sentinel so this works for both permission states.
+  const goToMenu = useCallback(() => {
+    goToSection(ADMIN_MENU_SENTINEL);
+  }, [goToSection]);
+
+  // Every hook above must run unconditionally on every render. Only after
+  // all hooks have been called do we gate on the resolved role — otherwise a
+  // first render with the user still unknown (null) followed by a re-render
+  // as admin would change the hook count and crash React with "Rendered more
+  // hooks than during the previous render".
   if (!isAdmin) {
     return (
       <div className="text-center py-12" data-testid="text-admin-access-denied">
@@ -7800,24 +7823,6 @@ export default function AdminPortal() {
     tabParam: initialParams.tab,
     hasDashboardView: hasPermission("dashboard.view"),
   });
-
-  const goToSection = useCallback((section: string | null) => {
-    if (!section) {
-      navigate("/admin");
-      return;
-    }
-    const sp = new URLSearchParams();
-    sp.set("tab", section);
-    navigate(`/admin?${sp.toString()}`);
-  }, [navigate]);
-
-  // Admins with dashboard.view auto-land on Overview. Without an
-  // explicit sentinel, navigating to /admin would just bounce back to
-  // Overview, leaving them no way to reach the tile menu. Always go
-  // through the sentinel so this works for both permission states.
-  const goToMenu = useCallback(() => {
-    goToSection(ADMIN_MENU_SENTINEL);
-  }, [goToSection]);
 
   const allSections = [
     { key: "overview", label: "Overview", icon: LayoutDashboard, color: "text-primary", bg: "bg-primary/10", group: "operations" },

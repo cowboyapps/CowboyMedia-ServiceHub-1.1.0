@@ -122,6 +122,11 @@ const ADMIN_USER = { id: "admin-1", role: "master_admin", fullName: "Avery Admin
 // Set per-test before mounting so /api/auth/me returns the right identity.
 let currentUser: typeof CUSTOMER_USER | typeof ADMIN_USER | null = null;
 
+// When set, the /api/auth/me handler awaits this promise before responding,
+// letting a test hold the auth query in its unresolved (loading) state across
+// the first render and resolve it afterwards.
+let authGate: Promise<void> | null = null;
+
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -135,6 +140,7 @@ g.fetch = async (input: unknown): Promise<Response> => {
   const pathname = url.split("?")[0];
 
   if (pathname === "/api/auth/me") {
+    if (authGate) await authGate;
     return currentUser ? jsonResponse(currentUser) : jsonResponse(null, 401);
   }
   if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
@@ -189,6 +195,7 @@ async function mountAdmin(
   path: string,
   user: typeof CUSTOMER_USER | typeof ADMIN_USER,
   search = "",
+  { seed = true }: { seed?: boolean } = {},
 ): Promise<MountResult> {
   currentUser = user;
   const container = window.document.createElement("div");
@@ -202,11 +209,12 @@ async function mountAdmin(
   });
 
   // Seed the auth cache so the very first render already knows the identity.
-  // The admin portal early-returns on !isAdmin *after* several hooks but
-  // *before* others; in production auth is resolved before the portal mounts,
-  // so seeding here avoids a first-render-as-null → resolved-as-admin upgrade
-  // that would change the hook count and crash React.
-  queryClient.setQueryData(["/api/auth/me"], user);
+  // Most tests want this so the portal renders its resolved state immediately.
+  // The "auth resolves after first render" test passes seed: false to exercise
+  // the null → admin upgrade explicitly.
+  if (seed) {
+    queryClient.setQueryData(["/api/auth/me"], user);
+  }
 
   const { hook } = memoryLocation({ path });
   // memoryLocation only models the path; the admin portal calls wouter's
@@ -284,6 +292,42 @@ test("admin at /admin sees the management tiles including Knowledge Base and New
     assert.ok(has("tile-admin-news"), "admin sees the News tile");
     assert.ok(has("tile-admin-users"), "admin sees the Users tile");
   } finally {
+    h.cleanup();
+  }
+});
+
+// --- Auth resolves AFTER the first render --------------------------------
+// Regression guard: the portal used to call several hooks, early-return the
+// "Access Denied" view, then call MORE hooks below the return. A first render
+// with the user still unknown (null) followed by a re-render as admin changed
+// the hook count and crashed React with "Rendered more hooks than during the
+// previous render", white-screening the page. All hooks now run before the
+// gate, so this null → admin upgrade must render cleanly.
+
+test("admin portal survives auth resolving after the first render (no hook-count crash)", async () => {
+  let releaseAuth: () => void = () => {};
+  authGate = new Promise<void>((resolve) => { releaseAuth = resolve; });
+
+  // seed: false → the first render happens while /api/auth/me is still
+  // pending, so useAuth yields user=null and the portal takes the early
+  // "Access Denied" return. Every hook must still have run on this render.
+  const h = await mountAdmin("/admin", ADMIN_USER, "tab=_menu", { seed: false });
+  try {
+    assert.ok(has("text-admin-access-denied"), "shows Access Denied while auth is unresolved");
+    assert.equal(has("text-admin-title"), false, "no admin surface before auth resolves");
+
+    // Resolve auth to an admin. This re-renders the portal; if any hook still
+    // lived below the early return the hook count would change here and React
+    // would throw, so the admin surface would never appear.
+    releaseAuth();
+    authGate = null;
+    await flush();
+
+    assert.equal(has("text-admin-access-denied"), false, "Access Denied clears once admin resolves");
+    assert.ok(has("text-admin-title"), "admin surface renders after auth resolves");
+    assert.ok(has("admin-menu-grouped"), "admin sees the tile menu after auth resolves");
+  } finally {
+    authGate = null;
     h.cleanup();
   }
 });
