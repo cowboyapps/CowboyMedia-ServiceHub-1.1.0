@@ -313,10 +313,52 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   return key === derivedKey.toString("hex");
 }
 
+// Max size for a single uploaded file (kept in sync with the multer limit
+// below). Surfaced in the friendly rejection message so the number the user
+// sees always matches what the server actually enforces.
+const MAX_UPLOAD_FILE_SIZE_MB = 25;
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024 },
 });
+
+// Map a multer rejection (file too large / too many files) to a clear,
+// structured response the frontend can show verbatim. Returns null for any
+// non-multer error so it falls through to the generic error handler.
+function describeUploadRejection(
+  err: unknown,
+  maxCount: number,
+): { status: number; body: { message: string; code: string } } | null {
+  if (!(err instanceof multer.MulterError)) return null;
+  switch (err.code) {
+    case "LIMIT_FILE_SIZE":
+      return {
+        status: 413,
+        body: {
+          message: `That file is too large — each attachment must be ${MAX_UPLOAD_FILE_SIZE_MB}MB or less.`,
+          code: "FILE_TOO_LARGE",
+        },
+      };
+    case "LIMIT_FILE_COUNT":
+    case "LIMIT_UNEXPECTED_FILE":
+      return {
+        status: 413,
+        body: {
+          message: `Too many files — you can attach up to ${maxCount} file${maxCount === 1 ? "" : "s"} per reply.`,
+          code: "TOO_MANY_FILES",
+        },
+      };
+    default:
+      return {
+        status: 400,
+        body: {
+          message: "That attachment couldn't be uploaded. Please try a different file.",
+          code: "UPLOAD_REJECTED",
+        },
+      };
+  }
+}
 
 // Generic-over-P wrapper around multer's upload.single so that route-param
 // inference (e.g. `:id`) is preserved on the final handler. A middleware typed
@@ -335,7 +377,18 @@ function withUpload(field: string) {
 function withUploadArray(field: string, maxCount: number) {
   const handler = upload.array(field, maxCount);
   return <P>(req: Request<P>, res: Response, next: NextFunction): void => {
-    handler(req as Request, res, next);
+    handler(req as Request, res, (err: unknown) => {
+      if (err) {
+        const rejection = describeUploadRejection(err, maxCount);
+        if (rejection) {
+          res.status(rejection.status).json(rejection.body);
+          return;
+        }
+        next(err);
+        return;
+      }
+      next();
+    });
   };
 }
 

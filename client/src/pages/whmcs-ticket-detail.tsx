@@ -50,8 +50,8 @@ export default function WhmcsTicketDetailPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        const msg = await res.text().catch(() => "");
-        throw new Error(msg || `Reply failed (${res.status})`);
+        const body = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error(body.message || `Reply failed (${res.status})`);
       }
       return res.json().catch(() => ({}));
     },
