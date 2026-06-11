@@ -349,7 +349,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
                       {msg.kbArticle && <ThreadKbCard article={msg.kbArticle} isMe={isMe} />}
                       <p className={`text-[10px] mt-0.5 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                         {format(msgDate, "h:mm a")}
-                        {isMe && isAdmin && msg.readAt && <span className="ml-1.5">· Read</span>}
+                        {isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
                       </p>
                     </div>
                   </div>
