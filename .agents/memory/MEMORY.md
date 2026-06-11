@@ -5,3 +5,4 @@
 - [Single-pass test runner](test-runner.md) — `npm test` runs files one-at-a-time via `script/run-tests.ts`; never OOMs, kills hangs, always prints a summary.
 - [ESLint react-hooks setup](eslint-react-hooks-setup.md) — hooks guard pinned to plugin v5/eslint v9; v7+v10 fails to load on a zod-validation-error subpath mismatch.
 - [tsc typecheck gotchas](tsc-typecheck-gotchas.md) — rm tsbuildinfo before re-running check; Express 5 params are string|string[] (use getParam, not any); target≥ES2020; tests excluded.
+- [bash heredoc vs escaped -lc string](bash-heredoc-vs-escaped-string.md) — build remote-shell scripts as single-quoted heredocs; full-file `bash -n` masks unbalanced quotes, isolate the function to catch them.

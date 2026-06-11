@@ -71,9 +71,75 @@ SNAPSHOT="$BACKUP_DIR/pre-update-$TS.dump"
 # to `test` JUST for `npm run build` — the production runtime constant is
 # baked into dist/ by esbuild's define in script/build.ts, independent of
 # this var.
+#
+# Install-integrity gate (Task #338): npm 10.8.2 on the VPS intermittently
+# hits the `Exit handler never called!` bug and produces an INCOMPLETE
+# node_modules — e.g. the `eslint` binary never gets linked into
+# node_modules/.bin. The deploy then walked into `npm run build` (whose
+# first gate is `npm run lint`) and died with a cryptic `exit 127 /
+# sh: 1: eslint: not found` AFTER the snapshot but before any useful error.
+# So after `npm ci` we verify every CLI the prebuild/build chain shells out
+# to (eslint, tsc, tsx, drizzle-kit, vite, esbuild) is actually present. A
+# failed `npm ci`, the `Exit handler never called!` signature, OR a missing
+# binary all trigger a single clean-slate recovery (cache clean + rm
+# node_modules + re-`npm ci`). If the integrity check STILL fails we abort
+# loudly — naming the missing tool — BEFORE the build/PM2 are touched, so
+# the Discord post and per-delivery log show the real cause. The cache
+# clean runs in the app user's `-H` context so it targets
+# /home/servicehub/.npm, not root's cache.
 # ----------------------------------------------------------------------------
+# Body is a single-quoted heredoc (no outer expansion / escaping) piped to a
+# login shell via `bash -l -s`; $APP_DIR and $ENV_FILE are passed as positional
+# args so the inner script stays free of fragile backslash-escaping.
 run_build_as_app_user() {
-  sudo -u "$APP_USER" -H bash -lc "cd $APP_DIR && npm ci && set -a && . $ENV_FILE && set +a && NODE_ENV=test npm run build"
+  sudo -u "$APP_USER" -H bash -l -s -- "$APP_DIR" "$ENV_FILE" <<'INNER'
+set -euo pipefail
+APP_DIR="$1"
+ENV_FILE="$2"
+cd "$APP_DIR"
+
+# CLIs the prebuild/build chain shells out to. A clean `npm ci` always links
+# these into node_modules/.bin; a missing one == an incomplete install.
+REQUIRED_BINS='eslint tsc tsx drizzle-kit vite esbuild'
+
+missing_bins() {
+  local b m=''
+  for b in $REQUIRED_BINS; do
+    [[ -x node_modules/.bin/$b ]] || m="${m:+$m, }$b"
+  done
+  printf '%s' "$m"
+}
+
+# Non-zero on a failed `npm ci` OR the npm 10.8.2 'Exit handler never called!'
+# signature (which can exit 0 yet leave an incomplete node_modules).
+npm_ci_verified() {
+  local log
+  log="$(mktemp)"
+  if ! npm ci 2>&1 | tee "$log"; then
+    rm -f "$log"; return 1
+  fi
+  if grep -q 'Exit handler never called' "$log"; then
+    rm -f "$log"; return 1
+  fi
+  rm -f "$log"; return 0
+}
+
+if npm_ci_verified && [[ -z "$(missing_bins)" ]]; then
+  : # clean install, proceed straight to build
+else
+  echo '==> npm ci produced an incomplete node_modules; retrying once with a clean cache...'
+  npm cache clean --force || true
+  rm -rf node_modules
+  npm_ci_verified || true
+  miss="$(missing_bins)"
+  if [[ -n "$miss" ]]; then
+    echo "FATAL: npm ci produced an incomplete node_modules: $miss binary missing (aborting before build)" >&2
+    exit 1
+  fi
+fi
+
+set -a && . "$ENV_FILE" && set +a && NODE_ENV=test npm run build
+INNER
 }
 
 # ----------------------------------------------------------------------------
