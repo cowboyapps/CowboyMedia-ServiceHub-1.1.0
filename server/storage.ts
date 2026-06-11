@@ -45,6 +45,8 @@ import {
   whmcsSettings,
   type WhmcsSettings,
   type UpdateWhmcsSettingsData,
+  whmcsProductMappings,
+  type WhmcsProductMapping,
   appSettings,
   type AppSettings,
   type BusinessHours,
@@ -356,6 +358,9 @@ export interface IStorage {
   getWhmcsSettings(): Promise<WhmcsSettings | undefined>;
   updateWhmcsSettings(data: UpdateWhmcsSettingsData): Promise<WhmcsSettings>;
   getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
+  listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
+  setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
+  deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
   getDiscordSettings(): Promise<DiscordSettings | undefined>;
   updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
   getAppSettings(): Promise<AppSettings>;
@@ -1312,6 +1317,26 @@ export class DatabaseStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
+  }
+
+  async listWhmcsProductMappings(): Promise<WhmcsProductMapping[]> {
+    return db.select().from(whmcsProductMappings);
+  }
+
+  // Replace the full set of services mapped to a WHMCS product in one shot:
+  // delete the product's existing rows, then insert the (de-duped) new set.
+  // Passing an empty array clears the mapping entirely. Mirrors setAlertServices.
+  async setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]> {
+    const unique = Array.from(new Set(serviceIds));
+    await db.delete(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
+    if (unique.length > 0) {
+      await db.insert(whmcsProductMappings).values(unique.map(serviceId => ({ whmcsProductId, serviceId })));
+    }
+    return db.select().from(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
+  }
+
+  async deleteWhmcsProductMappings(whmcsProductId: number): Promise<void> {
+    await db.delete(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
   }
 
   async getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined> {

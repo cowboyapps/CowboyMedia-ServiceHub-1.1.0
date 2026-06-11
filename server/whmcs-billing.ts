@@ -146,6 +146,33 @@ export function parseProduct(raw: any): ParsedProduct {
   };
 }
 
+/**
+ * Derive the ServiceHub service ids a customer is entitled to from their WHMCS
+ * products and the admin-defined product→service mappings (Task #335). Only
+ * ACTIVE products count (a suspended/terminated/cancelled product no longer
+ * grants its services). Result is de-duplicated while preserving first-seen
+ * order so the UI listing is stable. Pure → unit tested without network.
+ */
+export function deriveMappedServiceIds(
+  products: ParsedProduct[],
+  mappings: { whmcsProductId: number; serviceId: string }[],
+): string[] {
+  const activePids = new Set(
+    products
+      .filter((p) => p.status.toLowerCase() === "active" && p.pid > 0)
+      .map((p) => p.pid),
+  );
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const m of mappings) {
+    if (!activePids.has(m.whmcsProductId)) continue;
+    if (seen.has(m.serviceId)) continue;
+    seen.add(m.serviceId);
+    result.push(m.serviceId);
+  }
+  return result;
+}
+
 export interface BillingSummaryData {
   client: { id: number; name: string; status: string } | null;
   balance: { creditBalance: string | null; currencyCode: string | null } | null;

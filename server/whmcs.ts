@@ -354,6 +354,51 @@ export async function getClientProducts(clientId: number): Promise<WhmcsRawFetch
   return whmcsApiCall("GetClientsProducts", { clientid: clientId, stats: true });
 }
 
+// --- Product catalogue (Task #335) ---
+
+export interface WhmcsProductSummary {
+  id: number;
+  name: string;
+  groupName: string;
+}
+
+/**
+ * Map a raw WHMCS GetProducts record into the picker summary. WHMCS keys the
+ * product/package id as `pid`; `groupname` is present on each product row and
+ * helps an admin disambiguate same-named products across groups. Pure → unit
+ * tested without network.
+ */
+export function toProductSummary(raw: any): WhmcsProductSummary {
+  const id = Number(raw?.pid ?? raw?.id ?? 0);
+  const name = String(raw?.name ?? "").trim();
+  return {
+    id,
+    name: name || (id ? `Product #${id}` : "Product"),
+    groupName: String(raw?.groupname ?? "").trim(),
+  };
+}
+
+export interface WhmcsProductList {
+  ok: boolean;
+  products?: WhmcsProductSummary[];
+  error?: string;
+  reason?: WhmcsFailureReason;
+}
+
+/**
+ * List the full WHMCS product/package catalogue for the admin mapping picker.
+ * No-throw tagged result like every other fetcher here. Normalizes the
+ * `products.product` wrapper and drops any record without a usable pid.
+ */
+export async function listProducts(): Promise<WhmcsProductList> {
+  const r = await whmcsApiCall("GetProducts", {});
+  if (!r.ok) return { ok: false, error: r.error, reason: r.reason };
+  const products = normalizeListField(r.data?.products, "product")
+    .map(toProductSummary)
+    .filter((p) => p.id > 0);
+  return { ok: true, products };
+}
+
 /**
  * Raw GetClientsDetails(stats=true) — provides the client identity/status,
  * currency, and the pre-formatted `stats.creditbalance` display string used

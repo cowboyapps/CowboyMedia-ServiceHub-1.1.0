@@ -767,6 +767,32 @@ export const updateWhmcsSettingsSchema = z.object({
 
 export type UpdateWhmcsSettingsData = z.infer<typeof updateWhmcsSettingsSchema>;
 
+// Maps a WHMCS product/package (keyed by its `pid`) to one or more ServiceHub
+// monitored services (Task #335). Many-to-many: a single product can cover
+// several services and a service can be covered by several products. The unique
+// index on (whmcs_product_id, service_id) makes each pairing idempotent, and
+// the FK cascade drops a mapping row automatically when its service is deleted
+// so no orphan derivations survive. WHMCS product ids are NOT FK-checked (they
+// live in WHMCS, not here) — a mapping for a deleted WHMCS product simply never
+// matches any active product and is harmless.
+export const whmcsProductMappings = pgTable("whmcs_product_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  whmcsProductId: integer("whmcs_product_id").notNull(),
+  serviceId: varchar("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  pidServiceUniq: uniqueIndex("whmcs_product_mappings_pid_service_uniq").on(table.whmcsProductId, table.serviceId),
+  serviceIdx: index("whmcs_product_mappings_service_id_idx").on(table.serviceId),
+}));
+
+export const insertWhmcsProductMappingSchema = createInsertSchema(whmcsProductMappings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type WhmcsProductMapping = typeof whmcsProductMappings.$inferSelect;
+export type InsertWhmcsProductMapping = z.infer<typeof insertWhmcsProductMappingSchema>;
+
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production
 // deploys from the UI during a maintenance window without touching the VPS.

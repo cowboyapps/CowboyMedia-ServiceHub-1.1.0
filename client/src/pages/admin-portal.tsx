@@ -6965,6 +6965,215 @@ interface WhmcsPanelData {
   suggestion: WhmcsClientSummary | null;
 }
 
+interface WhmcsProductSummary {
+  id: number;
+  name: string;
+  groupName: string;
+}
+
+interface WhmcsProductMappingRow {
+  whmcsProductId: number;
+  serviceIds: string[];
+}
+
+// Admin UI to map WHMCS products → ServiceHub monitored services (Task #335).
+// Lives under the WHMCS Billing tab below the connection settings. The product
+// picker comes from WHMCS (live), the service picker from ServiceHub, and the
+// saved mappings are a pure DB read so they render even when WHMCS is down.
+function WhmcsProductMappingSection() {
+  const { toast } = useToast();
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+
+  const { data: productsData, isLoading: productsLoading } = useQuery<{
+    ok: boolean;
+    products?: WhmcsProductSummary[];
+    error?: string;
+    reason?: string;
+  }>({
+    queryKey: ["/api/admin/whmcs/products"],
+  });
+
+  const { data: mappingsData } = useQuery<{ mappings: WhmcsProductMappingRow[] }>({
+    queryKey: ["/api/admin/whmcs/product-mappings"],
+  });
+
+  const { data: services } = useQuery<Service[]>({
+    queryKey: ["/api/services"],
+  });
+
+  const products = productsData?.ok ? productsData.products ?? [] : [];
+  const mappings = mappingsData?.mappings ?? [];
+
+  const serviceName = (id: string) => services?.find((s) => s.id === id)?.name ?? id;
+  const productName = (pid: number) => {
+    const p = products.find((p) => p.id === pid);
+    if (!p) return `Product #${pid}`;
+    return p.groupName ? `${p.name} (${p.groupName})` : p.name;
+  };
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/whmcs/product-mappings"] });
+
+  const saveMutation = useMutation({
+    mutationFn: async (vars: { whmcsProductId: number; serviceIds: string[] }) => {
+      const res = await apiRequest("PUT", "/api/admin/whmcs/product-mappings", vars);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.message || "Failed to save mapping");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      setSelectedProductId("");
+      setSelectedServiceIds([]);
+      toast({ title: "Mapping saved" });
+    },
+    onError: (e: Error) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (pid: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/whmcs/product-mappings/${pid}`);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.message || "Failed to remove mapping");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Mapping removed" });
+    },
+    onError: (e: Error) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
+  });
+
+  const startEdit = (m: WhmcsProductMappingRow) => {
+    setSelectedProductId(String(m.whmcsProductId));
+    setSelectedServiceIds([...m.serviceIds]);
+  };
+
+  const toggleService = (id: string) => {
+    setSelectedServiceIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
+  };
+
+  const handleSave = () => {
+    const pid = Number(selectedProductId);
+    if (!Number.isInteger(pid) || pid <= 0) {
+      toast({ title: "Pick a WHMCS product first", variant: "destructive" });
+      return;
+    }
+    saveMutation.mutate({ whmcsProductId: pid, serviceIds: selectedServiceIds });
+  };
+
+  return (
+    <Card data-testid="card-whmcs-mappings">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Server className="w-5 h-5" /> Product → Service mapping</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Link a WHMCS product to the monitored services it includes. Customers linked to a WHMCS client will automatically see the matching services for their active products.
+        </p>
+
+        {/* Existing mappings */}
+        {mappings.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-no-mappings">No product mappings yet.</p>
+        ) : (
+          <div className="space-y-2" data-testid="list-whmcs-mappings">
+            {mappings.map((m) => (
+              <div key={m.whmcsProductId} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-mapping-${m.whmcsProductId}`}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{productName(m.whmcsProductId)}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {m.serviceIds.map((sid) => (
+                      <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
+                        {serviceName(sid)}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(m)} data-testid={`button-edit-mapping-${m.whmcsProductId}`}>
+                    <Edit className="w-3 h-3" /> Edit
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(m.whmcsProductId)} disabled={removeMutation.isPending} data-testid={`button-remove-mapping-${m.whmcsProductId}`}>
+                    <Trash2 className="w-3 h-3" /> Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add / edit form */}
+        <div className="rounded-md border p-3 space-y-3">
+          <p className="text-sm font-medium">Add or edit a mapping</p>
+          {productsLoading ? (
+            <Skeleton className="h-9 w-full" />
+          ) : !productsData?.ok ? (
+            <p className="text-sm text-amber-600" data-testid="text-products-unavailable">
+              {productsData?.reason === "not_configured"
+                ? "Configure and enable WHMCS above to load the product list."
+                : `Couldn't load WHMCS products${productsData?.error ? `: ${productsData.error}` : "."}`}
+            </p>
+          ) : products.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-no-products">No products found in WHMCS.</p>
+          ) : (
+            <>
+              <div>
+                <Label>WHMCS product</Label>
+                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                  <SelectTrigger data-testid="select-whmcs-product"><SelectValue placeholder="Choose a product…" /></SelectTrigger>
+                  <SelectContent>
+                    {products.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)} data-testid={`option-product-${p.id}`}>
+                        {p.groupName ? `${p.name} · ${p.groupName}` : p.name} (#{p.id})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Monitored services</Label>
+                {!services || services.length === 0 ? (
+                  <p className="text-xs text-muted-foreground mt-1">No services exist yet. Create services first.</p>
+                ) : (
+                  <div className="mt-1 max-h-48 overflow-y-auto rounded-md border divide-y" data-testid="list-service-picker">
+                    {services.map((s) => (
+                      <label key={s.id} className="flex items-center gap-2 px-2.5 py-2 cursor-pointer" data-testid={`label-service-${s.id}`}>
+                        <Checkbox
+                          checked={selectedServiceIds.includes(s.id)}
+                          onCheckedChange={() => toggleService(s.id)}
+                          data-testid={`checkbox-service-${s.id}`}
+                        />
+                        <span className="text-sm truncate">{s.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={handleSave} disabled={saveMutation.isPending || !selectedProductId} data-testid="button-save-mapping">
+                  {saveMutation.isPending ? "Saving..." : "Save mapping"}
+                </Button>
+                {(selectedProductId || selectedServiceIds.length > 0) && (
+                  <Button type="button" variant="ghost" onClick={() => { setSelectedProductId(""); setSelectedServiceIds([]); }} data-testid="button-cancel-mapping">
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Saving with no services selected clears the product's mapping.</p>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function WhmcsTab() {
   const { toast } = useToast();
   const [baseUrl, setBaseUrl] = useState("");
@@ -7111,6 +7320,8 @@ function WhmcsTab() {
           </div>
         </CardContent>
       </Card>
+
+      <WhmcsProductMappingSection />
     </div>
   );
 }
@@ -7262,6 +7473,8 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
 
         {link && <WhmcsBillingSection userId={userId} />}
 
+        {link && <WhmcsDerivedServicesSection userId={userId} />}
+
         {!link && (
           <>
             {autoMatchMutation.isPending ? (
@@ -7339,6 +7552,64 @@ function WhmcsBillingSection({ userId }: { userId: string }) {
   return (
     <div className="border-t pt-3" data-testid="panel-whmcs-billing">
       <BillingSummaryView data={data} isLoading={isLoading} context="admin" />
+    </div>
+  );
+}
+
+interface DerivedServicesPayload {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  unreachable: boolean;
+  services: Service[];
+}
+
+function serviceStatusBadgeClass(status: string): string {
+  switch (status) {
+    case "operational":
+      return "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30";
+    case "degraded":
+      return "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30";
+    case "outage":
+      return "bg-destructive/15 text-destructive border-destructive/30";
+    case "maintenance":
+      return "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30";
+    default:
+      return "bg-muted text-muted-foreground border-border";
+  }
+}
+
+// Admin view: the monitored services derived from a linked customer's active
+// WHMCS products. Degrades quietly when WHMCS is unreachable or nothing maps.
+function WhmcsDerivedServicesSection({ userId }: { userId: string }) {
+  const { data, isLoading } = useQuery<DerivedServicesPayload>({
+    queryKey: ["/api/admin/users", userId, "whmcs", "derived-services"],
+  });
+
+  if (isLoading) {
+    return <div className="border-t pt-3"><Skeleton className="h-16 w-full" /></div>;
+  }
+  if (!data || !data.linked) return null;
+
+  return (
+    <div className="border-t pt-3" data-testid="panel-whmcs-derived-services">
+      <div className="flex items-center gap-2 mb-2">
+        <Server className="w-4 h-4 text-muted-foreground" />
+        <p className="text-sm font-medium">Monitored services (from products)</p>
+      </div>
+      {data.unreachable ? (
+        <p className="text-xs text-muted-foreground" data-testid="text-derived-unreachable">Couldn't reach WHMCS to derive services.</p>
+      ) : data.services.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="text-derived-empty">No services map to this customer's active products.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5" data-testid="list-derived-services">
+          {data.services.map((s) => (
+            <Badge key={s.id} variant="outline" className={`h-6 px-2 text-xs gap-1.5 ${serviceStatusBadgeClass(s.status)}`} data-testid={`badge-derived-service-${s.id}`}>
+              {s.name}
+            </Badge>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

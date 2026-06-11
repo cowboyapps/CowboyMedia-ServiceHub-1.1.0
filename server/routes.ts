@@ -30,8 +30,11 @@ import {
   searchClients as searchWhmcsClients,
   getClientById as getWhmcsClientById,
   getClientByEmail as getWhmcsClientByEmail,
+  listProducts as listWhmcsProducts,
+  getClientProducts as getWhmcsClientProducts,
+  normalizeListField as normalizeWhmcsListField,
 } from "./whmcs";
-import { loadBillingSummary } from "./whmcs-billing";
+import { loadBillingSummary, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createTicketCategoryHandlers } from "./ticket-categories";
 import { createKbAdminHandlers } from "./kb-admin";
 import { createAdminRoleHandlers } from "./admin-roles";
@@ -6054,6 +6057,159 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const summary = await loadBillingSummary(clientId, baseUrl);
       return res.json({ configured, enabled, linked: true, ...summary });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // ---------- WHMCS product → service mapping (Task #335) ----------
+
+  // List the full WHMCS product catalogue for the admin mapping picker. Returns
+  // a tagged result so the UI can distinguish "unconfigured" from "WHMCS error"
+  // without a 500.
+  app.get("/api/admin/whmcs/products", requireAdmin, async (_req, res) => {
+    try {
+      if (!hasWhmcsCredentials()) {
+        return res.json({ ok: false, reason: "not_configured", error: "WHMCS is not configured", products: [] });
+      }
+      const result = await listWhmcsProducts();
+      if (!result.ok) return res.status(400).json({ ok: false, error: result.error, reason: result.reason, products: [] });
+      res.json({ ok: true, products: result.products ?? [] });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: getErrorMessage(e) });
+    }
+  });
+
+  // List all product→service mappings, grouped by WHMCS product id. Pure DB
+  // read — never touches WHMCS, so it works even when WHMCS is unreachable.
+  app.get("/api/admin/whmcs/product-mappings", requireAdmin, async (_req, res) => {
+    try {
+      const rows = await storage.listWhmcsProductMappings();
+      const grouped = new Map<number, string[]>();
+      for (const row of rows) {
+        const list = grouped.get(row.whmcsProductId) ?? [];
+        list.push(row.serviceId);
+        grouped.set(row.whmcsProductId, list);
+      }
+      const mappings = Array.from(grouped.entries()).map(([whmcsProductId, serviceIds]) => ({ whmcsProductId, serviceIds }));
+      res.json({ mappings });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Create/replace the set of ServiceHub services mapped to one WHMCS product.
+  // An empty serviceIds array clears the mapping. Every serviceId must exist.
+  app.put("/api/admin/whmcs/product-mappings", requireAdmin, async (req, res) => {
+    try {
+      const whmcsProductId = Number(req.body?.whmcsProductId);
+      if (!Number.isInteger(whmcsProductId) || whmcsProductId <= 0) {
+        return res.status(400).json({ message: "A valid WHMCS product id is required" });
+      }
+      const rawIds: unknown[] = Array.isArray(req.body?.serviceIds) ? req.body.serviceIds : [];
+      const serviceIds: string[] = Array.from(new Set(rawIds.map((s) => String(s)).filter((s) => s.length > 0)));
+      if (serviceIds.length > 0) {
+        const all = await storage.getAllServices();
+        const known = new Set(all.map((s) => s.id));
+        const unknown = serviceIds.filter((id) => !known.has(id));
+        if (unknown.length > 0) {
+          return res.status(400).json({ message: `Unknown service id(s): ${unknown.join(", ")}` });
+        }
+      }
+      const rows = await storage.setWhmcsProductMappingServices(whmcsProductId, serviceIds);
+      logActivity("setting", "whmcs_product_mapping_set", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Mapped WHMCS product #${whmcsProductId} to ${serviceIds.length} service${serviceIds.length === 1 ? "" : "s"}`,
+      });
+      res.json({ ok: true, whmcsProductId, serviceIds: rows.map((r) => r.serviceId) });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Remove all mappings for a single WHMCS product.
+  app.delete("/api/admin/whmcs/product-mappings/:pid", requireAdmin, async (req, res) => {
+    try {
+      const whmcsProductId = Number(getParam(req, "pid"));
+      if (!Number.isInteger(whmcsProductId) || whmcsProductId <= 0) {
+        return res.status(400).json({ message: "A valid WHMCS product id is required" });
+      }
+      await storage.deleteWhmcsProductMappings(whmcsProductId);
+      logActivity("setting", "whmcs_product_mapping_removed", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Removed service mapping for WHMCS product #${whmcsProductId}`,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Locked-shape derived-services payload, mirroring emptyBilling. The customer
+  // and admin routes both fall back to this so the frontend never branches on
+  // missing keys.
+  const emptyDerivedServices = (over: Record<string, unknown>) => ({
+    configured: false,
+    enabled: false,
+    linked: false,
+    unreachable: false,
+    services: [] as Service[],
+    ...over,
+  });
+
+  // Shared orchestrator: turn a linked client's ACTIVE WHMCS products into the
+  // ServiceHub monitored services they map to. No-throw — WHMCS failure surfaces
+  // as unreachable:true with an empty list.
+  const deriveServicesForClient = async (
+    clientId: number,
+  ): Promise<{ unreachable: boolean; services: Service[] }> => {
+    const productsResult = await getWhmcsClientProducts(clientId);
+    if (!productsResult.ok) return { unreachable: true, services: [] };
+    const products = normalizeWhmcsListField(productsResult.data?.products, "product").map(parseWhmcsProduct);
+    const mappings = await storage.listWhmcsProductMappings();
+    const serviceIds = deriveMappedServiceIds(products, mappings);
+    if (serviceIds.length === 0) return { unreachable: false, services: [] };
+    const all = await storage.getAllServices();
+    const byId = new Map(all.map((s) => [s.id, s]));
+    const services = serviceIds.map((id) => byId.get(id)).filter((s): s is Service => !!s);
+    return { unreachable: false, services };
+  };
+
+  // Customer self-view: the monitored services included with the logged-in
+  // user's own active WHMCS products. Never 500s, never leaks WHMCS errors.
+  app.get("/api/my/whmcs-services", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getWhmcsSettings();
+      const configured = hasWhmcsCredentials() && !!normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) return res.json(emptyDerivedServices({ configured, enabled }));
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) return res.json(emptyDerivedServices({ configured, enabled, linked: false }));
+      const { unreachable, services } = await deriveServicesForClient(clientId);
+      return res.json({ configured, enabled, linked: true, unreachable, services });
+    } catch {
+      return res.json(emptyDerivedServices({ configured: true, enabled: true, linked: true, unreachable: true }));
+    }
+  });
+
+  // Admin customer-detail view: the monitored services derived from a specific
+  // customer's active WHMCS products. Permission-gated; MAY surface errors.
+  app.get("/api/admin/users/:id/whmcs/derived-services", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const settings = await storage.getWhmcsSettings();
+      const configured = hasWhmcsCredentials() && !!normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const enabled = !!settings?.enabled;
+      const clientId = user.whmcsClientId ?? null;
+      if (!configured || !enabled || !clientId) {
+        return res.json(emptyDerivedServices({ configured, enabled, linked: !!clientId }));
+      }
+      const { unreachable, services } = await deriveServicesForClient(clientId);
+      return res.json({ configured, enabled, linked: true, unreachable, services });
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }
