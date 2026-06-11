@@ -121,7 +121,13 @@ async function mountComposer(): Promise<MountResult> {
   const sendCalls: ComposerSendPayload[] = [];
 
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    // gcTime: 0 so React Query's default 5-min cache timer doesn't keep the
+    // node:test subprocess alive after the last assertion — without this the
+    // file passes but never exits, stalling a full single-pass run.
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false, gcTime: 0 },
+    },
   });
 
   const Wrapper: React.FC = () => {

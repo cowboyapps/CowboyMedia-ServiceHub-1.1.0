@@ -13,7 +13,7 @@
     "db:migrate": "tsx script/migrate.ts",
     "db:check": "drizzle-kit check",
     "db:check:columns": "tsx script/audit-columns.ts",
-    "test": "NODE_ENV=test tsx --test --test-reporter=spec $(find test shared server -name '*.test.ts')"
+    "test": "NODE_ENV=test tsx script/run-tests.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

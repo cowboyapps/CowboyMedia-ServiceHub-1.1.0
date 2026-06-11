@@ -7,7 +7,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - **Run Dev Server**: `npm run dev`
 - **Build**: `npm run build` (runs `npm test` first via `prebuild`)
 - **Typecheck**: `npm run typecheck`
-- **Test**: `npm test` (runs all `*.test.ts` under `test/`, `shared/`, `server/` via `tsx --test`)
+- **Test**: `npm test` (runs every `*.test.ts` under `test/`, `shared/`, `server/` via `script/run-tests.ts`, which runs each file in its own `tsx --test` subprocess sequentially so heavy jsdom tests don't OOM the runner; always prints an aggregated pass/fail summary and exits non-zero on any failure/hang). Tunable via `TEST_CONCURRENCY` (default 1) and `TEST_FILE_TIMEOUT_MS` (default 180000). Pass file paths as args to run a subset, e.g. `tsx script/run-tests.ts test/sw.test.ts`.
 - **Codegen**: `npm run codegen`
 - **DB Migrations**:
     - **Generate**: `npm run db:generate` after editing `shared/schema.ts` — produces `migrations/<idx>_<name>.sql`. Commit the SQL + the regenerated `migrations/meta/` files together.
