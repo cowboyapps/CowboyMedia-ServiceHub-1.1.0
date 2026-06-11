@@ -405,11 +405,13 @@ test("community-chat wiring: invalidates /api/community-chat/messages on communi
 //    these assertions fail and force the runtime test to be updated too.
 // ---------------------------------------------------------------------------
 
+// The admin and the customer share the same thread chat component
+// (`ThreadChatView` in messages-page.tsx); the admin reaches it via the
+// "Messages" deep-link to /messages. There is no separate admin-portal
+// thread chat anymore, so the admin-side contract is guarded against
+// messages-page.tsx too.
 const MESSAGES_PAGE = readFileSync(
   join(process.cwd(), "client/src/pages/messages-page.tsx"), "utf8",
-);
-const ADMIN_PORTAL = readFileSync(
-  join(process.cwd(), "client/src/pages/admin-portal.tsx"), "utf8",
 );
 const COMMUNITY_CHAT = readFileSync(
   join(process.cwd(), "client/src/pages/community-chat-page.tsx"), "utf8",
@@ -599,12 +601,19 @@ test("messages-page source: still wires onVisible→viewing_thread and onBeforeU
   assert.match(MESSAGES_PAGE, /type:\s*"left_thread"/);
 });
 
-test("admin-portal source: still wires onVisible→viewing_thread and onBeforeUnmount→left_thread", () => {
-  assert.match(ADMIN_PORTAL, /useReconnectingWebSocket\(\{/);
-  assert.match(ADMIN_PORTAL, /onVisible:\s*\(ws\)\s*=>/);
-  assert.match(ADMIN_PORTAL, /onBeforeUnmount:\s*\(ws\)\s*=>/);
-  assert.match(ADMIN_PORTAL, /type:\s*"viewing_thread"/);
-  assert.match(ADMIN_PORTAL, /type:\s*"left_thread"/);
+test("admin/customer thread source: wires onOpen/onVisible/onBeforeUnmount + thread_message live-invalidate", () => {
+  // Same shared component the admin uses for customer threads.
+  assert.match(MESSAGES_PAGE, /useReconnectingWebSocket\(\{/, "uses the shared hook");
+  assert.match(MESSAGES_PAGE, /onOpen:\s*\(ws\)\s*=>/, "onOpen wired");
+  assert.match(MESSAGES_PAGE, /onVisible:\s*\(ws\)\s*=>/, "onVisible wired");
+  assert.match(MESSAGES_PAGE, /onBeforeUnmount:\s*\(ws\)\s*=>/, "onBeforeUnmount wired");
+  assert.match(MESSAGES_PAGE, /type:\s*"viewing_thread"/);
+  assert.match(MESSAGES_PAGE, /type:\s*"left_thread"/);
+  assert.match(
+    MESSAGES_PAGE,
+    /data\.type\s*===\s*"thread_message"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*\["\/api\/message-threads",\s*threadId,\s*"messages"\]\s*\}\)/,
+    "thread_message frame invalidates the thread messages query",
+  );
 });
 
 test("messages-page source: still wires thread_typing handler (other-user check + 3s clear)", () => {
@@ -620,20 +629,20 @@ test("messages-page source: still wires thread_typing handler (other-user check 
   );
 });
 
-test("admin-portal source: still wires thread_typing + thread_messages_read with other-user checks", () => {
+test("admin/customer thread source: wires thread_typing + thread_messages_read with other-user checks", () => {
   assert.match(
-    ADMIN_PORTAL,
-    /d\.type\s*===\s*"thread_typing"[\s\S]*?d\.userId\s*!==\s*userId/,
-    "thread_typing branch checks d.userId !== current admin",
+    MESSAGES_PAGE,
+    /data\.type\s*===\s*"thread_typing"[\s\S]*?data\.userId\s*!==\s*user\?\.id/,
+    "thread_typing branch checks data.userId !== current user",
   );
   assert.match(
-    ADMIN_PORTAL,
-    /d\.type\s*===\s*"thread_messages_read"[\s\S]*?d\.readBy\s*!==\s*userId/,
-    "thread_messages_read branch checks d.readBy !== current admin",
+    MESSAGES_PAGE,
+    /data\.type\s*===\s*"thread_messages_read"[\s\S]*?data\.readBy\s*!==\s*user\?\.id/,
+    "thread_messages_read branch checks data.readBy !== current user",
   );
   assert.match(
-    ADMIN_PORTAL,
-    /d\.type\s*===\s*"thread_messages_read"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*\["\/api\/message-threads",\s*threadId,\s*"messages"\]\s*\}\)/,
+    MESSAGES_PAGE,
+    /data\.type\s*===\s*"thread_messages_read"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*\["\/api\/message-threads",\s*threadId,\s*"messages"\]\s*\}\)/,
     "thread_messages_read invalidates the thread messages query",
   );
 });

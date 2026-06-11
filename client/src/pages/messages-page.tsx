@@ -206,6 +206,9 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 3000);
         }
+        if (data.type === "thread_messages_read" && data.threadId === threadId && data.readBy !== user?.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+        }
       } catch {}
     },
     onVisible: (ws) => {
