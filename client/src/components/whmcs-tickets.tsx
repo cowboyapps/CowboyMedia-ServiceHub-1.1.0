@@ -208,6 +208,8 @@ interface TicketListProps {
   isLoading: boolean;
   context?: "customer" | "admin";
   onOpen: (id: number) => void;
+  /** Ids of tickets with an unseen staff reply — render a "New reply" badge. */
+  newReplyIds?: Set<number>;
 }
 
 /**
@@ -216,7 +218,7 @@ interface TicketListProps {
  * section under the customer's billing link. Returns null (renders nothing) for
  * the hidden customer states so native tickets stay the focus.
  */
-export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen }: TicketListProps) {
+export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen, newReplyIds }: TicketListProps) {
   const isAdmin = context === "admin";
   const guard = listGuard(data, isLoading, isAdmin);
   if (guard.kind === "hide") return null;
@@ -243,10 +245,12 @@ export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen 
           </a>
         </div>
       )}
-      {tickets.map((t) => (
+      {tickets.map((t) => {
+        const hasNewReply = !!newReplyIds?.has(t.id);
+        return (
         <Card
           key={t.id}
-          className="hover-elevate tap-interactive cursor-pointer"
+          className={`hover-elevate tap-interactive cursor-pointer ${hasNewReply ? "border-primary/50 bg-primary/[0.03]" : ""}`}
           onClick={() => onOpen(t.id)}
           data-testid={`card-whmcs-ticket-${t.id}`}
         >
@@ -254,11 +258,17 @@ export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen 
             <div className="flex items-start gap-3 min-w-0">
               <LifeBuoy className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
               <div className="min-w-0 space-y-1">
-                <h3 className="font-semibold text-sm truncate" data-testid={`text-whmcs-ticket-subject-${t.id}`}>{t.subject}</h3>
+                <h3 className={`text-sm truncate ${hasNewReply ? "font-bold" : "font-semibold"}`} data-testid={`text-whmcs-ticket-subject-${t.id}`}>{t.subject}</h3>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant="outline" className={ticketBadgeClass(t.statusKey)} data-testid={`badge-whmcs-ticket-status-${t.id}`}>
                     {ticketStatusLabel(t)}
                   </Badge>
+                  {hasNewReply && (
+                    <Badge className="bg-primary text-primary-foreground border-transparent text-xs gap-1" data-testid={`badge-whmcs-ticket-new-${t.id}`}>
+                      <Send className="w-3 h-3" />
+                      New reply
+                    </Badge>
+                  )}
                   {t.department && <Badge variant="secondary" className="text-xs">{t.department}</Badge>}
                   <span className="text-xs text-muted-foreground">#{t.tid}</span>
                 </div>
@@ -270,7 +280,8 @@ export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen 
             <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
           </CardContent>
         </Card>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -1,7 +1,11 @@
+import { useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
+import { markTicketSeen } from "@/lib/whmcs-unread";
+import { latestReplyDate } from "@shared/whmcs-unread";
 import { WhmcsTicketThread, type WhmcsTicketDetail } from "@/components/whmcs-tickets";
 
 interface TicketDetailResponse {
@@ -17,6 +21,7 @@ export default function WhmcsTicketDetailPage() {
   const id = params.id;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data, isLoading, isError } = useQuery<TicketDetailResponse>({
     queryKey: ["/api/whmcs-tickets", id],
@@ -24,6 +29,15 @@ export default function WhmcsTicketDetailPage() {
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
+
+  // Opening (and re-viewing) the thread clears its "new reply" flag: record the
+  // latest reply date so the list badge stops counting this ticket until staff
+  // reply again on a later day.
+  useEffect(() => {
+    if (data?.ticket) {
+      markTicketSeen(user?.id ?? null, data.ticket.id, latestReplyDate(data.ticket.messages));
+    }
+  }, [data?.ticket, user?.id]);
 
   const replyMutation = useMutation({
     mutationFn: async (message: string) => {

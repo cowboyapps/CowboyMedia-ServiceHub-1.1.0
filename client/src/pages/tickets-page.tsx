@@ -43,6 +43,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen, Filter, X, CreditCard } from "lucide-react";
 import { WhmcsTicketList, type WhmcsTicketsListData } from "@/components/whmcs-tickets";
+import { useWhmcsSeenMap } from "@/lib/whmcs-unread";
+import { countNewReplies, newReplyTicketIds } from "@shared/whmcs-unread";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -208,6 +210,19 @@ export default function TicketsPage() {
   });
   const showWhmcsSection =
     !isAdmin && !!whmcsTickets?.configured && !!whmcsTickets?.enabled && !!whmcsTickets?.linked;
+
+  // Client-side unread tracking for mirrored WHMCS tickets: flag any ticket
+  // whose latest staff reply is newer than the last time the customer opened it.
+  const whmcsSeen = useWhmcsSeenMap(user?.id ?? null);
+  const whmcsTicketList = whmcsTickets?.tickets ?? [];
+  const whmcsNewReplyCount = useMemo(
+    () => countNewReplies(whmcsTicketList, whmcsSeen),
+    [whmcsTicketList, whmcsSeen],
+  );
+  const whmcsNewReplyIds = useMemo(
+    () => new Set(newReplyTicketIds(whmcsTicketList, whmcsSeen)),
+    [whmcsTicketList, whmcsSeen],
+  );
 
   const form = useForm({
     resolver: zodResolver(createTicketSchema),
@@ -768,6 +783,15 @@ export default function TicketsPage() {
             <CardTitle className="text-base flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-primary" />
               Billing &amp; account support
+              {whmcsNewReplyCount > 0 && (
+                <Badge
+                  variant="destructive"
+                  className="ml-1 text-[10px] h-5 min-w-5 flex items-center justify-center px-1.5"
+                  data-testid="badge-whmcs-new-replies"
+                >
+                  {whmcsNewReplyCount} new
+                </Badge>
+              )}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               Tickets from our billing system, kept separate from your support tickets above.
@@ -778,6 +802,7 @@ export default function TicketsPage() {
               data={whmcsTickets}
               isLoading={whmcsLoading}
               context="customer"
+              newReplyIds={whmcsNewReplyIds}
               onOpen={(id) => setLocation(`/whmcs-tickets/${id}`)}
             />
           </CardContent>
