@@ -71,20 +71,23 @@ export function Poll({ pollId, onDeleted, compact }: { pollId: string; onDeleted
     onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading) return <Skeleton className="h-32 w-full" />;
-  if (!poll) return null;
-
-  const userVotes = pendingSelection ?? poll.userVotes;
   // Optimistic counts: subtract previously-voted options, add pending selections.
+  // Hooks must run on every render, so these stay above the early returns below
+  // and tolerate `poll` being undefined while the query loads.
   const counts = useMemo(() => {
-    const next: Record<string, number> = { ...poll.counts };
-    if (pendingSelection) {
+    const next: Record<string, number> = { ...(poll?.counts ?? {}) };
+    if (poll && pendingSelection) {
       for (const id of poll.userVotes) next[id] = Math.max(0, (next[id] || 0) - 1);
       for (const id of pendingSelection) next[id] = (next[id] || 0) + 1;
     }
     return next;
-  }, [poll.counts, poll.userVotes, pendingSelection]);
+  }, [poll?.counts, poll?.userVotes, pendingSelection, poll]);
   const total = useMemo(() => Object.values(counts).reduce((a, b) => a + b, 0), [counts]);
+
+  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (!poll) return null;
+
+  const userVotes = pendingSelection ?? poll.userVotes;
 
   const handleToggle = (optionId: string) => {
     if (isClosed || !user) return;
