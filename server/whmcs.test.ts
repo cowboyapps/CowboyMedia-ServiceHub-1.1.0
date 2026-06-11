@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   normalizeBaseUrl,
+  deriveWhmcsRootFromUrl,
   normalizeClientsArray,
   toClientSummary,
   pickUnambiguousMatchByEmail,
@@ -28,6 +29,34 @@ test("normalizeBaseUrl: rejects non-http(s) and empty values", () => {
   assert.equal(normalizeBaseUrl("billing.example.com"), null);
   assert.equal(normalizeBaseUrl("ftp://billing.example.com"), null);
   assert.equal(normalizeBaseUrl("javascript:alert(1)"), null);
+});
+
+// ---------- deriveWhmcsRootFromUrl ----------
+// Recovers the WHMCS root from the URL fetch lands on after a vanity-subdomain
+// 301 redirect into the subfolder install's admin/client area.
+
+test("deriveWhmcsRootFromUrl: recovers subfolder root from admin login redirect", () => {
+  assert.equal(
+    deriveWhmcsRootFromUrl("https://cowboymedia.net/billing/admin/login.php?redirect=%2Fbilling%2Fadmin%2F"),
+    "https://cowboymedia.net/billing",
+  );
+});
+
+test("deriveWhmcsRootFromUrl: strips clientarea / includes app subpaths", () => {
+  assert.equal(deriveWhmcsRootFromUrl("https://example.com/billing/clientarea.php"), "https://example.com/billing");
+  assert.equal(deriveWhmcsRootFromUrl("https://example.com/whmcs/includes/api.php"), "https://example.com/whmcs");
+});
+
+test("deriveWhmcsRootFromUrl: handles a redirect to the bare domain root", () => {
+  assert.equal(deriveWhmcsRootFromUrl("https://example.com/admin/login.php"), "https://example.com");
+  assert.equal(deriveWhmcsRootFromUrl("https://example.com/"), "https://example.com");
+});
+
+test("deriveWhmcsRootFromUrl: returns null for empty / invalid input", () => {
+  assert.equal(deriveWhmcsRootFromUrl(null), null);
+  assert.equal(deriveWhmcsRootFromUrl(undefined), null);
+  assert.equal(deriveWhmcsRootFromUrl(""), null);
+  assert.equal(deriveWhmcsRootFromUrl("not a url"), null);
 });
 
 // ---------- normalizeClientsArray ----------

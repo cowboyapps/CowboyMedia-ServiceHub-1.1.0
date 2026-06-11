@@ -45,6 +45,35 @@ export function normalizeBaseUrl(raw: string | null | undefined): string | null 
   return trimmed;
 }
 
+/**
+ * Recover the WHMCS install root from the URL `fetch` finally landed on after
+ * following redirects. A very common WHMCS deployment puts the app in a
+ * subfolder (example.com/billing) while a vanity subdomain (billing.example.com)
+ * 301-redirects to it. Our POST to `<subdomain>/includes/api.php` then follows
+ * the redirect into the HTML admin/client area (e.g.
+ * `https://example.com/billing/admin/login.php`), which isn't JSON. We strip the
+ * WHMCS app subpaths + any trailing `*.php` to recover the root we should have
+ * POSTed to (`https://example.com/billing`). Returns null when nothing sensible
+ * can be derived. Pure — unit-tested without network.
+ */
+export function deriveWhmcsRootFromUrl(finalUrl: string | null | undefined): string | null {
+  if (!finalUrl) return null;
+  try {
+    const u = new URL(finalUrl);
+    let path = u.pathname;
+    // Cut everything from the first WHMCS app subpath onward.
+    path = path.replace(
+      /\/(admin|clientarea|includes|cart|register|login|announcements|knowledgebase|submitticket|viewticket|dl|index\.php)\b.*$/i,
+      "",
+    );
+    // Drop a trailing file (e.g. login.php) and any trailing slashes.
+    path = path.replace(/\/[^/]*\.[a-z0-9]+$/i, "").replace(/\/+$/, "");
+    return normalizeBaseUrl(`${u.protocol}//${u.host}${path}`);
+  } catch {
+    return null;
+  }
+}
+
 // --- Pure helpers (unit-tested without network) ---
 
 /**
@@ -138,20 +167,56 @@ async function whmcsApiCall(
   form.set("responsetype", "json");
   for (const [k, v] of Object.entries(params)) form.set(k, String(v));
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WHMCS_TIMEOUT_MS);
+  // One HTTP attempt against a given root. fetch follows redirects by default,
+  // so `res.url` is the FINAL landing URL and `res.redirected` flags whether a
+  // hop occurred — both used by the self-heal below.
+  const attempt = async (root: string) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WHMCS_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${root}/includes/api.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+        signal: controller.signal,
+      });
+      const text = await res.text().catch(() => "");
+      let data: any = null;
+      try { data = JSON.parse(text); } catch { /* non-JSON body handled below */ }
+      return { res, text, data };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   try {
-    const res = await fetch(`${baseUrl}/includes/api.php`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-      signal: controller.signal,
-    });
-    const text = await res.text().catch(() => "");
-    let data: any = null;
-    try { data = JSON.parse(text); } catch { /* non-JSON body handled below */ }
+    let { res, text, data } = await attempt(baseUrl);
+
+    // Self-heal the vanity-subdomain-redirects-to-subfolder deployment: when the
+    // body isn't JSON because fetch followed a redirect into the HTML admin/
+    // client area, derive the real WHMCS root from the final URL and retry the
+    // API call there once. Makes e.g. base URL "https://billing.example.com"
+    // work even though WHMCS actually lives at "https://example.com/billing".
+    if (!data && res.redirected) {
+      const healedRoot = deriveWhmcsRootFromUrl(res.url);
+      if (healedRoot && healedRoot !== baseUrl) {
+        const retry = await attempt(healedRoot);
+        if (retry.data) {
+          ({ res, text, data } = retry);
+        }
+      }
+    }
 
     if (!res.ok) {
+      // WHMCS surfaces auth failures ("Authentication Failed") and IP-allowlist
+      // misses ("Invalid IP <ip>") as result:error JSON with a non-2xx status.
+      // Prefer that human-readable message over a bare HTTP code so the admin
+      // can tell the two apart on the connection test.
+      if (data && data.result === "error" && data.message) {
+        const msg = String(data.message);
+        logError("whmcs", msg, { severity: "warn", summary: `WHMCS ${action} failed`, extra: { action, status: res.status, message: msg } });
+        return { ok: false, error: msg, data, reason: "whmcs_error" };
+      }
       const err = `WHMCS API returned HTTP ${res.status}`;
       // NB: never log identifier/secret — only action + status + truncated body.
       logError("whmcs", err, { severity: "warn", summary: err, extra: { action, status: res.status, body: text.slice(0, 500) } });
@@ -183,8 +248,6 @@ async function whmcsApiCall(
     const msg = aborted ? `WHMCS request timed out after ${WHMCS_TIMEOUT_MS}ms` : (e?.message || "Unknown error");
     logError("whmcs", msg, { severity: "error", summary: aborted ? "WHMCS request timeout" : "WHMCS request error", extra: { action } });
     return { ok: false, error: msg, reason: "network" };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
