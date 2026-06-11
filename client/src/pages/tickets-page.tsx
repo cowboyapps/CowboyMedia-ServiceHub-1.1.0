@@ -214,7 +214,10 @@ export default function TicketsPage() {
   // Client-side unread tracking for mirrored WHMCS tickets: flag any ticket
   // whose latest staff reply is newer than the last time the customer opened it.
   const whmcsSeen = useWhmcsSeenMap(user?.id ?? null);
-  const whmcsTicketList = whmcsTickets?.tickets ?? [];
+  const whmcsTicketList = useMemo(
+    () => whmcsTickets?.tickets ?? [],
+    [whmcsTickets?.tickets],
+  );
   const whmcsNewReplyCount = useMemo(
     () => countNewReplies(whmcsTicketList, whmcsSeen),
     [whmcsTicketList, whmcsSeen],
