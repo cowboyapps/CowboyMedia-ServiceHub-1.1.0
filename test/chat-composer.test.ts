@@ -199,6 +199,32 @@ async function typeIntoTextarea(ta: HTMLTextAreaElement, value: string): Promise
   });
 }
 
+// Build a File whose reported `size` we control without allocating real bytes.
+function fakeFile(name: string, size: number): File {
+  const f = new window.File(["x"], name, { type: "application/octet-stream" });
+  Object.defineProperty(f, "size", { value: size, configurable: true });
+  return f;
+}
+
+// The composer's hidden <input type="file"> is the first file input in the
+// tree (the attach-paperclip button clicks it). Stamp a FileList-like onto
+// `.files` then fire change the way a real picker would.
+async function pickFile(container: HTMLElement, file: File): Promise<void> {
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+  if (!input) throw new Error("file input not found");
+  const list = {
+    0: file,
+    length: 1,
+    item: (i: number) => (i === 0 ? file : null),
+  } as unknown as FileList;
+  Object.defineProperty(input, "files", { value: list, configurable: true });
+  await act(async () => {
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+}
+
+const MB = 1024 * 1024;
+
 // --- The placeholder-confirm "Send anyway" flow runs `composerRef.current.clear()`
 // before doSendMessage in ticket-detail.tsx's performSend. If that imperative
 // handle ever stops clearing the textarea, customers would see their just-sent
@@ -272,6 +298,67 @@ test("ChatComposer fires onRequestSend with the typed payload, then clear() rese
     });
     assert.equal(h.sendCalls.length, 2, "second send still works after clear()");
     assert.equal(h.sendCalls[1].text, "second message");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("composer shows the attachment's size next to its chip", async () => {
+  const h = await mountComposer();
+  try {
+    await pickFile(h.container, fakeFile("invoice.pdf", Math.round(2.5 * MB)));
+
+    const sizeEl = findByTestId(h.container, "text-attachment-size");
+    assert.ok(sizeEl, "size label rendered next to the chip");
+    assert.match(sizeEl!.textContent ?? "", /2\.5 MB/, "shows human-readable size");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("oversized attachment is flagged, warned, and blocks send before the request goes out", async () => {
+  const h = await mountComposer();
+  try {
+    const ta = h.textarea();
+    // A valid draft so the only thing that could block send is the file size.
+    await typeIntoTextarea(ta, "Here is the file you asked for.");
+
+    const sendBefore = findByTestId(h.container, "button-send-message") as HTMLButtonElement;
+    assert.equal(sendBefore.disabled, false, "send enabled with a draft and no files");
+
+    // 26MB > the 25MB server cap.
+    await pickFile(h.container, fakeFile("huge.zip", 26 * MB));
+
+    const warning = findByTestId(h.container, "text-attachment-oversize-warning");
+    assert.ok(warning, "oversize warning is shown before send");
+
+    const sendAfter = findByTestId(h.container, "button-send-message") as HTMLButtonElement;
+    assert.equal(sendAfter.disabled, true, "send is blocked while the file is too big");
+
+    // Clicking send while blocked must not fire onRequestSend.
+    await act(async () => {
+      sendAfter.click();
+    });
+    assert.equal(h.sendCalls.length, 0, "no request goes out for an oversized file");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("a file at exactly the cap is allowed and does not warn", async () => {
+  const h = await mountComposer();
+  try {
+    const ta = h.textarea();
+    await typeIntoTextarea(ta, "Reply with an at-the-limit file.");
+
+    await pickFile(h.container, fakeFile("exact.pdf", 25 * MB));
+    assert.equal(
+      findByTestId(h.container, "text-attachment-oversize-warning"),
+      null,
+      "a file exactly at the cap is not flagged",
+    );
+    const send = findByTestId(h.container, "button-send-message") as HTMLButtonElement;
+    assert.equal(send.disabled, false, "at-the-cap file does not block send");
   } finally {
     h.cleanup();
   }

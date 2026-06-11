@@ -18,6 +18,22 @@ import {
   PLACEHOLDER_EMPTY_REASONS,
 } from "@shared/quick-response-vars";
 
+/**
+ * Max bytes per attachment — mirror of the server's multer cap (25MB in
+ * server/routes.ts). The server stays the source of truth; this only lets the
+ * composer warn the customer before they hit send.
+ */
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** Human-readable file size, e.g. "4.2 MB" / "812 KB". */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
 export type ComposerSendPayload = {
   text: string;
   file: File | null;
@@ -222,6 +238,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
 
   const isInternal = isAdmin && composerMode === "internal" && canReply;
 
+  const attachmentOversize = !!imageFile && imageFile.size > MAX_ATTACHMENT_BYTES;
+
   const handleSend = useCallback(() => {
     const msgText = message.trim();
     const imgFile = imageFile;
@@ -232,6 +250,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
       onRequestSend({ text: msgText, file: null, kb: null, internal: true });
       return;
     }
+    if (imgFile && imgFile.size > MAX_ATTACHMENT_BYTES) return;
     if (!msgText && !imgFile && !kb) return;
     onRequestSend({ text: msgText, file: imgFile, kb, internal: false });
   }, [message, imageFile, kbArticle, isAdmin, composerMode, onRequestSend]);
@@ -359,15 +378,36 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
           </div>
         )}
         {imageFile && (
-          <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md">
-            {imageFile.type.startsWith("video/") ? <Film className="w-4 h-4 flex-shrink-0" /> :
-              imageFile.type.startsWith("image/") ? <Paperclip className="w-4 h-4 flex-shrink-0" /> :
-                <FileText className="w-4 h-4 flex-shrink-0" />}
-            <span className="text-xs truncate flex-1">{imageFile.name}</span>
-            <Button size="icon" variant="ghost" onClick={() => setImageFile(null)} data-testid="button-remove-image">
-              <X className="w-3 h-3" />
-            </Button>
-          </div>
+          <>
+            <div
+              className={`flex items-center gap-2 mb-2 p-2 rounded-md ${attachmentOversize ? "border border-destructive/50 bg-destructive/10 text-destructive" : "bg-accent"}`}
+              data-testid="chip-attachment"
+            >
+              {attachmentOversize ? <AlertTriangle className="w-4 h-4 flex-shrink-0" /> :
+                imageFile.type.startsWith("video/") ? <Film className="w-4 h-4 flex-shrink-0" /> :
+                  imageFile.type.startsWith("image/") ? <Paperclip className="w-4 h-4 flex-shrink-0" /> :
+                    <FileText className="w-4 h-4 flex-shrink-0" />}
+              <span className="text-xs truncate flex-1">{imageFile.name}</span>
+              <span
+                className={`text-xs flex-shrink-0 ${attachmentOversize ? "" : "text-muted-foreground"}`}
+                data-testid="text-attachment-size"
+              >
+                ({formatFileSize(imageFile.size)})
+              </span>
+              <Button size="icon" variant="ghost" onClick={() => setImageFile(null)} data-testid="button-remove-image">
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+            {attachmentOversize && (
+              <p
+                className="flex items-center gap-1.5 mb-2 text-[11px] text-destructive"
+                data-testid="text-attachment-oversize-warning"
+              >
+                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                This file must be {formatFileSize(MAX_ATTACHMENT_BYTES)} or smaller. Remove it to send.
+              </p>
+            )}
+          </>
         )}
         {kbArticle && (
           <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-selected-kb">
@@ -636,7 +676,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
             className={`flex-shrink-0 h-9 w-9 self-end ${isInternal ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}`}
             disabled={
               !canReply ||
-              (isInternal ? !message.trim() : (!message.trim() && !imageFile && !kbArticle))
+              (isInternal
+                ? !message.trim()
+                : (attachmentOversize || (!message.trim() && !imageFile && !kbArticle)))
             }
             onClick={handleSend}
             data-testid="button-send-message"
