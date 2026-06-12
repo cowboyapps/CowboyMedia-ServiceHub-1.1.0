@@ -57,8 +57,9 @@ function makeApp(deps: FakeDeps) {
         return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
       }
       const buffer = Buffer.from(dl.data, "base64");
+      const disposition = req.query.download === "1" ? "attachment" : "inline";
       res.set("Content-Type", "application/pdf");
-      res.set("Content-Disposition", `inline; filename="invoice-${invoiceId}.pdf"`);
+      res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
       res.set("Cache-Control", "private, max-age=300");
       return res.send(buffer);
     } catch {
@@ -90,8 +91,9 @@ function makeApp(deps: FakeDeps) {
         return res.status(502).json({ message: `Could not download this invoice: ${dl.error ?? "unknown error"}` });
       }
       const buffer = Buffer.from(dl.data, "base64");
+      const disposition = req.query.download === "1" ? "attachment" : "inline";
       res.set("Content-Type", "application/pdf");
-      res.set("Content-Disposition", `inline; filename="invoice-${invoiceId}.pdf"`);
+      res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
       res.set("Cache-Control", "private, max-age=300");
       return res.send(buffer);
     } catch {
@@ -226,4 +228,55 @@ test("admin: ownership mismatch → 404, pdf never fetched", async () => {
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
   assert.equal(r.status, 404);
   assert.equal(pdfCalled, false);
+});
+
+// Content-Disposition switching (Task #378): the "Download PDF" action appends
+// ?download=1 to force a save-to-device on mobile, where inline PDF viewing is
+// unreliable. Without ?download=1 the proxy must keep serving the bytes inline
+// so in-browser/in-app preview still works. Both proxy routes must honour this.
+
+test("customer: default (no ?download) → Content-Disposition inline", async () => {
+  const app = makeApp(baseDeps());
+  const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 200);
+  assert.match(r.disposition ?? "", /^inline; filename="invoice-7\.pdf"$/);
+});
+
+test("customer: ?download=1 → Content-Disposition attachment", async () => {
+  const app = makeApp(baseDeps());
+  const r = await get(app, "/api/billing/invoices/7/pdf?download=1");
+  assert.equal(r.status, 200);
+  assert.match(r.disposition ?? "", /^attachment; filename="invoice-7\.pdf"$/);
+});
+
+test("customer: ?download=0 (and other values) → stays inline", async () => {
+  const app = makeApp(baseDeps());
+  for (const q of ["download=0", "download=true", "download=", "foo=1"]) {
+    const r = await get(app, `/api/billing/invoices/7/pdf?${q}`);
+    assert.equal(r.status, 200);
+    assert.match(r.disposition ?? "", /^inline; /, q);
+  }
+});
+
+test("admin: default (no ?download) → Content-Disposition inline", async () => {
+  const app = makeApp(baseDeps());
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
+  assert.equal(r.status, 200);
+  assert.match(r.disposition ?? "", /^inline; filename="invoice-7\.pdf"$/);
+});
+
+test("admin: ?download=1 → Content-Disposition attachment", async () => {
+  const app = makeApp(baseDeps());
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf?download=1");
+  assert.equal(r.status, 200);
+  assert.match(r.disposition ?? "", /^attachment; filename="invoice-7\.pdf"$/);
+});
+
+test("admin: ?download=0 (and other values) → stays inline", async () => {
+  const app = makeApp(baseDeps());
+  for (const q of ["download=0", "download=true", "download=", "foo=1"]) {
+    const r = await get(app, `/api/admin/users/abc/whmcs/billing/invoices/7/pdf?${q}`);
+    assert.equal(r.status, 200);
+    assert.match(r.disposition ?? "", /^inline; /, q);
+  }
 });
