@@ -38,7 +38,7 @@ import {
   getTicketAttachment as getWhmcsTicketAttachment,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummary, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -6273,6 +6273,81 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       return res.json(emptyBilling({ configured: true, enabled: true, linked: true, unreachable: true }));
     }
   });
+
+  // A clean, fully-empty single-invoice detail payload, mirroring emptyBilling.
+  // Both detail routes fall back to this for every non-success state so the
+  // frontend always receives the same locked shape.
+  const emptyInvoiceDetail = (over: Record<string, unknown>) => ({
+    configured: false,
+    enabled: false,
+    linked: false,
+    unreachable: false,
+    notFound: false,
+    invoice: null,
+    ...over,
+  });
+
+  // Customer self-view: a single invoice's full detail, scoped to the logged-in
+  // user's OWN linked WHMCS client. The client id is ALWAYS derived from the
+  // session user — never request input — and loadInvoiceDetail rejects any
+  // invoice whose owner doesn't match (returns notFound). Never 500s; degrades
+  // to a clean disabled / unlinked / unreachable / notFound state.
+  app.get("/api/billing/invoices/:invoiceId", requireAuth, async (req, res) => {
+    try {
+      const invoiceId = Number(getParam(req, "invoiceId"));
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.json(emptyInvoiceDetail({ configured, enabled }));
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.json(emptyInvoiceDetail({ configured, enabled, linked: false }));
+      }
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+        return res.json(emptyInvoiceDetail({ configured, enabled, linked: true, notFound: true }));
+      }
+      const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl);
+      return res.json({ configured, enabled, linked: true, ...detail });
+    } catch {
+      return res.json(emptyInvoiceDetail({ configured: true, enabled: true, linked: true, unreachable: true }));
+    }
+  });
+
+  // Admin customer-detail view: a single invoice's full detail for any linked
+  // customer. Permission-gated. The client id is the selected user's linked
+  // client, so the same ownership check applies. MAY surface the WHMCS/storage
+  // error (admin-only, not customer-facing).
+  app.get(
+    "/api/admin/users/:id/whmcs/billing/invoices/:invoiceId",
+    requirePermission("users.view", "users.manage"),
+    async (req, res) => {
+      try {
+        const user = await storage.getUser(getParam(req, "id"));
+        if (!user) return res.status(404).json({ message: "User not found" });
+        const invoiceId = Number(getParam(req, "invoiceId"));
+        const settings = await storage.getWhmcsSettings();
+        const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+        const configured = hasWhmcsCredentials() && !!baseUrl;
+        const enabled = !!settings?.enabled;
+        const clientId = user.whmcsClientId ?? null;
+        if (!configured || !enabled || !clientId) {
+          return res.json(emptyInvoiceDetail({ configured, enabled, linked: !!clientId }));
+        }
+        if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+          return res.json(emptyInvoiceDetail({ configured, enabled, linked: true, notFound: true }));
+        }
+        const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl);
+        return res.json({ configured, enabled, linked: true, ...detail });
+      } catch {
+        // Read-only contract: never 500 — degrade to a stable unreachable state.
+        return res.json(emptyInvoiceDetail({ configured: true, enabled: true, linked: true, unreachable: true }));
+      }
+    },
+  );
 
   // Admin customer-detail view: any linked customer's billing. Permission-gated
   // and MAY surface the WHMCS/storage error (it's admin-only, not customer-facing).

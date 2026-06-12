@@ -7582,7 +7582,7 @@ function WhmcsBillingSection({ userId }: { userId: string }) {
 
   return (
     <div className="border-t pt-3" data-testid="panel-whmcs-billing">
-      <BillingSummaryView data={data} isLoading={isLoading} context="admin" />
+      <BillingSummaryView data={data} isLoading={isLoading} context="admin" userId={userId} />
     </div>
   );
 }

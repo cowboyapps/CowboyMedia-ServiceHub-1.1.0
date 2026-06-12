@@ -3,6 +3,7 @@ import {
   getClientInvoices,
   getClientProducts,
   getClientBillingDetails,
+  getInvoice,
   type WhmcsRawFetch,
 } from "./whmcs";
 
@@ -73,6 +74,16 @@ export function buildInvoicePayUrl(baseUrl: string | null, id: number): string |
   return `${baseUrl}/viewinvoice.php?id=${id}`;
 }
 
+/**
+ * Outbound link to the official WHMCS invoice PDF. WHMCS serves the generated
+ * PDF from `dl.php?type=i&id=<id>` (requires the client to be authenticated in
+ * the WHMCS client area — we link out, we never fetch/generate the PDF here).
+ */
+export function buildInvoicePdfUrl(baseUrl: string | null, id: number): string | null {
+  if (!baseUrl || !id) return null;
+  return `${baseUrl}/dl.php?type=i&id=${id}`;
+}
+
 /** Outbound link to the WHMCS client area home. */
 export function buildPortalUrl(baseUrl: string | null): string | null {
   if (!baseUrl) return null;
@@ -119,6 +130,92 @@ export function parseInvoice(raw: any, baseUrl: string | null, today: string): P
     status: deriveInvoiceStatus(rawStatus, dueDate, today),
     rawStatus,
     payUrl: buildInvoicePayUrl(baseUrl, id),
+  };
+}
+
+/** Trim a money/number string field to a clean value, or null when absent. */
+function cleanMoney(raw: any): string | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  return s === "" ? null : s;
+}
+
+export interface ParsedInvoiceLineItem {
+  id: number;
+  description: string;
+  amount: string;
+}
+
+/** Map a raw WHMCS GetInvoice `items.item` record into a line item. */
+export function parseInvoiceLineItem(raw: any): ParsedInvoiceLineItem {
+  return {
+    id: Number(raw?.id ?? 0),
+    description: String(raw?.description ?? "").trim(),
+    amount: String(raw?.amount ?? "").trim(),
+  };
+}
+
+export interface ParsedInvoiceDetail {
+  id: number;
+  invoiceNum: string;
+  /** Owning WHMCS client id — used for the route-level ownership check. */
+  userId: number;
+  date: string | null;
+  dueDate: string | null;
+  datePaid: string | null;
+  subtotal: string | null;
+  credit: string | null;
+  tax: string | null;
+  tax2: string | null;
+  taxRate: string | null;
+  taxRate2: string | null;
+  total: string;
+  balance: string | null;
+  currencyCode: string | null;
+  status: InvoiceStatus;
+  rawStatus: string;
+  paymentMethod: string | null;
+  notes: string | null;
+  lineItems: ParsedInvoiceLineItem[];
+  payUrl: string | null;
+  pdfUrl: string | null;
+}
+
+/**
+ * Map a raw WHMCS GetInvoice (single) record into our normalized detail shape.
+ * GetInvoice returns more than the list call: the line items plus the full
+ * totals breakdown (subtotal/tax/tax2/credit/total/balance) and the owning
+ * `userid`. Pure → unit tested without network.
+ */
+export function parseInvoiceDetail(raw: any, baseUrl: string | null, today: string): ParsedInvoiceDetail {
+  const id = Number(raw?.invoiceid ?? raw?.id ?? 0);
+  const dueDate = normalizeWhmcsDate(raw?.duedate);
+  const rawStatus = String(raw?.status ?? "").trim();
+  const paymentMethod =
+    String(raw?.paymentmethodname ?? "").trim() || String(raw?.paymentmethod ?? "").trim() || null;
+  return {
+    id,
+    invoiceNum: String(raw?.invoicenum ?? "").trim() || String(id),
+    userId: Number(raw?.userid ?? raw?.clientid ?? 0),
+    date: normalizeWhmcsDate(raw?.date),
+    dueDate,
+    datePaid: normalizeWhmcsDate(raw?.datepaid),
+    subtotal: cleanMoney(raw?.subtotal),
+    credit: cleanMoney(raw?.credit),
+    tax: cleanMoney(raw?.tax),
+    tax2: cleanMoney(raw?.tax2),
+    taxRate: cleanMoney(raw?.taxrate),
+    taxRate2: cleanMoney(raw?.taxrate2),
+    total: String(raw?.total ?? "").trim(),
+    balance: cleanMoney(raw?.balance),
+    currencyCode: raw?.currencycode ? String(raw.currencycode).trim() : null,
+    status: deriveInvoiceStatus(rawStatus, dueDate, today),
+    rawStatus,
+    paymentMethod,
+    notes: cleanMoney(raw?.notes),
+    lineItems: normalizeListField(raw?.items, "item").map(parseInvoiceLineItem),
+    payUrl: buildInvoicePayUrl(baseUrl, id),
+    pdfUrl: buildInvoicePdfUrl(baseUrl, id),
   };
 }
 
@@ -351,4 +448,45 @@ export async function loadServicesList(clientId: number): Promise<ServicesListDa
   if (!result.ok) return { services: [], unreachable: true };
   const services = normalizeListField(result.data?.products, "product").map(parseProduct);
   return { services, unreachable: false };
+}
+
+export interface InvoiceDetailData {
+  invoice: ParsedInvoiceDetail | null;
+  /** True when WHMCS was unreachable (outage / missing perm). */
+  unreachable: boolean;
+  /**
+   * True when the invoice doesn't exist OR doesn't belong to `clientId`. The two
+   * are intentionally collapsed so the route never reveals whether another
+   * client's invoice id exists (no enumeration oracle).
+   */
+  notFound: boolean;
+}
+
+/**
+ * Fetch + shape a SINGLE invoice's detail, scoped to one client. The caller
+ * passes the client id it derived itself (session user's linked client, or the
+ * admin-selected user's linked client) — this loader rejects any invoice whose
+ * owning `userid` doesn't match, so a customer can never read another client's
+ * invoice by guessing its id. Never throws (the fetcher is no-throw). Not cached
+ * — a single read is cheap and the detail view is opened on demand.
+ */
+export async function loadInvoiceDetail(
+  invoiceId: number,
+  clientId: number,
+  baseUrl: string | null,
+): Promise<InvoiceDetailData> {
+  const result = await getInvoice(invoiceId);
+  if (!result.ok) {
+    // A WHMCS "not found" is a clean not-found; anything else is an outage.
+    if (result.reason === "whmcs_error" && /not\s*found|does not exist|invalid/i.test(result.error ?? "")) {
+      return { invoice: null, unreachable: false, notFound: true };
+    }
+    return { invoice: null, unreachable: true, notFound: false };
+  }
+  const invoice = parseInvoiceDetail(result.data, baseUrl, todayUtc());
+  // Ownership check: the invoice must belong to the resolved client.
+  if (!invoice.id || invoice.userId !== clientId) {
+    return { invoice: null, unreachable: false, notFound: true };
+  }
+  return { invoice, unreachable: false, notFound: false };
 }

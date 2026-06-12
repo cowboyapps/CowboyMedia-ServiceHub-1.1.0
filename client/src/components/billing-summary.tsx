@@ -1,7 +1,16 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   Wallet,
   Receipt,
@@ -11,6 +20,8 @@ import {
   AlertCircle,
   Link2Off,
   ServerCog,
+  FileText,
+  ChevronRight,
 } from "lucide-react";
 
 // Shared, read-only presentation of a WHMCS billing summary. Driven entirely by
@@ -65,6 +76,46 @@ export interface BillingSummary {
   invoices: BillingInvoice[];
   products: BillingProduct[];
   portalUrl: string | null;
+}
+
+export interface InvoiceLineItem {
+  id: number;
+  description: string;
+  amount: string;
+}
+
+export interface InvoiceDetail {
+  id: number;
+  invoiceNum: string;
+  userId: number;
+  date: string | null;
+  dueDate: string | null;
+  datePaid: string | null;
+  subtotal: string | null;
+  credit: string | null;
+  tax: string | null;
+  tax2: string | null;
+  taxRate: string | null;
+  taxRate2: string | null;
+  total: string;
+  balance: string | null;
+  currencyCode: string | null;
+  status: InvoiceStatus;
+  rawStatus: string;
+  paymentMethod: string | null;
+  notes: string | null;
+  lineItems: InvoiceLineItem[];
+  payUrl: string | null;
+  pdfUrl: string | null;
+}
+
+export interface InvoiceDetailPayload {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  unreachable: boolean;
+  notFound: boolean;
+  invoice: InvoiceDetail | null;
 }
 
 const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
@@ -149,14 +200,215 @@ function EmptyState({
   );
 }
 
+/** A label/value row in the totals breakdown. */
+function TotalsRow({
+  label,
+  value,
+  strong,
+  testid,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  testid: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className={strong ? "font-semibold" : "text-muted-foreground"}>{label}</span>
+      <span className={strong ? "font-semibold" : ""} data-testid={testid}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Full-detail view of a single invoice, fetched on demand. Reused by both the
+ * customer billing screen and the admin customer-billing panel — the only
+ * difference is which endpoint it reads (derived from `context` + `userId`).
+ * Every non-success payload state has a clean rendering; it never crashes.
+ */
+function InvoiceDetailDialog({
+  invoiceId,
+  context,
+  userId,
+  onClose,
+}: {
+  invoiceId: number | null;
+  context: "customer" | "admin";
+  userId?: string;
+  onClose: () => void;
+}) {
+  const isAdmin = context === "admin";
+  const queryKey =
+    isAdmin && userId
+      ? ["/api/admin/users", userId, "whmcs", "billing", "invoices", String(invoiceId)]
+      : ["/api/billing/invoices", String(invoiceId)];
+
+  const { data, isLoading } = useQuery<InvoiceDetailPayload>({
+    queryKey,
+    enabled: invoiceId != null,
+  });
+
+  const invoice = data?.invoice ?? null;
+  const needsPay = invoice && (invoice.status === "unpaid" || invoice.status === "overdue");
+
+  return (
+    <Dialog open={invoiceId != null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-invoice-detail">
+        <DialogHeader>
+          <DialogTitle data-testid="text-invoice-detail-num">
+            Invoice {invoice ? `#${invoice.invoiceNum}` : ""}
+          </DialogTitle>
+          <DialogDescription>
+            {isAdmin ? "Full breakdown of this customer's invoice." : "Full breakdown of your invoice."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="space-y-3" data-testid="invoice-detail-loading">
+            <Skeleton className="h-6 rounded" />
+            <Skeleton className="h-24 rounded" />
+            <Skeleton className="h-20 rounded" />
+          </div>
+        ) : !data || data.unreachable ? (
+          <EmptyState
+            icon={ServerCog}
+            title="Invoice unavailable"
+            description="We couldn't load this invoice right now. Please try again in a few minutes."
+            testid="invoice-detail-unreachable"
+          />
+        ) : data.notFound || !invoice ? (
+          <EmptyState
+            icon={AlertCircle}
+            title="Invoice not found"
+            description="This invoice couldn't be found. It may have been removed."
+            testid="invoice-detail-not-found"
+          />
+        ) : (
+          <div className="space-y-4" data-testid="invoice-detail-content">
+            {/* Status + key dates */}
+            <div className="flex items-center justify-between gap-3">
+              <Badge variant="outline" className={invoiceBadgeClass(invoice.status)} data-testid="badge-invoice-detail-status">
+                {INVOICE_STATUS_LABEL[invoice.status]}
+              </Badge>
+              <span className="text-lg font-semibold" data-testid="text-invoice-detail-total">
+                {formatMoney(invoice.total, invoice.currencyCode)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+              <span className="text-muted-foreground">Issued</span>
+              <span className="text-right" data-testid="text-invoice-detail-date">{formatDate(invoice.date)}</span>
+              <span className="text-muted-foreground">Due</span>
+              <span className="text-right" data-testid="text-invoice-detail-due">{formatDate(invoice.dueDate)}</span>
+              {invoice.datePaid && (
+                <>
+                  <span className="text-muted-foreground">Paid</span>
+                  <span className="text-right" data-testid="text-invoice-detail-paid">{formatDate(invoice.datePaid)}</span>
+                </>
+              )}
+              {invoice.paymentMethod && (
+                <>
+                  <span className="text-muted-foreground">Payment method</span>
+                  <span className="text-right" data-testid="text-invoice-detail-method">{invoice.paymentMethod}</span>
+                </>
+              )}
+            </div>
+
+            {/* Line items */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Line items</p>
+              {invoice.lineItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2" data-testid="text-invoice-detail-no-items">
+                  No line items on this invoice.
+                </p>
+              ) : (
+                <div className="rounded-md border divide-y">
+                  {invoice.lineItems.map((item) => (
+                    <div key={item.id} className="flex items-start justify-between gap-3 p-2.5" data-testid={`row-invoice-item-${item.id}`}>
+                      <span className="text-sm min-w-0" data-testid={`text-invoice-item-desc-${item.id}`}>{item.description || "—"}</span>
+                      <span className="text-sm font-medium shrink-0" data-testid={`text-invoice-item-amount-${item.id}`}>
+                        {formatMoney(item.amount, invoice.currencyCode)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Totals breakdown */}
+            <div className="rounded-md border p-3 space-y-1.5">
+              {invoice.subtotal != null && (
+                <TotalsRow label="Subtotal" value={formatMoney(invoice.subtotal, invoice.currencyCode)} testid="text-invoice-detail-subtotal" />
+              )}
+              {invoice.tax != null && (
+                <TotalsRow
+                  label={invoice.taxRate ? `Tax (${invoice.taxRate}%)` : "Tax"}
+                  value={formatMoney(invoice.tax, invoice.currencyCode)}
+                  testid="text-invoice-detail-tax"
+                />
+              )}
+              {invoice.tax2 != null && Number(invoice.tax2) !== 0 && (
+                <TotalsRow
+                  label={invoice.taxRate2 ? `Tax 2 (${invoice.taxRate2}%)` : "Tax 2"}
+                  value={formatMoney(invoice.tax2, invoice.currencyCode)}
+                  testid="text-invoice-detail-tax2"
+                />
+              )}
+              {invoice.credit != null && Number(invoice.credit) !== 0 && (
+                <TotalsRow label="Credit" value={formatMoney(invoice.credit, invoice.currencyCode)} testid="text-invoice-detail-credit" />
+              )}
+              <TotalsRow label="Total" value={formatMoney(invoice.total, invoice.currencyCode)} strong testid="text-invoice-detail-total-row" />
+              {invoice.balance != null && (
+                <TotalsRow label="Balance due" value={formatMoney(invoice.balance, invoice.currencyCode)} testid="text-invoice-detail-balance" />
+              )}
+            </div>
+
+            {invoice.notes && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-invoice-detail-notes">{invoice.notes}</p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+              {invoice.pdfUrl && (
+                <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" data-testid="link-invoice-detail-pdf">
+                  <Button variant="outline" size="sm" className="gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    View PDF
+                  </Button>
+                </a>
+              )}
+              {needsPay && invoice.payUrl && (
+                <a href={invoice.payUrl} target="_blank" rel="noopener noreferrer" data-testid="link-invoice-detail-pay">
+                  <Button size="sm" className="gap-1.5">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Pay now
+                  </Button>
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface BillingSummaryViewProps {
   data: BillingSummary | undefined;
   isLoading: boolean;
   /** "customer" tweaks copy to second-person; "admin" is about the customer. */
   context?: "customer" | "admin";
+  /** Required in admin context to fetch a single invoice for that customer. */
+  userId?: string;
 }
 
-export function BillingSummaryView({ data, isLoading, context = "customer" }: BillingSummaryViewProps) {
+export function BillingSummaryView({ data, isLoading, context = "customer", userId }: BillingSummaryViewProps) {
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   if (isLoading) {
     return (
       <div className="space-y-3" data-testid="billing-loading">
@@ -312,7 +564,12 @@ export function BillingSummaryView({ data, isLoading, context = "customer" }: Bi
                   data-testid={`card-billing-invoice-${inv.id}`}
                 >
                   <CardContent className="p-3">
-                    <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedInvoiceId(inv.id)}
+                      className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -m-3 p-3 rounded-md"
+                      data-testid={`button-invoice-detail-${inv.id}`}
+                    >
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate" data-testid={`text-invoice-num-${inv.id}`}>
                           #{inv.invoiceNum}
@@ -322,15 +579,18 @@ export function BillingSummaryView({ data, isLoading, context = "customer" }: Bi
                           {inv.dueDate ? ` · Due ${formatDate(inv.dueDate)}` : ""}
                         </p>
                       </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span className="font-semibold text-sm" data-testid={`text-invoice-total-${inv.id}`}>
-                          {formatMoney(inv.total, inv.currencyCode)}
-                        </span>
-                        <Badge variant="outline" className={invoiceBadgeClass(inv.status)} data-testid={`badge-invoice-status-${inv.id}`}>
-                          {INVOICE_STATUS_LABEL[inv.status]}
-                        </Badge>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="font-semibold text-sm" data-testid={`text-invoice-total-${inv.id}`}>
+                            {formatMoney(inv.total, inv.currencyCode)}
+                          </span>
+                          <Badge variant="outline" className={invoiceBadgeClass(inv.status)} data-testid={`badge-invoice-status-${inv.id}`}>
+                            {INVOICE_STATUS_LABEL[inv.status]}
+                          </Badge>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
                       </div>
-                    </div>
+                    </button>
                     {needsPay && inv.payUrl && (
                       <div className="mt-2.5 flex justify-end">
                         <a href={inv.payUrl} target="_blank" rel="noopener noreferrer" data-testid={`link-invoice-pay-${inv.id}`}>
@@ -348,6 +608,13 @@ export function BillingSummaryView({ data, isLoading, context = "customer" }: Bi
           </div>
         )}
       </div>
+
+      <InvoiceDetailDialog
+        invoiceId={selectedInvoiceId}
+        context={context}
+        userId={userId}
+        onClose={() => setSelectedInvoiceId(null)}
+      />
     </div>
   );
 }

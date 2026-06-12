@@ -349,6 +349,17 @@ export async function getClientInvoices(clientId: number): Promise<WhmcsRawFetch
   return whmcsApiCall("GetInvoices", { userid: clientId, limitnum: 100, orderby: "id", order: "desc" });
 }
 
+/**
+ * Raw GetInvoice for a single invoice id. Unlike GetInvoices (the list), this
+ * returns the full breakdown: the line items (`items.item`), the
+ * subtotal/tax/credit/total/balance figures, payment method, notes, and the
+ * owning `userid` used for the ownership check. Caller normalizes `items.item`
+ * and shapes the rest in the pure parser.
+ */
+export async function getInvoice(invoiceId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetInvoice", { invoiceid: invoiceId });
+}
+
 /** Raw GetClientsProducts for a client. Caller normalizes `products.product`. */
 export async function getClientProducts(clientId: number): Promise<WhmcsRawFetch> {
   return whmcsApiCall("GetClientsProducts", { clientid: clientId, stats: true });

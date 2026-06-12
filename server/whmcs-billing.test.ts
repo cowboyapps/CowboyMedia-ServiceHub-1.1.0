@@ -4,8 +4,11 @@ import {
   normalizeWhmcsDate,
   deriveInvoiceStatus,
   buildInvoicePayUrl,
+  buildInvoicePdfUrl,
   buildPortalUrl,
   parseInvoice,
+  parseInvoiceDetail,
+  parseInvoiceLineItem,
   parseProduct,
   buildBillingSummary,
 } from "./whmcs-billing";
@@ -61,6 +64,111 @@ test("buildInvoicePayUrl / buildPortalUrl: build links, null without a base URL"
   assert.equal(buildInvoicePayUrl("https://billing.example.com", 0), null);
   assert.equal(buildPortalUrl("https://billing.example.com"), "https://billing.example.com/clientarea.php");
   assert.equal(buildPortalUrl(null), null);
+});
+
+test("buildInvoicePdfUrl: builds the dl.php link, null without a base URL or id", () => {
+  assert.equal(buildInvoicePdfUrl("https://billing.example.com", 42), "https://billing.example.com/dl.php?type=i&id=42");
+  assert.equal(buildInvoicePdfUrl(null, 42), null);
+  assert.equal(buildInvoicePdfUrl("https://billing.example.com", 0), null);
+});
+
+// ---------- parseInvoiceLineItem ----------
+
+test("parseInvoiceLineItem: normalizes id, description, amount", () => {
+  const item = parseInvoiceLineItem({ id: "9", description: "  Web Hosting (01/06/2026 - 30/06/2026)  ", amount: "39.95" });
+  assert.equal(item.id, 9);
+  assert.equal(item.description, "Web Hosting (01/06/2026 - 30/06/2026)");
+  assert.equal(item.amount, "39.95");
+});
+
+// ---------- parseInvoiceDetail ----------
+
+test("parseInvoiceDetail: extracts line items, totals breakdown, dates, status, URLs", () => {
+  const detail = parseInvoiceDetail(
+    {
+      invoiceid: "100",
+      invoicenum: "INV-100",
+      userid: "5",
+      date: "2026-05-01",
+      duedate: "2026-06-01",
+      datepaid: "0000-00-00 00:00:00",
+      subtotal: "100.00",
+      credit: "0.00",
+      tax: "20.00",
+      tax2: "0.00",
+      taxrate: "20.00",
+      taxrate2: "0.00",
+      total: "120.00",
+      balance: "120.00",
+      currencycode: "USD",
+      status: "Unpaid",
+      paymentmethod: "stripe",
+      paymentmethodname: "Credit Card",
+      notes: "Thanks for your business",
+      items: {
+        item: [
+          { id: 1, description: "Web Hosting", amount: "60.00" },
+          { id: 2, description: "Domain", amount: "40.00" },
+        ],
+      },
+    },
+    "https://billing.example.com",
+    TODAY,
+  );
+  assert.equal(detail.id, 100);
+  assert.equal(detail.invoiceNum, "INV-100");
+  assert.equal(detail.userId, 5);
+  assert.equal(detail.date, "2026-05-01");
+  assert.equal(detail.dueDate, "2026-06-01");
+  assert.equal(detail.datePaid, null);
+  assert.equal(detail.subtotal, "100.00");
+  assert.equal(detail.tax, "20.00");
+  assert.equal(detail.taxRate, "20.00");
+  assert.equal(detail.total, "120.00");
+  assert.equal(detail.balance, "120.00");
+  assert.equal(detail.currencyCode, "USD");
+  assert.equal(detail.status, "overdue");
+  assert.equal(detail.rawStatus, "Unpaid");
+  // paymentmethodname wins over the raw paymentmethod slug.
+  assert.equal(detail.paymentMethod, "Credit Card");
+  assert.equal(detail.notes, "Thanks for your business");
+  assert.equal(detail.lineItems.length, 2);
+  assert.equal(detail.lineItems[0].description, "Web Hosting");
+  assert.equal(detail.payUrl, "https://billing.example.com/viewinvoice.php?id=100");
+  assert.equal(detail.pdfUrl, "https://billing.example.com/dl.php?type=i&id=100");
+});
+
+test("parseInvoiceDetail: single-item collapses to array, absent money fields are null, paid date kept", () => {
+  const detail = parseInvoiceDetail(
+    {
+      invoiceid: 7,
+      userid: 5,
+      total: "10.00",
+      status: "Paid",
+      datepaid: "2026-05-02",
+      items: { item: { id: 1, description: "Setup", amount: "10.00" } },
+    },
+    null,
+    TODAY,
+  );
+  assert.equal(detail.invoiceNum, "7");
+  assert.equal(detail.status, "paid");
+  assert.equal(detail.datePaid, "2026-05-02");
+  assert.equal(detail.subtotal, null);
+  assert.equal(detail.tax, null);
+  assert.equal(detail.balance, null);
+  assert.equal(detail.paymentMethod, null);
+  assert.equal(detail.notes, null);
+  assert.equal(detail.lineItems.length, 1);
+  assert.equal(detail.lineItems[0].description, "Setup");
+  assert.equal(detail.payUrl, null);
+  assert.equal(detail.pdfUrl, null);
+});
+
+test("parseInvoiceDetail: no items field yields an empty line-item list", () => {
+  const detail = parseInvoiceDetail({ invoiceid: 1, userid: 5, total: "0.00", status: "Draft" }, null, TODAY);
+  assert.deepEqual(detail.lineItems, []);
+  assert.equal(detail.status, "draft");
 });
 
 // ---------- parseInvoice ----------
