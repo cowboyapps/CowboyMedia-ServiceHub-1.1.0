@@ -13,6 +13,12 @@ import { useModalSlot } from "@/lib/modal-queue";
 // so a later version bump must not re-label this popup "Version 8.0".
 const WELCOME_V7_VERSION = "7.0";
 
+// Only CURRENT customers (accounts that existed when this announcement
+// shipped) should see it — new sign-ups after this point never do. We gate on
+// account creation time rather than the dismissal column, since a brand-new
+// account also has a null welcomeV7DismissedAt.
+const WELCOME_V7_CUTOFF = new Date("2026-06-12T12:00:00Z").getTime();
+
 // One-time welcome / account-linking announcement for customers. Shows once
 // per customer; either button permanently dismisses it (server-persisted via
 // users.welcomeV7DismissedAt, so it never re-fires across devices/reloads).
@@ -33,6 +39,9 @@ export function WelcomeV7Dialog() {
     if (!user) return;
     if (user.role !== "customer") return;
     if (user.welcomeV7DismissedAt) return;
+    // Skip new sign-ups: only customers who existed before the cutoff see it.
+    const createdMs = user.createdAt ? new Date(user.createdAt).getTime() : 0;
+    if (Number.isFinite(createdMs) && createdMs >= WELCOME_V7_CUTOFF) return;
     setOpen(true);
     setResolved(true);
   }, [user, resolved]);
