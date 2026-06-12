@@ -791,6 +791,29 @@ export const updateWhmcsSettingsSchema = z.object({
 
 export type UpdateWhmcsSettingsData = z.infer<typeof updateWhmcsSettingsSchema>;
 
+// Customer-editable WHMCS contact profile (Task #371). Mirrors the server-side
+// EDITABLE_PROFILE_FIELDS whitelist in server/whmcs.ts — these are the ONLY
+// fields a linked customer may update on their own WHMCS client. The client id
+// is NEVER part of this payload: the route derives it from the session user.
+// All fields optional so the form can send only what changed; email must look
+// like an email when present (WHMCS rejects a malformed one anyway, but we fail
+// fast with a friendly inline message).
+export const updateWhmcsProfileSchema = z.object({
+  firstName: z.string().trim().max(255).optional(),
+  lastName: z.string().trim().max(255).optional(),
+  companyName: z.string().trim().max(255).optional(),
+  email: z.string().trim().email("Must be a valid email").max(255).optional(),
+  address1: z.string().trim().max(255).optional(),
+  address2: z.string().trim().max(255).optional(),
+  city: z.string().trim().max(255).optional(),
+  state: z.string().trim().max(255).optional(),
+  postcode: z.string().trim().max(64).optional(),
+  country: z.string().trim().length(2, "Use a 2-letter country code").toUpperCase().optional(),
+  phoneNumber: z.string().trim().max(64).optional(),
+});
+
+export type UpdateWhmcsProfileData = z.infer<typeof updateWhmcsProfileSchema>;
+
 // Maps a WHMCS product/package (keyed by its `pid`) to one or more ServiceHub
 // monitored services (Task #335). Many-to-many: a single product can cover
 // several services and a service can be covered by several products. The unique

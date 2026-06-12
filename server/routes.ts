@@ -41,6 +41,7 @@ import {
 } from "./whmcs";
 import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
+import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -6363,6 +6364,29 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       getUser: (id) => storage.getUser(id),
     }),
   );
+
+  // Customer self-view: load + save the logged-in user's OWN linked WHMCS
+  // client's editable contact profile. The client id is ALWAYS derived from the
+  // session user — never request input (the PATCH body carries only whitelisted
+  // contact fields). GET never 500s; PATCH validates with a schema and degrades
+  // cleanly when WHMCS is unconfigured/unreachable, unlinked, or the API role
+  // lacks the client-update permission.
+  const whmcsProfileDeps = {
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getUser: (id: string) => storage.getUser(id),
+  };
+  const updateWhmcsProfile = createUpdateProfileHandler(whmcsProfileDeps);
+  app.get("/api/billing/profile", requireAuth, createGetProfileHandler(whmcsProfileDeps));
+  app.patch("/api/billing/profile", requireAuth, async (req, res) => {
+    await updateWhmcsProfile(req, res);
+    const userId = req.session.userId;
+    if (res.statusCode === 200 && userId) {
+      logActivity("user", "whmcs_profile_updated", {
+        actorId: userId,
+        summary: "Updated their WHMCS account contact details",
+      });
+    }
+  });
 
   // Customer invoice-PDF download proxy. Streams a single invoice's official
   // WHMCS PDF through ServiceHub (mirror-on-read — nothing stored) so the

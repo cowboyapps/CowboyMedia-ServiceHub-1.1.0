@@ -324,6 +324,131 @@ export async function getClientById(clientId: number): Promise<WhmcsClientLookup
   return { ok: true, client: toClientSummary(record) };
 }
 
+// --- Customer profile read/write (Task #371) ---
+// The editable WHMCS contact fields a linked customer may view + update from
+// inside the app. This is the integration's FIRST customer-initiated WHMCS
+// write — everything else is read-only. The field list here is the single
+// server-side whitelist: anything not on it is ignored on save (and never read
+// back as editable), so a customer can never poke at password/2FA/payment/
+// status fields via this surface.
+
+export interface WhmcsClientProfile {
+  firstName: string;
+  lastName: string;
+  companyName: string;
+  email: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  /** 2-letter ISO country code as stored in WHMCS (e.g. "US", "GB"). */
+  country: string;
+  phoneNumber: string;
+}
+
+/**
+ * The editable profile field whitelist: our camelCase key → the WHMCS
+ * UpdateClient / GetClientsDetails param name. The ONLY fields a customer can
+ * read-as-editable and write. Order is irrelevant; membership is the contract.
+ */
+export const EDITABLE_PROFILE_FIELDS: ReadonlyArray<readonly [keyof WhmcsClientProfile, string]> = [
+  ["firstName", "firstname"],
+  ["lastName", "lastname"],
+  ["companyName", "companyname"],
+  ["email", "email"],
+  ["address1", "address1"],
+  ["address2", "address2"],
+  ["city", "city"],
+  ["state", "state"],
+  ["postcode", "postcode"],
+  ["country", "country"],
+  ["phoneNumber", "phonenumber"],
+];
+
+/**
+ * Map a raw WHMCS GetClientsDetails record to our normalized editable profile
+ * shape. WHMCS 7+ returns the record both flattened at the top level and under
+ * a `client` object; callers should pass whichever they prefer. Pure → unit
+ * tested without network.
+ */
+export function toClientProfile(raw: any): WhmcsClientProfile {
+  const s = (v: any) => String(v ?? "").trim();
+  return {
+    firstName: s(raw?.firstname),
+    lastName: s(raw?.lastname),
+    companyName: s(raw?.companyname),
+    email: s(raw?.email),
+    address1: s(raw?.address1),
+    address2: s(raw?.address2),
+    city: s(raw?.city),
+    state: s(raw?.state),
+    postcode: s(raw?.postcode),
+    // WHMCS returns the 2-letter code as `country` and the full name as
+    // `countryname`; the code is what UpdateClient round-trips.
+    country: s(raw?.country),
+    phoneNumber: s(raw?.phonenumber),
+  };
+}
+
+/**
+ * Build the WHMCS UpdateClient params from a (already validated) partial
+ * profile, applying the editable-field whitelist. Any key NOT in
+ * {@link EDITABLE_PROFILE_FIELDS} is dropped, and `undefined` values are
+ * skipped so unspecified fields are left untouched in WHMCS. Pure → unit tested
+ * without network.
+ */
+export function buildClientUpdateParams(
+  clientId: number,
+  input: Partial<WhmcsClientProfile>,
+): Record<string, string | number> {
+  const params: Record<string, string | number> = { clientid: clientId };
+  for (const [key, whmcsKey] of EDITABLE_PROFILE_FIELDS) {
+    const v = input[key];
+    if (v === undefined) continue;
+    params[whmcsKey] = String(v);
+  }
+  return params;
+}
+
+export interface WhmcsClientProfileResult {
+  ok: boolean;
+  profile?: WhmcsClientProfile | null;
+  error?: string;
+  reason?: WhmcsFailureReason;
+}
+
+/**
+ * Load a single client's editable contact profile via GetClientsDetails.
+ * Returns profile:null when the client id no longer exists in WHMCS. No-throw
+ * tagged result like every other fetcher here.
+ */
+export async function getClientProfile(clientId: number): Promise<WhmcsClientProfileResult> {
+  const r = await whmcsApiCall("GetClientsDetails", { clientid: clientId, stats: false });
+  if (!r.ok) {
+    if (r.reason === "whmcs_error" && /not found/i.test(r.error ?? "")) {
+      return { ok: true, profile: null };
+    }
+    return { ok: false, error: r.error, reason: r.reason };
+  }
+  const record = r.data?.client ?? r.data;
+  return { ok: true, profile: toClientProfile(record) };
+}
+
+/**
+ * Persist a partial profile update to WHMCS via UpdateClient. The caller MUST
+ * have already resolved `clientId` from the session user (never request input)
+ * and validated/whitelisted `input`. No-throw tagged result. WHMCS surfaces a
+ * bad email / invalid country etc. as result:error, which is returned with
+ * reason "whmcs_error" so the caller can show a friendly message.
+ */
+export async function updateClient(
+  clientId: number,
+  input: Partial<WhmcsClientProfile>,
+): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("UpdateClient", buildClientUpdateParams(clientId, input));
+}
+
 // --- Billing read fetchers (Task #333) ---
 // Thin no-throw wrappers around the relevant WHMCS read actions. They return
 // the raw tagged result; the pure assembler in whmcs-billing.ts shapes the

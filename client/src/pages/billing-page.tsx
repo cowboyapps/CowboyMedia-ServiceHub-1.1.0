@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
+import { WhmcsProfileCard } from "@/components/whmcs-profile-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -91,6 +92,8 @@ export default function BillingPage() {
       <MyMonitoredServices />
 
       <BillingSummaryView data={data} isLoading={isLoading} context="customer" />
+
+      <WhmcsProfileCard />
     </div>
   );
 }
