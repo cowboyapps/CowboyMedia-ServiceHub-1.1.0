@@ -6,6 +6,7 @@ import {
   generateServicePassword,
   type PasswordRouteDeps,
 } from "./whmcs-password-route";
+import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import type { ServicesListData } from "./whmcs-billing";
 import type { WhmcsRawFetch } from "./whmcs";
 
@@ -257,4 +258,100 @@ test("never returns the generated password on any failure path", async () => {
   });
   const { body } = await call(app, 100);
   assert.equal(body.password, undefined);
+});
+
+// ---------- billing-cache invalidation wiring ----------
+//
+// The route wraps the handler with the shared after-handler hook
+// (createBillingCacheInvalidator) so the caller's cached billing data is dropped
+// the moment a password reset SUCCEEDS — otherwise the billing page keeps
+// serving the pre-reset snapshot until the 60s TTL expires. These tests mount
+// the REAL handler factory + the REAL invalidator together (mirroring how
+// routes.ts composes them) and spy on the invalidate dep to assert the exact
+// gating: invalidate only on a 200, never on a degraded response, and never for
+// a user with no linked WHMCS client.
+
+function makeWiredApp(opts: AppOpts) {
+  const invalidated: number[] = [];
+  const deps: PasswordRouteDeps = {
+    getWhmcsSettings: async () => ({
+      baseUrl: opts.baseUrl === undefined ? "https://billing.example.com" : opts.baseUrl,
+      enabled: opts.enabled ?? true,
+    }),
+    getUser: (id: string) => Promise.resolve(opts.users[id]),
+    hasWhmcsCredentials: () => opts.hasCredentials ?? true,
+    normalizeBaseUrl: (raw) => raw,
+    loadServicesList: opts.loadServicesList,
+    changeServicePassword: opts.changeServicePassword,
+    generatePassword: opts.generatePassword ?? (() => "Generated-Pw-123!"),
+  };
+  const handler = createResetServicePasswordHandler(deps);
+  const invalidateAfter = createBillingCacheInvalidator({
+    getUser: (id: string) => Promise.resolve(opts.users[id]),
+    invalidate: (clientId) => invalidated.push(clientId),
+  });
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: opts.sessionUserId ?? undefined };
+    next();
+  });
+  app.post("/api/my/services/:serviceId/password", async (req, res) => {
+    await handler(req, res);
+    await invalidateAfter(req, res);
+  });
+  return { app, invalidated };
+}
+
+test("invalidates the actor's billing cache after a successful password reset (200)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    changeServicePassword: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, 100);
+  assert.equal(status, 200);
+  // Cache dropped exactly once, for the SESSION user's linked client id.
+  assert.deepEqual(invalidated, [5]);
+});
+
+test("does NOT invalidate when the password reset fails (non-200)", async () => {
+  // An unsupported-module error degrades to a 409 — nothing changed on the
+  // service, so the cache must stand.
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    changeServicePassword: async (): Promise<WhmcsRawFetch> => ({ ok: false, reason: "whmcs_error", error: "Module Command Not Supported" }),
+  });
+  const { status } = await call(app, 100);
+  assert.equal(status, 409);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the service isn't owned (404)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    changeServicePassword: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, 999);
+  assert.equal(status, 404);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the user has no linked WHMCS client", async () => {
+  // The handler itself 409s here, but even on a hypothetical 200 the invalidator
+  // has no client id to act on — so nothing is dropped either way.
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: null } },
+    loadServicesList: okList([svc(100)]),
+    changeServicePassword: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, 100);
+  assert.equal(status, 409);
+  assert.deepEqual(invalidated, []);
 });

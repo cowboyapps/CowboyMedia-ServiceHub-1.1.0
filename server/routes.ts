@@ -40,6 +40,7 @@ import {
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
 import { loadBillingSummaryWithInvoiceServices, loadCustomerBillingWithServices, loadBillingDashboard, loadInvoiceDetail, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
@@ -6532,6 +6533,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     getWhmcsSettings: () => storage.getWhmcsSettings(),
     getUser: (id) => storage.getUser(id),
   });
+  // Shared after-handler hook: drop the actor's cached billing data the moment a
+  // self-action succeeds (200), so the next /api/billing load reflects it
+  // immediately instead of waiting out the 60s TTL. No-op on non-200 responses
+  // and for users with no linked WHMCS client.
+  const invalidateBillingAfterSelfAction = createBillingCacheInvalidator({
+    getUser: (id) => storage.getUser(id),
+    invalidate: (clientId) => invalidateBillingCaches(clientId),
+  });
   app.post(
     "/api/billing/services/:serviceId/cancel",
     requireAuth,
@@ -6539,13 +6548,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     createWhmcsCancelLimiter(),
     async (req, res) => {
       await requestCancellation(req, res);
+      await invalidateBillingAfterSelfAction(req, res);
       const userId = req.session.userId;
       if (res.statusCode === 200 && userId) {
-        // The cancellation changed this client's billing state — drop their
-        // cached summary + transaction history so the next /api/billing load
-        // reflects it immediately instead of waiting out the 60s TTL.
-        const actor = await storage.getUser(userId);
-        if (actor?.whmcsClientId) invalidateBillingCaches(actor.whmcsClientId);
         logActivity("user", "whmcs_cancel_requested", {
           actorId: userId,
           summary: `Requested cancellation of billing service #${getParam(req, "serviceId")}`,
@@ -6574,14 +6579,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     createWhmcsPasswordLimiter(),
     async (req, res) => {
       await resetServicePassword(req, res);
+      // A password reset is a customer-initiated WHMCS write that mutates the
+      // live service's state — drop this client's cached summary + transaction
+      // history so the next /api/billing load reflects it immediately instead of
+      // waiting out the 60s TTL (mirrors the cancellation route).
+      await invalidateBillingAfterSelfAction(req, res);
       const userId = req.session.userId;
       if (res.statusCode === 200 && userId) {
-        // A password reset is a customer-initiated WHMCS write that mutates the
-        // live service's state — drop this client's cached summary + transaction
-        // history so the next /api/billing load reflects it immediately instead
-        // of waiting out the 60s TTL (mirrors the cancellation route).
-        const actor = await storage.getUser(userId);
-        if (actor?.whmcsClientId) invalidateBillingCaches(actor.whmcsClientId);
         logActivity("user", "whmcs_service_password_reset", {
           actorId: userId,
           summary: `Reset the password for billing service #${getParam(req, "serviceId")}`,

@@ -5,6 +5,7 @@ import {
   createRequestCancellationHandler,
   type CancelRouteDeps,
 } from "./whmcs-cancel-route";
+import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import type { ServicesListData } from "./whmcs-billing";
 import type { WhmcsCancellationType, WhmcsRawFetch } from "./whmcs";
 
@@ -258,4 +259,98 @@ test("network failure degrades to 502 (no 500)", async () => {
   const { status, body } = await call(app, 100, { type: "Immediate" });
   assert.equal(status, 502);
   assert.equal(body.ok, false);
+});
+
+// ---------- billing-cache invalidation wiring ----------
+//
+// The route wraps the handler with the shared after-handler hook
+// (createBillingCacheInvalidator) so the caller's cached billing data is dropped
+// the moment a cancellation SUCCEEDS — otherwise the billing page keeps serving
+// the pre-cancel snapshot until the 60s TTL expires. These tests mount the REAL
+// handler factory + the REAL invalidator together (mirroring how routes.ts
+// composes them) and spy on the invalidate dep to assert the exact gating:
+// invalidate only on a 200, never on a degraded response, and never for a user
+// with no linked WHMCS client.
+
+function makeWiredApp(opts: AppOpts) {
+  const invalidated: number[] = [];
+  const deps: CancelRouteDeps = {
+    getWhmcsSettings: async () => ({
+      baseUrl: opts.baseUrl === undefined ? "https://billing.example.com" : opts.baseUrl,
+      enabled: opts.enabled ?? true,
+    }),
+    getUser: (id: string) => Promise.resolve(opts.users[id]),
+    hasWhmcsCredentials: () => opts.hasCredentials ?? true,
+    normalizeBaseUrl: (raw) => raw,
+    loadServicesList: opts.loadServicesList,
+    addCancelRequest: opts.addCancelRequest,
+  };
+  const handler = createRequestCancellationHandler(deps);
+  const invalidateAfter = createBillingCacheInvalidator({
+    getUser: (id: string) => Promise.resolve(opts.users[id]),
+    invalidate: (clientId) => invalidated.push(clientId),
+  });
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: opts.sessionUserId ?? undefined };
+    next();
+  });
+  app.post("/api/billing/services/:serviceId/cancel", async (req, res) => {
+    await handler(req, res);
+    await invalidateAfter(req, res);
+  });
+  return { app, invalidated };
+}
+
+test("invalidates the actor's billing cache after a successful cancellation (200)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    addCancelRequest: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, 100, { type: "Immediate" });
+  assert.equal(status, 200);
+  // Cache dropped exactly once, for the SESSION user's linked client id.
+  assert.deepEqual(invalidated, [5]);
+});
+
+test("does NOT invalidate when the cancellation fails (non-200)", async () => {
+  // A WHMCS error degrades to a 400 — nothing changed, so the cache must stand.
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    addCancelRequest: async (): Promise<WhmcsRawFetch> => ({ ok: false, reason: "whmcs_error", error: "There is no active service to cancel" }),
+  });
+  const { status } = await call(app, 100, { type: "Immediate" });
+  assert.equal(status, 400);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the service isn't owned (404)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    addCancelRequest: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, 999, { type: "Immediate" });
+  assert.equal(status, 404);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the user has no linked WHMCS client", async () => {
+  // The handler itself 409s here, but even on a hypothetical 200 the invalidator
+  // has no client id to act on — so nothing is dropped either way.
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: null } },
+    loadServicesList: okList([svc(100)]),
+    addCancelRequest: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, 100, { type: "Immediate" });
+  assert.equal(status, 409);
+  assert.deepEqual(invalidated, []);
 });
