@@ -1403,3 +1403,49 @@ export async function loadInvoiceDetail(
   }
   return { invoice, unreachable: false, notFound: false };
 }
+
+export interface InvoiceServiceHintData {
+  /** True when WHMCS was unreachable while loading the invoice (outage / perm). */
+  unreachable: boolean;
+  /** True when the invoice doesn't exist OR doesn't belong to `clientId`. */
+  notFound: boolean;
+  /** The single hosting service this invoice renewed, or null (0/multi-service). */
+  service: TransactionServiceHint | null;
+}
+
+/**
+ * Resolve the single hosting service ONE invoice renewed, on demand — the lazy
+ * twin of the up-front `applyInvoiceServiceHints` enrichment (Task #426). The
+ * up-front customer/admin payloads only label the first `TXN_SERVICE_INVOICE_CAP`
+ * invoices to bound the WHMCS fan-out; older invoices in a long billing history
+ * fall back to this per-row loader, fetched by the frontend only when the row
+ * scrolls into view. It loads the invoice's detail (ownership-checked against
+ * `clientId`, so a foreign invoice collapses to notFound — no enumeration
+ * oracle) and correlates its line items through the SAME
+ * `correlateTransactionService` rule used everywhere else; the display name is
+ * sharpened from the client's products (via the cached `loadBillingSummary`),
+ * degrading to the line-item description when the products read is unavailable.
+ * Never throws (the underlying loaders are no-throw).
+ */
+export async function loadInvoiceServiceHint(
+  invoiceId: number,
+  clientId: number,
+  baseUrl: string | null = null,
+  fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
+  loadSummary: (clientId: number, baseUrl: string | null) => Promise<BillingSummaryData> = loadBillingSummary,
+): Promise<InvoiceServiceHintData> {
+  const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl, fetchInvoice);
+  if (detail.unreachable) return { unreachable: true, notFound: false, service: null };
+  if (detail.notFound || !detail.invoice) return { unreachable: false, notFound: true, service: null };
+  // Product names sharpen the label but are non-essential — the correlation
+  // falls back to the line-item description when products can't be read.
+  let products: { id: number; name: string }[] = [];
+  try {
+    const summary = await loadSummary(clientId, baseUrl);
+    products = summary.products;
+  } catch {
+    products = [];
+  }
+  const service = correlateTransactionService(detail.invoice.lineItems, buildProductNameMap(products), baseUrl);
+  return { unreachable: false, notFound: false, service };
+}

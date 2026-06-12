@@ -43,6 +43,7 @@ import { loadBillingSummaryWithInvoiceServices, loadCustomerBillingWithServices,
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
+import { createCustomerInvoiceServiceHandler, createAdminInvoiceServiceHandler } from "./whmcs-invoice-service-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
 import { createRequestCancellationHandler } from "./whmcs-cancel-route";
@@ -6468,6 +6469,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }),
   );
 
+  // Customer self-view: the single hosting service ONE invoice renewed, fetched
+  // lazily by the frontend for invoices beyond the up-front labelling cap (so a
+  // long billing history still labels every row, on demand, without a large
+  // up-front WHMCS fan-out). Same session-derived ownership guard as the invoice
+  // detail route; never 500s.
+  app.get(
+    "/api/billing/invoices/:invoiceId/service",
+    requireAuth,
+    createCustomerInvoiceServiceHandler({
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      getUser: (id) => storage.getUser(id),
+    }),
+  );
+
   // Customer self-view: load + save the logged-in user's OWN linked WHMCS
   // client's editable contact profile. The client id is ALWAYS derived from the
   // session user — never request input (the PATCH body carries only whitelisted
@@ -6610,6 +6625,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     "/api/admin/users/:id/whmcs/billing/invoices/:invoiceId",
     requirePermission("users.view", "users.manage"),
     createAdminInvoiceDetailHandler({
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      getUser: (id) => storage.getUser(id),
+    }),
+  );
+
+  // Admin customer-detail view: the single hosting service ONE invoice renewed,
+  // for a linked customer. Permission-gated; ownership enforced against the
+  // selected user's linked client (same guard as the admin invoice-detail route).
+  // The lazy twin used by the admin billing panel for invoices beyond the
+  // up-front labelling cap.
+  app.get(
+    "/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/service",
+    requirePermission("users.view", "users.manage"),
+    createAdminInvoiceServiceHandler({
       getWhmcsSettings: () => storage.getWhmcsSettings(),
       getUser: (id) => storage.getUser(id),
     }),

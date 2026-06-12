@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -171,6 +171,23 @@ export interface InvoiceDetailPayload {
   unreachable: boolean;
   notFound: boolean;
   invoice: InvoiceDetail | null;
+}
+
+/** The renewed-service hint a single invoice carries, when one can be resolved. */
+export interface InvoiceServiceHint {
+  serviceId: number;
+  serviceName: string | null;
+  serviceUrl: string | null;
+}
+
+/** Lazy per-invoice renewed-service lookup payload (GET .../invoices/:id/service). */
+export interface InvoiceServicePayload {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  unreachable: boolean;
+  notFound: boolean;
+  service: InvoiceServiceHint | null;
 }
 
 const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
@@ -486,6 +503,130 @@ function InvoiceDetailDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The renewed-service tag shown under an invoice row: a deep link to the WHMCS
+ * service detail page when we have one, otherwise a plain name, otherwise
+ * nothing. Shared by the server-labelled rows and the lazy-loaded ones so both
+ * render identically.
+ */
+function InvoiceServiceTag({
+  invoiceId,
+  serviceUrl,
+  serviceName,
+}: {
+  invoiceId: number;
+  serviceUrl: string | null | undefined;
+  serviceName: string | null | undefined;
+}) {
+  if (serviceUrl) {
+    return (
+      <a
+        href={serviceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
+        data-testid={`link-invoice-service-${invoiceId}`}
+      >
+        <ServerCog className="w-3 h-3 shrink-0" />
+        <span className="truncate">{serviceName || "View service"}</span>
+      </a>
+    );
+  }
+  if (serviceName) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground mt-0.5 max-w-full"
+        data-testid={`text-invoice-service-${invoiceId}`}
+      >
+        <ServerCog className="w-3 h-3 shrink-0" />
+        <span className="truncate">{serviceName}</span>
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
+ * Renders the renewed-service label for one invoice row. When the server already
+ * labelled the invoice (the first cap-many invoices are correlated up-front), it
+ * renders that immediately. Otherwise — older invoices in a long billing history
+ * — it lazily fetches the label from the per-invoice service endpoint, but only
+ * once the row scrolls into view (IntersectionObserver), so a customer with
+ * hundreds of invoices never triggers a large up-front WHMCS fan-out. Degrades
+ * silently: an invoice with no single renewed service (or that can't be loaded)
+ * simply shows no label.
+ */
+function InvoiceServiceLabel({
+  invoice,
+  context,
+  userId,
+}: {
+  invoice: BillingInvoice;
+  context: "customer" | "admin";
+  userId?: string;
+}) {
+  const hasServerLabel = !!(invoice.serviceUrl || invoice.serviceName);
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (hasServerLabel || shouldLoad) return;
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasServerLabel, shouldLoad]);
+
+  const isAdmin = context === "admin";
+  const queryKey =
+    isAdmin && userId
+      ? ["/api/admin/users", userId, "whmcs", "billing", "invoices", String(invoice.id), "service"]
+      : ["/api/billing/invoices", String(invoice.id), "service"];
+
+  const { data } = useQuery<InvoiceServicePayload>({
+    queryKey,
+    enabled: !hasServerLabel && shouldLoad,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (hasServerLabel) {
+    return (
+      <InvoiceServiceTag
+        invoiceId={invoice.id}
+        serviceUrl={invoice.serviceUrl}
+        serviceName={invoice.serviceName}
+      />
+    );
+  }
+
+  const lazy = data?.service ?? null;
+  return (
+    <span ref={ref} data-testid={`invoice-service-lazy-${invoice.id}`}>
+      {lazy && (
+        <InvoiceServiceTag
+          invoiceId={invoice.id}
+          serviceUrl={lazy.serviceUrl}
+          serviceName={lazy.serviceName}
+        />
+      )}
+    </span>
   );
 }
 
@@ -1094,27 +1235,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                           {formatDate(inv.date)}
                           {inv.dueDate ? ` · Due ${formatDate(inv.dueDate)}` : ""}
                         </p>
-                        {inv.serviceUrl ? (
-                          <a
-                            href={inv.serviceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
-                            data-testid={`link-invoice-service-${inv.id}`}
-                          >
-                            <ServerCog className="w-3 h-3 shrink-0" />
-                            <span className="truncate">{inv.serviceName || "View service"}</span>
-                          </a>
-                        ) : inv.serviceName ? (
-                          <p
-                            className="inline-flex items-center gap-1 text-xs text-muted-foreground mt-0.5 max-w-full"
-                            data-testid={`text-invoice-service-${inv.id}`}
-                          >
-                            <ServerCog className="w-3 h-3 shrink-0" />
-                            <span className="truncate">{inv.serviceName}</span>
-                          </p>
-                        ) : null}
+                        <InvoiceServiceLabel invoice={inv} context={context} userId={userId} />
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <div className="flex flex-col items-end gap-1">
