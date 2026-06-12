@@ -1022,6 +1022,15 @@ test("loadTransactionHistory: a failed fetch degrades to empty + unreachable", a
 
 const BASE = "https://billing.example.com";
 
+// A deterministic, network-free billing-summary loader for the enriched-loader
+// tests. Without this, loadBillingSummary fans out to the REAL WHMCS API: in dev
+// our IP is blocked so it degrades to `unreachable` (tests pass by luck), but on
+// the deploy VPS WHMCS is reachable so the same call returns a live summary and
+// the "unreachable" assertions fail. Inject a fixed loader so the summary is the
+// same everywhere and no test ever touches production WHMCS.
+const loadUnreachableSummary = async () =>
+  buildBillingSummary(BASE, fail(), fail(), fail(), TODAY);
+
 /** Build a Hosting line item carrying a service id (relid). */
 function hostingLine(id: number, relid: number, description = ""): ParsedInvoiceLineItem {
   return parseInvoiceLineItem({ id, type: "Hosting", relid, description }, BASE);
@@ -1295,11 +1304,12 @@ test("applyInvoiceServiceHints: falls back to the line description when the prod
 });
 
 test("loadBillingSummaryWithInvoiceServices: returns the base summary untouched when billing is unreachable", async () => {
-  // WHMCS is unconfigured in the test env, so loadBillingSummary degrades to an
-  // unreachable summary with no invoices — and we must not fire any GetInvoice.
+  // Summary stubbed unreachable (see loadUnreachableSummary), so there are no
+  // invoices to enrich — and we must not fire any GetInvoice.
   let fetchedInvoice = false;
   const summary = await loadBillingSummaryWithInvoiceServices(
     42, BASE, async (id) => { fetchedInvoice = true; return okBilling({ invoiceid: id }); },
+    loadUnreachableSummary,
   );
   assert.equal(summary.unreachable, true);
   assert.deepEqual(summary.invoices, []);
@@ -1307,7 +1317,7 @@ test("loadBillingSummaryWithInvoiceServices: returns the base summary untouched 
 });
 
 test("loadCustomerBillingWithServices: labels payments even when the billing summary is unreachable", async () => {
-  // Independent degradation: the summary read fails (unconfigured WHMCS) yet the
+  // Independent degradation: the summary read fails (stubbed unreachable) yet the
   // payment history still loads and each row is labelled from its invoice.
   resetTransactionHistoryCache();
   const fetchTransactions = async () => okBilling({
@@ -1321,7 +1331,7 @@ test("loadCustomerBillingWithServices: labels payments even when the billing sum
       items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
     });
   };
-  const out = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  const out = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
   assert.equal(out.summary.unreachable, true);
   assert.deepEqual(out.summary.invoices, []);
   assert.equal(out.transactionsUnreachable, false);
@@ -1347,8 +1357,8 @@ test("loadCustomerBillingWithServices: a second view within the TTL serves the c
       items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
     });
   };
-  const first = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
-  const second = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  const first = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
+  const second = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
   assert.equal(first.transactions[0].serviceName, "Web Hosting");
   assert.deepEqual(second, first);
   // Both reads were served by a single set of WHMCS calls.
@@ -1370,12 +1380,12 @@ test("invalidateBillingCaches: clears a client's cached billing so the next view
     items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
   });
   // First view warms the customer self-view cache (the one the billing route reads).
-  await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
   assert.equal(txnFetches, 1);
   // A billing-changing action (e.g. a cancellation) invalidates this client.
   invalidateBillingCaches(42);
   // The next view must re-fetch rather than serve the now-stale cache.
-  await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
   assert.equal(txnFetches, 2);
 });
 
@@ -1392,14 +1402,14 @@ test("invalidateBillingCaches: leaves other clients' cached billing intact", asy
     invoiceid: id, userid: id, total: "20.00", status: "Paid",
     items: { item: [{ id: 1, type: "Hosting", relid: id, description: "Web Hosting" }] },
   });
-  await loadCustomerBillingWithServices(11, BASE, fetchTransactions, fetchInvoice);
-  await loadCustomerBillingWithServices(22, BASE, fetchTransactions, fetchInvoice);
+  await loadCustomerBillingWithServices(11, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
+  await loadCustomerBillingWithServices(22, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
   assert.equal(fetchCounts.get(11), 1);
   assert.equal(fetchCounts.get(22), 1);
   // Invalidating client 11 must not disturb client 22's cached entry.
   invalidateBillingCaches(11);
-  await loadCustomerBillingWithServices(11, BASE, fetchTransactions, fetchInvoice);
-  await loadCustomerBillingWithServices(22, BASE, fetchTransactions, fetchInvoice);
+  await loadCustomerBillingWithServices(11, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
+  await loadCustomerBillingWithServices(22, BASE, fetchTransactions, fetchInvoice, loadUnreachableSummary);
   assert.equal(fetchCounts.get(11), 2); // re-fetched
   assert.equal(fetchCounts.get(22), 1); // still cached
 });

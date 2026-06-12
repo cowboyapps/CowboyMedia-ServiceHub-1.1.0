@@ -969,8 +969,9 @@ export async function loadBillingSummaryWithInvoiceServices(
   clientId: number,
   baseUrl: string | null,
   fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
+  loadSummary: (clientId: number, baseUrl: string | null) => Promise<BillingSummaryData> = loadBillingSummary,
 ): Promise<BillingSummaryData> {
-  const summary = await loadBillingSummary(clientId, baseUrl);
+  const summary = await loadSummary(clientId, baseUrl);
   if (summary.unreachable || summary.invoices.length === 0) return summary;
   const invoiceIds = invoiceIdsToEnrich(summary.invoices);
   if (invoiceIds.length === 0) return summary;
@@ -1006,12 +1007,13 @@ export async function loadCustomerBillingWithServices(
   baseUrl: string | null = null,
   fetchTransactions: (clientId: number) => Promise<WhmcsRawFetch> = getClientTransactions,
   fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
+  loadSummary: (clientId: number, baseUrl: string | null) => Promise<BillingSummaryData> = loadBillingSummary,
 ): Promise<CustomerBillingData> {
   const now = Date.now();
   const cached = customerBillingCache.get(clientId);
   if (cached && now - cached.at < TXN_HISTORY_CACHE_TTL_MS) return cached.data;
 
-  const summary = await loadBillingSummary(clientId, baseUrl);
+  const summary = await loadSummary(clientId, baseUrl);
   const currencyDefault = summary.balance?.currencyCode ?? null;
   const history = await loadTransactionHistory(clientId, currencyDefault, baseUrl, fetchTransactions);
 
