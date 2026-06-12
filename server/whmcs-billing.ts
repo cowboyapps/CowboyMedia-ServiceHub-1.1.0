@@ -122,6 +122,18 @@ export interface ParsedInvoice {
   status: InvoiceStatus;
   rawStatus: string;
   payUrl: string | null;
+  /**
+   * The single hosting service this invoice renewed, or null. NEVER present on
+   * the raw GetInvoices list row (that call carries no line items) — it's filled
+   * in afterwards by `applyInvoiceServiceHints`, which correlates the invoice's
+   * own line items (fetched via GetInvoice) the same way payments are labelled.
+   * Stays null for 0/multiple-service invoices and for invoices we didn't load.
+   */
+  serviceId: number | null;
+  /** The renewed service's display name, or null. Added by the correlation. */
+  serviceName: string | null;
+  /** Deep link to that service's WHMCS detail page, when available. */
+  serviceUrl: string | null;
 }
 
 /** Map a raw WHMCS GetInvoices record into our normalized invoice shape. */
@@ -144,6 +156,11 @@ export function parseInvoice(raw: any, baseUrl: string | null, today: string): P
     status: deriveInvoiceStatus(rawStatus, dueDate, today),
     rawStatus,
     payUrl: buildInvoicePayUrl(baseUrl, id),
+    // The GetInvoices list call carries no line items — the renewed service is
+    // correlated later (applyInvoiceServiceHints) from each invoice's detail.
+    serviceId: null,
+    serviceName: null,
+    serviceUrl: null,
   };
 }
 
@@ -425,6 +442,15 @@ export function correlateTransactionService(
   return { serviceId, serviceName, serviceUrl };
 }
 
+/** Index a product list by service id -> display name (skips blanks/0 ids). */
+function buildProductNameMap(products: { id: number; name: string }[]): Map<number, string> {
+  const productNamesById = new Map<number, string>();
+  for (const p of products) {
+    if (p.id > 0 && p.name) productNamesById.set(p.id, p.name);
+  }
+  return productNamesById;
+}
+
 /**
  * Enrich a transaction list with the service each payment renewed, using a map
  * of invoiceId -> that invoice's line items and the client's products (for the
@@ -440,15 +466,36 @@ export function applyTransactionServiceHints(
   products: { id: number; name: string }[],
   baseUrl: string | null = null,
 ): ParsedTransaction[] {
-  const productNamesById = new Map<number, string>();
-  for (const p of products) {
-    if (p.id > 0 && p.name) productNamesById.set(p.id, p.name);
-  }
+  const productNamesById = buildProductNameMap(products);
   return transactions.map((t) => {
     if (t.invoiceId == null) return t;
     const hint = correlateTransactionService(lineItemsByInvoice.get(t.invoiceId), productNamesById, baseUrl);
     if (!hint) return t;
     return { ...t, serviceId: hint.serviceId, serviceName: hint.serviceName, serviceUrl: hint.serviceUrl };
+  });
+}
+
+/**
+ * Enrich an invoice LIST with the single hosting service each invoice renewed,
+ * using a map of invoiceId -> that invoice's line items and the client's
+ * products (for the display name). Reuses the exact same `correlateTransactionService`
+ * correlation as the payment-history labelling — an invoice is only labelled when
+ * its line items resolve to exactly one distinct hosting service. Every other
+ * invoice passes through unchanged: 0-service (domain/credit) invoices,
+ * multi-service invoices, and invoices whose detail wasn't loaded all stay null.
+ * Pure → unit tested.
+ */
+export function applyInvoiceServiceHints(
+  invoices: ParsedInvoice[],
+  lineItemsByInvoice: Map<number, ParsedInvoiceLineItem[]>,
+  products: { id: number; name: string }[],
+  baseUrl: string | null = null,
+): ParsedInvoice[] {
+  const productNamesById = buildProductNameMap(products);
+  return invoices.map((inv) => {
+    const hint = correlateTransactionService(lineItemsByInvoice.get(inv.id), productNamesById, baseUrl);
+    if (!hint) return inv;
+    return { ...inv, serviceId: hint.serviceId, serviceName: hint.serviceName, serviceUrl: hint.serviceUrl };
   });
 }
 
@@ -524,9 +571,56 @@ interface TxnHistoryCacheEntry {
 }
 const txnHistoryCache = new Map<number, TxnHistoryCacheEntry>();
 
-/** Reset the enriched transaction-history cache (test hook). */
+// Short per-client TTL cache for the combined customer self-view payload (billing
+// summary + enriched payment history). The customer route now reads through
+// `loadCustomerBillingWithServices` rather than `loadTransactionHistoryWithServices`,
+// so this carries the same repeat-view savings HEAD added to the txn loader: keyed
+// by clientId, and a transactions outage is never pinned.
+interface CustomerBillingCacheEntry {
+  at: number;
+  data: CustomerBillingData;
+}
+const customerBillingCache = new Map<number, CustomerBillingCacheEntry>();
+
+/** Reset the enriched billing read caches (test hook). */
 export function resetTransactionHistoryCache(): void {
   txnHistoryCache.clear();
+  customerBillingCache.clear();
+}
+
+/**
+ * Fetch each given invoice's line items into a `invoiceId -> lineItems` map,
+ * ownership-checked via `loadInvoiceDetail` against `clientId` (so another
+ * client's invoice can never leak in). Throttled to a small concurrency and
+ * tolerant of per-invoice failures — an invoice that won't load is simply
+ * omitted from the map (its caller then leaves the row un-labelled). The id list
+ * is fetched as-is, so callers cap/dedup it first. Never throws.
+ */
+async function fetchLineItemsByInvoice(
+  invoiceIds: number[],
+  clientId: number,
+  baseUrl: string | null,
+  fetchInvoice: (id: number) => Promise<WhmcsRawFetch>,
+): Promise<Map<number, ParsedInvoiceLineItem[]>> {
+  const lineItemsByInvoice = new Map<number, ParsedInvoiceLineItem[]>();
+  if (invoiceIds.length === 0) return lineItemsByInvoice;
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= invoiceIds.length) return;
+      const id = invoiceIds[i];
+      try {
+        const detail = await loadInvoiceDetail(id, clientId, baseUrl, fetchInvoice);
+        if (detail.invoice) lineItemsByInvoice.set(id, detail.invoice.lineItems);
+      } catch {
+        // Leave this invoice un-labelled — never break the caller's list.
+      }
+    }
+  }
+  const workerCount = Math.min(TXN_SERVICE_CONCURRENCY, invoiceIds.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return lineItemsByInvoice;
 }
 
 /**
@@ -576,23 +670,7 @@ export async function loadTransactionHistoryWithServices(
     return history;
   }
 
-  const lineItemsByInvoice = new Map<number, ParsedInvoiceLineItem[]>();
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    while (true) {
-      const i = cursor++;
-      if (i >= invoiceIds.length) return;
-      const id = invoiceIds[i];
-      try {
-        const detail = await loadInvoiceDetail(id, clientId, baseUrl, fetchInvoice);
-        if (detail.invoice) lineItemsByInvoice.set(id, detail.invoice.lineItems);
-      } catch {
-        // Leave this invoice's transactions un-labelled — never break the list.
-      }
-    }
-  }
-  const workerCount = Math.min(TXN_SERVICE_CONCURRENCY, invoiceIds.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  const lineItemsByInvoice = await fetchLineItemsByInvoice(invoiceIds, clientId, baseUrl, fetchInvoice);
 
   const data: TransactionHistoryData = {
     transactions: applyTransactionServiceHints(history.transactions, lineItemsByInvoice, products, baseUrl),
@@ -841,6 +919,122 @@ export async function loadBillingSummary(clientId: number, baseUrl: string | nul
   const data = buildBillingSummary(baseUrl, billingResult, invoicesResult, productsResult, todayUtc());
   if (!data.unreachable) cache.set(clientId, { at: now, data });
   return data;
+}
+
+/**
+ * Pick the invoice ids worth enriching with a renewed-service label: the list as
+ * it's already sorted (attention-first), de-duplicated, dropping invalid ids,
+ * capped so we never fire an unbounded number of GetInvoice calls. The cap
+ * matches the payment-history cap — installs typically have far fewer invoices.
+ */
+function invoiceIdsToEnrich(invoices: ParsedInvoice[]): number[] {
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const inv of invoices) {
+    if (inv.id <= 0 || seen.has(inv.id)) continue;
+    seen.add(inv.id);
+    ids.push(inv.id);
+    if (ids.length >= TXN_SERVICE_INVOICE_CAP) break;
+  }
+  return ids;
+}
+
+/**
+ * loadBillingSummary, then label each invoice row with the single hosting
+ * service it renewed (Task #424). The GetInvoices list call carries no line
+ * items, so — exactly like the payment-history labelling — we fetch each
+ * invoice's detail (capped, ownership-checked) and reuse the same correlation
+ * (`applyInvoiceServiceHints`). Used by the admin customer-billing panel; the
+ * customer self-view uses `loadCustomerBillingWithServices` instead so its
+ * invoice + payment labelling share one round of fetches. Degrades cleanly: a
+ * full outage or empty list returns the base summary untouched, and any invoice
+ * that won't load just stays un-labelled. Never throws.
+ */
+export async function loadBillingSummaryWithInvoiceServices(
+  clientId: number,
+  baseUrl: string | null,
+  fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
+): Promise<BillingSummaryData> {
+  const summary = await loadBillingSummary(clientId, baseUrl);
+  if (summary.unreachable || summary.invoices.length === 0) return summary;
+  const invoiceIds = invoiceIdsToEnrich(summary.invoices);
+  if (invoiceIds.length === 0) return summary;
+  const lineItemsByInvoice = await fetchLineItemsByInvoice(invoiceIds, clientId, baseUrl, fetchInvoice);
+  return {
+    ...summary,
+    invoices: applyInvoiceServiceHints(summary.invoices, lineItemsByInvoice, summary.products, baseUrl),
+  };
+}
+
+export interface CustomerBillingData {
+  /** Billing summary with each invoice row labelled with its renewed service. */
+  summary: BillingSummaryData;
+  /** Payment history, each row labelled with its renewed service. */
+  transactions: ParsedTransaction[];
+  /** True when the transactions read failed (history-only degradation). */
+  transactionsUnreachable: boolean;
+}
+
+/**
+ * The customer self-view billing payload: the billing summary with both its
+ * invoice rows AND its payment-history rows labelled with the hosting service
+ * each renewed (Tasks #419 + #424). Both features need the SAME invoices' line
+ * items, so this fetches the union of {invoice-list ids, linked-transaction ids}
+ * exactly ONCE (deduped + capped) and runs both correlations over that one map —
+ * an invoice shared by both is never read from WHMCS twice. Every failure
+ * degrades independently: a transactions outage only blanks the history
+ * (`transactionsUnreachable`), a billing outage only blanks the summary, and any
+ * single invoice that won't load just leaves its rows un-labelled. Never throws.
+ */
+export async function loadCustomerBillingWithServices(
+  clientId: number,
+  baseUrl: string | null = null,
+  fetchTransactions: (clientId: number) => Promise<WhmcsRawFetch> = getClientTransactions,
+  fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
+): Promise<CustomerBillingData> {
+  const now = Date.now();
+  const cached = customerBillingCache.get(clientId);
+  if (cached && now - cached.at < TXN_HISTORY_CACHE_TTL_MS) return cached.data;
+
+  const summary = await loadBillingSummary(clientId, baseUrl);
+  const currencyDefault = summary.balance?.currencyCode ?? null;
+  const history = await loadTransactionHistory(clientId, currencyDefault, baseUrl, fetchTransactions);
+
+  // Union of the invoice-list ids (attention-first, capped) and the linked
+  // transaction invoice ids (newest-first, capped), deduped so a paid invoice
+  // appearing in both is only fetched once.
+  const ids = invoiceIdsToEnrich(summary.invoices);
+  const seen = new Set<number>(ids);
+  let linkedAdded = 0;
+  for (const t of history.transactions) {
+    if (t.invoiceId == null || seen.has(t.invoiceId)) continue;
+    seen.add(t.invoiceId);
+    ids.push(t.invoiceId);
+    if (++linkedAdded >= TXN_SERVICE_INVOICE_CAP) break;
+  }
+
+  let result: CustomerBillingData;
+  if (ids.length === 0) {
+    result = { summary, transactions: history.transactions, transactionsUnreachable: history.unreachable };
+  } else {
+    const lineItemsByInvoice = await fetchLineItemsByInvoice(ids, clientId, baseUrl, fetchInvoice);
+    result = {
+      summary: {
+        ...summary,
+        invoices: applyInvoiceServiceHints(summary.invoices, lineItemsByInvoice, summary.products, baseUrl),
+      },
+      transactions: applyTransactionServiceHints(history.transactions, lineItemsByInvoice, summary.products, baseUrl),
+      transactionsUnreachable: history.unreachable,
+    };
+  }
+
+  // Mirror HEAD's enriched-transaction cache: a short per-client TTL keeps repeat
+  // self-views cheap. Never pin a transactions outage so a transient failure isn't
+  // held (the summary independently self-refreshes within the same window).
+  if (!result.transactionsUnreachable) {
+    customerBillingCache.set(clientId, { at: now, data: result });
+  }
+  return result;
 }
 
 // --- Admin billing dashboard rollup (Task #370) ---

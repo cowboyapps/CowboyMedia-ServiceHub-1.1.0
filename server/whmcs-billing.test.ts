@@ -26,6 +26,9 @@ import {
   resetTransactionHistoryCache,
   correlateTransactionService,
   applyTransactionServiceHints,
+  applyInvoiceServiceHints,
+  loadBillingSummaryWithInvoiceServices,
+  loadCustomerBillingWithServices,
   type BillingSummaryData,
   type ParsedInvoiceLineItem,
   type ParsedTransaction,
@@ -624,6 +627,9 @@ function inv(over: Partial<ParsedInvoice>): ParsedInvoice {
     status: "paid",
     rawStatus: "Paid",
     payUrl: null,
+    serviceId: null,
+    serviceName: null,
+    serviceUrl: null,
     ...over,
   };
 }
@@ -1252,4 +1258,99 @@ test("loadTransactionHistoryWithServices: separate clients never share a cache e
   );
   assert.equal(a.transactions[0].serviceName, "Alpha");
   assert.equal(b.transactions[0].serviceName, "Beta");
+});
+
+// ---------- applyInvoiceServiceHints / invoice-list loaders (Task #424) ----------
+
+/** Build a normalized invoice row carrying the given id. */
+const invRow = (id: number): ParsedInvoice => parseInvoice({ id, total: "20.00", status: "Unpaid" }, BASE, TODAY);
+
+test("applyInvoiceServiceHints: labels the single-service invoice, leaves 0/multi/unloaded null", () => {
+  const invoices = [invRow(100), invRow(200), invRow(300), invRow(400)];
+  const lineItems = new Map<number, ParsedInvoiceLineItem[]>([
+    [100, [hostingLine(1, 55, "Web Hosting")]], // one service -> labelled
+    [200, [domainLine(1)]], // domain only -> 0 services
+    [300, [hostingLine(1, 55), hostingLine(2, 56)]], // 2 services -> ambiguous
+    // 400 absent from the map -> detail not loaded
+  ]);
+  const out = applyInvoiceServiceHints(invoices, lineItems, [{ id: 55, name: "VPS Pro" }], BASE);
+  assert.equal(out[0].serviceId, 55);
+  assert.equal(out[0].serviceName, "VPS Pro");
+  assert.equal(out[0].serviceUrl, "https://billing.example.com/clientarea.php?action=productdetails&id=55");
+  assert.equal(out[1].serviceName, null);
+  assert.equal(out[2].serviceName, null);
+  assert.equal(out[3].serviceName, null);
+});
+
+test("applyInvoiceServiceHints: falls back to the line description when the product name is unknown", () => {
+  const out = applyInvoiceServiceHints(
+    [invRow(100)],
+    new Map([[100, [hostingLine(1, 7, "Cloud Server - April")]]]),
+    [],
+    BASE,
+  );
+  assert.equal(out[0].serviceId, 7);
+  assert.equal(out[0].serviceName, "Cloud Server - April");
+});
+
+test("loadBillingSummaryWithInvoiceServices: returns the base summary untouched when billing is unreachable", async () => {
+  // WHMCS is unconfigured in the test env, so loadBillingSummary degrades to an
+  // unreachable summary with no invoices — and we must not fire any GetInvoice.
+  let fetchedInvoice = false;
+  const summary = await loadBillingSummaryWithInvoiceServices(
+    42, BASE, async (id) => { fetchedInvoice = true; return okBilling({ invoiceid: id }); },
+  );
+  assert.equal(summary.unreachable, true);
+  assert.deepEqual(summary.invoices, []);
+  assert.equal(fetchedInvoice, false);
+});
+
+test("loadCustomerBillingWithServices: labels payments even when the billing summary is unreachable", async () => {
+  // Independent degradation: the summary read fails (unconfigured WHMCS) yet the
+  // payment history still loads and each row is labelled from its invoice.
+  resetTransactionHistoryCache();
+  const fetchTransactions = async () => okBilling({
+    transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+  });
+  let fetched: number[] = [];
+  const fetchInvoice = async (id: number) => {
+    fetched.push(id);
+    return okBilling({
+      invoiceid: id, userid: 42, total: "20.00", status: "Paid",
+      items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
+    });
+  };
+  const out = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  assert.equal(out.summary.unreachable, true);
+  assert.deepEqual(out.summary.invoices, []);
+  assert.equal(out.transactionsUnreachable, false);
+  assert.equal(out.transactions[0].serviceName, "Web Hosting");
+  assert.equal(out.transactions[0].serviceId, 55);
+  assert.deepEqual(fetched, [100]);
+});
+
+test("loadCustomerBillingWithServices: a second view within the TTL serves the cache, no re-fetch", async () => {
+  resetTransactionHistoryCache();
+  let txnFetches = 0;
+  let invoiceFetches = 0;
+  const fetchTransactions = async () => {
+    txnFetches++;
+    return okBilling({
+      transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+    });
+  };
+  const fetchInvoice = async (id: number) => {
+    invoiceFetches++;
+    return okBilling({
+      invoiceid: id, userid: 42, total: "20.00", status: "Paid",
+      items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
+    });
+  };
+  const first = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  const second = await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  assert.equal(first.transactions[0].serviceName, "Web Hosting");
+  assert.deepEqual(second, first);
+  // Both reads were served by a single set of WHMCS calls.
+  assert.equal(txnFetches, 1);
+  assert.equal(invoiceFetches, 1);
 });

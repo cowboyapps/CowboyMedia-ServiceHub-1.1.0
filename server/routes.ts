@@ -39,7 +39,7 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistoryWithServices, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummaryWithInvoiceServices, loadCustomerBillingWithServices, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
@@ -6432,24 +6432,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!clientId) {
         return res.json(emptyBilling({ configured, enabled, linked: false }));
       }
-      const summary = await loadBillingSummary(clientId, baseUrl);
-      // Transaction history is fetched alongside (its own degradation flag) so a
-      // failed GetTransactions only blanks the history, not the whole summary.
-      // Enriched with the renewed service per row by correlating each payment's
-      // invoice line items against the client's products.
-      const history = await loadTransactionHistoryWithServices(
-        clientId,
-        summary.balance?.currencyCode ?? null,
-        summary.products,
-        baseUrl,
-      );
+      // Both the invoice rows AND the payment-history rows are labelled with the
+      // hosting service each renewed, correlated from the invoices' line items.
+      // The two features share one round of invoice fetches (deduped + capped),
+      // and each section degrades on its own (a failed GetTransactions only
+      // blanks the history, not the whole summary).
+      const { summary, transactions, transactionsUnreachable } =
+        await loadCustomerBillingWithServices(clientId, baseUrl);
       return res.json({
         configured,
         enabled,
         linked: true,
         ...summary,
-        transactions: history.transactions,
-        transactionsUnreachable: history.unreachable,
+        transactions,
+        transactionsUnreachable,
       });
     } catch {
       // Never leak / never 500 for the customer — show a clean unreachable state.
@@ -6672,7 +6668,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       getWhmcsSettings: () => storage.getWhmcsSettings(),
       hasWhmcsCredentials,
       normalizeBaseUrl: normalizeWhmcsBaseUrl,
-      loadBillingSummary,
+      // Enrich each invoice row with the hosting service it renewed (Task #424).
+      loadBillingSummary: loadBillingSummaryWithInvoiceServices,
     }),
   );
 

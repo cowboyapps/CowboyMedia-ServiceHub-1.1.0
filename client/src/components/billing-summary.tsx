@@ -66,6 +66,12 @@ export interface BillingInvoice {
   status: InvoiceStatus;
   rawStatus: string;
   payUrl: string | null;
+  // The single hosting service this invoice renewed (Task #424), correlated
+  // server-side from the invoice's line items. All null for 0/multiple-service
+  // invoices and for invoices whose detail wasn't loaded.
+  serviceId?: number | null;
+  serviceName?: string | null;
+  serviceUrl?: string | null;
 }
 
 export interface BillingProduct {
@@ -1088,6 +1094,27 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                           {formatDate(inv.date)}
                           {inv.dueDate ? ` · Due ${formatDate(inv.dueDate)}` : ""}
                         </p>
+                        {inv.serviceUrl ? (
+                          <a
+                            href={inv.serviceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
+                            data-testid={`link-invoice-service-${inv.id}`}
+                          >
+                            <ServerCog className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{inv.serviceName || "View service"}</span>
+                          </a>
+                        ) : inv.serviceName ? (
+                          <p
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground mt-0.5 max-w-full"
+                            data-testid={`text-invoice-service-${inv.id}`}
+                          >
+                            <ServerCog className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{inv.serviceName}</span>
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <div className="flex flex-col items-end gap-1">
