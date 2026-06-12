@@ -253,6 +253,16 @@ function InvoiceDetailDialog({
   const invoice = data?.invoice ?? null;
   const needsPay = invoice && (invoice.status === "unpaid" || invoice.status === "overdue");
 
+  // The official WHMCS PDF, streamed through our own proxy so the customer never
+  // gets bounced to a WHMCS client-area login. The proxy enforces ownership
+  // against the linked client, so we only build the URL when we have an invoice.
+  const pdfProxyUrl =
+    invoice
+      ? isAdmin && userId
+        ? `/api/admin/users/${userId}/whmcs/billing/invoices/${invoice.id}/pdf`
+        : `/api/billing/invoices/${invoice.id}/pdf`
+      : null;
+
   return (
     <Dialog open={invoiceId != null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-invoice-detail">
@@ -374,8 +384,8 @@ function InvoiceDetailDialog({
 
             {/* Actions */}
             <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-              {invoice.pdfUrl && (
-                <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" data-testid="link-invoice-detail-pdf">
+              {pdfProxyUrl && (
+                <a href={pdfProxyUrl} target="_blank" rel="noopener noreferrer" data-testid="link-invoice-detail-pdf">
                   <Button variant="outline" size="sm" className="gap-1.5">
                     <FileText className="w-3.5 h-3.5" />
                     View PDF

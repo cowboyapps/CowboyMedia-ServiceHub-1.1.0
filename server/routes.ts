@@ -36,6 +36,7 @@ import {
   addTicketReplyAsClient as addWhmcsTicketReplyAsClient,
   addTicketReplyAsAdmin as addWhmcsTicketReplyAsAdmin,
   getTicketAttachment as getWhmcsTicketAttachment,
+  getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
 import { loadBillingSummary, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
@@ -6317,6 +6318,52 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Customer invoice-PDF download proxy. Streams a single invoice's official
+  // WHMCS PDF through ServiceHub (mirror-on-read — nothing stored) so the
+  // customer never has to log into the WHMCS client area to read it. Ownership
+  // is enforced exactly like the invoice detail read: loadInvoiceDetail rejects
+  // any invoice whose owning client doesn't match the session user's linked
+  // client (returns notFound), so a customer can't pull another client's PDF by
+  // guessing its id. Never 500s — degrades to a clean 404 / 502 / 503.
+  app.get("/api/billing/invoices/:invoiceId/pdf", requireAuth, async (req, res) => {
+    try {
+      const invoiceId = Number(getParam(req, "invoiceId"));
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const configured = hasWhmcsCredentials() && !!baseUrl;
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl);
+      if (detail.unreachable) {
+        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
+      }
+      if (detail.notFound || !detail.invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      const dl = await getWhmcsInvoicePdf(invoiceId);
+      if (!dl.ok || !dl.data) {
+        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
+      }
+      const buffer = Buffer.from(dl.data, "base64");
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `inline; filename="invoice-${invoiceId}.pdf"`);
+      res.set("Cache-Control", "private, max-age=300");
+      return res.send(buffer);
+    } catch {
+      return res.status(503).json({ message: "Billing system is temporarily unavailable" });
+    }
+  });
+
   // Admin customer-detail view: a single invoice's full detail for any linked
   // customer. Permission-gated. The client id is the selected user's linked
   // client, so the same ownership check applies. MAY surface the WHMCS/storage
@@ -6345,6 +6392,50 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       } catch {
         // Read-only contract: never 500 — degrade to a stable unreachable state.
         return res.json(emptyInvoiceDetail({ configured: true, enabled: true, linked: true, unreachable: true }));
+      }
+    },
+  );
+
+  // Admin invoice-PDF download proxy for a linked customer. Permission-gated;
+  // ownership enforced against the selected user's linked client id (same guard
+  // as the customer route). Streams the PDF bytes through — nothing is stored.
+  app.get(
+    "/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf",
+    requirePermission("users.view", "users.manage"),
+    async (req, res) => {
+      try {
+        const user = await storage.getUser(getParam(req, "id"));
+        if (!user) return res.status(404).json({ message: "Invoice not found" });
+        const invoiceId = Number(getParam(req, "invoiceId"));
+        if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+          return res.status(404).json({ message: "Invoice not found" });
+        }
+        const settings = await storage.getWhmcsSettings();
+        const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+        const configured = hasWhmcsCredentials() && !!baseUrl;
+        const enabled = !!settings?.enabled;
+        const clientId = user.whmcsClientId ?? null;
+        if (!configured || !enabled || !clientId) {
+          return res.status(404).json({ message: "Invoice not found" });
+        }
+        const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl);
+        if (detail.unreachable) {
+          return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
+        }
+        if (detail.notFound || !detail.invoice) {
+          return res.status(404).json({ message: "Invoice not found" });
+        }
+        const dl = await getWhmcsInvoicePdf(invoiceId);
+        if (!dl.ok || !dl.data) {
+          return res.status(502).json({ message: `Could not download this invoice: ${dl.error ?? "unknown error"}` });
+        }
+        const buffer = Buffer.from(dl.data, "base64");
+        res.set("Content-Type", "application/pdf");
+        res.set("Content-Disposition", `inline; filename="invoice-${invoiceId}.pdf"`);
+        res.set("Cache-Control", "private, max-age=300");
+        return res.send(buffer);
+      } catch (e) {
+        res.status(500).json({ message: getErrorMessage(e) });
       }
     },
   );
