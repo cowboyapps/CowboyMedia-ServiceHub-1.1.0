@@ -11,6 +11,7 @@ import {
   parseInvoiceLineItem,
   parseProduct,
   buildBillingSummary,
+  loadInvoiceDetail,
 } from "./whmcs-billing";
 
 const TODAY = "2026-06-11";
@@ -315,4 +316,54 @@ test("buildBillingSummary: credit fallback when stats.creditbalance absent", () 
   assert.equal(summary.balance?.currencyCode, "USD");
   assert.equal(summary.client?.name, "Client #5");
   assert.equal(summary.portalUrl, null);
+});
+
+// ---------- loadInvoiceDetail (ownership enforcement, Task #372) ----------
+// The single-invoice route derives the WHMCS client id from the session and
+// must reject any invoice owned by another client — collapsed to a clean
+// not-found so an attacker can't enumerate other clients' invoice ids. These
+// tests stub the WHMCS getInvoice fetcher (mirroring the notifier/loader DI
+// tests) and assert the ownership branch never leaks across clients.
+
+const okInvoice = (data: any) => async () => ({ ok: true, data });
+
+test("loadInvoiceDetail: matching owner returns the parsed invoice", async () => {
+  const fetch = okInvoice({ invoiceid: 100, userid: 5, total: "120.00", status: "Unpaid", duedate: "2026-12-01" });
+  const result = await loadInvoiceDetail(100, 5, "https://billing.example.com", fetch);
+  assert.equal(result.notFound, false);
+  assert.equal(result.unreachable, false);
+  assert.equal(result.invoice?.id, 100);
+  assert.equal(result.invoice?.userId, 5);
+  assert.equal(result.invoice?.payUrl, "https://billing.example.com/viewinvoice.php?id=100");
+});
+
+test("loadInvoiceDetail: mismatched owner is collapsed to not-found (no leak, no enumeration oracle)", async () => {
+  const fetch = okInvoice({ invoiceid: 100, userid: 999, total: "120.00", status: "Unpaid" });
+  const result = await loadInvoiceDetail(100, 5, "https://billing.example.com", fetch);
+  assert.equal(result.notFound, true);
+  assert.equal(result.unreachable, false);
+  assert.equal(result.invoice, null);
+});
+
+test("loadInvoiceDetail: a zero/absent owning userid is rejected, not silently matched", async () => {
+  const fetch = okInvoice({ invoiceid: 100, total: "120.00", status: "Unpaid" });
+  const result = await loadInvoiceDetail(100, 5, "https://billing.example.com", fetch);
+  assert.equal(result.notFound, true);
+  assert.equal(result.invoice, null);
+});
+
+test("loadInvoiceDetail: WHMCS 'not found' is a clean not-found, not an outage", async () => {
+  const fetch = async () => ({ ok: false, error: "Invoice ID Not Found", reason: "whmcs_error" as const });
+  const result = await loadInvoiceDetail(100, 5, "https://billing.example.com", fetch);
+  assert.equal(result.notFound, true);
+  assert.equal(result.unreachable, false);
+  assert.equal(result.invoice, null);
+});
+
+test("loadInvoiceDetail: any other failure surfaces as unreachable, not not-found", async () => {
+  const fetch = async () => ({ ok: false, error: "boom", reason: "network" as const });
+  const result = await loadInvoiceDetail(100, 5, "https://billing.example.com", fetch);
+  assert.equal(result.unreachable, true);
+  assert.equal(result.notFound, false);
+  assert.equal(result.invoice, null);
 });

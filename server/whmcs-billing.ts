@@ -474,8 +474,9 @@ export async function loadInvoiceDetail(
   invoiceId: number,
   clientId: number,
   baseUrl: string | null,
+  fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
 ): Promise<InvoiceDetailData> {
-  const result = await getInvoice(invoiceId);
+  const result = await fetchInvoice(invoiceId);
   if (!result.ok) {
     // A WHMCS "not found" is a clean not-found; anything else is an outage.
     if (result.reason === "whmcs_error" && /not\s*found|does not exist|invalid/i.test(result.error ?? "")) {
