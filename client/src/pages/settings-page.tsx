@@ -17,7 +17,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
-import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, CreditCard, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2 } from "lucide-react";
+import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, CreditCard, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2, CheckCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { replayOnboardingTour, ONBOARDING_OPEN_NOTIF_PREFS_EVENT } from "@/components/onboarding-tour";
 import type { Service } from "@shared/schema";
@@ -355,8 +355,8 @@ export default function SettingsPage() {
     queryKey: ["/api/whmcs/link/status"],
     enabled: !!user && user.role === "customer",
   });
-  const showWhmcsLinkCard =
-    !!whmcsLinkStatus?.configured && !!whmcsLinkStatus?.enabled && !whmcsLinkStatus?.linked;
+  const whmcsConfigured = !!whmcsLinkStatus?.configured && !!whmcsLinkStatus?.enabled;
+  const whmcsLinked = !!whmcsLinkStatus?.linked;
 
   const { data: services, isLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -572,23 +572,35 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {showWhmcsLinkCard && (
+      {whmcsConfigured && (
         <Card data-testid="card-whmcs-link">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <CreditCard className="w-4 h-4" />
-              Link your account
+              {whmcsLinked ? "Account linked" : "Link your account"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Connect your account management profile to view your invoices, payments, services, and
-              reminders right here in the app.
-            </p>
-            <Button onClick={() => setWhmcsLinkOpen(true)} data-testid="button-open-whmcs-link">
-              <CreditCard className="w-4 h-4 mr-2" />
-              Link your account
-            </Button>
+            {whmcsLinked ? (
+              <div
+                className="flex items-center gap-2 text-sm text-green-600 dark:text-green-500"
+                data-testid="status-whmcs-linked"
+              >
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>Your billing account is connected. Your invoices and payments appear below.</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Connect your account management profile to view your invoices, payments, services, and
+                  reminders right here in the app.
+                </p>
+                <Button onClick={() => setWhmcsLinkOpen(true)} data-testid="button-open-whmcs-link">
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Link your account
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

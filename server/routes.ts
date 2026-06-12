@@ -283,7 +283,7 @@ export async function sendTemplatedEmail(
   if (!tpl) return;
   const subject = rendered ? tpl.subject : replaceVarsPlain(tpl.subject, variables);
   const body = rendered ? tpl.body : replaceVarsSimple(tpl.body, variables, rawHtmlKeys);
-  const sensitiveTemplates = ["password_reset"];
+  const sensitiveTemplates = ["password_reset", "whmcs_link_verification"];
   const isSensitive = sensitiveTemplates.includes(templateKey);
   if (Array.isArray(to)) {
     sendEmailToMultiple(to, subject, body).catch(() => {});

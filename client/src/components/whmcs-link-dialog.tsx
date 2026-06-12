@@ -12,9 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, Link2, Loader2, MailCheck } from "lucide-react";
+import { AlertCircle, CheckCircle2, Link2, Loader2, MailCheck } from "lucide-react";
 
-type Step = "email" | "code" | "success";
+type Step = "email" | "code" | "success" | "conflict";
 
 interface RequestResult {
   status: "code_sent" | "no_match" | "conflict" | "unavailable" | "already_linked" | "invalid";
@@ -42,11 +42,18 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  // Inline error shown under the email field (no_match / unavailable).
+  const [emailError, setEmailError] = useState<string | null>(null);
+  // Number of failed email lookups — after the first, we surface a
+  // "Proceed without linking" escape hatch so the user is never trapped.
+  const [failedLookups, setFailedLookups] = useState(0);
 
   const reset = () => {
     setStep("email");
     setEmail("");
     setCode("");
+    setEmailError(null);
+    setFailedLookups(0);
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -62,37 +69,31 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
     onSuccess: (data) => {
       switch (data.status) {
         case "code_sent":
+          setEmailError(null);
           setStep("code");
           toast({ title: "Check your email", description: "We sent a 6-digit code to that address." });
           break;
         case "no_match":
-          toast({
-            title: "No matching account",
-            description: "We couldn't find an account with that email. Please double-check it and try again.",
-            variant: "destructive",
-          });
+          setFailedLookups((n) => n + 1);
+          setEmailError(
+            "We couldn't find an account with that email. Please double-check it and try again.",
+          );
           break;
         case "conflict":
-          toast({
-            title: "Already linked",
-            description: "That account is already linked to another login. Please contact support if this isn't expected.",
-            variant: "destructive",
-          });
+          setStep("conflict");
           break;
         case "already_linked":
           toast({ title: "You're already linked", description: "Your account is already connected." });
           handleOpenChange(false);
           break;
         default:
-          toast({
-            title: "Service unavailable",
-            description: "Account linking isn't available right now. Please try again later.",
-            variant: "destructive",
-          });
+          setFailedLookups((n) => n + 1);
+          setEmailError("Account linking isn't available right now. Please try again later.");
       }
     },
     onError: () => {
-      toast({ title: "Something went wrong", description: "Please try again in a moment.", variant: "destructive" });
+      setFailedLookups((n) => n + 1);
+      setEmailError("Something went wrong. Please try again in a moment.");
     },
   });
 
@@ -114,7 +115,10 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
           const remaining = data.attemptsRemaining ?? 0;
           toast({
             title: "Incorrect code",
-            description: remaining > 0 ? `That code didn't match. ${remaining} attempt${remaining === 1 ? "" : "s"} left.` : "That code didn't match.",
+            description:
+              remaining > 0
+                ? `That code didn't match. ${remaining} attempt${remaining === 1 ? "" : "s"} left.`
+                : "That code didn't match.",
             variant: "destructive",
           });
           break;
@@ -125,6 +129,7 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
             description: "That code is no longer valid. Please request a new one.",
             variant: "destructive",
           });
+          setCode("");
           setStep("email");
           break;
         case "too_many_attempts":
@@ -133,15 +138,11 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
             description: "Please request a new code and try again.",
             variant: "destructive",
           });
+          setCode("");
           setStep("email");
           break;
         case "conflict":
-          toast({
-            title: "Already linked",
-            description: "That account was just linked to another login. Please contact support.",
-            variant: "destructive",
-          });
-          handleOpenChange(false);
+          setStep("conflict");
           break;
         case "already_linked":
           toast({ title: "You're already linked", description: "Your account is already connected." });
@@ -194,9 +195,21 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
                   autoFocus
                   placeholder="you@example.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (emailError) setEmailError(null);
+                  }}
                   data-testid="input-whmcs-link-email"
                 />
+                {emailError && (
+                  <p
+                    className="flex items-start gap-1.5 text-sm text-destructive"
+                    data-testid="text-whmcs-link-error"
+                  >
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>{emailError}</span>
+                  </p>
+                )}
               </div>
               <Button
                 type="submit"
@@ -212,6 +225,17 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
                   "Send code"
                 )}
               </Button>
+              {failedLookups > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => handleOpenChange(false)}
+                  data-testid="button-whmcs-link-proceed-without"
+                >
+                  Proceed to ServiceHub without account linking
+                </Button>
+              )}
             </form>
           </>
         )}
@@ -272,7 +296,10 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                  onClick={() => setStep("email")}
+                  onClick={() => {
+                    setCode("");
+                    setStep("email");
+                  }}
                   data-testid="button-whmcs-link-change-email"
                 >
                   Change email
@@ -288,6 +315,32 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
                 </button>
               </div>
             </form>
+          </>
+        )}
+
+        {step === "conflict" && (
+          <>
+            <DialogHeader>
+              <div className="flex justify-center mb-2">
+                <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-amber-500" />
+                </div>
+              </div>
+              <DialogTitle className="text-center" data-testid="text-whmcs-conflict-title">
+                Account already connected
+              </DialogTitle>
+              <DialogDescription className="text-center">
+                This billing account is already connected to another ServiceHub login. If you believe this
+                is a mistake, please contact support and we'll help sort it out.
+              </DialogDescription>
+            </DialogHeader>
+            <Button
+              className="w-full"
+              onClick={() => handleOpenChange(false)}
+              data-testid="button-whmcs-conflict-close"
+            >
+              Close
+            </Button>
           </>
         )}
 
