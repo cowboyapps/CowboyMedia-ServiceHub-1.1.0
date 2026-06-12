@@ -193,7 +193,17 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
           break;
       }
     },
-    onError: () => {
+    onError: (error) => {
+      const retryAfter = parseRetryAfter(error);
+      if (retryAfter != null) {
+        setCooldown(retryAfter);
+        setRateLimitMessage(
+          `Too many attempts. Please try again in ${retryAfter} second${
+            retryAfter === 1 ? "" : "s"
+          }.`,
+        );
+        return;
+      }
       toast({ title: "Something went wrong", description: "Please try again in a moment.", variant: "destructive" });
     },
   });
@@ -326,13 +336,15 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
               <Button
                 type="submit"
                 className="w-full"
-                disabled={!codeValid || verifyMutation.isPending}
+                disabled={!codeValid || verifyMutation.isPending || cooldown > 0}
                 data-testid="button-whmcs-link-verify"
               >
                 {verifyMutation.isPending ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verifying...
                   </>
+                ) : cooldown > 0 ? (
+                  `Try again in ${cooldown}s`
                 ) : (
                   "Verify & link"
                 )}
