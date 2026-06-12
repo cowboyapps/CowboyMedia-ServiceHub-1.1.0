@@ -560,7 +560,7 @@ function InvoiceServiceTag({
  * silently: an invoice with no single renewed service (or that can't be loaded)
  * simply shows no label.
  */
-function InvoiceServiceLabel({
+export function InvoiceServiceLabel({
   invoice,
   context,
   userId,
