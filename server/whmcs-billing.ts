@@ -3,6 +3,7 @@ import {
   getClientInvoices,
   getClientProducts,
   getClientBillingDetails,
+  getClientTransactions,
   getInvoice,
   type WhmcsRawFetch,
 } from "./whmcs";
@@ -260,6 +261,101 @@ export function parseProduct(raw: any): ParsedProduct {
     billingCycle: String(raw?.billingcycle ?? "").trim(),
     amount: String(raw?.recurringamount ?? "").trim(),
   };
+}
+
+// --- Transaction / payment history (Task #400) ---
+// A read-only list of the recorded WHMCS payment + refund transactions for a
+// client, surfaced to the customer alongside their credit balance so they can
+// confirm a payment went through without contacting support.
+
+export interface ParsedTransaction {
+  /** WHMCS internal transaction row id — stable React key. */
+  id: number;
+  /** Transaction date as `YYYY-MM-DD` (time portion dropped), or null. */
+  date: string | null;
+  description: string;
+  gateway: string;
+  /** Money received (a payment), as a clean string. null when zero/absent. */
+  amountIn: string | null;
+  /** Money sent out (a refund), as a clean string. null when zero/absent. */
+  amountOut: string | null;
+  currencyCode: string | null;
+}
+
+/** A money string trimmed to null when it is absent OR numerically zero. */
+function nonZeroMoney(raw: any): string | null {
+  const s = cleanMoney(raw);
+  if (s === null) return null;
+  return parseMoneyNumber(s) === 0 ? null : s;
+}
+
+/**
+ * Map a raw WHMCS GetTransactions record into our normalized transaction shape.
+ * WHMCS's `currency` field on a transaction is a numeric currency id (useless
+ * for display without a lookup) — only honour it when it's actually a 3-letter
+ * code, otherwise fall back to the client's currency. Pure → unit tested.
+ */
+export function parseTransaction(raw: any, currencyDefault: string | null): ParsedTransaction {
+  const rawCurrency = String(raw?.currency ?? "").trim();
+  const currencyCode = /^[A-Za-z]{3}$/.test(rawCurrency) ? rawCurrency.toUpperCase() : currencyDefault;
+  return {
+    id: Number(raw?.id ?? 0),
+    date: normalizeWhmcsDate(raw?.date),
+    description: String(raw?.description ?? "").trim(),
+    gateway: String(raw?.gateway ?? "").trim(),
+    amountIn: nonZeroMoney(raw?.amountin),
+    amountOut: nonZeroMoney(raw?.amountout),
+    currencyCode,
+  };
+}
+
+export interface TransactionHistoryData {
+  transactions: ParsedTransaction[];
+  /** True when the transactions read failed (its own degradation flag). */
+  unreachable: boolean;
+}
+
+/**
+ * Shape a raw GetTransactions result into the locked history payload, sorted
+ * most-recent-first (date desc, with the higher row id breaking ties so
+ * same-day transactions stay newest-first). A failed read degrades to an empty
+ * list flagged unreachable rather than throwing. Pure → unit tested.
+ */
+export function buildTransactionHistory(
+  transactionsResult: WhmcsRawFetch,
+  currencyDefault: string | null,
+): TransactionHistoryData {
+  if (!transactionsResult.ok) {
+    return { transactions: [], unreachable: true };
+  }
+  const transactions = normalizeListField(transactionsResult.data?.transactions, "transaction")
+    .map((raw) => parseTransaction(raw, currencyDefault))
+    .sort((a, b) => {
+      const da = a.date ?? "";
+      const db = b.date ?? "";
+      if (da !== db) {
+        if (!da) return 1;
+        if (!db) return -1;
+        return db.localeCompare(da);
+      }
+      return b.id - a.id;
+    });
+  return { transactions, unreachable: false };
+}
+
+/**
+ * Fetch + shape a client's transaction history. The fetcher is scoped to the
+ * caller-supplied clientId (always derived from the session user upstream), so
+ * a customer can only ever read their own transactions. The fetcher is
+ * injectable for tests; it is no-throw, so this never throws into the handler.
+ */
+export async function loadTransactionHistory(
+  clientId: number,
+  currencyDefault: string | null,
+  fetcher: (clientId: number) => Promise<WhmcsRawFetch> = getClientTransactions,
+): Promise<TransactionHistoryData> {
+  const result = await fetcher(clientId);
+  return buildTransactionHistory(result, currencyDefault);
 }
 
 /**

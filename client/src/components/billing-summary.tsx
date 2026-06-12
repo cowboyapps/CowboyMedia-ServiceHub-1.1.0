@@ -31,6 +31,7 @@ import {
   ChevronRight,
   XCircle,
   AlertTriangle,
+  History,
 } from "lucide-react";
 
 // Shared, read-only presentation of a WHMCS billing summary. Driven entirely by
@@ -82,6 +83,16 @@ export interface PayAllOutstanding {
   url: string | null;
 }
 
+export interface BillingTransaction {
+  id: number;
+  date: string | null;
+  description: string;
+  gateway: string;
+  amountIn: string | null;
+  amountOut: string | null;
+  currencyCode: string | null;
+}
+
 export interface BillingSummary {
   configured: boolean;
   enabled: boolean;
@@ -91,6 +102,10 @@ export interface BillingSummary {
   balance: { creditBalance: string | null; currencyCode: string | null } | null;
   invoices: BillingInvoice[];
   products: BillingProduct[];
+  /** Payment / refund history — only populated in the customer payload. */
+  transactions?: BillingTransaction[];
+  /** True when the transactions read failed (history-only degradation). */
+  transactionsUnreachable?: boolean;
   portalUrl: string | null;
   payAll: PayAllOutstanding | null;
 }
@@ -682,6 +697,56 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Payment history (customer self-view only) */}
+      {context === "customer" && (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <History className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold" data-testid="heading-billing-transactions">Payment history</h2>
+          </div>
+          {data.transactionsUnreachable ? (
+            <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-transactions-unreachable">
+              We couldn't load your payment history right now. Please try again in a few minutes.
+            </p>
+          ) : !data.transactions || data.transactions.length === 0 ? (
+            <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-transactions">
+              No transactions yet.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {data.transactions.map((t) => (
+                <Card key={t.id} data-testid={`card-billing-transaction-${t.id}`}>
+                  <CardContent className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate" data-testid={`text-transaction-desc-${t.id}`}>
+                        {t.description || t.gateway || "Payment"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {formatDate(t.date)}
+                        {t.gateway && t.description ? ` · ${t.gateway}` : ""}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {t.amountIn ? (
+                        <span className="font-semibold text-sm text-green-700 dark:text-green-400" data-testid={`text-transaction-amount-in-${t.id}`}>
+                          +{formatMoney(t.amountIn, t.currencyCode)}
+                        </span>
+                      ) : t.amountOut ? (
+                        <span className="font-semibold text-sm text-destructive" data-testid={`text-transaction-amount-out-${t.id}`}>
+                          -{formatMoney(t.amountOut, t.currencyCode)}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-sm" data-testid={`text-transaction-amount-${t.id}`}>—</span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Products / services */}

@@ -17,6 +17,9 @@ import {
   parseMoneyNumber,
   monthlyizeAmount,
   buildBillingDashboard,
+  parseTransaction,
+  buildTransactionHistory,
+  loadTransactionHistory,
   type BillingSummaryData,
   type ParsedInvoice,
   type ParsedProduct,
@@ -668,4 +671,122 @@ test("buildBillingDashboard: customer name falls back to ServiceHub name when WH
   );
   assert.equal(dash.customers[0].name, "Fallback Name");
   assert.equal(dash.customers[0].clientId, 0);
+});
+
+// ---------- parseTransaction (Task #400) ----------
+// GetTransactions rows normalize to date/description/gateway/amount(in|out)/
+// currency. WHMCS's per-transaction `currency` is a numeric id, so display
+// currency falls back to the client's currency unless a 3-letter code is given.
+
+test("parseTransaction: normalizes a payment, drops the time, uses client currency", () => {
+  const t = parseTransaction(
+    { id: "12", date: "2026-06-01 14:32:00", description: "  Invoice Payment  ", gateway: "stripe", amountin: "39.95", amountout: "0.00", currency: "1" },
+    "USD",
+  );
+  assert.equal(t.id, 12);
+  assert.equal(t.date, "2026-06-01");
+  assert.equal(t.description, "Invoice Payment");
+  assert.equal(t.gateway, "stripe");
+  assert.equal(t.amountIn, "39.95");
+  // Zero amountout collapses to null.
+  assert.equal(t.amountOut, null);
+  // Numeric currency id is ignored in favour of the client currency.
+  assert.equal(t.currencyCode, "USD");
+});
+
+test("parseTransaction: a refund keeps amountOut and nulls a zero amountIn", () => {
+  const t = parseTransaction({ id: 9, date: "2026-05-10", gateway: "stripe", amountin: "0.00", amountout: "15.00" }, "GBP");
+  assert.equal(t.amountIn, null);
+  assert.equal(t.amountOut, "15.00");
+  // No description falls back cleanly to an empty string (UI fills it in).
+  assert.equal(t.description, "");
+});
+
+test("parseTransaction: a 3-letter currency code on the row wins over the fallback", () => {
+  const t = parseTransaction({ id: 1, date: "2026-01-01", amountin: "5.00", currency: "eur" }, "USD");
+  assert.equal(t.currencyCode, "EUR");
+});
+
+test("parseTransaction: zero/empty date becomes null", () => {
+  assert.equal(parseTransaction({ id: 1, date: "0000-00-00 00:00:00", amountin: "5.00" }, "USD").date, null);
+});
+
+// ---------- buildTransactionHistory ----------
+
+test("buildTransactionHistory: sorts most-recent-first, id breaks same-day ties", () => {
+  const history = buildTransactionHistory(
+    okBilling({
+      transactions: {
+        transaction: [
+          { id: 1, date: "2026-01-01", amountin: "10.00" },
+          { id: 5, date: "2026-03-01", amountin: "30.00" },
+          { id: 6, date: "2026-03-01", amountin: "40.00" }, // same day as #5, higher id -> first
+          { id: 3, date: "2026-02-01", amountin: "20.00" },
+        ],
+      },
+    }),
+    "USD",
+  );
+  assert.equal(history.unreachable, false);
+  assert.deepEqual(history.transactions.map((t) => t.id), [6, 5, 3, 1]);
+});
+
+test("buildTransactionHistory: single object collapses to a one-element array", () => {
+  const history = buildTransactionHistory(
+    okBilling({ transactions: { transaction: { id: 7, date: "2026-04-01", amountin: "9.00" } } }),
+    "USD",
+  );
+  assert.equal(history.transactions.length, 1);
+  assert.equal(history.transactions[0].id, 7);
+});
+
+test("buildTransactionHistory: no transactions yields an empty, reachable list", () => {
+  const history = buildTransactionHistory(okBilling({ transactions: {} }), "USD");
+  assert.deepEqual(history.transactions, []);
+  assert.equal(history.unreachable, false);
+});
+
+test("buildTransactionHistory: a failed read degrades to empty + unreachable", () => {
+  const history = buildTransactionHistory(fail(), "USD");
+  assert.deepEqual(history.transactions, []);
+  assert.equal(history.unreachable, true);
+});
+
+test("buildTransactionHistory: rows with no date sort last", () => {
+  const history = buildTransactionHistory(
+    okBilling({
+      transactions: {
+        transaction: [
+          { id: 1, date: "0000-00-00", amountin: "10.00" },
+          { id: 2, date: "2026-05-01", amountin: "20.00" },
+        ],
+      },
+    }),
+    "USD",
+  );
+  assert.deepEqual(history.transactions.map((t) => t.id), [2, 1]);
+});
+
+// ---------- loadTransactionHistory (ownership scoping, Task #400) ----------
+// The fetcher is always invoked with the caller-supplied (session-derived)
+// client id, so a customer can only read their own transactions; degradation
+// flows straight through from buildTransactionHistory.
+
+test("loadTransactionHistory: fetches scoped to the given client id and shapes the rows", async () => {
+  let calledWith: number | null = null;
+  const fetcher = async (clientId: number) => {
+    calledWith = clientId;
+    return { ok: true, data: { transactions: { transaction: [{ id: 1, date: "2026-05-01", amountin: "10.00" }] } } };
+  };
+  const history = await loadTransactionHistory(42, "USD", fetcher);
+  assert.equal(calledWith, 42);
+  assert.equal(history.transactions.length, 1);
+  assert.equal(history.transactions[0].currencyCode, "USD");
+});
+
+test("loadTransactionHistory: a failed fetch degrades to empty + unreachable", async () => {
+  const fetcher = async () => ({ ok: false, error: "boom", reason: "network" as const });
+  const history = await loadTransactionHistory(42, "USD", fetcher);
+  assert.deepEqual(history.transactions, []);
+  assert.equal(history.unreachable, true);
 });

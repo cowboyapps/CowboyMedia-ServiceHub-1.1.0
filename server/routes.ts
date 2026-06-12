@@ -39,7 +39,7 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistory, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
@@ -6339,6 +6339,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     balance: null,
     invoices: [],
     products: [],
+    transactions: [],
+    transactionsUnreachable: false,
     portalUrl: null,
     payAll: null,
     ...over,
@@ -6428,7 +6430,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.json(emptyBilling({ configured, enabled, linked: false }));
       }
       const summary = await loadBillingSummary(clientId, baseUrl);
-      return res.json({ configured, enabled, linked: true, ...summary });
+      // Transaction history is fetched alongside (its own degradation flag) so a
+      // failed GetTransactions only blanks the history, not the whole summary.
+      const history = await loadTransactionHistory(clientId, summary.balance?.currencyCode ?? null);
+      return res.json({
+        configured,
+        enabled,
+        linked: true,
+        ...summary,
+        transactions: history.transactions,
+        transactionsUnreachable: history.unreachable,
+      });
     } catch {
       // Never leak / never 500 for the customer — show a clean unreachable state.
       return res.json(emptyBilling({ configured: true, enabled: true, linked: true, unreachable: true }));

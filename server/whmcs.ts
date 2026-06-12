@@ -516,6 +516,17 @@ export async function addCancelRequest(
   return whmcsApiCall("AddCancelRequest", params);
 }
 
+/**
+ * Raw GetTransactions for a client. Returns every recorded payment / refund
+ * transaction for the client (WHMCS keys the client param as `clientid` here).
+ * Scoping by clientid is what makes the customer-facing call ownership-safe —
+ * a client never sees another client's transactions. Caller normalizes
+ * `transactions.transaction` and shapes the rest in the pure parser.
+ */
+export async function getClientTransactions(clientId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetTransactions", { clientid: clientId });
+}
+
 // --- Product catalogue (Task #335) ---
 
 export interface WhmcsProductSummary {
