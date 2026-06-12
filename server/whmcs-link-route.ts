@@ -66,6 +66,22 @@ export interface WhmcsLinkRequestDeps {
   now?: () => number;
 }
 
+export interface WhmcsLinkStatusUser {
+  whmcsClientId?: number | null;
+  whmcsLinkPromptDismissedAt?: Date | null;
+}
+
+export interface WhmcsLinkStatusDeps {
+  getLinkConfig: () => Promise<WhmcsLinkConfig>;
+  getUser: (id: string) => Promise<WhmcsLinkStatusUser | null | undefined>;
+}
+
+export interface WhmcsLinkDismissDeps {
+  updateUser: (id: string, data: { whmcsLinkPromptDismissedAt: Date }) => Promise<unknown>;
+  /** Injectable clock for deterministic timestamps in tests. */
+  now?: () => number;
+}
+
 export interface WhmcsLinkVerifyDeps {
   getUser: (id: string) => Promise<WhmcsLinkRouteUser | null | undefined>;
   getActiveWhmcsLinkVerification: (userId: string) => Promise<WhmcsLinkVerification | null | undefined>;
@@ -205,6 +221,45 @@ export function createWhmcsLinkVerifyHandler(deps: WhmcsLinkVerifyDeps) {
       res.json({ status: "linked" });
     } catch {
       res.json({ status: "expired" });
+    }
+  };
+}
+
+/**
+ * Status of the linking prompt for the logged-in user. Drives whether the UI
+ * shows the prompt at all: it stays hidden when WHMCS is unconfigured/disabled,
+ * when the user is already linked, or when they tapped "remind me later".
+ * Never throws into the handler — degrades to all-false so the page renders.
+ */
+export function createWhmcsLinkStatusHandler(deps: WhmcsLinkStatusDeps) {
+  return async (req: Request, res: Response) => {
+    try {
+      const { configured, enabled } = await deps.getLinkConfig();
+      const user = await deps.getUser(req.session.userId!);
+      res.json({
+        configured,
+        enabled,
+        linked: !!user?.whmcsClientId,
+        dismissed: !!user?.whmcsLinkPromptDismissedAt,
+      });
+    } catch {
+      res.json({ configured: false, enabled: false, linked: false, dismissed: false });
+    }
+  };
+}
+
+/**
+ * "Remind me later" — stamps whmcsLinkPromptDismissedAt so the prompt stops
+ * nagging. Idempotent: repeated calls just refresh the timestamp.
+ */
+export function createWhmcsLinkDismissHandler(deps: WhmcsLinkDismissDeps) {
+  const now = deps.now ?? Date.now;
+  return async (req: Request, res: Response) => {
+    try {
+      await deps.updateUser(req.session.userId!, { whmcsLinkPromptDismissedAt: new Date(now()) });
+      res.json({ ok: true });
+    } catch {
+      res.status(500).json({ ok: false });
     }
   };
 }

@@ -41,7 +41,7 @@ import {
 } from "./whmcs";
 import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
-import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler } from "./whmcs-link-route";
+import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
 import { createRequestCancellationHandler } from "./whmcs-cancel-route";
 import {
@@ -6360,29 +6360,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     return { configured: hasWhmcsCredentials() && !!baseUrl, enabled: !!settings?.enabled };
   };
 
-  app.get("/api/whmcs/link/status", requireAuth, async (req, res) => {
-    try {
-      const { configured, enabled } = await whmcsLinkConfig();
-      const user = await storage.getUser(req.session.userId!);
-      res.json({
-        configured,
-        enabled,
-        linked: !!user?.whmcsClientId,
-        dismissed: !!user?.whmcsLinkPromptDismissedAt,
-      });
-    } catch {
-      res.json({ configured: false, enabled: false, linked: false, dismissed: false });
-    }
-  });
+  app.get(
+    "/api/whmcs/link/status",
+    requireAuth,
+    createWhmcsLinkStatusHandler({
+      getLinkConfig: whmcsLinkConfig,
+      getUser: (id) => storage.getUser(id),
+    }),
+  );
 
-  app.post("/api/whmcs/link/dismiss", requireAuth, async (req, res) => {
-    try {
-      await storage.updateUser(req.session.userId!, { whmcsLinkPromptDismissedAt: new Date() });
-      res.json({ ok: true });
-    } catch {
-      res.status(500).json({ ok: false });
-    }
-  });
+  app.post(
+    "/api/whmcs/link/dismiss",
+    requireAuth,
+    createWhmcsLinkDismissHandler({
+      updateUser: (id, data) => storage.updateUser(id, data),
+    }),
+  );
 
   app.post(
     "/api/whmcs/link/request",

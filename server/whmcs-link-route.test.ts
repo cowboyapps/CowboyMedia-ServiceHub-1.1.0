@@ -7,10 +7,13 @@ import express from "express";
 import {
   createWhmcsLinkRequestHandler,
   createWhmcsLinkVerifyHandler,
+  createWhmcsLinkStatusHandler,
+  createWhmcsLinkDismissHandler,
   WHMCS_LINK_CODE_TTL_MS,
   WHMCS_LINK_MAX_ATTEMPTS,
   type WhmcsLinkRouteUser,
   type WhmcsLinkClientLookup,
+  type WhmcsLinkStatusUser,
 } from "./whmcs-link-route";
 import type { WhmcsLinkVerification } from "@shared/schema";
 
@@ -343,4 +346,172 @@ test("verify source uses a constant-time compare and never reads a clientId from
   assert.ok(src.includes("v.whmcsClientId"), "link must use the stored verification's client id");
   // No path reads a client/clientId off req.body.
   assert.ok(!/req\.body[^\n]*client/i.test(src), "must not read any clientId from req.body");
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/whmcs/link/status — drives whether the link prompt is shown at all
+// ---------------------------------------------------------------------------
+
+interface StatusHarnessOpts {
+  sessionUserId?: string | null;
+  user?: WhmcsLinkStatusUser | null;
+  configured?: boolean;
+  enabled?: boolean;
+  /** Force getLinkConfig / getUser to throw, to exercise the degrade path. */
+  throwOnConfig?: boolean;
+  throwOnGetUser?: boolean;
+}
+
+function makeStatusHarness(opts: StatusHarnessOpts) {
+  const sessionUserId = opts.sessionUserId === undefined ? "u1" : opts.sessionUserId;
+
+  const handler = createWhmcsLinkStatusHandler({
+    getLinkConfig: async () => {
+      if (opts.throwOnConfig) throw new Error("config blew up");
+      return { configured: opts.configured ?? true, enabled: opts.enabled ?? true };
+    },
+    getUser: async () => {
+      if (opts.throwOnGetUser) throw new Error("db blew up");
+      return opts.user ?? null;
+    },
+  });
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: sessionUserId ?? undefined };
+    next();
+  });
+  app.get("/status", handler);
+  return { app };
+}
+
+async function get(app: express.Express, p: string): Promise<{ status: number; body: any }> {
+  return await new Promise((resolve, reject) => {
+    const server = app.listen(0, () => {
+      const port = (server.address() as any).port;
+      fetch(`http://127.0.0.1:${port}${p}`)
+        .then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }))
+        .then((out) => { server.close(); resolve(out); })
+        .catch((err) => { server.close(); reject(err); });
+    });
+  });
+}
+
+test("status: fresh user with WHMCS on → configured+enabled, not linked, not dismissed", async () => {
+  const h = makeStatusHarness({ user: { whmcsClientId: null, whmcsLinkPromptDismissedAt: null } });
+  const r = await get(h.app, "/status");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { configured: true, enabled: true, linked: false, dismissed: false });
+});
+
+test("status: WHMCS unconfigured → configured false (prompt suppressed)", async () => {
+  const h = makeStatusHarness({ configured: false, user: { whmcsClientId: null } });
+  const r = await get(h.app, "/status");
+  assert.equal(r.body.configured, false);
+  assert.equal(r.body.enabled, true);
+});
+
+test("status: WHMCS disabled → enabled false (prompt suppressed)", async () => {
+  const h = makeStatusHarness({ enabled: false, user: { whmcsClientId: null } });
+  const r = await get(h.app, "/status");
+  assert.equal(r.body.enabled, false);
+});
+
+test("status: already-linked user → linked true", async () => {
+  const h = makeStatusHarness({ user: { whmcsClientId: 100 } });
+  const r = await get(h.app, "/status");
+  assert.equal(r.body.linked, true);
+  assert.equal(r.body.dismissed, false);
+});
+
+test("status: user who tapped 'remind me later' → dismissed true", async () => {
+  const h = makeStatusHarness({ user: { whmcsClientId: null, whmcsLinkPromptDismissedAt: new Date() } });
+  const r = await get(h.app, "/status");
+  assert.equal(r.body.dismissed, true);
+  assert.equal(r.body.linked, false);
+});
+
+test("status: no user row → all flags collapse to not-linked / not-dismissed", async () => {
+  const h = makeStatusHarness({ user: null });
+  const r = await get(h.app, "/status");
+  assert.deepEqual(r.body, { configured: true, enabled: true, linked: false, dismissed: false });
+});
+
+test("status: getLinkConfig throwing degrades to all-false (never 500s)", async () => {
+  const h = makeStatusHarness({ throwOnConfig: true, user: { whmcsClientId: 100 } });
+  const r = await get(h.app, "/status");
+  assert.equal(r.status, 200, "must not 500 — the page has to render");
+  assert.deepEqual(r.body, { configured: false, enabled: false, linked: false, dismissed: false });
+});
+
+test("status: getUser throwing degrades to all-false (never 500s)", async () => {
+  const h = makeStatusHarness({ throwOnGetUser: true });
+  const r = await get(h.app, "/status");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { configured: false, enabled: false, linked: false, dismissed: false });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/whmcs/link/dismiss — the customer's "remind me later"
+// ---------------------------------------------------------------------------
+
+interface DismissHarnessOpts {
+  sessionUserId?: string | null;
+  throwOnUpdate?: boolean;
+  now?: () => number;
+}
+
+function makeDismissHarness(opts: DismissHarnessOpts) {
+  const sessionUserId = opts.sessionUserId === undefined ? "u1" : opts.sessionUserId;
+  const updates: Array<{ id: string; dismissedAt: Date }> = [];
+
+  const handler = createWhmcsLinkDismissHandler({
+    updateUser: async (id, data) => {
+      if (opts.throwOnUpdate) throw new Error("write failed");
+      updates.push({ id, dismissedAt: data.whmcsLinkPromptDismissedAt });
+      return undefined;
+    },
+    now: opts.now,
+  });
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: sessionUserId ?? undefined };
+    next();
+  });
+  app.post("/dismiss", handler);
+  return { app, updates };
+}
+
+test("dismiss: stamps whmcsLinkPromptDismissedAt for the logged-in user", async () => {
+  let clock = 5_000_000;
+  const h = makeDismissHarness({ now: () => clock });
+  const r = await post(h.app, "/dismiss", {});
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { ok: true });
+  assert.equal(h.updates.length, 1);
+  assert.equal(h.updates[0].id, "u1");
+  assert.equal(h.updates[0].dismissedAt.getTime(), clock);
+});
+
+test("dismiss: idempotent — calling twice just refreshes the timestamp", async () => {
+  let clock = 1_000;
+  const h = makeDismissHarness({ now: () => clock });
+  const r1 = await post(h.app, "/dismiss", {});
+  assert.deepEqual(r1.body, { ok: true });
+  clock += 10_000;
+  const r2 = await post(h.app, "/dismiss", {});
+  assert.deepEqual(r2.body, { ok: true });
+  assert.equal(h.updates.length, 2);
+  // The second stamp is the later one — never errors on repeat.
+  assert.ok(h.updates[1].dismissedAt.getTime() > h.updates[0].dismissedAt.getTime());
+});
+
+test("dismiss: a failed write → 500 { ok: false }", async () => {
+  const h = makeDismissHarness({ throwOnUpdate: true });
+  const r = await post(h.app, "/dismiss", {});
+  assert.equal(r.status, 500);
+  assert.deepEqual(r.body, { ok: false });
 });
