@@ -46,6 +46,7 @@ import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } f
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
 import { createRequestCancellationHandler } from "./whmcs-cancel-route";
+import { createResetServicePasswordHandler } from "./whmcs-password-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -106,6 +107,7 @@ import {
   createWhmcsLinkRequestLimiter,
   createWhmcsLinkVerifyLimiter,
   createWhmcsCancelLimiter,
+  createWhmcsPasswordLimiter,
   bypassRateLimitForAdmins,
 } from "./rate-limits";
 import { logError } from "./error-log";
@@ -6509,6 +6511,36 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         logActivity("user", "whmcs_cancel_requested", {
           actorId: userId,
           summary: `Requested cancellation of billing service #${getParam(req, "serviceId")}`,
+        });
+      }
+    },
+  );
+
+  // Customer self-action: reset the password of one of the logged-in user's OWN
+  // linked WHMCS services. The WHMCS client id is ALWAYS derived from the session
+  // user, and the handler confirms the target service id (from the path) belongs
+  // to that client AND is active before triggering WHMCS's module password
+  // change — so a customer can never reset the password of a service that isn't
+  // theirs. Rate-limited (admins bypass); never 500s — degrades cleanly when
+  // WHMCS is unconfigured/unreachable, the account isn't linked, or the module
+  // doesn't support a password change. The freshly generated password is
+  // returned once in the response body and NEVER logged.
+  const resetServicePassword = createResetServicePasswordHandler({
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getUser: (id) => storage.getUser(id),
+  });
+  app.post(
+    "/api/my/services/:serviceId/password",
+    requireAuth,
+    bypassRateLimitForAdmins,
+    createWhmcsPasswordLimiter(),
+    async (req, res) => {
+      await resetServicePassword(req, res);
+      const userId = req.session.userId;
+      if (res.statusCode === 200 && userId) {
+        logActivity("user", "whmcs_service_password_reset", {
+          actorId: userId,
+          summary: `Reset the password for billing service #${getParam(req, "serviceId")}`,
         });
       }
     },

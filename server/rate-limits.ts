@@ -128,6 +128,18 @@ export function createWhmcsCancelLimiter(): RateLimitRequestHandler {
   });
 }
 
+// Customer-initiated service-password reset. A deliberate, low-frequency action
+// that writes to the LIVE service — keep a light cap (5 / hr / user) consistent
+// with the other customer WHMCS write routes. Admin/master_admin sessions bypass
+// via bypassRateLimitForAdmins like every other limiter.
+export function createWhmcsPasswordLimiter(): RateLimitRequestHandler {
+  return buildHandler({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    keyGenerator: userOrIpKey,
+  });
+}
+
 export async function bypassRateLimitForAdmins(
   req: Request,
   _res: Response,

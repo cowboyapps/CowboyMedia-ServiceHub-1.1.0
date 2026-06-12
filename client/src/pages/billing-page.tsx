@@ -1,12 +1,23 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { WhmcsProfileCard } from "@/components/whmcs-profile-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Server,
   KeyRound,
@@ -15,6 +26,8 @@ import {
   EyeOff,
   Copy,
   Check,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import type { Service } from "@shared/schema";
 
@@ -88,7 +101,7 @@ function ServiceCredentialRow({
   value: string;
   secret?: boolean;
   serviceId: number;
-  field: "username" | "password";
+  field: "username" | "password" | "newpassword";
 }) {
   const { toast } = useToast();
   const [revealed, setRevealed] = useState(false);
@@ -151,6 +164,105 @@ function ServiceCredentialRow({
   );
 }
 
+function ResetPasswordAction({ service }: { service: ActiveService }) {
+  const { toast } = useToast();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // The freshly reset password, shown ONCE after a successful reset. Kept only in
+  // component state — never persisted; refetching /api/my/services brings back
+  // the WHMCS-stored value on the next page load.
+  const [newPassword, setNewPassword] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/my/services/${service.id}/password`);
+      return (await res.json()) as { ok: boolean; password: string; message: string };
+    },
+    onSuccess: async (data) => {
+      setNewPassword(data.password);
+      toast({ title: "Password reset", description: "Your new service password is shown below." });
+      // Bring the rest of the page in sync (status / due date may shift in WHMCS).
+      await queryClient.invalidateQueries({ queryKey: ["/api/my/services"] });
+    },
+    onError: (err: Error) => {
+      // apiRequest throws "<status>: <body>"; pull the friendly message out of the
+      // JSON body when present, otherwise fall back to a generic line.
+      let description = "Please try again in a few minutes.";
+      const match = err.message.match(/^\d+:\s*(.*)$/s);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[1]);
+          if (typeof parsed?.message === "string") description = parsed.message;
+        } catch {
+          /* non-JSON body — keep the generic message */
+        }
+      }
+      toast({ title: "Couldn't reset password", description, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-3">
+      {newPassword ? (
+        <div
+          className="rounded-md border border-green-500/30 bg-green-500/10 p-3 space-y-2"
+          data-testid={`panel-new-password-${service.id}`}
+        >
+          <p className="text-xs font-medium text-green-700 dark:text-green-400">
+            New password — copy it now, it won't be shown again.
+          </p>
+          <ServiceCredentialRow
+            label="New password"
+            value={newPassword}
+            secret
+            serviceId={service.id}
+            field="newpassword"
+          />
+        </div>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        disabled={mutation.isPending}
+        onClick={() => setConfirmOpen(true)}
+        data-testid={`button-reset-password-${service.id}`}
+      >
+        {mutation.isPending ? (
+          <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+        ) : (
+          <RefreshCw className="w-3.5 h-3.5 mr-2" />
+        )}
+        {newPassword ? "Reset password again" : "Reset password"}
+      </Button>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent data-testid={`dialog-reset-password-${service.id}`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset this service's password?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This changes the live password for <span className="font-medium">{service.name}</span> right
+              away. Anything using the old password will stop working until you update it. You'll see the new
+              password once after it's reset.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`button-cancel-reset-password-${service.id}`}>
+              Keep current password
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => mutation.mutate()}
+              data-testid={`button-confirm-reset-password-${service.id}`}
+            >
+              Reset password
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 function ActiveServiceCard({ service }: { service: ActiveService }) {
   const [open, setOpen] = useState(false);
   return (
@@ -190,6 +302,7 @@ function ActiveServiceCard({ service }: { service: ActiveService }) {
           <div className="mt-3 pt-3 border-t space-y-3" data-testid={`panel-service-credentials-${service.id}`}>
             <ServiceCredentialRow label="Username" value={service.username} serviceId={service.id} field="username" />
             <ServiceCredentialRow label="Password" value={service.password} secret serviceId={service.id} field="password" />
+            <ResetPasswordAction service={service} />
           </div>
         )}
       </CardContent>
