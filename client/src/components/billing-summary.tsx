@@ -13,6 +13,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -32,6 +34,7 @@ import {
   XCircle,
   AlertTriangle,
   History,
+  Search,
 } from "lucide-react";
 
 // Shared, read-only presentation of a WHMCS billing summary. Driven entirely by
@@ -591,6 +594,188 @@ function CancelServiceDialog({
   );
 }
 
+type TransactionTypeFilter = "all" | "payments" | "refunds";
+
+/**
+ * Customer-only payment / refund history with lightweight, client-side filtering
+ * over the already-loaded transaction list — no extra endpoint. Supports a free
+ * text search (description + gateway), a payments / refunds type toggle, and an
+ * optional date range. Every degraded state (unreachable, empty list, no matches)
+ * renders cleanly.
+ */
+function PaymentHistory({
+  transactions,
+  transactionsUnreachable,
+}: {
+  transactions: BillingTransaction[] | undefined;
+  transactionsUnreachable: boolean | undefined;
+}) {
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<TransactionTypeFilter>("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const all = transactions ?? [];
+  const hasAny = all.length > 0;
+
+  const query = search.trim().toLowerCase();
+  const filtered = all.filter((t) => {
+    if (query) {
+      const haystack = `${t.description ?? ""} ${t.gateway ?? ""}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (typeFilter === "payments" && !t.amountIn) return false;
+    if (typeFilter === "refunds" && !t.amountOut) return false;
+    // Dates are ISO (YYYY-MM-DD), so string comparison sorts chronologically.
+    if (fromDate) {
+      if (!t.date || t.date < fromDate) return false;
+    }
+    if (toDate) {
+      if (!t.date || t.date > toDate) return false;
+    }
+    return true;
+  });
+
+  const filtersActive =
+    query !== "" || typeFilter !== "all" || fromDate !== "" || toDate !== "";
+
+  function clearFilters() {
+    setSearch("");
+    setTypeFilter("all");
+    setFromDate("");
+    setToDate("");
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <History className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold" data-testid="heading-billing-transactions">Payment history</h2>
+      </div>
+
+      {transactionsUnreachable ? (
+        <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-transactions-unreachable">
+          We couldn't load your payment history right now. Please try again in a few minutes.
+        </p>
+      ) : !hasAny ? (
+        <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-transactions">
+          No transactions yet.
+        </p>
+      ) : (
+        <>
+          {/* Filter controls — all client-side over the already-loaded list. */}
+          <div className="mb-3 space-y-2" data-testid="billing-transaction-filters">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search description or gateway"
+                className="pl-8 h-9"
+                data-testid="input-transaction-search"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <ToggleGroup
+                type="single"
+                value={typeFilter}
+                onValueChange={(v) => setTypeFilter((v || "all") as TransactionTypeFilter)}
+                className="justify-start"
+                data-testid="toggle-transaction-type"
+              >
+                <ToggleGroupItem value="all" size="sm" data-testid="toggle-transaction-all">All</ToggleGroupItem>
+                <ToggleGroupItem value="payments" size="sm" data-testid="toggle-transaction-payments">Payments</ToggleGroupItem>
+                <ToggleGroupItem value="refunds" size="sm" data-testid="toggle-transaction-refunds">Refunds</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="transaction-from" className="text-xs text-muted-foreground">From</Label>
+                <Input
+                  id="transaction-from"
+                  type="date"
+                  value={fromDate}
+                  max={toDate || undefined}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="h-9 w-auto"
+                  data-testid="input-transaction-from"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="transaction-to" className="text-xs text-muted-foreground">To</Label>
+                <Input
+                  id="transaction-to"
+                  type="date"
+                  value={toDate}
+                  min={fromDate || undefined}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="h-9 w-auto"
+                  data-testid="input-transaction-to"
+                />
+              </div>
+              {filtersActive && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 gap-1.5"
+                  onClick={clearFilters}
+                  data-testid="button-clear-transaction-filters"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {filtersActive && (
+            <p className="text-xs text-muted-foreground px-1 mb-2" data-testid="text-transaction-result-count">
+              Showing {filtered.length} of {all.length} transactions
+            </p>
+          )}
+
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-matching-transactions">
+              No transactions match your filters.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((t) => (
+                <Card key={t.id} data-testid={`card-billing-transaction-${t.id}`}>
+                  <CardContent className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate" data-testid={`text-transaction-desc-${t.id}`}>
+                        {t.description || t.gateway || "Payment"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {formatDate(t.date)}
+                        {t.gateway && t.description ? ` · ${t.gateway}` : ""}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {t.amountIn ? (
+                        <span className="font-semibold text-sm text-green-700 dark:text-green-400" data-testid={`text-transaction-amount-in-${t.id}`}>
+                          +{formatMoney(t.amountIn, t.currencyCode)}
+                        </span>
+                      ) : t.amountOut ? (
+                        <span className="font-semibold text-sm text-destructive" data-testid={`text-transaction-amount-out-${t.id}`}>
+                          -{formatMoney(t.amountOut, t.currencyCode)}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-sm" data-testid={`text-transaction-amount-${t.id}`}>—</span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 interface BillingSummaryViewProps {
   data: BillingSummary | undefined;
   isLoading: boolean;
@@ -701,52 +886,10 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
 
       {/* Payment history (customer self-view only) */}
       {context === "customer" && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <History className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold" data-testid="heading-billing-transactions">Payment history</h2>
-          </div>
-          {data.transactionsUnreachable ? (
-            <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-transactions-unreachable">
-              We couldn't load your payment history right now. Please try again in a few minutes.
-            </p>
-          ) : !data.transactions || data.transactions.length === 0 ? (
-            <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-transactions">
-              No transactions yet.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {data.transactions.map((t) => (
-                <Card key={t.id} data-testid={`card-billing-transaction-${t.id}`}>
-                  <CardContent className="p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate" data-testid={`text-transaction-desc-${t.id}`}>
-                        {t.description || t.gateway || "Payment"}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {formatDate(t.date)}
-                        {t.gateway && t.description ? ` · ${t.gateway}` : ""}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {t.amountIn ? (
-                        <span className="font-semibold text-sm text-green-700 dark:text-green-400" data-testid={`text-transaction-amount-in-${t.id}`}>
-                          +{formatMoney(t.amountIn, t.currencyCode)}
-                        </span>
-                      ) : t.amountOut ? (
-                        <span className="font-semibold text-sm text-destructive" data-testid={`text-transaction-amount-out-${t.id}`}>
-                          -{formatMoney(t.amountOut, t.currencyCode)}
-                        </span>
-                      ) : (
-                        <span className="font-semibold text-sm" data-testid={`text-transaction-amount-${t.id}`}>—</span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
+        <PaymentHistory
+          transactions={data.transactions}
+          transactionsUnreachable={data.transactionsUnreachable}
+        />
       )}
 
       {/* Products / services */}
