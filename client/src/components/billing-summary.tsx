@@ -251,6 +251,61 @@ function formatMoney(amount: string | null, currencyCode: string | null): string
   return a;
 }
 
+/** Best-effort numeric value out of a display money string ("$1,234.56 USD" -> 1234.56). */
+function parseAmount(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const cleaned = value.replace(/[^0-9.\-]/g, "");
+  if (!cleaned) return null;
+  const n = Number.parseFloat(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Snapshot of "what the customer still owes" used to detect a settled payment
+ * after returning from WHMCS's off-site checkout. Captures the set of invoices
+ * that are still outstanding plus the aggregate outstanding total, so a pre/post
+ * refresh comparison can tell whether anything actually got paid (avoids false
+ * "Payment received" confirmations when nothing changed).
+ */
+interface OutstandingSnapshot {
+  outstandingInvoiceIds: number[];
+  outstandingTotal: number | null;
+}
+
+export function summarizeOutstanding(d: BillingSummary | undefined): OutstandingSnapshot {
+  if (!d) return { outstandingInvoiceIds: [], outstandingTotal: null };
+  const outstandingInvoiceIds = d.invoices
+    .filter((inv) => inv.status === "unpaid" || inv.status === "overdue")
+    .map((inv) => inv.id);
+  return { outstandingInvoiceIds, outstandingTotal: parseAmount(d.payAll?.total ?? null) };
+}
+
+/**
+ * Given the outstanding state before and after a forced billing refresh, decide
+ * whether a payment actually landed. True when an invoice that was outstanding is
+ * now Paid, or when the aggregate outstanding total dropped. Cancellation /
+ * refund of an invoice (outstanding -> cancelled) does NOT count as a payment.
+ */
+export function detectPaymentSettled(
+  before: OutstandingSnapshot,
+  after: BillingSummary | undefined,
+): boolean {
+  if (!after) return false;
+  const afterById = new Map(after.invoices.map((inv) => [inv.id, inv]));
+  for (const id of before.outstandingInvoiceIds) {
+    if (afterById.get(id)?.status === "paid") return true;
+  }
+  const afterTotal = parseAmount(after.payAll?.total ?? null);
+  if (
+    before.outstandingTotal != null &&
+    afterTotal != null &&
+    afterTotal < before.outstandingTotal
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** A simple full-width informational state (not configured / not linked / etc). */
 function EmptyState({
   icon: Icon,
@@ -1008,6 +1063,7 @@ interface BillingSummaryViewProps {
 }
 
 export function BillingSummaryView({ data, isLoading, context = "customer", userId }: BillingSummaryViewProps) {
+  const { toast } = useToast();
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [cancelProduct, setCancelProduct] = useState<BillingProduct | null>(null);
 
@@ -1017,18 +1073,36 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
   // follows a pay link we flag it, and the moment this tab regains focus we force
   // a fresh server-side load (POST /api/billing/refresh drops only the session
   // user's own cache) and refetch — so the settled invoice shows immediately.
+  // We snapshot what's outstanding BEFORE the refresh and compare against the
+  // freshly-loaded data afterward; if an invoice that was due is now Paid (or the
+  // outstanding total dropped) we confirm it with a toast — without false
+  // positives when nothing actually settled.
   const payClickedRef = useRef(false);
+  const refreshingRef = useRef(false);
   useEffect(() => {
     if (context === "admin") return;
-    const onFocus = () => {
+    const onFocus = async () => {
       if (document.visibilityState !== "visible") return;
       if (!payClickedRef.current) return;
       payClickedRef.current = false;
-      apiRequest("POST", "/api/billing/refresh")
-        .catch(() => {})
-        .finally(() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
-        });
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
+      const before = summarizeOutstanding(
+        queryClient.getQueryData<BillingSummary>(["/api/billing"]),
+      );
+      try {
+        await apiRequest("POST", "/api/billing/refresh").catch(() => {});
+        await queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
+        const after = queryClient.getQueryData<BillingSummary>(["/api/billing"]);
+        if (detectPaymentSettled(before, after)) {
+          toast({
+            title: "Payment received — thanks!",
+            description: "Your payment went through and your billing is now up to date.",
+          });
+        }
+      } finally {
+        refreshingRef.current = false;
+      }
     };
     document.addEventListener("visibilitychange", onFocus);
     window.addEventListener("focus", onFocus);
@@ -1036,7 +1110,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
       document.removeEventListener("visibilitychange", onFocus);
       window.removeEventListener("focus", onFocus);
     };
-  }, [context]);
+  }, [context, toast]);
   const markPayClicked = () => {
     payClickedRef.current = true;
   };
