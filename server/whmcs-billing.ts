@@ -289,6 +289,8 @@ export function parseProduct(raw: any): ParsedProduct {
 export interface ParsedTransaction {
   /** WHMCS internal transaction row id — stable React key. */
   id: number;
+  /** The invoice this transaction paid, or null when not tied to one (0/absent). */
+  invoiceId: number | null;
   /** Transaction date as `YYYY-MM-DD` (time portion dropped), or null. */
   date: string | null;
   description: string;
@@ -316,8 +318,10 @@ function nonZeroMoney(raw: any): string | null {
 export function parseTransaction(raw: any, currencyDefault: string | null): ParsedTransaction {
   const rawCurrency = String(raw?.currency ?? "").trim();
   const currencyCode = /^[A-Za-z]{3}$/.test(rawCurrency) ? rawCurrency.toUpperCase() : currencyDefault;
+  const invoiceIdRaw = Number(raw?.invoiceid ?? 0);
   return {
     id: Number(raw?.id ?? 0),
+    invoiceId: Number.isFinite(invoiceIdRaw) && invoiceIdRaw > 0 ? invoiceIdRaw : null,
     date: normalizeWhmcsDate(raw?.date),
     description: String(raw?.description ?? "").trim(),
     gateway: String(raw?.gateway ?? "").trim(),

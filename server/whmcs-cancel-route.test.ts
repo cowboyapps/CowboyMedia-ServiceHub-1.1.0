@@ -31,6 +31,8 @@ function svc(id: number, status = "Active") {
     nextDueDate: null,
     billingCycle: "Monthly",
     amount: "10.00",
+    username: "",
+    password: "",
   };
 }
 

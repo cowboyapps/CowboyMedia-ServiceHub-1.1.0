@@ -786,6 +786,19 @@ test("parseTransaction: normalizes a payment, drops the time, uses client curren
   assert.equal(t.amountOut, null);
   // Numeric currency id is ignored in favour of the client currency.
   assert.equal(t.currencyCode, "USD");
+  // No invoiceid on the row -> null link.
+  assert.equal(t.invoiceId, null);
+});
+
+test("parseTransaction: captures a linked invoiceid, treats 0/absent as null", () => {
+  // A transaction tied to an invoice carries the invoice id through.
+  assert.equal(parseTransaction({ id: 1, invoiceid: "57", amountin: "10.00" }, "USD").invoiceId, 57);
+  // WHMCS reports unlinked transactions with invoiceid 0 -> null.
+  assert.equal(parseTransaction({ id: 2, invoiceid: "0", amountin: "10.00" }, "USD").invoiceId, null);
+  assert.equal(parseTransaction({ id: 3, invoiceid: 0, amountin: "10.00" }, "USD").invoiceId, null);
+  // Absent / non-numeric invoiceid -> null.
+  assert.equal(parseTransaction({ id: 4, amountin: "10.00" }, "USD").invoiceId, null);
+  assert.equal(parseTransaction({ id: 5, invoiceid: "abc", amountin: "10.00" }, "USD").invoiceId, null);
 });
 
 test("parseTransaction: a refund keeps amountOut and nulls a zero amountIn", () => {

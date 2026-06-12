@@ -88,6 +88,8 @@ export interface PayAllOutstanding {
 
 export interface BillingTransaction {
   id: number;
+  /** The invoice this payment settled, or null when not tied to one. */
+  invoiceId: number | null;
   date: string | null;
   description: string;
   gateway: string;
@@ -606,9 +608,12 @@ type TransactionTypeFilter = "all" | "payments" | "refunds";
 function PaymentHistory({
   transactions,
   transactionsUnreachable,
+  onSelectInvoice,
 }: {
   transactions: BillingTransaction[] | undefined;
   transactionsUnreachable: boolean | undefined;
+  /** Open the invoice detail dialog for a transaction's linked invoice. */
+  onSelectInvoice: (invoiceId: number) => void;
 }) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TransactionTypeFilter>("all");
@@ -740,34 +745,55 @@ function PaymentHistory({
             </p>
           ) : (
             <div className="space-y-2">
-              {filtered.map((t) => (
-                <Card key={t.id} data-testid={`card-billing-transaction-${t.id}`}>
-                  <CardContent className="p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate" data-testid={`text-transaction-desc-${t.id}`}>
-                        {t.description || t.gateway || "Payment"}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {formatDate(t.date)}
-                        {t.gateway && t.description ? ` · ${t.gateway}` : ""}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {t.amountIn ? (
-                        <span className="font-semibold text-sm text-green-700 dark:text-green-400" data-testid={`text-transaction-amount-in-${t.id}`}>
-                          +{formatMoney(t.amountIn, t.currencyCode)}
-                        </span>
-                      ) : t.amountOut ? (
-                        <span className="font-semibold text-sm text-destructive" data-testid={`text-transaction-amount-out-${t.id}`}>
-                          -{formatMoney(t.amountOut, t.currencyCode)}
-                        </span>
+              {filtered.map((t) => {
+                const amount = t.amountIn ? (
+                  <span className="font-semibold text-sm text-green-700 dark:text-green-400" data-testid={`text-transaction-amount-in-${t.id}`}>
+                    +{formatMoney(t.amountIn, t.currencyCode)}
+                  </span>
+                ) : t.amountOut ? (
+                  <span className="font-semibold text-sm text-destructive" data-testid={`text-transaction-amount-out-${t.id}`}>
+                    -{formatMoney(t.amountOut, t.currencyCode)}
+                  </span>
+                ) : (
+                  <span className="font-semibold text-sm" data-testid={`text-transaction-amount-${t.id}`}>—</span>
+                );
+                const details = (
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate" data-testid={`text-transaction-desc-${t.id}`}>
+                      {t.description || t.gateway || "Payment"}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {formatDate(t.date)}
+                      {t.gateway && t.description ? ` · ${t.gateway}` : ""}
+                    </p>
+                  </div>
+                );
+                return (
+                  <Card key={t.id} data-testid={`card-billing-transaction-${t.id}`}>
+                    <CardContent className="p-3">
+                      {t.invoiceId != null ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectInvoice(t.invoiceId!)}
+                          className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -m-3 p-3 rounded-md"
+                          data-testid={`button-transaction-invoice-${t.id}`}
+                        >
+                          {details}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {amount}
+                            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                        </button>
                       ) : (
-                        <span className="font-semibold text-sm" data-testid={`text-transaction-amount-${t.id}`}>—</span>
+                        <div className="flex items-center justify-between gap-3">
+                          {details}
+                          <div className="text-right shrink-0">{amount}</div>
+                        </div>
                       )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </>
@@ -889,6 +915,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
         <PaymentHistory
           transactions={data.transactions}
           transactionsUnreachable={data.transactionsUnreachable}
+          onSelectInvoice={setSelectedInvoiceId}
         />
       )}
 
