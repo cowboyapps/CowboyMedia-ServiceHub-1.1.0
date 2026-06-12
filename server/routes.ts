@@ -1415,6 +1415,19 @@ export async function registerRoutes(
     }
   });
 
+  // One-time v7 "Welcome to ServiceHub / account linking" announcement popup.
+  // Permanently dismissed once the customer clicks either button (link or
+  // dismiss). Idempotent — re-stamps the timestamp, never errors on repeat.
+  app.post("/api/users/me/welcome-v7-dismiss", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateUser(req.session.userId!, { welcomeV7DismissedAt: new Date() });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(sanitizeUser(updated));
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   // Latest published changelog entry the current user hasn't dismissed yet.
   // Returns null when there's nothing to show (no published entries, or the
   // newest one matches users.lastVersionWelcomeSeen). The admin-write side

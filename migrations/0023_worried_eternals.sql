@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "welcome_v7_dismissed_at" timestamp;

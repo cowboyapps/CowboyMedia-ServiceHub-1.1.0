@@ -65,6 +65,7 @@ import KnowledgePage from "@/pages/knowledge-page";
 import WhatsNewPage from "@/pages/whats-new-page";
 import { ServicesPickerWizard } from "@/pages/services-picker-wizard";
 import { VersionWelcomeDialog } from "@/components/version-welcome-dialog";
+import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
 import { useModalSlot } from "@/lib/modal-queue";
 
 function getRouteDepth(path: string): number {
@@ -1125,6 +1126,7 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
       <BroadcastAlertPopup />
       <CommandPalette />
       {isAdmin && <TicketTransferPopup />}
+      <WelcomeV7Dialog />
       <WhmcsLinkPrompt />
       <WelcomeDialog />
       <VersionWelcomeDialog />

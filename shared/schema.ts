@@ -47,6 +47,9 @@ export const users = pgTable("users", {
   // null means the auto-popup is still eligible to fire. The Settings entry
   // point ignores this; it's available whenever the user is unlinked.
   whmcsLinkPromptDismissedAt: timestamp("whmcs_link_prompt_dismissed_at"),
+  // When the customer dismissed the one-time v7 "Welcome to ServiceHub /
+  // account linking" announcement popup. Null = still eligible to show.
+  welcomeV7DismissedAt: timestamp("welcome_v7_dismissed_at"),
 }, (table) => ({
   roleIdx: index("users_role_idx").on(table.role),
   whmcsClientIdx: uniqueIndex("users_whmcs_client_id_idx").on(table.whmcsClientId),
