@@ -75,6 +75,20 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["push", "email"],
   },
   {
+    key: "whmcs_service_renewal",
+    label: "Service renewal reminders",
+    description: "When one of your active services is approaching its renewal date",
+    group: "Billing",
+    channels: ["push", "email"],
+  },
+  {
+    key: "whmcs_service_status",
+    label: "Service status changes",
+    description: "When one of your services is suspended or becomes active again",
+    group: "Billing",
+    channels: ["push", "email"],
+  },
+  {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",

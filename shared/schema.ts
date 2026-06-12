@@ -836,6 +836,25 @@ export const whmcsInvoiceNotifications = pgTable("whmcs_invoice_notifications", 
 
 export type WhmcsInvoiceNotification = typeof whmcsInvoiceNotifications.$inferSelect;
 
+// Per-(user, WHMCS service) marker for the service-lifecycle notifier
+// (renewal-approaching / suspended / unsuspended). Two dedup fields live side by
+// side because the events differ: `lastSeenStatus` drives suspend/unsuspend
+// transition dedup (fire on the edge only), while `lastRenewalNotified` is the
+// nextDueDate of the last renewal reminder (null = none) so renewal re-fires
+// once per billing cycle when the date advances (see shared/whmcs-service-notify.ts).
+export const whmcsServiceNotifications = pgTable("whmcs_service_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  whmcsServiceId: integer("whmcs_service_id").notNull(),
+  lastSeenStatus: text("last_seen_status").notNull(),
+  lastRenewalNotified: text("last_renewal_notified"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userServiceUniq: uniqueIndex("whmcs_service_notifications_user_service_uniq").on(table.userId, table.whmcsServiceId),
+}));
+
+export type WhmcsServiceNotification = typeof whmcsServiceNotifications.$inferSelect;
+
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production
 // deploys from the UI during a maintenance window without touching the VPS.

@@ -49,6 +49,7 @@ import {
   type WhmcsProductMapping,
   whmcsTicketNotifications,
   whmcsInvoiceNotifications,
+  whmcsServiceNotifications,
   appSettings,
   type AppSettings,
   type BusinessHours,
@@ -65,6 +66,7 @@ import {
   type PublicStatusSubscriber,
   users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
 } from "@shared/schema";
+import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import { db } from "./db";
 import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
 import { invalidatePublicStatusCache } from "./public-status-cache";
@@ -364,6 +366,8 @@ export interface IStorage {
   recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void>;
   getWhmcsInvoiceNotifyState(userId: string): Promise<Record<string, string>>;
   recordWhmcsInvoiceNotified(userId: string, whmcsInvoiceId: number, lastNotifiedStage: string): Promise<void>;
+  getWhmcsServiceNotifyState(userId: string): Promise<ServiceMarkerMap>;
+  recordWhmcsServiceNotified(userId: string, whmcsServiceId: number, marker: ServiceMarker): Promise<void>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
   deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
@@ -1387,6 +1391,40 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoUpdate({
         target: [whmcsInvoiceNotifications.userId, whmcsInvoiceNotifications.whmcsInvoiceId],
         set: { lastNotifiedStage, updatedAt: new Date() },
+      });
+  }
+
+  async getWhmcsServiceNotifyState(userId: string): Promise<ServiceMarkerMap> {
+    const rows = await db
+      .select()
+      .from(whmcsServiceNotifications)
+      .where(eq(whmcsServiceNotifications.userId, userId));
+    const map: ServiceMarkerMap = {};
+    for (const r of rows) {
+      map[String(r.whmcsServiceId)] = {
+        lastSeenStatus: r.lastSeenStatus,
+        lastRenewalNotified: r.lastRenewalNotified ?? null,
+      };
+    }
+    return map;
+  }
+
+  async recordWhmcsServiceNotified(userId: string, whmcsServiceId: number, marker: ServiceMarker): Promise<void> {
+    await db
+      .insert(whmcsServiceNotifications)
+      .values({
+        userId,
+        whmcsServiceId,
+        lastSeenStatus: marker.lastSeenStatus,
+        lastRenewalNotified: marker.lastRenewalNotified,
+      })
+      .onConflictDoUpdate({
+        target: [whmcsServiceNotifications.userId, whmcsServiceNotifications.whmcsServiceId],
+        set: {
+          lastSeenStatus: marker.lastSeenStatus,
+          lastRenewalNotified: marker.lastRenewalNotified,
+          updatedAt: new Date(),
+        },
       });
   }
 

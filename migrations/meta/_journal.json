@@ -141,6 +141,13 @@
       "when": 1781204784368,
       "tag": "0019_condemned_wither",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1781256599345,
+      "tag": "0020_perpetual_sersi",
+      "breakpoints": true
     }
   ]
 }

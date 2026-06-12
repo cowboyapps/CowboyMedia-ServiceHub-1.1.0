@@ -4,7 +4,11 @@ import { hasWhmcsCredentials, normalizeBaseUrl as normalizeWhmcsBaseUrl } from "
 import { loadTicketsList as loadWhmcsTicketsList } from "./whmcs-tickets";
 import { startWhmcsTicketNotifier, type NotifierUser, type NotifierTicket } from "./whmcs-ticket-notifier";
 import { whmcsTicketPath, whmcsTicketUrl } from "@shared/whmcs-notify";
-import { loadInvoicesList as loadWhmcsInvoicesList } from "./whmcs-billing";
+import {
+  loadInvoicesList as loadWhmcsInvoicesList,
+  loadServicesList as loadWhmcsServicesList,
+  buildServiceUrl as buildWhmcsServiceUrl,
+} from "./whmcs-billing";
 import {
   startWhmcsInvoiceNotifier,
   type InvoiceNotifierUser,
@@ -18,6 +22,17 @@ import {
   invoiceDuePhrase,
   type InvoiceStageMap,
 } from "@shared/whmcs-invoice-notify";
+import {
+  startWhmcsServiceNotifier,
+  type ServiceNotifierUser,
+  type NotifierService,
+} from "./whmcs-service-notifier";
+import {
+  serviceNotifTitle,
+  serviceNotifBody,
+  serviceLabel,
+  serviceRenewPhrase,
+} from "@shared/whmcs-service-notify";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
@@ -380,6 +395,119 @@ void (async () => {
       // or email for this category at all? Distinguishes "turned it off" (record
       // the marker so it won't replay later) from "quiet-hours suppressed it
       // right now" (skip the marker so the next post-quiet-hours pass retries).
+      const prefs = (user as any).notificationPrefs;
+      return (
+        userWantsChannel(prefs, categoryKey, "push") || userWantsChannel(prefs, categoryKey, "email")
+      );
+    },
+  });
+
+  // Notify customers (push + email + bell) about WHMCS service-lifecycle events:
+  // an active service approaching its renewal date, a service getting suspended,
+  // and a service returning to active (unsuspended). Polls linked customers;
+  // no-ops when WHMCS is unconfigured/disabled; de-dupes via a per-service marker
+  // (last-seen status for the suspend/unsuspend edge; last-notified renewal date
+  // so a renewal re-fires once per billing cycle). The first sighting of a
+  // service is recorded SILENTLY so enabling the feature never storms customers
+  // about pre-existing suspensions/renewals. Degrades cleanly (no marker writes,
+  // no crash) while the WHMCS API role still lacks product-read permission —
+  // every list comes back unreachable and nothing is recorded.
+  startWhmcsServiceNotifier({
+    getConfig: async () => {
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const active = hasWhmcsCredentials() && !!baseUrl && !!settings?.enabled;
+      return { active, baseUrl };
+    },
+    getLinkedUsers: async () => {
+      const all = await storage.getAllUsers();
+      return all.filter((u) => u.whmcsClientId != null) as unknown as ServiceNotifierUser[];
+    },
+    loadServices: async (clientId) => {
+      const list = await loadWhmcsServicesList(clientId);
+      return {
+        services: list.services as unknown as NotifierService[],
+        unreachable: list.unreachable,
+      };
+    },
+    getMarkers: (userId) => storage.getWhmcsServiceNotifyState(userId),
+    recordMarker: (userId, serviceId, marker) =>
+      storage.recordWhmcsServiceNotified(userId, serviceId, marker),
+    createInApp: async (user, service, kind) => {
+      // Decoupled from push so email-only customers still get a bell entry. The
+      // bell row deep-links to the in-app /billing screen (not the external WHMCS
+      // service page). Never throws — a failure here must not abort the pass.
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const row = await storage.createUserNotification({
+          userId: user.id,
+          type: kind === "renewal" ? "whmcs_service_renewal" : "whmcs_service_status",
+          title: serviceNotifTitle(kind),
+          body: serviceNotifBody(service, kind, today),
+          referenceType: "whmcs_service",
+          referenceId: String(service.id),
+          url: "/billing",
+        });
+        return row.id;
+      } catch (e) {
+        console.error("[whmcs-service-notifier] createInApp failed:", (e as Error)?.message);
+        return null;
+      }
+    },
+    sendPush: (user, service, kind, baseUrl, notificationId) => {
+      const today = new Date().toISOString().slice(0, 10);
+      // Renewal + suspended PUSH deep-link to the WHMCS service page (absolute,
+      // cross-origin) so one tap opens it; the service worker opens it in its own
+      // window rather than hijacking an open ServiceHub tab. Unsuspended is
+      // purely informational → the in-app /billing screen. Falls back to /billing
+      // when WHMCS gave us no base URL.
+      const serviceUrl = buildWhmcsServiceUrl(baseUrl, service.id);
+      const url = kind === "unsuspended" ? "/billing" : serviceUrl || "/billing";
+      void sendPushToUser(
+        user.id,
+        {
+          title: serviceNotifTitle(kind),
+          body: serviceNotifBody(service, kind, today),
+          url,
+          tag: `whmcs-service-${service.id}-${kind}`,
+          resourceLabel: serviceLabel(service),
+          rollupNoun: kind === "renewal" ? "reminders" : "updates",
+        },
+        // Reuse the already-created bell row so push users get exactly one; fall
+        // back to creating one in sendPushToUser if createInApp failed.
+        notificationId
+          ? { notificationId }
+          : {
+              type: kind === "renewal" ? "whmcs_service_renewal" : "whmcs_service_status",
+              referenceType: "whmcs_service",
+              referenceId: String(service.id),
+            },
+      );
+    },
+    sendEmail: (user, service, kind, baseUrl) => {
+      if (!user.email) return;
+      const today = new Date().toISOString().slice(0, 10);
+      // Email has no relative base — build the in-app fallback link from
+      // APP_BASE_URL (matches the invoice / ticket notifier convention).
+      const base = (process.env.APP_BASE_URL || "http://localhost:5000").replace(/\/+$/, "");
+      const serviceUrl = buildWhmcsServiceUrl(baseUrl, service.id) || `${base}/billing`;
+      const templateKey =
+        kind === "renewal"
+          ? "customer_whmcs_service_renewal"
+          : kind === "suspended"
+            ? "customer_whmcs_service_suspended"
+            : "customer_whmcs_service_unsuspended";
+      const vars: Record<string, string> = {
+        service_name: serviceLabel(service),
+        service_url: serviceUrl,
+        customer_name: user.fullName,
+      };
+      if (kind === "renewal") vars.renew_phrase = serviceRenewPhrase(today, service.nextDueDate);
+      void sendTemplatedEmail(user.email, templateKey, vars, user.fullName);
+    },
+    wantsPush: (user, categoryKey) => customerWantsPush(user as any, categoryKey),
+    wantsEmail: (user, categoryKey) => customerWantsEmail(user as any, categoryKey),
+    prefsOn: (user, categoryKey) => {
       const prefs = (user as any).notificationPrefs;
       return (
         userWantsChannel(prefs, categoryKey, "push") || userWantsChannel(prefs, categoryKey, "email")

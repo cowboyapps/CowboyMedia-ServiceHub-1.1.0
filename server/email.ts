@@ -261,6 +261,39 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the customer when one of their WHMCS invoices is due soon or becomes overdue",
   },
   {
+    templateKey: "customer_whmcs_service_renewal",
+    name: "Service Renewal Reminder (Customer)",
+    subject: "Reminder: {service_name} {renew_phrase}",
+    body: `<h2>Service Renewal Reminder</h2>
+<p>Hi {customer_name},</p>
+<p>Your service <strong>{service_name}</strong> {renew_phrase}.</p>
+<p><a href="{service_url}">View your service</a> to make sure your invoice is paid and avoid any interruption.</p>`,
+    availableVariables: ["service_name", "renew_phrase", "service_url", "customer_name"],
+    description: "Sent to the customer when one of their WHMCS services is approaching its renewal date",
+  },
+  {
+    templateKey: "customer_whmcs_service_suspended",
+    name: "Service Suspended (Customer)",
+    subject: "Your service {service_name} has been suspended",
+    body: `<h2>Service Suspended</h2>
+<p>Hi {customer_name},</p>
+<p>Your service <strong>{service_name}</strong> has been suspended.</p>
+<p><a href="{service_url}">View your service</a> for details and to resolve any outstanding balance.</p>`,
+    availableVariables: ["service_name", "service_url", "customer_name"],
+    description: "Sent to the customer when one of their WHMCS services is suspended",
+  },
+  {
+    templateKey: "customer_whmcs_service_unsuspended",
+    name: "Service Reactivated (Customer)",
+    subject: "Your service {service_name} is active again",
+    body: `<h2>Service Reactivated</h2>
+<p>Hi {customer_name},</p>
+<p>Good news — your service <strong>{service_name}</strong> is active again.</p>
+<p><a href="{service_url}">View your service</a> in your billing portal.</p>`,
+    availableVariables: ["service_name", "service_url", "customer_name"],
+    description: "Sent to the customer when one of their WHMCS services is reactivated (unsuspended)",
+  },
+  {
     templateKey: "admin_ticket_reply",
     name: "New Ticket Message (Admin)",
     subject: "New Ticket Message: {ticket_subject}",

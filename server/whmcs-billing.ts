@@ -79,6 +79,12 @@ export function buildPortalUrl(baseUrl: string | null): string | null {
   return `${baseUrl}/clientarea.php`;
 }
 
+/** Outbound link to a specific WHMCS service's detail page. */
+export function buildServiceUrl(baseUrl: string | null, serviceId: number): string | null {
+  if (!baseUrl) return null;
+  return `${baseUrl}/clientarea.php?action=productdetails&id=${serviceId}`;
+}
+
 export interface ParsedInvoice {
   id: number;
   invoiceNum: string;
@@ -325,4 +331,24 @@ export async function loadInvoicesList(clientId: number, baseUrl: string | null)
   const today = todayUtc();
   const invoices = normalizeListField(result.data?.invoices, "invoice").map((raw) => parseInvoice(raw, baseUrl, today));
   return { invoices, unreachable: false };
+}
+
+export interface ServicesListData {
+  services: ParsedProduct[];
+  unreachable: boolean;
+}
+
+/**
+ * List a client's WHMCS services/products for the service-lifecycle notifier.
+ * Mirrors loadInvoicesList: never throws (the fetcher is no-throw); `unreachable`
+ * is true when GetClientsProducts failed — e.g. the API role still lacks the
+ * product-read permission — so the notifier skips marker writes and retries next
+ * pass. Not cached: the notifier runs on a long interval and must see fresh
+ * status/next-due state each pass.
+ */
+export async function loadServicesList(clientId: number): Promise<ServicesListData> {
+  const result = await getClientProducts(clientId);
+  if (!result.ok) return { services: [], unreachable: true };
+  const services = normalizeListField(result.data?.products, "product").map(parseProduct);
+  return { services, unreachable: false };
 }
