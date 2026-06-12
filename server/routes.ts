@@ -6454,6 +6454,24 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Customer self-action: force-drop the session user's OWN cached billing so the
+  // next /api/billing load re-fetches fresh from WHMCS. Fired by the billing page
+  // when it regains focus after the customer followed a WHMCS pay deep link —
+  // payments complete on WHMCS's off-site hosted checkout, so our server never
+  // sees them and the per-client cache can keep showing the just-settled invoice
+  // for up to the 60s TTL. Pure no-throw; ALWAYS derives the client id from the
+  // session user (never request input), so a customer can only ever bust their
+  // OWN cache, never another client's.
+  app.post("/api/billing/refresh", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (user?.whmcsClientId) invalidateBillingCaches(user.whmcsClientId);
+    } catch {
+      // Cache invalidation is best-effort — never 500 for the customer.
+    }
+    return res.json({ ok: true });
+  });
+
   // Customer self-view: a single invoice's full detail, scoped to the logged-in
   // user's OWN linked WHMCS client. The handler (createCustomerInvoiceDetailHandler)
   // ALWAYS derives the client id from the session user — never request input — and

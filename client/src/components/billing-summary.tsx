@@ -305,11 +305,13 @@ function InvoiceDetailDialog({
   context,
   userId,
   onClose,
+  onPayClick,
 }: {
   invoiceId: number | null;
   context: "customer" | "admin";
   userId?: string;
   onClose: () => void;
+  onPayClick?: () => void;
 }) {
   const isAdmin = context === "admin";
   const queryKey =
@@ -491,7 +493,7 @@ function InvoiceDetailDialog({
                 </a>
               )}
               {needsPay && invoice.payUrl && (
-                <a href={invoice.payUrl} target="_blank" rel="noopener noreferrer" data-testid="link-invoice-detail-pay">
+                <a href={invoice.payUrl} target="_blank" rel="noopener noreferrer" onClick={onPayClick} data-testid="link-invoice-detail-pay">
                   <Button size="sm" className="gap-1.5">
                     <ExternalLink className="w-3.5 h-3.5" />
                     Pay now
@@ -1008,6 +1010,37 @@ interface BillingSummaryViewProps {
 export function BillingSummaryView({ data, isLoading, context = "customer", userId }: BillingSummaryViewProps) {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [cancelProduct, setCancelProduct] = useState<BillingProduct | null>(null);
+
+  // Payments happen on WHMCS's off-site hosted checkout (the pay links open in a
+  // new tab), so our server never sees them and the per-client billing cache can
+  // keep showing the just-paid invoice for up to its TTL. When the customer
+  // follows a pay link we flag it, and the moment this tab regains focus we force
+  // a fresh server-side load (POST /api/billing/refresh drops only the session
+  // user's own cache) and refetch — so the settled invoice shows immediately.
+  const payClickedRef = useRef(false);
+  useEffect(() => {
+    if (context === "admin") return;
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!payClickedRef.current) return;
+      payClickedRef.current = false;
+      apiRequest("POST", "/api/billing/refresh")
+        .catch(() => {})
+        .finally(() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
+        });
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [context]);
+  const markPayClicked = () => {
+    payClickedRef.current = true;
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-3" data-testid="billing-loading">
@@ -1196,6 +1229,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                 href={data.payAll.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={markPayClicked}
                 data-testid="link-pay-all-outstanding"
               >
                 <Button size="sm" className="gap-1.5 shrink-0">
@@ -1251,7 +1285,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                     </button>
                     {needsPay && inv.payUrl && (
                       <div className="mt-2.5 flex justify-end">
-                        <a href={inv.payUrl} target="_blank" rel="noopener noreferrer" data-testid={`link-invoice-pay-${inv.id}`}>
+                        <a href={inv.payUrl} target="_blank" rel="noopener noreferrer" onClick={markPayClicked} data-testid={`link-invoice-pay-${inv.id}`}>
                           <Button size="sm" className="gap-1.5 h-8">
                             <ExternalLink className="w-3.5 h-3.5" />
                             Pay in billing portal
@@ -1272,6 +1306,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
         context={context}
         userId={userId}
         onClose={() => setSelectedInvoiceId(null)}
+        onPayClick={isAdmin ? undefined : markPayClicked}
       />
 
       {!isAdmin && (
