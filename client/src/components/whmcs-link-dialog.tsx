@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -15,6 +15,21 @@ import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, CheckCircle2, Link2, Loader2, MailCheck } from "lucide-react";
 
 type Step = "email" | "code" | "success" | "conflict";
+
+// How long the "Resend code" button stays disabled after a code is sent.
+const RESEND_COOLDOWN_SECONDS = 45;
+
+/**
+ * Pulls `retryAfterSeconds` out of a 429 error thrown by `apiRequest`.
+ * The thrown message looks like `429: {"error":"...","retryAfterSeconds":42}`.
+ * Returns null when the error isn't a rate-limit (429) response.
+ */
+function parseRetryAfter(error: unknown): number | null {
+  if (!(error instanceof Error)) return null;
+  if (!error.message.startsWith("429")) return null;
+  const match = error.message.match(/"retryAfterSeconds"\s*:\s*(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
 
 interface RequestResult {
   status: "code_sent" | "no_match" | "conflict" | "unavailable" | "already_linked" | "invalid";
@@ -47,6 +62,17 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
   // Number of failed email lookups — after the first, we surface a
   // "Proceed without linking" escape hatch so the user is never trapped.
   const [failedLookups, setFailedLookups] = useState(0);
+  // Seconds remaining before another code can be requested. Ticks down to 0.
+  const [cooldown, setCooldown] = useState(0);
+  // Friendly rate-limit notice shown on the code step when the limiter trips.
+  const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
+
+  // Tick the resend cooldown down to zero, one second at a time.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setTimeout(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(id);
+  }, [cooldown]);
 
   const reset = () => {
     setStep("email");
@@ -54,6 +80,8 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
     setCode("");
     setEmailError(null);
     setFailedLookups(0);
+    setCooldown(0);
+    setRateLimitMessage(null);
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -70,6 +98,8 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
       switch (data.status) {
         case "code_sent":
           setEmailError(null);
+          setRateLimitMessage(null);
+          setCooldown(RESEND_COOLDOWN_SECONDS);
           setStep("code");
           toast({ title: "Check your email", description: "We sent a 6-digit code to that address." });
           break;
@@ -91,7 +121,20 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
           setEmailError("Account linking isn't available right now. Please try again later.");
       }
     },
-    onError: () => {
+    onError: (error) => {
+      const retryAfter = parseRetryAfter(error);
+      if (retryAfter != null) {
+        setCooldown(retryAfter);
+        const msg = `Too many requests. Please try again in ${retryAfter} second${
+          retryAfter === 1 ? "" : "s"
+        }.`;
+        if (step === "code") {
+          setRateLimitMessage(msg);
+        } else {
+          setEmailError(msg);
+        }
+        return;
+      }
       setFailedLookups((n) => n + 1);
       setEmailError("Something went wrong. Please try again in a moment.");
     },
@@ -214,13 +257,15 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
               <Button
                 type="submit"
                 className="w-full"
-                disabled={!emailValid || requestMutation.isPending}
+                disabled={!emailValid || requestMutation.isPending || cooldown > 0}
                 data-testid="button-whmcs-link-send-code"
               >
                 {requestMutation.isPending ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Sending code...
                   </>
+                ) : cooldown > 0 ? (
+                  `Try again in ${cooldown}s`
                 ) : (
                   "Send code"
                 )}
@@ -306,14 +351,27 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
                 </button>
                 <button
                   type="button"
-                  className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                  className="text-primary underline-offset-2 hover:underline disabled:opacity-50 disabled:no-underline"
                   onClick={() => requestMutation.mutate()}
-                  disabled={requestMutation.isPending}
+                  disabled={requestMutation.isPending || cooldown > 0}
                   data-testid="button-whmcs-link-resend"
                 >
-                  {requestMutation.isPending ? "Sending..." : "Resend code"}
+                  {requestMutation.isPending
+                    ? "Sending..."
+                    : cooldown > 0
+                      ? `Resend in ${cooldown}s`
+                      : "Resend code"}
                 </button>
               </div>
+              {rateLimitMessage && (
+                <p
+                  className="flex items-start gap-1.5 text-sm text-destructive"
+                  data-testid="text-whmcs-link-rate-limit"
+                >
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>{rateLimitMessage}</span>
+                </p>
+              )}
             </form>
           </>
         )}
