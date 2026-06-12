@@ -39,7 +39,7 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummaryWithInvoiceServices, loadCustomerBillingWithServices, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummaryWithInvoiceServices, loadCustomerBillingWithServices, loadBillingDashboard, loadInvoiceDetail, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
@@ -6511,6 +6511,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await requestCancellation(req, res);
       const userId = req.session.userId;
       if (res.statusCode === 200 && userId) {
+        // The cancellation changed this client's billing state — drop their
+        // cached summary + transaction history so the next /api/billing load
+        // reflects it immediately instead of waiting out the 60s TTL.
+        const actor = await storage.getUser(userId);
+        if (actor?.whmcsClientId) invalidateBillingCaches(actor.whmcsClientId);
         logActivity("user", "whmcs_cancel_requested", {
           actorId: userId,
           summary: `Requested cancellation of billing service #${getParam(req, "serviceId")}`,

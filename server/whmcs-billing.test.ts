@@ -24,6 +24,7 @@ import {
   loadTransactionHistory,
   loadTransactionHistoryWithServices,
   resetTransactionHistoryCache,
+  invalidateBillingCaches,
   correlateTransactionService,
   applyTransactionServiceHints,
   applyInvoiceServiceHints,
@@ -1353,4 +1354,52 @@ test("loadCustomerBillingWithServices: a second view within the TTL serves the c
   // Both reads were served by a single set of WHMCS calls.
   assert.equal(txnFetches, 1);
   assert.equal(invoiceFetches, 1);
+});
+
+test("invalidateBillingCaches: clears a client's cached billing so the next view re-fetches", async () => {
+  resetTransactionHistoryCache();
+  let txnFetches = 0;
+  const fetchTransactions = async () => {
+    txnFetches++;
+    return okBilling({
+      transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+    });
+  };
+  const fetchInvoice = async (id: number) => okBilling({
+    invoiceid: id, userid: 42, total: "20.00", status: "Paid",
+    items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
+  });
+  // First view warms the customer self-view cache (the one the billing route reads).
+  await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  assert.equal(txnFetches, 1);
+  // A billing-changing action (e.g. a cancellation) invalidates this client.
+  invalidateBillingCaches(42);
+  // The next view must re-fetch rather than serve the now-stale cache.
+  await loadCustomerBillingWithServices(42, BASE, fetchTransactions, fetchInvoice);
+  assert.equal(txnFetches, 2);
+});
+
+test("invalidateBillingCaches: leaves other clients' cached billing intact", async () => {
+  resetTransactionHistoryCache();
+  const fetchCounts = new Map<number, number>();
+  const fetchTransactions = async (clientId: number) => {
+    fetchCounts.set(clientId, (fetchCounts.get(clientId) ?? 0) + 1);
+    return okBilling({
+      transactions: { transaction: [{ id: clientId, invoiceid: String(clientId), date: "2026-05-02", amountin: "20.00" }] },
+    });
+  };
+  const fetchInvoice = async (id: number) => okBilling({
+    invoiceid: id, userid: id, total: "20.00", status: "Paid",
+    items: { item: [{ id: 1, type: "Hosting", relid: id, description: "Web Hosting" }] },
+  });
+  await loadCustomerBillingWithServices(11, BASE, fetchTransactions, fetchInvoice);
+  await loadCustomerBillingWithServices(22, BASE, fetchTransactions, fetchInvoice);
+  assert.equal(fetchCounts.get(11), 1);
+  assert.equal(fetchCounts.get(22), 1);
+  // Invalidating client 11 must not disturb client 22's cached entry.
+  invalidateBillingCaches(11);
+  await loadCustomerBillingWithServices(11, BASE, fetchTransactions, fetchInvoice);
+  await loadCustomerBillingWithServices(22, BASE, fetchTransactions, fetchInvoice);
+  assert.equal(fetchCounts.get(11), 2); // re-fetched
+  assert.equal(fetchCounts.get(22), 1); // still cached
 });

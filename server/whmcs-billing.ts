@@ -893,6 +893,21 @@ interface CacheEntry {
 }
 const cache = new Map<number, CacheEntry>();
 
+/**
+ * Drop a single client's cached billing data so the next /api/billing load
+ * re-fetches fresh from WHMCS: the base summary cache, the enriched
+ * transaction-history cache, AND the combined customer self-view cache (which is
+ * what the customer billing route actually reads). Call this the moment a
+ * billing-changing write (e.g. a service cancellation) succeeds for the client,
+ * so the customer sees the result immediately instead of waiting out the 60s
+ * TTL. Safe to call for a client with nothing cached (a no-op delete).
+ */
+export function invalidateBillingCaches(clientId: number): void {
+  cache.delete(clientId);
+  txnHistoryCache.delete(clientId);
+  customerBillingCache.delete(clientId);
+}
+
 /** Current calendar date in UTC as `YYYY-MM-DD` (for overdue derivation). */
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
