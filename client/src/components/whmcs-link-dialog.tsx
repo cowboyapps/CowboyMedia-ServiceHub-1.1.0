@@ -336,15 +336,13 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
               <Button
                 type="submit"
                 className="w-full"
-                disabled={!codeValid || verifyMutation.isPending || cooldown > 0}
+                disabled={!codeValid || verifyMutation.isPending}
                 data-testid="button-whmcs-link-verify"
               >
                 {verifyMutation.isPending ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verifying...
                   </>
-                ) : cooldown > 0 ? (
-                  `Try again in ${cooldown}s`
                 ) : (
                   "Verify & link"
                 )}

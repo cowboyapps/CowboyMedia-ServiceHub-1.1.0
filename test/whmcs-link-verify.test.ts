@@ -201,19 +201,19 @@ async function sendCode(): Promise<void> {
   await flush();
 }
 
-// Type a 6-digit code on the code step and submit "Verify & link". The verify
-// button is disabled while the post-send resend cooldown runs, so we submit the
-// form directly (the onSubmit handler is gated only by code validity, not the
-// cooldown) to exercise the verify mutation deterministically.
+// Type a 6-digit code on the code step and click "Verify & link". The verify
+// button is gated only by code validity (NOT the resend cooldown), so once a
+// valid code is entered it is immediately clickable.
 async function enterCodeAndVerify(value: string): Promise<void> {
   const codeInput = findByTestId("input-whmcs-link-code");
   assert.ok(codeInput instanceof window.HTMLInputElement, "code input present on code step");
   await typeInto(codeInput as HTMLInputElement, value);
 
-  const form = (codeInput as HTMLInputElement).closest("form");
-  assert.ok(form, "code step form present");
+  const verifyBtn = findByTestId("button-whmcs-link-verify") as HTMLButtonElement | null;
+  assert.ok(verifyBtn, "verify button present on code step");
+  assert.equal(verifyBtn!.disabled, false, "verify button is enabled once a valid code is entered");
   await act(async () => {
-    form!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    verifyBtn!.click();
   });
   await flush();
 }
@@ -223,6 +223,30 @@ function handlerFor(verify: Response): ReqHandler {
   return (pathname) =>
     pathname.endsWith("/verify") ? verify : jsonResponse({ status: "code_sent" });
 }
+
+test("the verify button is clickable right after a code is sent (resend cooldown does not gate it)", async () => {
+  requestHandler = handlerFor(jsonResponse({ status: "linked" }));
+  const h = await mountDialog();
+  try {
+    await sendCode();
+    assert.ok(findByTestId("text-whmcs-code-title"), "advanced to the code step");
+
+    // The post-send resend cooldown is active, but the verify button should be
+    // enabled the moment a valid 6-digit code is entered.
+    const codeInput = findByTestId("input-whmcs-link-code") as HTMLInputElement;
+    await typeInto(codeInput, "123456");
+
+    const verifyBtn = findByTestId("button-whmcs-link-verify") as HTMLButtonElement;
+    assert.equal(verifyBtn.disabled, false, "verify button is enabled despite the active cooldown");
+
+    // The resend control stays cooldown-gated.
+    const resendBtn = findByTestId("button-whmcs-link-resend") as HTMLButtonElement | null;
+    assert.ok(resendBtn, "resend control present on the code step");
+    assert.equal(resendBtn!.disabled, true, "resend stays disabled while the cooldown runs");
+  } finally {
+    h.cleanup();
+  }
+});
 
 test("a correct code links the account and shows the success step", async () => {
   requestHandler = handlerFor(jsonResponse({ status: "linked" }));
