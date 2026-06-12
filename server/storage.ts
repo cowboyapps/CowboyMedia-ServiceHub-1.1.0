@@ -300,6 +300,7 @@ export interface IStorage {
   getActiveWhmcsLinkVerification(userId: string): Promise<WhmcsLinkVerification | undefined>;
   bumpWhmcsLinkVerificationAttempts(id: string): Promise<void>;
   consumeWhmcsLinkVerification(id: string): Promise<void>;
+  invalidateActiveWhmcsLinkVerifications(userId: string): Promise<void>;
   listTotpBackupCodes(userId: string): Promise<TotpBackupCode[]>;
   replaceTotpBackupCodes(userId: string, codeHashes: string[]): Promise<void>;
   markTotpBackupCodeUsed(id: string): Promise<void>;
@@ -1511,6 +1512,13 @@ export class DatabaseStorage implements IStorage {
 
   async consumeWhmcsLinkVerification(id: string): Promise<void> {
     await db.update(whmcsLinkVerifications).set({ consumedAt: new Date() }).where(eq(whmcsLinkVerifications.id, id));
+  }
+
+  async invalidateActiveWhmcsLinkVerifications(userId: string): Promise<void> {
+    await db
+      .update(whmcsLinkVerifications)
+      .set({ consumedAt: new Date() })
+      .where(and(eq(whmcsLinkVerifications.userId, userId), isNull(whmcsLinkVerifications.consumedAt)));
   }
 
   async listTotpBackupCodes(userId: string): Promise<TotpBackupCode[]> {

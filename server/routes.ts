@@ -77,6 +77,7 @@ import {
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
+import { WHMCS_LINK_CODE_TTL_MS, WHMCS_LINK_MAX_ATTEMPTS, whmcsLinkFailureOutcome } from "@shared/whmcs-link";
 import { APP_VERSION } from "@shared/version";
 import { requireAgentToken } from "./agent-auth";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
@@ -6348,8 +6349,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // minutes, and are capped at 5 wrong attempts.
   const whmcsLinkRequestLimiter = createWhmcsLinkRequestLimiter();
   const whmcsLinkVerifyLimiter = createWhmcsLinkVerifyLimiter();
-  const WHMCS_LINK_CODE_TTL_MS = 10 * 60 * 1000;
-  const WHMCS_LINK_MAX_ATTEMPTS = 5;
 
   const whmcsLinkConfig = async () => {
     const settings = await storage.getWhmcsSettings();
@@ -6407,6 +6406,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         // reveal nothing further.
         const existing = await storage.getUserByWhmcsClientId(client.id);
         if (existing && existing.id !== user.id) return res.json({ status: "conflict" });
+
+        // Retire any still-active code for this user before issuing a fresh one,
+        // so a resend can't leave an older code valid in parallel.
+        await storage.invalidateActiveWhmcsLinkVerifications(user.id);
 
         const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
         const codeHash = crypto.createHash("sha256").update(code).digest("hex");
@@ -6471,8 +6474,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         const match = a.length === b.length && crypto.timingSafeEqual(a, b);
         if (!match) {
           await storage.bumpWhmcsLinkVerificationAttempts(v.id);
-          const attemptsRemaining = Math.max(0, WHMCS_LINK_MAX_ATTEMPTS - (v.attempts + 1));
-          return res.json({ status: "invalid_code", attemptsRemaining });
+          const outcome = whmcsLinkFailureOutcome(v.attempts, WHMCS_LINK_MAX_ATTEMPTS);
+          // Invalidate the code in this same request the moment the cap is hit,
+          // so a 5th wrong guess can never be retried on a later call.
+          if (outcome.consume) {
+            await storage.consumeWhmcsLinkVerification(v.id);
+            return res.json({ status: "too_many_attempts" });
+          }
+          return res.json({ status: "invalid_code", attemptsRemaining: outcome.attemptsRemaining });
         }
 
         // Re-check the conflict at the moment of linking — another user may have

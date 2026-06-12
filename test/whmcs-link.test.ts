@@ -2,6 +2,30 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_EMAIL_TEMPLATES } from "../server/email";
 import { insertWhmcsLinkVerificationSchema } from "../shared/schema";
+import { whmcsLinkFailureOutcome, WHMCS_LINK_MAX_ATTEMPTS } from "../shared/whmcs-link";
+
+test("whmcs link attempt cap: wrong guesses 1-4 stay retryable with a decreasing remaining count", () => {
+  for (let prior = 0; prior < WHMCS_LINK_MAX_ATTEMPTS - 1; prior++) {
+    const outcome = whmcsLinkFailureOutcome(prior);
+    assert.equal(outcome.status, "invalid_code");
+    assert.equal(outcome.consume, false);
+    assert.equal(outcome.attemptsRemaining, WHMCS_LINK_MAX_ATTEMPTS - (prior + 1));
+  }
+});
+
+test("whmcs link attempt cap: the 5th wrong guess invalidates the code in the same request", () => {
+  // prior = 4 means this is the 5th submission.
+  const outcome = whmcsLinkFailureOutcome(WHMCS_LINK_MAX_ATTEMPTS - 1);
+  assert.equal(outcome.status, "too_many_attempts");
+  assert.equal(outcome.consume, true);
+  assert.equal(outcome.attemptsRemaining, 0);
+});
+
+test("whmcs link attempt cap: any attempt at/over the cap stays consumed", () => {
+  const outcome = whmcsLinkFailureOutcome(WHMCS_LINK_MAX_ATTEMPTS);
+  assert.equal(outcome.status, "too_many_attempts");
+  assert.equal(outcome.consume, true);
+});
 
 test("whmcs_link_verification email template is seeded with code + name variables", () => {
   const tpl = DEFAULT_EMAIL_TEMPLATES.find((t) => t.templateKey === "whmcs_link_verification");
