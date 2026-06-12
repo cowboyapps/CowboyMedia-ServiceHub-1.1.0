@@ -242,12 +242,28 @@ export interface ParsedProduct {
   nextDueDate: string | null;
   billingCycle: string;
   amount: string;
+  /** Service login username (WHMCS `username`). Sensitive-adjacent. */
+  username: string;
+  /** Service login password (WHMCS `password`). SENSITIVE — never log. */
+  password: string;
 }
+
+/**
+ * The credential-free product shape carried in the shared billing summary
+ * (rendered in BOTH the customer and admin billing views). Service credentials
+ * (`username`/`password`) are deliberately stripped from this — they are ONLY
+ * ever surfaced through the customer-only `/api/my/services` endpoint, never the
+ * admin billing payload or the fleet dashboard.
+ */
+export type ProductSummary = Omit<ParsedProduct, "username" | "password">;
 
 /**
  * Map a raw WHMCS GetClientsProducts record. Both `id` (the service id,
  * tblhosting.id) and `pid` (the product/package id) are kept — Task #335's
- * product→service mapping keys off `pid`.
+ * product→service mapping keys off `pid`. `username`/`password` come from the
+ * same `stats:true` response and back the customer "My Services" credentials
+ * view; no other access field (dedicated IP, server hostname, DNS, custom
+ * fields, config options) is parsed.
  */
 export function parseProduct(raw: any): ParsedProduct {
   const name = String(raw?.name ?? raw?.translated_name ?? raw?.productname ?? raw?.groupname ?? "").trim();
@@ -260,6 +276,8 @@ export function parseProduct(raw: any): ParsedProduct {
     nextDueDate: normalizeWhmcsDate(raw?.nextduedate),
     billingCycle: String(raw?.billingcycle ?? "").trim(),
     amount: String(raw?.recurringamount ?? "").trim(),
+    username: String(raw?.username ?? "").trim(),
+    password: String(raw?.password ?? ""),
   };
 }
 
@@ -358,6 +376,49 @@ export async function loadTransactionHistory(
   return buildTransactionHistory(result, currencyDefault);
 }
 
+/** Drop the credentials so a product is safe to embed in the shared summary. */
+export function stripProductCredentials(p: ParsedProduct): ProductSummary {
+  const { username: _username, password: _password, ...rest } = p;
+  return rest;
+}
+
+/**
+ * The minimal access view for a customer's ACTIVE service: its name + the
+ * billing info already shown today, plus exactly the two access fields
+ * (username, password). "Active" is defined the same way as the entitlement
+ * filter in `deriveMappedServiceIds` (status === "active", case-insensitive).
+ */
+export interface ActiveService {
+  id: number;
+  name: string;
+  status: string;
+  billingCycle: string;
+  nextDueDate: string | null;
+  amount: string;
+  username: string;
+  password: string;
+}
+
+/**
+ * Filter parsed products to ACTIVE ones and project to the access view. Pure →
+ * unit tested without network. Suspended/terminated/cancelled/pending/fraud
+ * products are excluded so customers only ever see live logins.
+ */
+export function selectActiveServices(products: ParsedProduct[]): ActiveService[] {
+  return products
+    .filter((p) => p.status.toLowerCase() === "active")
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      billingCycle: p.billingCycle,
+      nextDueDate: p.nextDueDate,
+      amount: p.amount,
+      username: p.username,
+      password: p.password,
+    }));
+}
+
 /**
  * Derive the ServiceHub service ids a customer is entitled to from their WHMCS
  * products and the admin-defined product→service mappings (Task #335). Only
@@ -426,7 +487,7 @@ export interface BillingSummaryData {
   client: { id: number; name: string; status: string } | null;
   balance: { creditBalance: string | null; currencyCode: string | null } | null;
   invoices: ParsedInvoice[];
-  products: ParsedProduct[];
+  products: ProductSummary[];
   portalUrl: string | null;
   /** Combined "pay all outstanding" action, or null when <2 invoices are owed. */
   payAll: PayAllOutstanding | null;
@@ -505,7 +566,7 @@ export function buildBillingSummary(
     : [];
 
   const products = productsResult.ok
-    ? normalizeListField(productsResult.data?.products, "product").map(parseProduct)
+    ? normalizeListField(productsResult.data?.products, "product").map(parseProduct).map(stripProductCredentials)
     : [];
 
   return {

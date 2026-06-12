@@ -44,7 +44,7 @@ const mappings = [
 ];
 
 function product(pid: number, status: string) {
-  return { id: pid * 100, pid, name: `P${pid}`, domain: "", status, nextDueDate: null, billingCycle: "", amount: "" };
+  return { id: pid * 100, pid, name: `P${pid}`, domain: "", status, nextDueDate: null, billingCycle: "", amount: "", username: "", password: "" };
 }
 
 test("deriveMappedServiceIds: only ACTIVE products grant their services", () => {

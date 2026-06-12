@@ -39,7 +39,7 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistory, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistory, parseProduct as parseWhmcsProduct, deriveMappedServiceIds, selectActiveServices, type ActiveService } from "./whmcs-billing";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
@@ -6828,6 +6828,45 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       return res.json({ configured, enabled, linked: true, unreachable, services });
     } catch {
       return res.json(emptyDerivedServices({ configured: true, enabled: true, linked: true, unreachable: true }));
+    }
+  });
+
+  // Locked-shape "My Services" payload: the logged-in customer's ACTIVE WHMCS
+  // products with exactly two access fields each (username + password). Mirrors
+  // emptyBilling so the frontend never branches on missing keys.
+  //
+  // SECURITY: the response carries service passwords. It is customer-only
+  // (requireAuth + the client id is derived from the session, never request
+  // input), there is no admin twin (admins keep the credential-free billing
+  // payload), and the request logger in server/index.ts is configured to NEVER
+  // embed this route's body in the logs (see SENSITIVE_BODY_PATHS).
+  const emptyActiveServices = (over: Record<string, unknown>) => ({
+    configured: false,
+    enabled: false,
+    linked: false,
+    unreachable: false,
+    services: [] as ActiveService[],
+    ...over,
+  });
+
+  app.get("/api/my/services", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getWhmcsSettings();
+      const configured = hasWhmcsCredentials() && !!normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      const enabled = !!settings?.enabled;
+      if (!configured || !enabled) return res.json(emptyActiveServices({ configured, enabled }));
+      const user = await storage.getUser(req.session.userId!);
+      const clientId = user?.whmcsClientId ?? null;
+      if (!clientId) return res.json(emptyActiveServices({ configured, enabled, linked: false }));
+      const productsResult = await getWhmcsClientProducts(clientId);
+      if (!productsResult.ok) {
+        return res.json(emptyActiveServices({ configured, enabled, linked: true, unreachable: true }));
+      }
+      const products = normalizeWhmcsListField(productsResult.data?.products, "product").map(parseWhmcsProduct);
+      const services = selectActiveServices(products);
+      return res.json({ configured, enabled, linked: true, unreachable: false, services });
+    } catch {
+      return res.json(emptyActiveServices({ configured: true, enabled: true, linked: true, unreachable: true }));
     }
   });
 

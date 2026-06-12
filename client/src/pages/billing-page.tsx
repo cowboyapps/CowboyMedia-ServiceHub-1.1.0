@@ -1,10 +1,21 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { WhmcsProfileCard } from "@/components/whmcs-profile-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Server } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Server,
+  KeyRound,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+} from "lucide-react";
 import type { Service } from "@shared/schema";
 
 interface DerivedServicesPayload {
@@ -13,6 +24,32 @@ interface DerivedServicesPayload {
   linked: boolean;
   unreachable: boolean;
   services: Service[];
+}
+
+interface ActiveService {
+  id: number;
+  name: string;
+  status: string;
+  billingCycle: string;
+  nextDueDate: string | null;
+  amount: string;
+  username: string;
+  password: string;
+}
+
+interface ActiveServicesPayload {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  unreachable: boolean;
+  services: ActiveService[];
+}
+
+function formatServiceDate(value: string | null): string {
+  if (!value) return "—";
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function statusLabel(status: string): string {
@@ -38,6 +75,162 @@ function statusBadgeClass(status: string): string {
     default:
       return "bg-muted text-muted-foreground border-border";
   }
+}
+
+function ServiceCredentialRow({
+  label,
+  value,
+  secret,
+  serviceId,
+  field,
+}: {
+  label: string;
+  value: string;
+  secret?: boolean;
+  serviceId: number;
+  field: "username" | "password";
+}) {
+  const { toast } = useToast();
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hasValue = value.trim().length > 0;
+  const shown = !secret || revealed ? value : "••••••••••••";
+
+  const copy = async () => {
+    if (!hasValue) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({ title: `Couldn't copy ${label.toLowerCase()}`, variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3" data-testid={`row-service-${field}-${serviceId}`}>
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p
+          className={`text-sm ${hasValue ? "font-medium" : "text-muted-foreground"} ${secret ? "font-mono" : ""} truncate`}
+          data-testid={`text-service-${field}-${serviceId}`}
+        >
+          {hasValue ? shown : "Not set"}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        {secret && hasValue && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setRevealed((r) => !r)}
+            aria-label={revealed ? "Hide password" : "Show password"}
+            data-testid={`button-toggle-${field}-${serviceId}`}
+          >
+            {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          </Button>
+        )}
+        {hasValue && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={copy}
+            aria-label={`Copy ${label.toLowerCase()}`}
+            data-testid={`button-copy-${field}-${serviceId}`}
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActiveServiceCard({ service }: { service: ActiveService }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card data-testid={`card-active-service-${service.id}`}>
+      <CardContent className="p-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -m-3 p-3 rounded-md"
+          aria-expanded={open}
+          data-testid={`button-toggle-service-${service.id}`}
+        >
+          <div className="min-w-0">
+            <p className="font-medium text-sm truncate" data-testid={`text-active-service-name-${service.id}`}>
+              {service.name}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {service.billingCycle || "—"}
+              {service.amount ? ` · ${service.amount}` : ""}
+              {service.nextDueDate ? ` · Next due ${formatServiceDate(service.nextDueDate)}` : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge
+              variant="outline"
+              className="bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30"
+              data-testid={`badge-active-service-status-${service.id}`}
+            >
+              Active
+            </Badge>
+            <ChevronDown
+              className={`w-4 h-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </div>
+        </button>
+        {open && (
+          <div className="mt-3 pt-3 border-t space-y-3" data-testid={`panel-service-credentials-${service.id}`}>
+            <ServiceCredentialRow label="Username" value={service.username} serviceId={service.id} field="username" />
+            <ServiceCredentialRow label="Password" value={service.password} secret serviceId={service.id} field="password" />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MyActiveServices() {
+  const { data, isLoading } = useQuery<ActiveServicesPayload>({
+    queryKey: ["/api/my/services"],
+  });
+
+  if (isLoading) return <Skeleton className="h-28 rounded-xl" data-testid="active-services-loading" />;
+  // Only render the section when billing is live and the customer is linked.
+  if (!data || !data.configured || !data.enabled || !data.linked) return null;
+
+  const hasServices = !data.unreachable && data.services.length > 0;
+
+  return (
+    <div data-testid="my-active-services">
+      <div className="flex items-center gap-2 mb-2">
+        <KeyRound className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold" data-testid="heading-active-services">My Services</h2>
+      </div>
+      {data.unreachable ? (
+        <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-active-services-unreachable">
+          We couldn't load your services right now. Please try again in a few minutes.
+        </p>
+      ) : !hasServices ? (
+        <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-active-services-empty">
+          You don't have any active services right now.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {data.services.map((s) => (
+            <ActiveServiceCard key={s.id} service={s} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function MyMonitoredServices() {
@@ -88,6 +281,8 @@ export default function BillingPage() {
         <h1 className="text-2xl font-bold" data-testid="text-billing-title">Billing</h1>
         <p className="text-sm text-muted-foreground mt-1">Your invoices, services, and account balance</p>
       </div>
+
+      <MyActiveServices />
 
       <MyMonitoredServices />
 

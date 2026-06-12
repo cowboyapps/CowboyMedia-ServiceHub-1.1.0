@@ -12,6 +12,8 @@ import {
   parseInvoiceDetail,
   parseInvoiceLineItem,
   parseProduct,
+  stripProductCredentials,
+  selectActiveServices,
   buildBillingSummary,
   loadInvoiceDetail,
   parseMoneyNumber,
@@ -232,7 +234,7 @@ test("parseInvoice: falls back invoiceNum to id, passes balance through", () => 
 // ---------- parseProduct ----------
 
 test("parseProduct: keeps both id and pid and normalizes the next due date", () => {
-  const p = parseProduct({ id: "55", pid: "12", name: "Web Hosting", domain: "example.com", status: "Active", nextduedate: "2026-07-01", billingcycle: "Monthly", recurringamount: "9.99" });
+  const p = parseProduct({ id: "55", pid: "12", name: "Web Hosting", domain: "example.com", status: "Active", nextduedate: "2026-07-01", billingcycle: "Monthly", recurringamount: "9.99", username: "user55", password: "s3cr3t!" });
   assert.equal(p.id, 55);
   assert.equal(p.pid, 12);
   assert.equal(p.name, "Web Hosting");
@@ -241,6 +243,8 @@ test("parseProduct: keeps both id and pid and normalizes the next due date", () 
   assert.equal(p.nextDueDate, "2026-07-01");
   assert.equal(p.billingCycle, "Monthly");
   assert.equal(p.amount, "9.99");
+  assert.equal(p.username, "user55");
+  assert.equal(p.password, "s3cr3t!");
 });
 
 test("parseProduct: name fallbacks and zero next due date", () => {
@@ -248,6 +252,81 @@ test("parseProduct: name fallbacks and zero next due date", () => {
   assert.equal(parseProduct({ id: 1, groupname: "Hosting" }).name, "Hosting");
   assert.equal(parseProduct({ id: 1 }).name, "Service");
   assert.equal(parseProduct({ id: 1, nextduedate: "0000-00-00" }).nextDueDate, null);
+});
+
+test("parseProduct: username trims but password is preserved verbatim, missing -> empty", () => {
+  const p = parseProduct({ id: 1, username: "  user  ", password: "  pa ss  " });
+  assert.equal(p.username, "user");
+  // Passwords can legitimately contain leading/trailing spaces — never trim them.
+  assert.equal(p.password, "  pa ss  ");
+  const bare = parseProduct({ id: 2 });
+  assert.equal(bare.username, "");
+  assert.equal(bare.password, "");
+});
+
+test("parseProduct: parses ONLY username/password access fields — no IP/host/DNS/custom leak", () => {
+  const p = parseProduct({
+    id: 1,
+    username: "user",
+    password: "pw",
+    dedicatedip: "1.2.3.4",
+    serverhostname: "host.example.com",
+    ns1: "ns1.example.com",
+    customfields: [{ name: "DNS", value: "dns.example.com" }],
+    configoptions: [{ option: "RAM", value: "8GB" }],
+  });
+  const keys = Object.keys(p).sort();
+  assert.deepEqual(keys, ["amount", "billingCycle", "domain", "id", "name", "nextDueDate", "password", "pid", "status", "username"]);
+  // None of the extra access fields leaked onto the parsed shape.
+  assert.equal((p as any).dedicatedip, undefined);
+  assert.equal((p as any).serverhostname, undefined);
+  assert.equal((p as any).ns1, undefined);
+  assert.equal((p as any).customfields, undefined);
+  assert.equal((p as any).configoptions, undefined);
+});
+
+// ---------- stripProductCredentials ----------
+
+test("stripProductCredentials: removes username/password, keeps everything else", () => {
+  const p = parseProduct({ id: 9, pid: 3, name: "VPS", status: "Active", username: "u", password: "p" });
+  const stripped = stripProductCredentials(p);
+  assert.equal((stripped as any).username, undefined);
+  assert.equal((stripped as any).password, undefined);
+  assert.equal(stripped.id, 9);
+  assert.equal(stripped.pid, 3);
+  assert.equal(stripped.name, "VPS");
+  assert.equal(stripped.status, "Active");
+});
+
+// ---------- selectActiveServices ----------
+
+test("selectActiveServices: keeps ONLY active products and projects to the access view", () => {
+  const services = selectActiveServices([
+    parseProduct({ id: 1, name: "Live VPS", status: "Active", billingcycle: "Monthly", recurringamount: "20.00", nextduedate: "2026-08-01", username: "u1", password: "p1" }),
+    parseProduct({ id: 2, name: "Suspended", status: "Suspended", username: "u2", password: "p2" }),
+    parseProduct({ id: 3, name: "Terminated", status: "Terminated", username: "u3", password: "p3" }),
+    parseProduct({ id: 4, name: "Cancelled", status: "Cancelled", username: "u4", password: "p4" }),
+    parseProduct({ id: 5, name: "Pending", status: "Pending", username: "u5", password: "p5" }),
+    parseProduct({ id: 6, name: "Fraud", status: "Fraud", username: "u6", password: "p6" }),
+  ]);
+  assert.equal(services.length, 1);
+  const s = services[0];
+  assert.equal(s.id, 1);
+  assert.equal(s.name, "Live VPS");
+  assert.equal(s.status, "Active");
+  assert.equal(s.billingCycle, "Monthly");
+  assert.equal(s.amount, "20.00");
+  assert.equal(s.nextDueDate, "2026-08-01");
+  assert.equal(s.username, "u1");
+  assert.equal(s.password, "p1");
+  // Only the access view fields — no pid/domain carried through.
+  assert.deepEqual(Object.keys(s).sort(), ["amount", "billingCycle", "id", "name", "nextDueDate", "password", "status", "username"]);
+});
+
+test("selectActiveServices: 'active' is case-insensitive, empty list when none active", () => {
+  assert.equal(selectActiveServices([parseProduct({ id: 1, status: "ACTIVE", username: "u", password: "p" })]).length, 1);
+  assert.deepEqual(selectActiveServices([parseProduct({ id: 1, status: "Suspended" })]), []);
+  assert.deepEqual(selectActiveServices([]), []);
 });
 
 // ---------- buildBillingSummary ----------
@@ -281,6 +360,19 @@ test("buildBillingSummary: assembles client, balance, invoices, products", () =>
   assert.equal(summary.portalUrl, "https://billing.example.com/clientarea.php");
   // One outstanding invoice -> no "pay all" action.
   assert.equal(summary.payAll, null);
+});
+
+test("buildBillingSummary: products NEVER carry username/password (admin-shared summary stays credential-free)", () => {
+  const summary = buildBillingSummary(
+    "https://billing.example.com",
+    fail(),
+    okBilling({ invoices: {} }),
+    okBilling({ products: { product: { id: 9, pid: 3, name: "VPS", status: "Active", username: "secretuser", password: "secretpw" } } }),
+    TODAY,
+  );
+  assert.equal(summary.products.length, 1);
+  assert.equal((summary.products[0] as any).username, undefined);
+  assert.equal((summary.products[0] as any).password, undefined);
 });
 
 test("buildBillingSummary: full outage -> unreachable, empty, null client/balance", () => {
@@ -468,6 +560,8 @@ function prod(over: Partial<ParsedProduct>): ParsedProduct {
     nextDueDate: null,
     billingCycle: "Monthly",
     amount: "0.00",
+    username: "",
+    password: "",
     ...over,
   };
 }

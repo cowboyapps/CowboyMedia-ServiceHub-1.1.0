@@ -170,7 +170,14 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // Routes whose JSON body carries sensitive customer data (e.g. WHMCS
+      // service login passwords from "My Services") — never embed the body in
+      // the request log, even truncated.
+      const SENSITIVE_BODY_PATHS = ["/api/my/services"];
+      const bodyIsSensitive = SENSITIVE_BODY_PATHS.some(
+        (p) => path === p || path.startsWith(p + "/"),
+      );
+      if (capturedJsonResponse && !bodyIsSensitive) {
         // Cap the embedded body. PM2's log file splits any single console.log
         // longer than ~1KB across multiple physical lines, and only the first
         // chunk carries the `[express]` prefix. The deploy log-tail error
