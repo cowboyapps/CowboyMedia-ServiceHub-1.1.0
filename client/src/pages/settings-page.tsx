@@ -25,6 +25,7 @@ import { countEnabledGroups, getCategoriesForRole, type AppRole, type Notificati
 import { isInQuietHours, type QuietHoursUser } from "@shared/quiet-hours";
 import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
 import { TwoFactorSecurityCard } from "@/components/two-factor-security";
+import { WhmcsLinkDialog } from "@/components/whmcs-link-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -343,6 +344,19 @@ export default function SettingsPage() {
   const [prefsDialogOpen, setPrefsDialogOpen] = useState(false);
   const [pushPromptOpen, setPushPromptOpen] = useState(false);
   const [enablingPushFromPrompt, setEnablingPushFromPrompt] = useState(false);
+  const [whmcsLinkOpen, setWhmcsLinkOpen] = useState(false);
+
+  const { data: whmcsLinkStatus } = useQuery<{
+    configured: boolean;
+    enabled: boolean;
+    linked: boolean;
+    dismissed: boolean;
+  }>({
+    queryKey: ["/api/whmcs/link/status"],
+    enabled: !!user && user.role === "customer",
+  });
+  const showWhmcsLinkCard =
+    !!whmcsLinkStatus?.configured && !!whmcsLinkStatus?.enabled && !whmcsLinkStatus?.linked;
 
   const { data: services, isLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -558,6 +572,27 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {showWhmcsLinkCard && (
+        <Card data-testid="card-whmcs-link">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CreditCard className="w-4 h-4" />
+              Link your account
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Connect your account management profile to view your invoices, payments, services, and
+              reminders right here in the app.
+            </p>
+            <Button onClick={() => setWhmcsLinkOpen(true)} data-testid="button-open-whmcs-link">
+              <CreditCard className="w-4 h-4 mr-2" />
+              Link your account
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -574,6 +609,8 @@ export default function SettingsPage() {
           </Link>
         </CardContent>
       </Card>
+
+      <WhmcsLinkDialog open={whmcsLinkOpen} onOpenChange={setWhmcsLinkOpen} />
 
       <Card>
         <CardHeader className="pb-3">

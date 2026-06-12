@@ -100,6 +100,22 @@ export function createReportLimiter(): RateLimitRequestHandler {
   });
 }
 
+export function createWhmcsLinkRequestLimiter(): RateLimitRequestHandler {
+  return buildHandler({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    keyGenerator: userOrIpKey,
+  });
+}
+
+export function createWhmcsLinkVerifyLimiter(): RateLimitRequestHandler {
+  return buildHandler({
+    windowMs: 15 * 60 * 1000,
+    limit: 15,
+    keyGenerator: userOrIpKey,
+  });
+}
+
 export async function bypassRateLimitForAdmins(
   req: Request,
   _res: Response,

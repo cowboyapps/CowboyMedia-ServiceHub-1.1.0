@@ -31,6 +31,7 @@ import { NotificationCenter } from "@/components/notification-center";
 import { CommandPalette } from "@/components/command-palette";
 import { Search } from "lucide-react";
 import { OnboardingTour } from "@/components/onboarding-tour";
+import { WhmcsLinkDialog } from "@/components/whmcs-link-dialog";
 import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
 import { BrandLogo } from "@/components/brand-logo";
@@ -533,6 +534,57 @@ function BroadcastAlertPopup() {
       </DialogContent>
     </Dialog>
   );
+}
+
+interface WhmcsLinkStatus {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  dismissed: boolean;
+}
+
+// One-time auto-popup that invites an unlinked customer to connect their
+// billing account. Shown before the onboarding tour (modal-slot priority 75 >
+// tour's 70) so a brand-new signup is offered linking first. Closing it — by
+// linking OR by choosing "not now" — records a server-side dismissal so it
+// never auto-fires again. The Settings entry point stays available regardless.
+function WhmcsLinkPrompt() {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [resolved, setResolved] = useState(false);
+
+  const { data: status } = useQuery<WhmcsLinkStatus>({
+    queryKey: ["/api/whmcs/link/status"],
+    enabled: !!user && user.role === "customer",
+  });
+
+  useEffect(() => {
+    if (resolved) return;
+    if (status && status.configured && status.enabled && !status.linked && !status.dismissed) {
+      setOpen(true);
+      setResolved(true);
+    }
+  }, [status, resolved]);
+
+  const isMine = useModalSlot("whmcs-link", 75, open);
+
+  const dismissMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/whmcs/link/dismiss");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/whmcs/link/status"] });
+    },
+  });
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    // Whether they linked or backed out, don't auto-pester again.
+    if (!next) dismissMutation.mutate();
+  };
+
+  if (!open || !isMine) return null;
+  return <WhmcsLinkDialog open={open} onOpenChange={handleOpenChange} />;
 }
 
 function WelcomeDialog() {
@@ -1073,6 +1125,7 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
       <BroadcastAlertPopup />
       <CommandPalette />
       {isAdmin && <TicketTransferPopup />}
+      <WhmcsLinkPrompt />
       <WelcomeDialog />
       <VersionWelcomeDialog />
       <SetupReminderDialog />

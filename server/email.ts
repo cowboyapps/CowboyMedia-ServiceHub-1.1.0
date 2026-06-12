@@ -565,6 +565,18 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     availableVariables: ["monitor_name", "monitor_url", "recovery_time", "downtime_duration"],
     description: "Sent to admins when a URL monitor recovers from a down state",
   },
+  {
+    templateKey: "whmcs_link_verification",
+    name: "Account Link Verification Code (Customer)",
+    subject: "Your CowboyMedia account-linking code",
+    body: `<h2>Confirm Your Account Link</h2>
+<p>Hi {name},</p>
+<p>Use this code in the ServiceHub app to link your CowboyMedia account. Once linked, you'll be able to see your account information, invoices, payments, reminders, and more.</p>
+<p style="font-size:32px;font-weight:700;letter-spacing:8px;text-align:center;margin:24px 0;color:#111;">{code}</p>
+<p>This code expires in 10 minutes. If you didn't request this, you can safely ignore this email — your account stays exactly as it is.</p>`,
+    availableVariables: ["code", "name"],
+    description: "Sent to a customer's on-file email with a 6-digit code to confirm self-service account linking",
+  },
 ];
 
 export async function seedEmailTemplates(): Promise<void> {

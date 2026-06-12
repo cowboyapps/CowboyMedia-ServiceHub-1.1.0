@@ -27,6 +27,7 @@ import {
   type ErrorLog, type InsertErrorLog,
   type Download, type InsertDownload,
   type PasswordResetToken, type InsertPasswordResetToken,
+  type WhmcsLinkVerification, type InsertWhmcsLinkVerification,
   type TotpBackupCode,
   type UrlMonitor, type InsertUrlMonitor,
   type MonitorIncident, type InsertMonitorIncident,
@@ -65,7 +66,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
+  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import { db } from "./db";
@@ -295,6 +296,10 @@ export interface IStorage {
   createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken>;
   getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined>;
   markPasswordResetTokenUsed(id: string): Promise<void>;
+  createWhmcsLinkVerification(data: InsertWhmcsLinkVerification): Promise<WhmcsLinkVerification>;
+  getActiveWhmcsLinkVerification(userId: string): Promise<WhmcsLinkVerification | undefined>;
+  bumpWhmcsLinkVerificationAttempts(id: string): Promise<void>;
+  consumeWhmcsLinkVerification(id: string): Promise<void>;
   listTotpBackupCodes(userId: string): Promise<TotpBackupCode[]>;
   replaceTotpBackupCodes(userId: string, codeHashes: string[]): Promise<void>;
   markTotpBackupCodeUsed(id: string): Promise<void>;
@@ -1480,6 +1485,32 @@ export class DatabaseStorage implements IStorage {
 
   async markPasswordResetTokenUsed(id: string): Promise<void> {
     await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
+  }
+
+  async createWhmcsLinkVerification(data: InsertWhmcsLinkVerification): Promise<WhmcsLinkVerification> {
+    const [row] = await db.insert(whmcsLinkVerifications).values(data).returning();
+    return row;
+  }
+
+  async getActiveWhmcsLinkVerification(userId: string): Promise<WhmcsLinkVerification | undefined> {
+    const [row] = await db
+      .select()
+      .from(whmcsLinkVerifications)
+      .where(and(eq(whmcsLinkVerifications.userId, userId), isNull(whmcsLinkVerifications.consumedAt)))
+      .orderBy(desc(whmcsLinkVerifications.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async bumpWhmcsLinkVerificationAttempts(id: string): Promise<void> {
+    await db
+      .update(whmcsLinkVerifications)
+      .set({ attempts: sql`${whmcsLinkVerifications.attempts} + 1` })
+      .where(eq(whmcsLinkVerifications.id, id));
+  }
+
+  async consumeWhmcsLinkVerification(id: string): Promise<void> {
+    await db.update(whmcsLinkVerifications).set({ consumedAt: new Date() }).where(eq(whmcsLinkVerifications.id, id));
   }
 
   async listTotpBackupCodes(userId: string): Promise<TotpBackupCode[]> {

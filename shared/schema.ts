@@ -42,6 +42,11 @@ export const users = pgTable("users", {
   // billing features key their data off of.
   whmcsClientId: integer("whmcs_client_id"),
   whmcsLinkedAt: timestamp("whmcs_linked_at"),
+  // When the customer dismissed the one-time "link your billing account"
+  // prompt (either by linking successfully or choosing "not now"). Nullable —
+  // null means the auto-popup is still eligible to fire. The Settings entry
+  // point ignores this; it's available whenever the user is unlinked.
+  whmcsLinkPromptDismissedAt: timestamp("whmcs_link_prompt_dismissed_at"),
 }, (table) => ({
   roleIdx: index("users_role_idx").on(table.role),
   whmcsClientIdx: uniqueIndex("users_whmcs_client_id_idx").on(table.whmcsClientId),
@@ -517,6 +522,30 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+
+// Customer self-service WHMCS account-linking via emailed 6-digit code. A row
+// is created when a logged-in user requests a code for an email that matched
+// exactly one WHMCS client. The matched WHMCS client id is resolved
+// SERVER-SIDE and stored here so verify never trusts client input — the code,
+// emailed to the WHMCS-on-file address, is the ownership proof. Rows are
+// single-use (consumedAt), short-lived (expiresAt), and attempt-capped.
+export const whmcsLinkVerifications = pgTable("whmcs_link_verifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  email: text("email").notNull(),
+  codeHash: text("code_hash").notNull(),
+  whmcsClientId: integer("whmcs_client_id").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("whmcs_link_verifications_user_id_idx").on(table.userId),
+}));
+
+export const insertWhmcsLinkVerificationSchema = createInsertSchema(whmcsLinkVerifications).omit({ id: true, createdAt: true });
+export type InsertWhmcsLinkVerification = z.infer<typeof insertWhmcsLinkVerificationSchema>;
+export type WhmcsLinkVerification = typeof whmcsLinkVerifications.$inferSelect;
 
 export const urlMonitors = pgTable("url_monitors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
