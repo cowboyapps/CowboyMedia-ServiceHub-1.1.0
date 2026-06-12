@@ -6328,8 +6328,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
       }
       const buffer = Buffer.from(dl.data, "base64");
+      const disposition = req.query.download === "1" ? "attachment" : "inline";
       res.set("Content-Type", "application/pdf");
-      res.set("Content-Disposition", `inline; filename="invoice-${invoiceId}.pdf"`);
+      res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
       res.set("Cache-Control", "private, max-age=300");
       return res.send(buffer);
     } catch {
@@ -6385,8 +6386,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           return res.status(502).json({ message: `Could not download this invoice: ${dl.error ?? "unknown error"}` });
         }
         const buffer = Buffer.from(dl.data, "base64");
+        const disposition = req.query.download === "1" ? "attachment" : "inline";
         res.set("Content-Type", "application/pdf");
-        res.set("Content-Disposition", `inline; filename="invoice-${invoiceId}.pdf"`);
+        res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
         res.set("Cache-Control", "private, max-age=300");
         return res.send(buffer);
       } catch (e) {

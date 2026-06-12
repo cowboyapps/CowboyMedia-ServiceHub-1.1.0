@@ -21,6 +21,7 @@ import {
   Link2Off,
   ServerCog,
   FileText,
+  Download,
   ChevronRight,
 } from "lucide-react";
 
@@ -389,6 +390,18 @@ function InvoiceDetailDialog({
                   <Button variant="outline" size="sm" className="gap-1.5">
                     <FileText className="w-3.5 h-3.5" />
                     View PDF
+                  </Button>
+                </a>
+              )}
+              {pdfProxyUrl && (
+                <a
+                  href={`${pdfProxyUrl}?download=1`}
+                  download={`invoice-${invoice.id}.pdf`}
+                  data-testid="link-invoice-detail-pdf-download"
+                >
+                  <Button variant="outline" size="sm" className="gap-1.5">
+                    <Download className="w-3.5 h-3.5" />
+                    Download PDF
                   </Button>
                 </a>
               )}
