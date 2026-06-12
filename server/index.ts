@@ -3,7 +3,13 @@ import { registerRoutes, getWebSocketServer, sendPushToUser, sendTemplatedEmail,
 import { hasWhmcsCredentials, normalizeBaseUrl as normalizeWhmcsBaseUrl } from "./whmcs";
 import { loadTicketsList as loadWhmcsTicketsList } from "./whmcs-tickets";
 import { startWhmcsTicketNotifier, type NotifierUser, type NotifierTicket } from "./whmcs-ticket-notifier";
-import { whmcsTicketPath, whmcsTicketUrl } from "@shared/whmcs-notify";
+import {
+  whmcsTicketPath,
+  whmcsTicketUrl,
+  ticketNotifTitle,
+  ticketNotifBody,
+  TICKET_REPLY_TEMPLATE_KEY,
+} from "@shared/whmcs-notify";
 import {
   loadInvoicesList as loadWhmcsInvoicesList,
   loadServicesList as loadWhmcsServicesList,
@@ -20,6 +26,7 @@ import {
   invoiceLabel,
   invoiceAmountLabel,
   invoiceDuePhrase,
+  invoiceTemplateKey,
   type InvoiceStageMap,
 } from "@shared/whmcs-invoice-notify";
 import {
@@ -32,11 +39,13 @@ import {
   serviceNotifBody,
   serviceLabel,
   serviceRenewPhrase,
+  serviceTemplateKey,
 } from "@shared/whmcs-service-notify";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
 import { seedEmailTemplates, renderTemplate, sendEmail } from "./email";
+import { seedNotificationTemplates, getNotificationOverride } from "./notification-templates-store";
 import { storage } from "./storage";
 import { logError } from "./error-log";
 import { userWantsChannel } from "@shared/notification-categories";
@@ -241,11 +250,12 @@ void (async () => {
       // Decoupled from push (Task #350) so email-only customers still get a
       // bell entry. Never throws — a failure here must not abort the pass.
       try {
+        const ov = await getNotificationOverride(TICKET_REPLY_TEMPLATE_KEY);
         const row = await storage.createUserNotification({
           userId: user.id,
           type: "whmcs_ticket_reply",
-          title: "New Billing Ticket Reply",
-          body: `Reply on: ${ticket.subject || "your billing ticket"}`,
+          title: ticketNotifTitle(ov),
+          body: ticketNotifBody(ticket.subject, ov),
           referenceType: "whmcs_ticket",
           referenceId: String(ticket.id),
           url: whmcsTicketPath(ticket.id),
@@ -257,22 +267,25 @@ void (async () => {
       }
     },
     sendPush: (user, ticket, notificationId) => {
-      void sendPushToUser(
-        user.id,
-        {
-          title: "New Billing Ticket Reply",
-          body: `Reply on: ${ticket.subject || "your billing ticket"}`,
-          url: whmcsTicketPath(ticket.id),
-          tag: `whmcs-ticket-${ticket.id}`,
-          resourceLabel: `Billing ticket: ${ticket.subject || ticket.id}`,
-          rollupNoun: "replies",
-        },
-        // Reuse the already-created bell row so push users get exactly one;
-        // fall back to creating one in sendPushToUser if createInApp failed.
-        notificationId
-          ? { notificationId }
-          : { type: "whmcs_ticket_reply", referenceType: "whmcs_ticket", referenceId: String(ticket.id) },
-      );
+      void (async () => {
+        const ov = await getNotificationOverride(TICKET_REPLY_TEMPLATE_KEY);
+        void sendPushToUser(
+          user.id,
+          {
+            title: ticketNotifTitle(ov),
+            body: ticketNotifBody(ticket.subject, ov),
+            url: whmcsTicketPath(ticket.id),
+            tag: `whmcs-ticket-${ticket.id}`,
+            resourceLabel: `Billing ticket: ${ticket.subject || ticket.id}`,
+            rollupNoun: "replies",
+          },
+          // Reuse the already-created bell row so push users get exactly one;
+          // fall back to creating one in sendPushToUser if createInApp failed.
+          notificationId
+            ? { notificationId }
+            : { type: "whmcs_ticket_reply", referenceType: "whmcs_ticket", referenceId: String(ticket.id) },
+        );
+      })();
     },
     sendEmail: (user, ticket) => {
       if (!user.email) return;
@@ -330,11 +343,12 @@ void (async () => {
       // page). Never throws — a failure here must not abort the pass.
       try {
         const today = new Date().toISOString().slice(0, 10);
+        const ov = await getNotificationOverride(invoiceTemplateKey(stage));
         const row = await storage.createUserNotification({
           userId: user.id,
           type: "whmcs_invoice_due",
-          title: invoiceNotifTitle(stage),
-          body: invoiceNotifBody(invoice, stage, today),
+          title: invoiceNotifTitle(stage, ov),
+          body: invoiceNotifBody(invoice, stage, today, ov),
           referenceType: "whmcs_invoice",
           referenceId: String(invoice.id),
           url: "/billing",
@@ -346,28 +360,31 @@ void (async () => {
       }
     },
     sendPush: (user, invoice, stage, notificationId) => {
-      const today = new Date().toISOString().slice(0, 10);
-      // PUSH deep-links straight to the WHMCS pay page (absolute, cross-origin)
-      // so one tap opens checkout; the service worker opens it in its own window
-      // rather than hijacking an open ServiceHub tab. Falls back to the in-app
-      // /billing screen when WHMCS gave us no pay URL.
-      const payUrl = invoice.payUrl || "/billing";
-      void sendPushToUser(
-        user.id,
-        {
-          title: invoiceNotifTitle(stage),
-          body: invoiceNotifBody(invoice, stage, today),
-          url: payUrl,
-          tag: `whmcs-invoice-${invoice.id}`,
-          resourceLabel: `Invoice ${invoiceLabel(invoice)}`,
-          rollupNoun: "reminders",
-        },
-        // Reuse the already-created bell row so push users get exactly one;
-        // fall back to creating one in sendPushToUser if createInApp failed.
-        notificationId
-          ? { notificationId }
-          : { type: "whmcs_invoice_due", referenceType: "whmcs_invoice", referenceId: String(invoice.id) },
-      );
+      void (async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const ov = await getNotificationOverride(invoiceTemplateKey(stage));
+        // PUSH deep-links straight to the WHMCS pay page (absolute, cross-origin)
+        // so one tap opens checkout; the service worker opens it in its own window
+        // rather than hijacking an open ServiceHub tab. Falls back to the in-app
+        // /billing screen when WHMCS gave us no pay URL.
+        const payUrl = invoice.payUrl || "/billing";
+        void sendPushToUser(
+          user.id,
+          {
+            title: invoiceNotifTitle(stage, ov),
+            body: invoiceNotifBody(invoice, stage, today, ov),
+            url: payUrl,
+            tag: `whmcs-invoice-${invoice.id}`,
+            resourceLabel: `Invoice ${invoiceLabel(invoice)}`,
+            rollupNoun: "reminders",
+          },
+          // Reuse the already-created bell row so push users get exactly one;
+          // fall back to creating one in sendPushToUser if createInApp failed.
+          notificationId
+            ? { notificationId }
+            : { type: "whmcs_invoice_due", referenceType: "whmcs_invoice", referenceId: String(invoice.id) },
+        );
+      })();
     },
     sendEmail: (user, invoice, stage) => {
       if (!user.email) return;
@@ -439,11 +456,12 @@ void (async () => {
       // service page). Never throws — a failure here must not abort the pass.
       try {
         const today = new Date().toISOString().slice(0, 10);
+        const ov = await getNotificationOverride(serviceTemplateKey(kind));
         const row = await storage.createUserNotification({
           userId: user.id,
           type: kind === "renewal" ? "whmcs_service_renewal" : "whmcs_service_status",
-          title: serviceNotifTitle(kind),
-          body: serviceNotifBody(service, kind, today),
+          title: serviceNotifTitle(kind, ov),
+          body: serviceNotifBody(service, kind, today, ov),
           referenceType: "whmcs_service",
           referenceId: String(service.id),
           url: "/billing",
@@ -455,34 +473,37 @@ void (async () => {
       }
     },
     sendPush: (user, service, kind, baseUrl, notificationId) => {
-      const today = new Date().toISOString().slice(0, 10);
-      // Renewal + suspended PUSH deep-link to the WHMCS service page (absolute,
-      // cross-origin) so one tap opens it; the service worker opens it in its own
-      // window rather than hijacking an open ServiceHub tab. Unsuspended is
-      // purely informational → the in-app /billing screen. Falls back to /billing
-      // when WHMCS gave us no base URL.
-      const serviceUrl = buildWhmcsServiceUrl(baseUrl, service.id);
-      const url = kind === "unsuspended" ? "/billing" : serviceUrl || "/billing";
-      void sendPushToUser(
-        user.id,
-        {
-          title: serviceNotifTitle(kind),
-          body: serviceNotifBody(service, kind, today),
-          url,
-          tag: `whmcs-service-${service.id}-${kind}`,
-          resourceLabel: serviceLabel(service),
-          rollupNoun: kind === "renewal" ? "reminders" : "updates",
-        },
-        // Reuse the already-created bell row so push users get exactly one; fall
-        // back to creating one in sendPushToUser if createInApp failed.
-        notificationId
-          ? { notificationId }
-          : {
-              type: kind === "renewal" ? "whmcs_service_renewal" : "whmcs_service_status",
-              referenceType: "whmcs_service",
-              referenceId: String(service.id),
-            },
-      );
+      void (async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const ov = await getNotificationOverride(serviceTemplateKey(kind));
+        // Renewal + suspended PUSH deep-link to the WHMCS service page (absolute,
+        // cross-origin) so one tap opens it; the service worker opens it in its own
+        // window rather than hijacking an open ServiceHub tab. Unsuspended is
+        // purely informational → the in-app /billing screen. Falls back to /billing
+        // when WHMCS gave us no base URL.
+        const serviceUrl = buildWhmcsServiceUrl(baseUrl, service.id);
+        const url = kind === "unsuspended" ? "/billing" : serviceUrl || "/billing";
+        void sendPushToUser(
+          user.id,
+          {
+            title: serviceNotifTitle(kind, ov),
+            body: serviceNotifBody(service, kind, today, ov),
+            url,
+            tag: `whmcs-service-${service.id}-${kind}`,
+            resourceLabel: serviceLabel(service),
+            rollupNoun: kind === "renewal" ? "reminders" : "updates",
+          },
+          // Reuse the already-created bell row so push users get exactly one; fall
+          // back to creating one in sendPushToUser if createInApp failed.
+          notificationId
+            ? { notificationId }
+            : {
+                type: kind === "renewal" ? "whmcs_service_renewal" : "whmcs_service_status",
+                referenceType: "whmcs_service",
+                referenceId: String(service.id),
+              },
+        );
+      })();
     },
     sendEmail: (user, service, kind, baseUrl) => {
       if (!user.email) return;
@@ -536,6 +557,12 @@ void (async () => {
     await seedEmailTemplates();
   } catch (e) {
     console.error("Email template seed error:", e);
+  }
+
+  try {
+    await seedNotificationTemplates();
+  } catch (e) {
+    console.error("Notification template seed error:", e);
   }
 
   // One-time import of legacy CHANGELOG.md into changelog_entries. Idempotent;

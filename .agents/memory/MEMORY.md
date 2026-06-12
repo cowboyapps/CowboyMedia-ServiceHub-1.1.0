@@ -10,3 +10,4 @@
 - [Drizzle journal vs db:push drift](drizzle-journal-push-drift.md) — post-merge push adds columns without journaling → next boot's migrator collides; fix by inserting the journal row (sha256 of .sql + _journal.json `when`), don't drop the column.
 - [bash heredoc vs escaped -lc string](bash-heredoc-vs-escaped-string.md) — build remote-shell scripts as single-quoted heredocs; full-file `bash -n` masks unbalanced quotes, isolate the function to catch them.
 - [WHMCS subfolder-redirect self-heal](whmcs-subfolder-redirect-heal.md) — WHMCS often lives in a subfolder while a vanity subdomain 301s to it; client retries on redirect to find the real API root.
+- [notification_templates.enabled semantics](notification-template-enabled-semantics.md) — `enabled` = "use custom wording", NOT send/suppress; off → default wording, notification still fires.

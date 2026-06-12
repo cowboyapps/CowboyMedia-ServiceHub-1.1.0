@@ -271,6 +271,20 @@ export const emailTemplates = pgTable("email_templates", {
   customized: boolean("customized").notNull().default(false),
 });
 
+// Editable wording for WHMCS push / in-app notifications. Only the mutable
+// fields live here; the label/description/group/variables/default copy are
+// static and defined in shared/notification-templates.ts (the route merges
+// them). `enabled` toggles whether the custom wording is used; when false the
+// notifier falls back to the built-in default (the notification still sends).
+export const notificationTemplates = pgTable("notification_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateKey: varchar("template_key").notNull().unique(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  customized: boolean("customized").notNull().default(false),
+});
+
 export const uploadedFiles = pgTable("uploaded_files", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   filename: text("filename").notNull().unique(),
@@ -370,6 +384,7 @@ export const insertReportRequestSchema = createInsertSchema(reportRequests).omit
 export const insertReportNotificationSchema = createInsertSchema(reportNotifications).omit({ id: true, createdAt: true, readAt: true });
 export const insertServiceUpdateSchema = createInsertSchema(serviceUpdates).omit({ id: true, createdAt: true });
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
+export const insertNotificationTemplateSchema = createInsertSchema(notificationTemplates).omit({ id: true });
 export const insertAdminRoleSchema = createInsertSchema(adminRoles).omit({ id: true, createdAt: true });
 export const insertTicketCategorySchema = createInsertSchema(ticketCategories).omit({ id: true, createdAt: true });
 export const insertAdminChatThreadSchema = createInsertSchema(adminChatThreads).omit({ id: true, createdAt: true });
@@ -416,6 +431,8 @@ export type InsertServiceUpdate = z.infer<typeof insertServiceUpdateSchema>;
 export type ServiceUpdate = typeof serviceUpdates.$inferSelect;
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertNotificationTemplate = z.infer<typeof insertNotificationTemplateSchema>;
+export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
 export type InsertAdminRole = z.infer<typeof insertAdminRoleSchema>;
 export type AdminRole = typeof adminRoles.$inferSelect;
 export type InsertTicketCategory = z.infer<typeof insertTicketCategorySchema>;
@@ -1016,6 +1033,7 @@ export const ADMIN_PERMISSION_KEYS = [
   "service_updates.view", "service_updates.manage",
   "reports.view", "reports.manage",
   "email_templates.view", "email_templates.manage",
+  "notification_templates.view", "notification_templates.manage",
   "downloads.view", "downloads.manage",
   "support_tickets",
   "admin_chat",

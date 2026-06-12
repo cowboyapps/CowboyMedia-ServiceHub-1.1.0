@@ -60,6 +60,8 @@ import crypto from "crypto";
 import { promisify } from "util";
 import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
+import { NOTIFICATION_TEMPLATE_DEFS } from "@shared/notification-templates";
+import { invalidateNotificationTemplateCache } from "./notification-templates-store";
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeServiceUpdate, composeNews } from "./telegram";
@@ -4022,6 +4024,77 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         body: defaultTpl.body,
         customized: false,
       });
+      res.json(updated);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // WHMCS notification wording. GET merges the editable DB rows with the static
+  // metadata (label/description/group/variables/default copy) from the shared
+  // defs so the admin UI can render a self-describing editor. PATCH marks a row
+  // customized; reset reverts to the built-in default. Both writes invalidate the
+  // notifier's in-memory cache so edits take effect on the next pass.
+  app.get("/api/admin/notification-templates", requirePermission("notification_templates.view", "notification_templates.manage"), async (_req, res) => {
+    try {
+      const rows = await storage.getAllNotificationTemplates();
+      const byKey = new Map(rows.map((r) => [r.templateKey, r]));
+      const merged = NOTIFICATION_TEMPLATE_DEFS.map((def) => {
+        const row = byKey.get(def.key);
+        return {
+          id: row?.id ?? null,
+          templateKey: def.key,
+          group: def.group,
+          label: def.label,
+          description: def.description,
+          variables: def.variables,
+          defaultTitle: def.defaultTitle,
+          defaultBody: def.defaultBody,
+          title: row?.title ?? def.defaultTitle,
+          body: row?.body ?? def.defaultBody,
+          enabled: row?.enabled ?? true,
+          customized: row?.customized ?? false,
+        };
+      });
+      res.json(merged);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.patch("/api/admin/notification-templates/:id", requirePermission("notification_templates.view", "notification_templates.manage"), async (req, res) => {
+    try {
+      const { title, body, enabled } = req.body;
+      if (title !== undefined && typeof title !== "string") return res.status(400).json({ message: "title must be a string" });
+      if (body !== undefined && typeof body !== "string") return res.status(400).json({ message: "body must be a string" });
+      if (enabled !== undefined && typeof enabled !== "boolean") return res.status(400).json({ message: "enabled must be a boolean" });
+      const updateData: Partial<{ title: string; body: string; enabled: boolean; customized: boolean }> = {};
+      if (title !== undefined) updateData.title = title;
+      if (body !== undefined) updateData.body = body;
+      if (enabled !== undefined) updateData.enabled = enabled;
+      if (title !== undefined || body !== undefined) updateData.customized = true;
+      const updated = await storage.updateNotificationTemplate(getParam(req, "id"), updateData);
+      if (!updated) return res.status(404).json({ message: "Template not found" });
+      invalidateNotificationTemplateCache();
+      res.json(updated);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.post("/api/admin/notification-templates/:id/reset", requirePermission("notification_templates.view", "notification_templates.manage"), async (req, res) => {
+    try {
+      const rows = await storage.getAllNotificationTemplates();
+      const template = rows.find((t) => t.id === req.params.id);
+      if (!template) return res.status(404).json({ message: "Template not found" });
+      const def = NOTIFICATION_TEMPLATE_DEFS.find((d) => d.key === template.templateKey);
+      if (!def) return res.status(404).json({ message: "Default template not found" });
+      const updated = await storage.updateNotificationTemplate(getParam(req, "id"), {
+        title: def.defaultTitle,
+        body: def.defaultBody,
+        customized: false,
+      });
+      invalidateNotificationTemplateCache();
       res.json(updated);
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });

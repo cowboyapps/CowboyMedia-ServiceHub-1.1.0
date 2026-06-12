@@ -15,6 +15,7 @@ import {
   type ReportNotification, type InsertReportNotification,
   type ServiceUpdate, type InsertServiceUpdate,
   type EmailTemplate,
+  type NotificationTemplate,
   type AdminRole, type InsertAdminRole,
   type TicketCategory, type InsertTicketCategory,
   type AdminChatThread, type InsertAdminChatThread,
@@ -64,7 +65,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
+  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import { db } from "./db";
@@ -235,6 +236,10 @@ export interface IStorage {
   getEmailTemplateByKey(key: string): Promise<EmailTemplate | undefined>;
   updateEmailTemplate(id: string, data: Partial<EmailTemplate>): Promise<EmailTemplate | undefined>;
   upsertEmailTemplate(data: { templateKey: string; name: string; subject: string; body: string; availableVariables: string[]; description: string }): Promise<void>;
+  getAllNotificationTemplates(): Promise<NotificationTemplate[]>;
+  getNotificationTemplateByKey(key: string): Promise<NotificationTemplate | undefined>;
+  updateNotificationTemplate(id: string, data: Partial<NotificationTemplate>): Promise<NotificationTemplate | undefined>;
+  upsertNotificationTemplate(data: { templateKey: string; title: string; body: string }): Promise<void>;
 
   getAllAdminRoles(): Promise<AdminRole[]>;
   getAdminRole(id: string): Promise<AdminRole | undefined>;
@@ -1011,6 +1016,36 @@ export class DatabaseStorage implements IStorage {
           availableVariables: data.availableVariables,
           description: data.description,
         }).where(eq(emailTemplates.templateKey, data.templateKey));
+      }
+    }
+  }
+
+  async getAllNotificationTemplates(): Promise<NotificationTemplate[]> {
+    return db.select().from(notificationTemplates).orderBy(notificationTemplates.templateKey);
+  }
+
+  async getNotificationTemplateByKey(key: string): Promise<NotificationTemplate | undefined> {
+    const [template] = await db.select().from(notificationTemplates).where(eq(notificationTemplates.templateKey, key));
+    return template;
+  }
+
+  async updateNotificationTemplate(id: string, data: Partial<NotificationTemplate>): Promise<NotificationTemplate | undefined> {
+    const [updated] = await db.update(notificationTemplates).set(data).where(eq(notificationTemplates.id, id)).returning();
+    return updated;
+  }
+
+  async upsertNotificationTemplate(data: { templateKey: string; title: string; body: string }): Promise<void> {
+    const existing = await this.getNotificationTemplateByKey(data.templateKey);
+    if (!existing) {
+      await db.insert(notificationTemplates).values(data);
+    } else if (!existing.customized) {
+      // Keep non-customized rows in sync with code defaults; never clobber an
+      // admin's customized wording.
+      if (existing.title !== data.title || existing.body !== data.body) {
+        await db.update(notificationTemplates).set({
+          title: data.title,
+          body: data.body,
+        }).where(eq(notificationTemplates.templateKey, data.templateKey));
       }
     }
   }

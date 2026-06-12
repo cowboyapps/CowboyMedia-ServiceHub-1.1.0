@@ -11,6 +11,16 @@
 // date.
 
 import { ticketHasNewReply, type SeenMap, type UnreadTicketLike } from "./whmcs-unread";
+import {
+  renderNotification,
+  type NotificationTemplateOverride,
+} from "./notification-templates";
+
+/** Template key for the billing-ticket reply notification. */
+export const TICKET_REPLY_TEMPLATE_KEY = "whmcs.ticket.reply" as const;
+
+/** Fallback subject when a WHMCS ticket has none. */
+export const TICKET_REPLY_FALLBACK_SUBJECT = "your billing ticket";
 
 export interface NotifyCandidate extends UnreadTicketLike {
   /** Human ticket number for the notification body (optional). */
@@ -71,4 +81,31 @@ export function selectTicketsToNotify<T extends NotifyCandidate>(
   return tickets.filter(
     (t) => ticketHasNewReply(t, notified) && !!t.lastReply && t.lastReply >= cutoffDate,
   );
+}
+
+// --- Customer-facing copy (pure, unit-tested) ---------------------------------
+
+/** Normalise a ticket subject for the notification copy (falls back when blank). */
+export function ticketSubjectLabel(subject?: string | null): string {
+  return String(subject ?? "").trim() || TICKET_REPLY_FALLBACK_SUBJECT;
+}
+
+/**
+ * Notification title for a billing-ticket reply. Delegates to the shared
+ * template renderer so an admin override (when supplied) wins over the default.
+ */
+export function ticketNotifTitle(override?: NotificationTemplateOverride | null): string {
+  return renderNotification(TICKET_REPLY_TEMPLATE_KEY, {}, override).title;
+}
+
+/** Body line, e.g. "Reply on: My invoice question" (admin override wins). */
+export function ticketNotifBody(
+  subject?: string | null,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(
+    TICKET_REPLY_TEMPLATE_KEY,
+    { subject: ticketSubjectLabel(subject) },
+    override,
+  ).body;
 }

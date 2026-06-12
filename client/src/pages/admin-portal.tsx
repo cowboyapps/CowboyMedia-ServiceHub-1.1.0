@@ -3405,6 +3405,261 @@ function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   );
 }
 
+interface NotificationTemplateRow {
+  id: string | null;
+  templateKey: string;
+  group: "Service" | "Invoice" | "Ticket";
+  label: string;
+  description: string;
+  variables: { name: string; description: string }[];
+  defaultTitle: string;
+  defaultBody: string;
+  title: string;
+  body: string;
+  enabled: boolean;
+  customized: boolean;
+}
+
+const NOTIFICATION_TEMPLATE_GROUPS: NotificationTemplateRow["group"][] = ["Service", "Invoice", "Ticket"];
+
+function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean }) {
+  const { toast } = useToast();
+  const [editingTemplate, setEditingTemplate] = useState<NotificationTemplateRow | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+
+  const { data: templates, isLoading } = useQuery<NotificationTemplateRow[]>({
+    queryKey: ["/api/admin/notification-templates"],
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, title, body }: { id: string; title: string; body: string }) => {
+      await apiRequest("PATCH", `/api/admin/notification-templates/${id}`, { title, body });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/notification-templates"] });
+      setEditingTemplate(null);
+      toast({ title: "Notification updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update notification", variant: "destructive" });
+    },
+  });
+
+  const toggleEnabledMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      await apiRequest("PATCH", `/api/admin/notification-templates/${id}`, { enabled });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/notification-templates"] });
+      toast({ title: "Notification updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update notification", variant: "destructive" });
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("POST", `/api/admin/notification-templates/${id}/reset`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/notification-templates"] });
+      setEditingTemplate(null);
+      toast({ title: "Notification reset to default" });
+    },
+    onError: () => {
+      toast({ title: "Failed to reset notification", variant: "destructive" });
+    },
+  });
+
+  const openEdit = (template: NotificationTemplateRow) => {
+    setEditingTemplate(template);
+    setEditTitle(template.title);
+    setEditBody(template.body);
+  };
+
+  const insertVariable = (varName: string) => {
+    const textarea = document.getElementById("notif-template-body-editor") as HTMLTextAreaElement | null;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newBody = editBody.substring(0, start) + `{${varName}}` + editBody.substring(end);
+      setEditBody(newBody);
+      setTimeout(() => {
+        textarea.focus();
+        const newPos = start + varName.length + 2;
+        textarea.setSelectionRange(newPos, newPos);
+      }, 0);
+    } else {
+      setEditBody(editBody + `{${varName}}`);
+    }
+  };
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />;
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold" data-testid="text-notification-templates-title">Notification Wording</h2>
+      <p className="text-sm text-muted-foreground">Customize the title and body of the WHMCS push &amp; in-app notifications customers receive. Use placeholders like <code className="bg-muted px-1 py-0.5 rounded text-xs">{"{service}"}</code> which are filled in automatically. Turning a notification <strong>Off</strong> reverts it to the built-in default wording — the notification still sends.</p>
+
+      {NOTIFICATION_TEMPLATE_GROUPS.map((group) => {
+        const groupTemplates = templates?.filter((t) => t.group === group) ?? [];
+        if (groupTemplates.length === 0) return null;
+        return (
+          <div key={group} className="space-y-2">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide" data-testid={`text-notif-group-${group.toLowerCase()}`}>{group}</h3>
+            {groupTemplates.map((template) => (
+              <Card key={template.templateKey} data-testid={`card-notif-template-${template.templateKey}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-sm" data-testid={`text-notif-template-name-${template.templateKey}`}>{template.label}</h4>
+                        {template.customized && template.enabled && (
+                          <Badge variant="secondary" className="text-[10px]">Custom</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{template.description}</p>
+                      <p className="text-xs text-muted-foreground mt-1 font-mono truncate">{template.enabled ? template.title : template.defaultTitle}</p>
+                      <p className="text-xs text-muted-foreground font-mono truncate">{template.enabled ? template.body : template.defaultBody}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{template.enabled ? "On" : "Off"}</span>
+                        <Switch
+                          checked={template.enabled}
+                          onCheckedChange={(checked) => template.id && toggleEnabledMutation.mutate({ id: template.id, enabled: checked })}
+                          disabled={!canManage || !template.id}
+                          data-testid={`switch-notif-template-enabled-${template.templateKey}`}
+                        />
+                      </div>
+                      {canManage && template.id && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => openEdit(template)}
+                          data-testid={`button-edit-notif-template-${template.templateKey}`}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                          Edit
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        );
+      })}
+
+      <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-notif-template">
+          <DialogHeader>
+            <DialogTitle data-testid="text-edit-notif-template-title">Edit Notification: {editingTemplate?.label}</DialogTitle>
+          </DialogHeader>
+          {editingTemplate && (
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">{editingTemplate.description}</p>
+
+              <div>
+                <label className="text-sm font-medium mb-1 block">Available Variables</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {editingTemplate.variables.map((v) => (
+                    <Badge
+                      key={v.name}
+                      variant="secondary"
+                      className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors text-xs gap-1"
+                      onClick={() => insertVariable(v.name)}
+                      title={v.description}
+                      data-testid={`badge-notif-var-${v.name}`}
+                    >
+                      <Copy className="w-3 h-3" />
+                      {`{${v.name}}`}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Click a variable to insert it at the cursor position in the body field</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1 block">Title</label>
+                <Input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="font-mono text-sm"
+                  data-testid="input-notif-template-title"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1 block">Body</label>
+                <Textarea
+                  id="notif-template-body-editor"
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  className="font-mono text-xs min-h-[120px] resize-y"
+                  data-testid="textarea-notif-template-body"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-between">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-muted-foreground"
+                      data-testid="button-reset-notif-template"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                      Reset to Default
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Reset Notification?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will restore the notification to the original system default. Any customizations will be lost.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => editingTemplate.id && resetMutation.mutate(editingTemplate.id)}
+                        data-testid="button-confirm-notif-reset"
+                      >
+                        Reset
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setEditingTemplate(null)} data-testid="button-cancel-notif-edit">
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1"
+                    disabled={updateMutation.isPending}
+                    onClick={() => editingTemplate.id && updateMutation.mutate({ id: editingTemplate.id, title: editTitle, body: editBody })}
+                    data-testid="button-save-notif-template"
+                  >
+                    {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 interface ActivityLog {
   id: string;
   category: string;
@@ -4627,6 +4882,7 @@ const ALL_PERMISSIONS = [
   { category: "Service Updates", perms: ["service_updates.view", "service_updates.manage"] },
   { category: "Reports/Requests", perms: ["reports.view", "reports.manage"] },
   { category: "Email Templates", perms: ["email_templates.view", "email_templates.manage"] },
+  { category: "Notification Wording", perms: ["notification_templates.view", "notification_templates.manage"] },
   { category: "Downloads", perms: ["downloads.view", "downloads.manage"] },
   { category: "Support Tickets", perms: ["support_tickets"] },
   { category: "Admin Chat", perms: ["admin_chat"] },
@@ -5636,6 +5892,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "service-updates": "service_updates.view",
   "reports-requests": "reports.view",
   "email-templates": "email_templates.view",
+  "notification-templates": "notification_templates.view",
   "downloads": "downloads.view",
   "support-tickets": "support_tickets",
   "admin-chat": "admin_chat",
@@ -5658,6 +5915,7 @@ const TILE_MANAGE_MAP: Record<string, string> = {
   "service-updates": "service_updates.manage",
   "reports-requests": "reports.manage",
   "email-templates": "email_templates.manage",
+  "notification-templates": "notification_templates.manage",
   "downloads": "downloads.manage",
   "monitoring": "monitoring.manage",
   "announcements": "announcements",
@@ -8614,6 +8872,7 @@ export default function AdminPortal() {
     { key: "service-updates", label: "Service Updates", icon: RefreshCw, color: "text-teal-500", bg: "bg-teal-500/10", group: "status" },
     { key: "reports-requests", label: "Reports/Requests", icon: FileText, color: "text-cyan-500", bg: "bg-cyan-500/10", group: "support" },
     { key: "email-templates", label: "Email Templates", icon: MailOpen, color: "text-indigo-500", bg: "bg-indigo-500/10", group: "support" },
+    { key: "notification-templates", label: "Notification Wording", icon: Bell, color: "text-amber-500", bg: "bg-amber-500/10", group: "support" },
     { key: "downloads", label: "Downloads", icon: Download, color: "text-emerald-500", bg: "bg-emerald-500/10", group: "content" },
     { key: "support-tickets", label: "Support Tickets", icon: LifeBuoy, color: "text-sky-500", bg: "bg-sky-500/10", navigateTo: "/tickets", group: "support" },
     { key: "admin-chat", label: "Admin Chat", icon: MessageSquare, color: "text-pink-500", bg: "bg-pink-500/10", group: "support" },
@@ -8669,6 +8928,7 @@ export default function AdminPortal() {
       case "service-updates": return <ServiceUpdatesTab canManage={canManageSection("service-updates")} />;
       case "reports-requests": return <ReportsRequestsTab canManage={canManageSection("reports-requests")} />;
       case "email-templates": return <EmailTemplatesTab canManage={canManageSection("email-templates")} />;
+      case "notification-templates": return <NotificationTemplatesTab canManage={canManageSection("notification-templates")} />;
       case "downloads": return <DownloadsTab canManage={canManageSection("downloads")} />;
       case "admin-chat": return <AdminChatTab initialThreadId={initialParams.chat} />;
       case "chat-admin": return <ChatAdminTab />;

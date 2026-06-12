@@ -21,6 +21,11 @@
 //     and the reminder fires again.
 
 import { addDaysToDateString, daysUntilDue } from "./whmcs-invoice-notify";
+import {
+  renderNotification,
+  type NotificationTemplateKey,
+  type NotificationTemplateOverride,
+} from "./notification-templates";
 
 export type ServiceEventKind = "renewal" | "suspended" | "unsuspended";
 
@@ -153,17 +158,41 @@ export function serviceRenewPhrase(today: string, nextDueDate: string | null): s
   return `renews in ${d} days`;
 }
 
-/** Notification title for the event kind. */
-export function serviceNotifTitle(kind: ServiceEventKind): string {
-  if (kind === "suspended") return "Service suspended";
-  if (kind === "unsuspended") return "Service reactivated";
-  return "Service renews soon";
+/** Notification-template key for a service event kind. */
+export function serviceTemplateKey(kind: ServiceEventKind): NotificationTemplateKey {
+  if (kind === "suspended") return "whmcs.service.suspended";
+  if (kind === "unsuspended") return "whmcs.service.unsuspended";
+  return "whmcs.service.renewal";
 }
 
-/** Body line for the event kind. */
-export function serviceNotifBody(service: ServiceNotifyCandidate, kind: ServiceEventKind, today: string): string {
-  const label = serviceLabel(service);
-  if (kind === "suspended") return `Your service ${label} has been suspended.`;
-  if (kind === "unsuspended") return `Your service ${label} is active again.`;
-  return `Your service ${label} ${serviceRenewPhrase(today, service.nextDueDate)}.`;
+/** Placeholder values for a service notification. */
+function serviceVars(
+  service: ServiceNotifyCandidate,
+  today: string,
+): Record<string, string> {
+  return {
+    service: serviceLabel(service),
+    when: serviceRenewPhrase(today, service.nextDueDate),
+  };
+}
+
+/**
+ * Notification title for the event kind. Delegates to the shared template
+ * renderer so an admin override (when supplied) wins over the built-in default.
+ */
+export function serviceNotifTitle(
+  kind: ServiceEventKind,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(serviceTemplateKey(kind), {}, override).title;
+}
+
+/** Body line for the event kind (admin override wins when supplied). */
+export function serviceNotifBody(
+  service: ServiceNotifyCandidate,
+  kind: ServiceEventKind,
+  today: string,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(serviceTemplateKey(kind), serviceVars(service, today), override).body;
 }

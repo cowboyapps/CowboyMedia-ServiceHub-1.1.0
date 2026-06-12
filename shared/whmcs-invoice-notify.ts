@@ -11,6 +11,12 @@
 // and notifies at most once per stage. A paid/cancelled invoice yields a null
 // stage and silently drops out.
 
+import {
+  renderNotification,
+  type NotificationTemplateKey,
+  type NotificationTemplateOverride,
+} from "./notification-templates";
+
 export type InvoiceStage = "due_soon" | "overdue";
 
 /**
@@ -156,14 +162,44 @@ export function invoiceDuePhrase(stage: InvoiceStage, today: string, dueDate: st
   return `is due in ${d} days`;
 }
 
-/** Notification title for the stage. */
-export function invoiceNotifTitle(stage: InvoiceStage): string {
-  return stage === "overdue" ? "Invoice overdue" : "Invoice due soon";
+/** Notification-template key for an invoice stage. */
+export function invoiceTemplateKey(stage: InvoiceStage): NotificationTemplateKey {
+  return stage === "overdue" ? "whmcs.invoice.overdue" : "whmcs.invoice.due_soon";
 }
 
-/** Body line, e.g. "Invoice #1234 (10.00 USD) is due in 3 days." */
-export function invoiceNotifBody(invoice: InvoiceNotifyCandidate, stage: InvoiceStage, today: string): string {
-  const amount = invoiceAmountLabel(invoice);
-  const amountPart = amount ? ` (${amount})` : "";
-  return `Invoice ${invoiceLabel(invoice)}${amountPart} ${invoiceDuePhrase(stage, today, invoice.dueDate)}.`;
+/** Placeholder values for an invoice notification. */
+function invoiceVars(
+  invoice: InvoiceNotifyCandidate,
+  stage: InvoiceStage,
+  today: string,
+): Record<string, string> {
+  return {
+    invoice: invoiceLabel(invoice),
+    amount: invoiceAmountLabel(invoice),
+    when: invoiceDuePhrase(stage, today, invoice.dueDate),
+  };
+}
+
+/**
+ * Notification title for the stage. Delegates to the shared template renderer so
+ * an admin override (when supplied) wins over the built-in default.
+ */
+export function invoiceNotifTitle(
+  stage: InvoiceStage,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(invoiceTemplateKey(stage), {}, override).title;
+}
+
+/**
+ * Body line, e.g. "Invoice #1234 (10.00 USD) is due in 3 days." (admin override
+ * wins when supplied; an empty amount collapses cleanly via tidyNotification).
+ */
+export function invoiceNotifBody(
+  invoice: InvoiceNotifyCandidate,
+  stage: InvoiceStage,
+  today: string,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(invoiceTemplateKey(stage), invoiceVars(invoice, stage, today), override).body;
 }
