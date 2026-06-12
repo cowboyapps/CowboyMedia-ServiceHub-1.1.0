@@ -39,7 +39,7 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistory, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistoryWithServices, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
@@ -6435,7 +6435,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const summary = await loadBillingSummary(clientId, baseUrl);
       // Transaction history is fetched alongside (its own degradation flag) so a
       // failed GetTransactions only blanks the history, not the whole summary.
-      const history = await loadTransactionHistory(clientId, summary.balance?.currencyCode ?? null, baseUrl);
+      // Enriched with the renewed service per row by correlating each payment's
+      // invoice line items against the client's products.
+      const history = await loadTransactionHistoryWithServices(
+        clientId,
+        summary.balance?.currencyCode ?? null,
+        summary.products,
+        baseUrl,
+      );
       return res.json({
         configured,
         enabled,

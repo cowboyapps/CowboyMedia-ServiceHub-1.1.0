@@ -327,9 +327,19 @@ export interface ParsedTransaction {
    * The WHMCS service id this payment renewed, or null. WHMCS only populates a
    * service relation on a transaction when the gateway recorded the renewal
    * against a hosting service (the `relid` field); most transactions (manual
-   * payments, add-funds, refunds) have no relid and stay null.
+   * payments, add-funds, refunds) have no relid and stay null. In practice WHMCS
+   * leaves `relid` empty on almost every transaction, so the service is usually
+   * filled in afterwards by correlating the transaction's invoice line items —
+   * see `correlateTransactionService` / `applyTransactionServiceHints`.
    */
   serviceId: number | null;
+  /**
+   * The renewed service's display name, or null. Never present from the raw
+   * GetTransactions row — it's added by the invoice-line-item correlation, which
+   * looks the name up from the client's product list (falling back to the
+   * matching line item's description).
+   */
+  serviceName: string | null;
   /** Deep link to that service's WHMCS detail page when serviceId + baseUrl exist. */
   serviceUrl: string | null;
 }
@@ -369,8 +379,77 @@ export function parseTransaction(
     amountOut: nonZeroMoney(raw?.amountout),
     currencyCode,
     serviceId,
+    serviceName: null,
     serviceUrl: serviceId ? buildServiceUrl(baseUrl, serviceId) : null,
   };
+}
+
+/**
+ * The renewed-service hint a single transaction can carry once its invoice line
+ * items are known: the service id, its display name, and a deep link.
+ */
+export interface TransactionServiceHint {
+  serviceId: number;
+  serviceName: string | null;
+  serviceUrl: string | null;
+}
+
+/**
+ * Correlate a transaction's invoice line items to the single hosting service it
+ * renewed. Returns the hint ONLY when exactly one distinct hosting service id
+ * appears across the line items — the unambiguous case. Returns null when:
+ *  - the invoice wasn't loaded (lineItems undefined),
+ *  - it carried no hosting line (0 services — e.g. a domain / add-funds / credit
+ *    invoice), or
+ *  - it renewed several different services (2+ — ambiguous, so we surface
+ *    nothing rather than guessing).
+ * The display name prefers the client's product name (keyed by service id),
+ * falling back to the matching line item's description. Pure → unit tested.
+ */
+export function correlateTransactionService(
+  lineItems: ParsedInvoiceLineItem[] | undefined | null,
+  productNamesById: Map<number, string>,
+  baseUrl: string | null = null,
+): TransactionServiceHint | null {
+  if (!lineItems || lineItems.length === 0) return null;
+  const serviceLines = lineItems.filter(
+    (li): li is ParsedInvoiceLineItem & { serviceId: number } => li.serviceId != null && li.serviceId > 0,
+  );
+  const distinctIds = Array.from(new Set(serviceLines.map((li) => li.serviceId)));
+  if (distinctIds.length !== 1) return null;
+  const serviceId = distinctIds[0];
+  const line = serviceLines.find((li) => li.serviceId === serviceId)!;
+  const productName = productNamesById.get(serviceId)?.trim();
+  const serviceName = productName || line.description.trim() || null;
+  const serviceUrl = line.serviceUrl ?? buildServiceUrl(baseUrl, serviceId);
+  return { serviceId, serviceName, serviceUrl };
+}
+
+/**
+ * Enrich a transaction list with the service each payment renewed, using a map
+ * of invoiceId -> that invoice's line items and the client's products (for the
+ * display name). A transaction is only touched when it has a linked invoice that
+ * resolved to exactly one hosting service; every other row passes through
+ * unchanged (degrades cleanly for unlinked payments, refunds, multi-service or
+ * unloaded invoices). An existing relid-derived serviceId is preserved when no
+ * correlation is found. Pure → unit tested.
+ */
+export function applyTransactionServiceHints(
+  transactions: ParsedTransaction[],
+  lineItemsByInvoice: Map<number, ParsedInvoiceLineItem[]>,
+  products: { id: number; name: string }[],
+  baseUrl: string | null = null,
+): ParsedTransaction[] {
+  const productNamesById = new Map<number, string>();
+  for (const p of products) {
+    if (p.id > 0 && p.name) productNamesById.set(p.id, p.name);
+  }
+  return transactions.map((t) => {
+    if (t.invoiceId == null) return t;
+    const hint = correlateTransactionService(lineItemsByInvoice.get(t.invoiceId), productNamesById, baseUrl);
+    if (!hint) return t;
+    return { ...t, serviceId: hint.serviceId, serviceName: hint.serviceName, serviceUrl: hint.serviceUrl };
+  });
 }
 
 export interface TransactionHistoryData {
@@ -422,6 +501,72 @@ export async function loadTransactionHistory(
 ): Promise<TransactionHistoryData> {
   const result = await fetcher(clientId);
   return buildTransactionHistory(result, currencyDefault, baseUrl);
+}
+
+/**
+ * Cap on how many distinct invoices we'll fetch to enrich the payment history
+ * with service names — bounds the extra GetInvoice calls per /api/billing load.
+ * Transactions are already most-recent-first, so the newest invoices win.
+ */
+const TXN_SERVICE_INVOICE_CAP = 20;
+/** How many invoice fetches run at once — keep small so we never hammer WHMCS. */
+const TXN_SERVICE_CONCURRENCY = 4;
+
+/**
+ * Fetch the payment history AND label each row with the single hosting service
+ * its invoice renewed. WHMCS transactions almost never carry a `relid`, so the
+ * service is correlated through the transaction's invoice line items: for the
+ * distinct linked invoices (newest first, capped) we fetch each invoice's detail
+ * — ownership-checked via `loadInvoiceDetail` against `clientId` — collect its
+ * line items, then `applyTransactionServiceHints` resolves the name from the
+ * client's products. Every failure degrades cleanly: a transactions outage flows
+ * straight through as `unreachable`; an invoice that won't load just leaves its
+ * row un-labelled. Never throws.
+ */
+export async function loadTransactionHistoryWithServices(
+  clientId: number,
+  currencyDefault: string | null,
+  products: { id: number; name: string }[],
+  baseUrl: string | null = null,
+  fetchTransactions: (clientId: number) => Promise<WhmcsRawFetch> = getClientTransactions,
+  fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
+): Promise<TransactionHistoryData> {
+  const history = await loadTransactionHistory(clientId, currencyDefault, baseUrl, fetchTransactions);
+  if (history.unreachable || history.transactions.length === 0) return history;
+
+  // Distinct linked invoice ids, in the transactions' newest-first order, capped.
+  const invoiceIds: number[] = [];
+  const seen = new Set<number>();
+  for (const t of history.transactions) {
+    if (t.invoiceId == null || seen.has(t.invoiceId)) continue;
+    seen.add(t.invoiceId);
+    invoiceIds.push(t.invoiceId);
+    if (invoiceIds.length >= TXN_SERVICE_INVOICE_CAP) break;
+  }
+  if (invoiceIds.length === 0) return history;
+
+  const lineItemsByInvoice = new Map<number, ParsedInvoiceLineItem[]>();
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= invoiceIds.length) return;
+      const id = invoiceIds[i];
+      try {
+        const detail = await loadInvoiceDetail(id, clientId, baseUrl, fetchInvoice);
+        if (detail.invoice) lineItemsByInvoice.set(id, detail.invoice.lineItems);
+      } catch {
+        // Leave this invoice's transactions un-labelled — never break the list.
+      }
+    }
+  }
+  const workerCount = Math.min(TXN_SERVICE_CONCURRENCY, invoiceIds.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return {
+    transactions: applyTransactionServiceHints(history.transactions, lineItemsByInvoice, products, baseUrl),
+    unreachable: false,
+  };
 }
 
 /** Drop the credentials so a product is safe to embed in the shared summary. */

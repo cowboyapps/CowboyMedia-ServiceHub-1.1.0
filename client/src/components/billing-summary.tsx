@@ -98,6 +98,8 @@ export interface BillingTransaction {
   currencyCode: string | null;
   /** The WHMCS service this payment renewed, or null when not tied to one. */
   serviceId?: number | null;
+  /** The renewed service's display name, or null when not tied to one. */
+  serviceName?: string | null;
   /** Deep link to that service's WHMCS detail page, when available. */
   serviceUrl?: string | null;
 }
@@ -790,7 +792,7 @@ function PaymentHistory({
                       {formatDate(t.date)}
                       {t.gateway && t.description ? ` · ${t.gateway}` : ""}
                     </p>
-                    {t.serviceUrl && (
+                    {t.serviceUrl ? (
                       <a
                         href={t.serviceUrl}
                         target="_blank"
@@ -799,10 +801,18 @@ function PaymentHistory({
                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
                         data-testid={`link-transaction-service-${t.id}`}
                       >
-                        <ServerCog className="w-3 h-3" />
-                        View service
+                        <ServerCog className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{t.serviceName || "View service"}</span>
                       </a>
-                    )}
+                    ) : t.serviceName ? (
+                      <p
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground mt-0.5 max-w-full"
+                        data-testid={`text-transaction-service-${t.id}`}
+                      >
+                        <ServerCog className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{t.serviceName}</span>
+                      </p>
+                    ) : null}
                   </div>
                 );
                 return (

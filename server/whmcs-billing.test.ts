@@ -22,7 +22,12 @@ import {
   parseTransaction,
   buildTransactionHistory,
   loadTransactionHistory,
+  loadTransactionHistoryWithServices,
+  correlateTransactionService,
+  applyTransactionServiceHints,
   type BillingSummaryData,
+  type ParsedInvoiceLineItem,
+  type ParsedTransaction,
   type ParsedInvoice,
   type ParsedProduct,
   type DashboardCustomerEntry,
@@ -1000,4 +1005,168 @@ test("loadTransactionHistory: a failed fetch degrades to empty + unreachable", a
   const history = await loadTransactionHistory(42, "USD", null, fetcher);
   assert.deepEqual(history.transactions, []);
   assert.equal(history.unreachable, true);
+});
+
+// ---------- correlateTransactionService / applyTransactionServiceHints (Task #419) ----------
+// WHMCS transactions rarely carry a relid, so the renewed service is correlated
+// from the linked invoice's line items: a single distinct Hosting service id ->
+// that service, named from the client's product list (line item desc fallback).
+
+const BASE = "https://billing.example.com";
+
+/** Build a Hosting line item carrying a service id (relid). */
+function hostingLine(id: number, relid: number, description = ""): ParsedInvoiceLineItem {
+  return parseInvoiceLineItem({ id, type: "Hosting", relid, description }, BASE);
+}
+/** Build a non-service (Domain) line item. */
+function domainLine(id: number, description = "example.com"): ParsedInvoiceLineItem {
+  return parseInvoiceLineItem({ id, type: "Domain", relid: 999, description }, BASE);
+}
+
+test("correlateTransactionService: one Hosting line resolves to its service, name from products", () => {
+  const names = new Map<number, string>([[55, "VPS Pro"]]);
+  const hint = correlateTransactionService([hostingLine(1, 55, "Web Hosting - mar")], names, BASE);
+  assert.deepEqual(hint, {
+    serviceId: 55,
+    serviceName: "VPS Pro",
+    serviceUrl: "https://billing.example.com/clientarea.php?action=productdetails&id=55",
+  });
+});
+
+test("correlateTransactionService: falls back to the line item description when no product name", () => {
+  const hint = correlateTransactionService([hostingLine(1, 7, "Cloud Server - April")], new Map(), BASE);
+  assert.equal(hint?.serviceId, 7);
+  assert.equal(hint?.serviceName, "Cloud Server - April");
+});
+
+test("correlateTransactionService: null for 0 services (no Hosting line), unloaded, or empty", () => {
+  assert.equal(correlateTransactionService([domainLine(1)], new Map([[55, "VPS"]]), BASE), null);
+  assert.equal(correlateTransactionService(undefined, new Map(), BASE), null);
+  assert.equal(correlateTransactionService(null, new Map(), BASE), null);
+  assert.equal(correlateTransactionService([], new Map(), BASE), null);
+});
+
+test("correlateTransactionService: null when 2+ distinct services (ambiguous)", () => {
+  const names = new Map<number, string>([[55, "VPS"], [56, "Backup"]]);
+  assert.equal(correlateTransactionService([hostingLine(1, 55), hostingLine(2, 56)], names, BASE), null);
+});
+
+test("correlateTransactionService: same service across two lines is still one service", () => {
+  const names = new Map<number, string>([[55, "VPS Pro"]]);
+  const hint = correlateTransactionService([hostingLine(1, 55, "Setup"), hostingLine(2, 55, "Renewal")], names, BASE);
+  assert.equal(hint?.serviceId, 55);
+  assert.equal(hint?.serviceName, "VPS Pro");
+});
+
+const txn = (over: Partial<ParsedTransaction>): ParsedTransaction => ({
+  id: 1,
+  invoiceId: null,
+  date: "2026-05-01",
+  description: "Payment",
+  gateway: "stripe",
+  amountIn: "10.00",
+  amountOut: null,
+  currencyCode: "USD",
+  serviceId: null,
+  serviceName: null,
+  serviceUrl: null,
+  ...over,
+});
+
+test("applyTransactionServiceHints: labels the linked row, leaves the others untouched", () => {
+  const txns = [
+    txn({ id: 1, invoiceId: 100 }),
+    txn({ id: 2, invoiceId: null }), // unlinked manual payment
+    txn({ id: 3, invoiceId: 200 }), // invoice not loaded
+  ];
+  const lineItems = new Map<number, ParsedInvoiceLineItem[]>([
+    [100, [hostingLine(1, 55, "Web Hosting")]],
+  ]);
+  const out = applyTransactionServiceHints(txns, lineItems, [{ id: 55, name: "VPS Pro" }], BASE);
+  assert.equal(out[0].serviceId, 55);
+  assert.equal(out[0].serviceName, "VPS Pro");
+  assert.equal(out[0].serviceUrl, "https://billing.example.com/clientarea.php?action=productdetails&id=55");
+  // Unlinked + unloaded rows stay null.
+  assert.equal(out[1].serviceName, null);
+  assert.equal(out[2].serviceName, null);
+});
+
+test("applyTransactionServiceHints: multi-service invoice leaves the row unlabelled", () => {
+  const txns = [txn({ id: 1, invoiceId: 100 })];
+  const lineItems = new Map<number, ParsedInvoiceLineItem[]>([
+    [100, [hostingLine(1, 55), hostingLine(2, 56)]],
+  ]);
+  const out = applyTransactionServiceHints(txns, lineItems, [{ id: 55, name: "A" }, { id: 56, name: "B" }], BASE);
+  assert.equal(out[0].serviceName, null);
+  assert.equal(out[0].serviceId, null);
+});
+
+test("loadTransactionHistoryWithServices: enriches each row via its invoice's line items", async () => {
+  const fetchTransactions = async () => okBilling({
+    transactions: {
+      transaction: [
+        { id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" },
+        { id: 2, invoiceid: "200", date: "2026-05-01", amountin: "5.00" },
+      ],
+    },
+  });
+  const invoices: Record<number, any> = {
+    100: { invoiceid: 100, userid: 42, total: "20.00", status: "Paid", items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] } },
+    200: { invoiceid: 200, userid: 42, total: "5.00", status: "Paid", items: { item: [{ id: 2, type: "Domain", relid: 999, description: "example.com" }] } },
+  };
+  let fetched: number[] = [];
+  const fetchInvoice = async (id: number) => {
+    fetched.push(id);
+    return okBilling(invoices[id]);
+  };
+  const history = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(history.unreachable, false);
+  // Hosting invoice -> labelled; domain-only invoice -> left null.
+  assert.equal(history.transactions[0].serviceName, "VPS Pro");
+  assert.equal(history.transactions[0].serviceId, 55);
+  assert.equal(history.transactions[1].serviceName, null);
+  // Only the linked invoices were fetched.
+  assert.deepEqual(fetched.sort(), [100, 200]);
+});
+
+test("loadTransactionHistoryWithServices: a transactions outage flows through as unreachable, no invoice fetches", async () => {
+  let fetchedInvoice = false;
+  const history = await loadTransactionHistoryWithServices(
+    42, "USD", [], BASE,
+    async () => ({ ok: false, error: "boom", reason: "network" as const }),
+    async (id: number) => { fetchedInvoice = true; return okBilling({ invoiceid: id }); },
+  );
+  assert.deepEqual(history.transactions, []);
+  assert.equal(history.unreachable, true);
+  assert.equal(fetchedInvoice, false);
+});
+
+test("loadTransactionHistoryWithServices: an invoice that won't load leaves its row unlabelled", async () => {
+  const fetchTransactions = async () => okBilling({
+    transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+  });
+  const fetchInvoice = async () => ({ ok: false, error: "down", reason: "network" as const });
+  const history = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(history.unreachable, false);
+  assert.equal(history.transactions.length, 1);
+  assert.equal(history.transactions[0].serviceName, null);
+});
+
+test("loadTransactionHistoryWithServices: an invoice owned by another client is not leaked", async () => {
+  const fetchTransactions = async () => okBilling({
+    transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+  });
+  // Invoice 100 belongs to client 99, not the caller (42).
+  const fetchInvoice = async () => okBilling({
+    invoiceid: 100, userid: 99, total: "20.00", status: "Paid",
+    items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
+  });
+  const history = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(history.transactions[0].serviceName, null);
 });
