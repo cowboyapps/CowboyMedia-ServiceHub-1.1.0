@@ -6,6 +6,8 @@ import {
   buildInvoicePayUrl,
   buildInvoicePdfUrl,
   buildPortalUrl,
+  buildMassPayUrl,
+  buildPayAllOutstanding,
   parseInvoice,
   parseInvoiceDetail,
   parseInvoiceLineItem,
@@ -78,6 +80,21 @@ test("buildInvoicePdfUrl: builds the dl.php link, null without a base URL or id"
   assert.equal(buildInvoicePdfUrl("https://billing.example.com", 42), "https://billing.example.com/dl.php?type=i&id=42");
   assert.equal(buildInvoicePdfUrl(null, 42), null);
   assert.equal(buildInvoicePdfUrl("https://billing.example.com", 0), null);
+});
+
+test("buildMassPayUrl: builds a comma-separated mass-pay link, drops invalid ids", () => {
+  assert.equal(
+    buildMassPayUrl("https://billing.example.com", [1, 2, 3]),
+    "https://billing.example.com/viewinvoice.php?id=1,2,3",
+  );
+  // Zero / negative / NaN ids are dropped before joining.
+  assert.equal(
+    buildMassPayUrl("https://billing.example.com", [0, 5, -1, NaN, 7]),
+    "https://billing.example.com/viewinvoice.php?id=5,7",
+  );
+  assert.equal(buildMassPayUrl(null, [1, 2]), null);
+  assert.equal(buildMassPayUrl("https://billing.example.com", []), null);
+  assert.equal(buildMassPayUrl("https://billing.example.com", [0]), null);
 });
 
 // ---------- parseInvoiceLineItem ----------
@@ -259,6 +276,8 @@ test("buildBillingSummary: assembles client, balance, invoices, products", () =>
   assert.equal(summary.products.length, 1);
   assert.equal(summary.products[0].pid, 3);
   assert.equal(summary.portalUrl, "https://billing.example.com/clientarea.php");
+  // One outstanding invoice -> no "pay all" action.
+  assert.equal(summary.payAll, null);
 });
 
 test("buildBillingSummary: full outage -> unreachable, empty, null client/balance", () => {
@@ -309,6 +328,10 @@ test("buildBillingSummary: pins overdue then unpaid to top, rest by date desc", 
   assert.deepEqual(summary.invoices.map((i) => i.id), [3, 2, 4, 1]);
   assert.equal(summary.invoices[0].status, "overdue");
   assert.equal(summary.invoices[1].status, "unpaid");
+  // Two outstanding (overdue #3 + unpaid #2) -> "pay all" action present.
+  assert.notEqual(summary.payAll, null);
+  assert.equal(summary.payAll!.count, 2);
+  assert.equal(summary.payAll!.url, "https://billing.example.com/viewinvoice.php?id=3,2");
 });
 
 test("buildBillingSummary: credit fallback when stats.creditbalance absent", () => {
@@ -453,6 +476,7 @@ function summary(over: Partial<BillingSummaryData>): BillingSummaryData {
     invoices: [],
     products: [],
     portalUrl: null,
+    payAll: null,
     unreachable: false,
     ...over,
   };
@@ -461,6 +485,72 @@ function summary(over: Partial<BillingSummaryData>): BillingSummaryData {
 function entry(userId: string, fallbackName: string, s: BillingSummaryData | null): DashboardCustomerEntry {
   return { userId, fallbackName, summary: s };
 }
+
+// ---------- buildPayAllOutstanding ----------
+// The combined "pay all outstanding" action only appears with 2+ owed invoices,
+// sums their balances (falling back to total), and deep-links the WHMCS mass-pay.
+
+test("buildPayAllOutstanding: sums unpaid + overdue, builds mass-pay link, ignores paid", () => {
+  const payAll = buildPayAllOutstanding(
+    [
+      inv({ id: 1, status: "overdue", balance: "30.00", currencyCode: "USD" }),
+      inv({ id: 2, status: "unpaid", balance: "20.00", currencyCode: "USD" }),
+      inv({ id: 3, status: "paid", balance: "0.00", currencyCode: "USD" }),
+      inv({ id: 4, status: "cancelled", balance: "99.00", currencyCode: "USD" }),
+    ],
+    "https://billing.example.com",
+  );
+  assert.notEqual(payAll, null);
+  assert.equal(payAll!.count, 2);
+  assert.equal(payAll!.total, "50.00");
+  assert.equal(payAll!.currencyCode, "USD");
+  // Only the two outstanding ids (overdue + unpaid) go in the mass-pay link.
+  assert.equal(payAll!.url, "https://billing.example.com/viewinvoice.php?id=1,2");
+});
+
+test("buildPayAllOutstanding: falls back to total when an outstanding balance is null", () => {
+  const payAll = buildPayAllOutstanding(
+    [
+      inv({ id: 1, status: "unpaid", balance: null, total: "42.00", currencyCode: "GBP" }),
+      inv({ id: 2, status: "overdue", balance: "8.00", total: "8.00", currencyCode: "GBP" }),
+    ],
+    "https://billing.example.com",
+  );
+  assert.equal(payAll!.total, "50.00");
+  assert.equal(payAll!.currencyCode, "GBP");
+});
+
+test("buildPayAllOutstanding: hidden for zero or one outstanding invoice", () => {
+  // Zero outstanding (only paid).
+  assert.equal(
+    buildPayAllOutstanding([inv({ id: 1, status: "paid", balance: "0.00" })], "https://billing.example.com"),
+    null,
+  );
+  // Exactly one outstanding -> already covered by its own pay link.
+  assert.equal(
+    buildPayAllOutstanding(
+      [inv({ id: 1, status: "unpaid", balance: "10.00" }), inv({ id: 2, status: "paid", balance: "0.00" })],
+      "https://billing.example.com",
+    ),
+    null,
+  );
+  // No invoices at all.
+  assert.equal(buildPayAllOutstanding([], "https://billing.example.com"), null);
+});
+
+test("buildPayAllOutstanding: still totals when there's no base URL, url is null", () => {
+  const payAll = buildPayAllOutstanding(
+    [
+      inv({ id: 1, status: "overdue", balance: "15.50", currencyCode: "EUR" }),
+      inv({ id: 2, status: "unpaid", balance: "4.50", currencyCode: "EUR" }),
+    ],
+    null,
+  );
+  assert.equal(payAll!.count, 2);
+  assert.equal(payAll!.total, "20.00");
+  assert.equal(payAll!.currencyCode, "EUR");
+  assert.equal(payAll!.url, null);
+});
 
 test("buildBillingDashboard: rolls up outstanding, overdue, services and MRR", () => {
   const dash = buildBillingDashboard(

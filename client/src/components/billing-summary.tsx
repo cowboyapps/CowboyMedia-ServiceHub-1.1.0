@@ -67,6 +67,13 @@ export interface BillingProduct {
   amount: string;
 }
 
+export interface PayAllOutstanding {
+  count: number;
+  total: string;
+  currencyCode: string | null;
+  url: string | null;
+}
+
 export interface BillingSummary {
   configured: boolean;
   enabled: boolean;
@@ -77,6 +84,7 @@ export interface BillingSummary {
   invoices: BillingInvoice[];
   products: BillingProduct[];
   portalUrl: string | null;
+  payAll: PayAllOutstanding | null;
 }
 
 export interface InvoiceLineItem {
@@ -572,6 +580,34 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
           <Receipt className="w-4 h-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold" data-testid="heading-billing-invoices">Invoices</h2>
         </div>
+        {data.payAll && data.payAll.url && (
+          <Card className="border-destructive/40 mb-2" data-testid="card-pay-all-outstanding">
+            <CardContent className="p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold" data-testid="text-pay-all-count">
+                  {data.payAll.count} outstanding invoices
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Total owed{" "}
+                  <span className="font-medium text-foreground" data-testid="text-pay-all-total">
+                    {formatMoney(data.payAll.total, data.payAll.currencyCode)}
+                  </span>
+                </p>
+              </div>
+              <a
+                href={data.payAll.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="link-pay-all-outstanding"
+              >
+                <Button size="sm" className="gap-1.5 shrink-0">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Pay all outstanding
+                </Button>
+              </a>
+            </CardContent>
+          </Card>
+        )}
         {!hasInvoices ? (
           <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-invoices">
             No invoices yet.

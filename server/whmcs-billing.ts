@@ -96,6 +96,19 @@ export function buildServiceUrl(baseUrl: string | null, serviceId: number): stri
   return `${baseUrl}/clientarea.php?action=productdetails&id=${serviceId}`;
 }
 
+/**
+ * Outbound WHMCS mass-pay deep link for settling several outstanding invoices in
+ * one go. WHMCS's `viewinvoice.php` accepts a comma-separated id list and renders
+ * a single combined "mass payment" checkout for them — the same authenticated
+ * mechanism as the per-invoice pay link. Null without a base URL or any valid id.
+ */
+export function buildMassPayUrl(baseUrl: string | null, ids: number[]): string | null {
+  if (!baseUrl) return null;
+  const valid = ids.filter((id) => Number.isFinite(id) && id > 0);
+  if (valid.length === 0) return null;
+  return `${baseUrl}/viewinvoice.php?id=${valid.join(",")}`;
+}
+
 export interface ParsedInvoice {
   id: number;
   invoiceNum: string;
@@ -276,12 +289,51 @@ export function deriveMappedServiceIds(
   return result;
 }
 
+export interface PayAllOutstanding {
+  /** Number of outstanding (unpaid + overdue) invoices being settled together. */
+  count: number;
+  /** Combined balance owed across them, as a 2-decimal string ("60.00"). */
+  total: string;
+  /** Currency of the outstanding invoices (first non-null seen), or null. */
+  currencyCode: string | null;
+  /** WHMCS mass-pay deep link pre-loaded with every outstanding invoice. */
+  url: string | null;
+}
+
+/**
+ * Roll the customer's outstanding (unpaid + overdue) invoices up into a single
+ * "pay all" action: the combined balance owed plus a WHMCS mass-pay deep link.
+ * Returns null unless there are 2+ outstanding invoices — a single one is already
+ * covered by its own pay link. Pure: the total is summed from the already-parsed
+ * invoice list (balance, falling back to total) so the figure always matches the
+ * list the customer sees.
+ */
+export function buildPayAllOutstanding(
+  invoices: ParsedInvoice[],
+  baseUrl: string | null,
+): PayAllOutstanding | null {
+  const outstanding = invoices.filter((i) => i.status === "unpaid" || i.status === "overdue");
+  if (outstanding.length < 2) return null;
+  const total = round2(
+    outstanding.reduce((sum, i) => sum + parseMoneyNumber(i.balance ?? i.total), 0),
+  );
+  const currencyCode = outstanding.find((i) => i.currencyCode)?.currencyCode ?? null;
+  return {
+    count: outstanding.length,
+    total: total.toFixed(2),
+    currencyCode,
+    url: buildMassPayUrl(baseUrl, outstanding.map((i) => i.id)),
+  };
+}
+
 export interface BillingSummaryData {
   client: { id: number; name: string; status: string } | null;
   balance: { creditBalance: string | null; currencyCode: string | null } | null;
   invoices: ParsedInvoice[];
   products: ParsedProduct[];
   portalUrl: string | null;
+  /** Combined "pay all outstanding" action, or null when <2 invoices are owed. */
+  payAll: PayAllOutstanding | null;
   /** True only when WHMCS was wholly unreachable (every read failed). */
   unreachable: boolean;
 }
@@ -366,6 +418,7 @@ export function buildBillingSummary(
     invoices,
     products,
     portalUrl: buildPortalUrl(baseUrl),
+    payAll: buildPayAllOutstanding(invoices, baseUrl),
     unreachable,
   };
 }

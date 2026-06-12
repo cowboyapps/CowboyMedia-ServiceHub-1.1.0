@@ -6338,6 +6338,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     invoices: [],
     products: [],
     portalUrl: null,
+    payAll: null,
     ...over,
   });
 
