@@ -10,6 +10,8 @@ import {
   createCommunityChatPostLimiter,
   createCommunityChatReactionLimiter,
   createReportLimiter,
+  createWhmcsLinkRequestLimiter,
+  createWhmcsLinkVerifyLimiter,
 } from "./rate-limits";
 
 type Role = "customer" | "admin" | "master_admin";
@@ -329,6 +331,111 @@ test("report limiter: 10/min/user, 11th is blocked, admin bypasses", async () =>
       const r = await postJson(`${url}/reports-admin`);
       assert.equal(r.status, 200, `admin report attempt ${i + 1} should never be limited`);
     }
+  } finally {
+    await close();
+  }
+});
+
+// ---------- WHMCS account-linking limiters ----------
+
+test("whmcs link request limiter: 5/15min/user, 6th is blocked, admin bypasses", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post(
+      "/whmcs/request",
+      withSession("customer", "user-W1"),
+      createWhmcsLinkRequestLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/whmcs/request-admin",
+      withSession("admin", "admin-W1"),
+      createWhmcsLinkRequestLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 5; i++) {
+      const r = await postJson(`${url}/whmcs/request`);
+      assert.equal(r.status, 200, `request attempt ${i + 1} should still be allowed`);
+    }
+    const blocked = await postJson(`${url}/whmcs/request`);
+    assert.equal(blocked.status, 429);
+    const json = await blocked.json();
+    assert.equal(json.error, "Too many requests. Please slow down and try again shortly.");
+    assert.ok(typeof json.retryAfterSeconds === "number" && json.retryAfterSeconds > 0);
+    assert.ok(blocked.headers.get("retry-after"));
+
+    for (let i = 0; i < 20; i++) {
+      const r = await postJson(`${url}/whmcs/request-admin`);
+      assert.equal(r.status, 200, `admin request attempt ${i + 1} should never be limited`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("whmcs link verify limiter: 15/15min/user, 16th is blocked, master_admin bypasses", async () => {
+  const { url, close } = await startApp((app) => {
+    app.post(
+      "/whmcs/verify",
+      withSession("customer", "user-W2"),
+      createWhmcsLinkVerifyLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/whmcs/verify-admin",
+      withSession("master_admin", "admin-W2"),
+      createWhmcsLinkVerifyLimiter(),
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 15; i++) {
+      const r = await postJson(`${url}/whmcs/verify`);
+      assert.equal(r.status, 200, `verify attempt ${i + 1} should still be allowed`);
+    }
+    const blocked = await postJson(`${url}/whmcs/verify`);
+    assert.equal(blocked.status, 429);
+    const json = await blocked.json();
+    assert.equal(json.error, "Too many requests. Please slow down and try again shortly.");
+    assert.ok(typeof json.retryAfterSeconds === "number" && json.retryAfterSeconds > 0);
+    assert.ok(blocked.headers.get("retry-after"));
+
+    for (let i = 0; i < 30; i++) {
+      const r = await postJson(`${url}/whmcs/verify-admin`);
+      assert.equal(r.status, 200, `admin verify attempt ${i + 1} should never be limited`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("whmcs link limiters: separate user buckets do not interfere", async () => {
+  const { url, close } = await startApp((app) => {
+    const requestLimiter = createWhmcsLinkRequestLimiter();
+    app.post(
+      "/whmcs/request-u1",
+      withSession("customer", "user-W3"),
+      requestLimiter,
+      (_req, res) => res.json({ ok: true }),
+    );
+    app.post(
+      "/whmcs/request-u2",
+      withSession("customer", "user-W4"),
+      requestLimiter,
+      (_req, res) => res.json({ ok: true }),
+    );
+  });
+  try {
+    for (let i = 0; i < 5; i++) {
+      const r = await postJson(`${url}/whmcs/request-u1`);
+      assert.equal(r.status, 200);
+    }
+    const blocked = await postJson(`${url}/whmcs/request-u1`);
+    assert.equal(blocked.status, 429);
+    // A different user still has their full budget.
+    const otherUser = await postJson(`${url}/whmcs/request-u2`);
+    assert.equal(otherUser.status, 200);
   } finally {
     await close();
   }
