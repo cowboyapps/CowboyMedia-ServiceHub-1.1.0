@@ -512,6 +512,23 @@ const TXN_SERVICE_INVOICE_CAP = 20;
 /** How many invoice fetches run at once — keep small so we never hammer WHMCS. */
 const TXN_SERVICE_CONCURRENCY = 4;
 
+// Short per-client TTL cache for the *enriched* transaction history, mirroring
+// the `loadBillingSummary` cache. Without it, every /api/billing view re-fetches
+// up to TXN_SERVICE_INVOICE_CAP invoices from WHMCS just to label payment rows.
+// Keyed by clientId (per-user UNIQUE upstream, so no cross-user leak); a full
+// transactions outage is never cached so a transient failure isn't pinned.
+const TXN_HISTORY_CACHE_TTL_MS = 60_000;
+interface TxnHistoryCacheEntry {
+  at: number;
+  data: TransactionHistoryData;
+}
+const txnHistoryCache = new Map<number, TxnHistoryCacheEntry>();
+
+/** Reset the enriched transaction-history cache (test hook). */
+export function resetTransactionHistoryCache(): void {
+  txnHistoryCache.clear();
+}
+
 /**
  * Fetch the payment history AND label each row with the single hosting service
  * its invoice renewed. WHMCS transactions almost never carry a `relid`, so the
@@ -531,8 +548,19 @@ export async function loadTransactionHistoryWithServices(
   fetchTransactions: (clientId: number) => Promise<WhmcsRawFetch> = getClientTransactions,
   fetchInvoice: (id: number) => Promise<WhmcsRawFetch> = getInvoice,
 ): Promise<TransactionHistoryData> {
+  const now = Date.now();
+  const cached = txnHistoryCache.get(clientId);
+  if (cached && now - cached.at < TXN_HISTORY_CACHE_TTL_MS) return cached.data;
+
   const history = await loadTransactionHistory(clientId, currencyDefault, baseUrl, fetchTransactions);
-  if (history.unreachable || history.transactions.length === 0) return history;
+  // Never pin a full transactions outage — let it retry on the next view.
+  if (history.unreachable) return history;
+  // Empty history is a valid (cheap) state; cache it so repeat views skip the
+  // GetTransactions call too, but there are no invoices to enrich.
+  if (history.transactions.length === 0) {
+    txnHistoryCache.set(clientId, { at: now, data: history });
+    return history;
+  }
 
   // Distinct linked invoice ids, in the transactions' newest-first order, capped.
   const invoiceIds: number[] = [];
@@ -543,7 +571,10 @@ export async function loadTransactionHistoryWithServices(
     invoiceIds.push(t.invoiceId);
     if (invoiceIds.length >= TXN_SERVICE_INVOICE_CAP) break;
   }
-  if (invoiceIds.length === 0) return history;
+  if (invoiceIds.length === 0) {
+    txnHistoryCache.set(clientId, { at: now, data: history });
+    return history;
+  }
 
   const lineItemsByInvoice = new Map<number, ParsedInvoiceLineItem[]>();
   let cursor = 0;
@@ -563,10 +594,12 @@ export async function loadTransactionHistoryWithServices(
   const workerCount = Math.min(TXN_SERVICE_CONCURRENCY, invoiceIds.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
-  return {
+  const data: TransactionHistoryData = {
     transactions: applyTransactionServiceHints(history.transactions, lineItemsByInvoice, products, baseUrl),
     unreachable: false,
   };
+  txnHistoryCache.set(clientId, { at: now, data });
+  return data;
 }
 
 /** Drop the credentials so a product is safe to embed in the shared summary. */

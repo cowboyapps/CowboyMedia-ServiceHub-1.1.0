@@ -23,6 +23,7 @@ import {
   buildTransactionHistory,
   loadTransactionHistory,
   loadTransactionHistoryWithServices,
+  resetTransactionHistoryCache,
   correlateTransactionService,
   applyTransactionServiceHints,
   type BillingSummaryData,
@@ -1102,6 +1103,7 @@ test("applyTransactionServiceHints: multi-service invoice leaves the row unlabel
 });
 
 test("loadTransactionHistoryWithServices: enriches each row via its invoice's line items", async () => {
+  resetTransactionHistoryCache();
   const fetchTransactions = async () => okBilling({
     transactions: {
       transaction: [
@@ -1132,6 +1134,7 @@ test("loadTransactionHistoryWithServices: enriches each row via its invoice's li
 });
 
 test("loadTransactionHistoryWithServices: a transactions outage flows through as unreachable, no invoice fetches", async () => {
+  resetTransactionHistoryCache();
   let fetchedInvoice = false;
   const history = await loadTransactionHistoryWithServices(
     42, "USD", [], BASE,
@@ -1144,6 +1147,7 @@ test("loadTransactionHistoryWithServices: a transactions outage flows through as
 });
 
 test("loadTransactionHistoryWithServices: an invoice that won't load leaves its row unlabelled", async () => {
+  resetTransactionHistoryCache();
   const fetchTransactions = async () => okBilling({
     transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
   });
@@ -1157,6 +1161,7 @@ test("loadTransactionHistoryWithServices: an invoice that won't load leaves its 
 });
 
 test("loadTransactionHistoryWithServices: an invoice owned by another client is not leaked", async () => {
+  resetTransactionHistoryCache();
   const fetchTransactions = async () => okBilling({
     transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
   });
@@ -1169,4 +1174,82 @@ test("loadTransactionHistoryWithServices: an invoice owned by another client is 
     42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
   );
   assert.equal(history.transactions[0].serviceName, null);
+});
+
+test("loadTransactionHistoryWithServices: a second view within the TTL serves the cache, no re-fetch", async () => {
+  resetTransactionHistoryCache();
+  let txnFetches = 0;
+  let invoiceFetches = 0;
+  const fetchTransactions = async () => {
+    txnFetches++;
+    return okBilling({
+      transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+    });
+  };
+  const fetchInvoice = async (id: number) => {
+    invoiceFetches++;
+    return okBilling({
+      invoiceid: id, userid: 42, total: "20.00", status: "Paid",
+      items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
+    });
+  };
+  const first = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  const second = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(first.transactions[0].serviceName, "VPS Pro");
+  assert.deepEqual(second, first);
+  // Both reads were served by a single set of WHMCS calls.
+  assert.equal(txnFetches, 1);
+  assert.equal(invoiceFetches, 1);
+});
+
+test("loadTransactionHistoryWithServices: a transactions outage is never pinned in the cache", async () => {
+  resetTransactionHistoryCache();
+  let txnFetches = 0;
+  let down = true;
+  const fetchTransactions = async () => {
+    txnFetches++;
+    if (down) return { ok: false as const, error: "boom", reason: "network" as const };
+    return okBilling({
+      transactions: { transaction: [{ id: 1, invoiceid: "100", date: "2026-05-02", amountin: "20.00" }] },
+    });
+  };
+  const fetchInvoice = async (id: number) => okBilling({
+    invoiceid: id, userid: 42, total: "20.00", status: "Paid",
+    items: { item: [{ id: 1, type: "Hosting", relid: 55, description: "Web Hosting" }] },
+  });
+  const outage = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(outage.unreachable, true);
+  // WHMCS recovers; the next view must re-fetch rather than serve the outage.
+  down = false;
+  const recovered = await loadTransactionHistoryWithServices(
+    42, "USD", [{ id: 55, name: "VPS Pro" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(recovered.unreachable, false);
+  assert.equal(recovered.transactions[0].serviceName, "VPS Pro");
+  assert.equal(txnFetches, 2);
+});
+
+test("loadTransactionHistoryWithServices: separate clients never share a cache entry", async () => {
+  resetTransactionHistoryCache();
+  const fetchTransactions = async (clientId: number) => okBilling({
+    transactions: { transaction: [{ id: clientId, invoiceid: String(clientId), date: "2026-05-02", amountin: "20.00" }] },
+  });
+  const fetchInvoice = async (id: number) => okBilling({
+    invoiceid: id, userid: id, total: "20.00", status: "Paid",
+    items: { item: [{ id: 1, type: "Hosting", relid: id, description: "Web Hosting" }] },
+  });
+  const a = await loadTransactionHistoryWithServices(
+    11, "USD", [{ id: 11, name: "Alpha" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  const b = await loadTransactionHistoryWithServices(
+    22, "USD", [{ id: 22, name: "Beta" }], BASE, fetchTransactions, fetchInvoice,
+  );
+  assert.equal(a.transactions[0].serviceName, "Alpha");
+  assert.equal(b.transactions[0].serviceName, "Beta");
 });
