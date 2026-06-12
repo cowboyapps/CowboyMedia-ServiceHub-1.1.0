@@ -41,6 +41,7 @@ import {
 } from "./whmcs";
 import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
+import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
@@ -6385,62 +6386,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     requireAuth,
     bypassRateLimitForAdmins,
     whmcsLinkRequestLimiter,
-    async (req, res) => {
-      try {
-        const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
-        if (!email) return res.status(400).json({ status: "invalid" });
-
-        const user = await storage.getUser(req.session.userId!);
-        if (!user) return res.status(401).json({ status: "unavailable" });
-        if (user.whmcsClientId) return res.json({ status: "already_linked" });
-
-        const { configured, enabled } = await whmcsLinkConfig();
-        if (!configured || !enabled) return res.json({ status: "unavailable" });
-
-        const lookup = await getWhmcsClientByEmail(email);
-        if (!lookup.ok) return res.json({ status: "unavailable" });
-        const client = lookup.client;
-        if (!client) return res.json({ status: "no_match" });
-
-        // Another ServiceHub user already owns this WHMCS client — refuse and
-        // reveal nothing further.
-        const existing = await storage.getUserByWhmcsClientId(client.id);
-        if (existing && existing.id !== user.id) return res.json({ status: "conflict" });
-
-        // Retire any still-active code for this user before issuing a fresh one,
-        // so a resend can't leave an older code valid in parallel.
-        await storage.invalidateActiveWhmcsLinkVerifications(user.id);
-
-        const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-        const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-        const expiresAt = new Date(Date.now() + WHMCS_LINK_CODE_TTL_MS);
-        await storage.createWhmcsLinkVerification({
-          userId: user.id,
-          email: client.email || email,
-          codeHash,
-          whmcsClientId: client.id,
-          attempts: 0,
-          expiresAt,
-        });
-
-        // The code always goes to the WHMCS-on-file address (authoritative);
-        // for an exact match this equals what the user typed.
-        void sendTemplatedEmail(
-          client.email || email,
-          "whmcs_link_verification",
-          { code, name: client.fullName || user.fullName || "there" },
-          client.fullName || user.fullName,
-        );
-
-        logActivity("user", "whmcs_link_code_requested", {
-          actorId: user.id,
-          summary: "Requested a code to link their billing account",
-        });
-        res.json({ status: "code_sent" });
-      } catch {
-        res.json({ status: "unavailable" });
-      }
-    },
+    createWhmcsLinkRequestHandler({
+      getLinkConfig: whmcsLinkConfig,
+      getUser: (id) => storage.getUser(id),
+      getUserByWhmcsClientId: (clientId) => storage.getUserByWhmcsClientId(clientId),
+      getClientByEmail: (email) => getWhmcsClientByEmail(email),
+      createWhmcsLinkVerification: (data) => storage.createWhmcsLinkVerification(data),
+      sendTemplatedEmail,
+      logActivity,
+    }),
   );
 
   app.post(
@@ -6448,65 +6402,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     requireAuth,
     bypassRateLimitForAdmins,
     whmcsLinkVerifyLimiter,
-    async (req, res) => {
-      try {
-        const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
-        if (!/^\d{6}$/.test(code)) return res.status(400).json({ status: "invalid_code" });
-
-        const user = await storage.getUser(req.session.userId!);
-        if (!user) return res.status(401).json({ status: "expired" });
-        if (user.whmcsClientId) return res.json({ status: "already_linked" });
-
-        const v = await storage.getActiveWhmcsLinkVerification(user.id);
-        if (!v) return res.json({ status: "expired" });
-        if (v.expiresAt.getTime() < Date.now()) {
-          await storage.consumeWhmcsLinkVerification(v.id);
-          return res.json({ status: "expired" });
-        }
-        if (v.attempts >= WHMCS_LINK_MAX_ATTEMPTS) {
-          await storage.consumeWhmcsLinkVerification(v.id);
-          return res.json({ status: "too_many_attempts" });
-        }
-
-        const candidate = crypto.createHash("sha256").update(code).digest("hex");
-        const a = Buffer.from(candidate, "hex");
-        const b = Buffer.from(v.codeHash, "hex");
-        const match = a.length === b.length && crypto.timingSafeEqual(a, b);
-        if (!match) {
-          await storage.bumpWhmcsLinkVerificationAttempts(v.id);
-          const outcome = whmcsLinkFailureOutcome(v.attempts, WHMCS_LINK_MAX_ATTEMPTS);
-          // Invalidate the code in this same request the moment the cap is hit,
-          // so a 5th wrong guess can never be retried on a later call.
-          if (outcome.consume) {
-            await storage.consumeWhmcsLinkVerification(v.id);
-            return res.json({ status: "too_many_attempts" });
-          }
-          return res.json({ status: "invalid_code", attemptsRemaining: outcome.attemptsRemaining });
-        }
-
-        // Re-check the conflict at the moment of linking — another user may have
-        // claimed this WHMCS client between request and verify.
-        const existing = await storage.getUserByWhmcsClientId(v.whmcsClientId);
-        if (existing && existing.id !== user.id) {
-          await storage.consumeWhmcsLinkVerification(v.id);
-          return res.json({ status: "conflict" });
-        }
-
-        await storage.updateUser(user.id, {
-          whmcsClientId: v.whmcsClientId,
-          whmcsLinkedAt: new Date(),
-          whmcsLinkPromptDismissedAt: new Date(),
-        });
-        await storage.consumeWhmcsLinkVerification(v.id);
-        logActivity("user", "whmcs_self_linked", {
-          actorId: user.id,
-          summary: "Linked their billing account via emailed code",
-        });
-        res.json({ status: "linked" });
-      } catch {
-        res.json({ status: "expired" });
-      }
-    },
+    createWhmcsLinkVerifyHandler({
+      getUser: (id) => storage.getUser(id),
+      getActiveWhmcsLinkVerification: (userId) => storage.getActiveWhmcsLinkVerification(userId),
+      getUserByWhmcsClientId: (clientId) => storage.getUserByWhmcsClientId(clientId),
+      bumpWhmcsLinkVerificationAttempts: (id) => storage.bumpWhmcsLinkVerificationAttempts(id),
+      consumeWhmcsLinkVerification: (id) => storage.consumeWhmcsLinkVerification(id),
+      updateUser: (id, data) => storage.updateUser(id, data),
+      logActivity,
+    }),
   );
 
   // Customer self-view: only ever reads the logged-in user's OWN linked WHMCS
