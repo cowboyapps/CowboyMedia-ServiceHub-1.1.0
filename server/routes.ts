@@ -39,7 +39,9 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistory, parseProduct as parseWhmcsProduct, deriveMappedServiceIds, selectActiveServices, type ActiveService } from "./whmcs-billing";
+import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, loadTransactionHistory, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { createMyServicesHandler } from "./whmcs-services-route";
+import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
@@ -79,7 +81,6 @@ import {
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
-import { WHMCS_LINK_CODE_TTL_MS, WHMCS_LINK_MAX_ATTEMPTS, whmcsLinkFailureOutcome } from "@shared/whmcs-link";
 import { APP_VERSION } from "@shared/version";
 import { requireAgentToken } from "./agent-auth";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
@@ -6621,24 +6622,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   // Admin customer-detail view: any linked customer's billing. Permission-gated
   // and MAY surface the WHMCS/storage error (it's admin-only, not customer-facing).
-  app.get("/api/admin/users/:id/whmcs/billing", requirePermission("users.view", "users.manage"), async (req, res) => {
-    try {
-      const user = await storage.getUser(getParam(req, "id"));
-      if (!user) return res.status(404).json({ message: "User not found" });
-      const settings = await storage.getWhmcsSettings();
-      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
-      const configured = hasWhmcsCredentials() && !!baseUrl;
-      const enabled = !!settings?.enabled;
-      const clientId = user.whmcsClientId ?? null;
-      if (!configured || !enabled || !clientId) {
-        return res.json(emptyBilling({ configured, enabled, linked: !!clientId }));
-      }
-      const summary = await loadBillingSummary(clientId, baseUrl);
-      return res.json({ configured, enabled, linked: true, ...summary });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
+  // The summary is credential-free by construction (buildBillingSummary strips
+  // each service's username/password) — guarded by a route-level test against
+  // createAdminBillingHandler in server/whmcs-admin-billing.test.ts.
+  app.get(
+    "/api/admin/users/:id/whmcs/billing",
+    requirePermission("users.view", "users.manage"),
+    createAdminBillingHandler({
+      getUser: (id) => storage.getUser(id),
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      hasWhmcsCredentials,
+      normalizeBaseUrl: normalizeWhmcsBaseUrl,
+      loadBillingSummary,
+    }),
+  );
 
   // Admin billing dashboard (Task #370): fleet-wide rollup across every linked
   // customer — outstanding/overdue totals, active vs suspended services, and
@@ -6839,36 +6836,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // (requireAuth + the client id is derived from the session, never request
   // input), there is no admin twin (admins keep the credential-free billing
   // payload), and the request logger in server/index.ts is configured to NEVER
-  // embed this route's body in the logs (see SENSITIVE_BODY_PATHS).
-  const emptyActiveServices = (over: Record<string, unknown>) => ({
-    configured: false,
-    enabled: false,
-    linked: false,
-    unreachable: false,
-    services: [] as ActiveService[],
-    ...over,
-  });
-
-  app.get("/api/my/services", requireAuth, async (req, res) => {
-    try {
-      const settings = await storage.getWhmcsSettings();
-      const configured = hasWhmcsCredentials() && !!normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
-      const enabled = !!settings?.enabled;
-      if (!configured || !enabled) return res.json(emptyActiveServices({ configured, enabled }));
-      const user = await storage.getUser(req.session.userId!);
-      const clientId = user?.whmcsClientId ?? null;
-      if (!clientId) return res.json(emptyActiveServices({ configured, enabled, linked: false }));
-      const productsResult = await getWhmcsClientProducts(clientId);
-      if (!productsResult.ok) {
-        return res.json(emptyActiveServices({ configured, enabled, linked: true, unreachable: true }));
-      }
-      const products = normalizeWhmcsListField(productsResult.data?.products, "product").map(parseWhmcsProduct);
-      const services = selectActiveServices(products);
-      return res.json({ configured, enabled, linked: true, unreachable: false, services });
-    } catch {
-      return res.json(emptyActiveServices({ configured: true, enabled: true, linked: true, unreachable: true }));
-    }
-  });
+  // embed this route's body in the logs (see SENSITIVE_BODY_PATHS in
+  // server/request-log.ts). Handler extracted to server/whmcs-services-route.ts
+  // so these guarantees are covered by server/whmcs-services-route.test.ts.
+  app.get(
+    "/api/my/services",
+    requireAuth,
+    createMyServicesHandler({
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      getUser: (id) => storage.getUser(id),
+      hasWhmcsCredentials,
+      normalizeBaseUrl: normalizeWhmcsBaseUrl,
+      getClientProducts: getWhmcsClientProducts,
+    }),
+  );
 
   // Admin customer-detail view: the monitored services derived from a specific
   // customer's active WHMCS products. Permission-gated; MAY surface errors.

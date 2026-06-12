@@ -56,6 +56,7 @@ import { join } from "path";
 import { execSync } from "child_process";
 import { APP_VERSION } from "@shared/version";
 import { runMigrations } from "./migrate";
+import { buildApiLogLine } from "./request-log";
 
 const app = express();
 const httpServer = createServer(app);
@@ -169,27 +170,19 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       // Routes whose JSON body carries sensitive customer data (e.g. WHMCS
-      // service login passwords from "My Services") — never embed the body in
-      // the request log, even truncated.
-      const SENSITIVE_BODY_PATHS = ["/api/my/services"];
-      const bodyIsSensitive = SENSITIVE_BODY_PATHS.some(
-        (p) => path === p || path.startsWith(p + "/"),
-      );
-      if (capturedJsonResponse && !bodyIsSensitive) {
-        // Cap the embedded body. PM2's log file splits any single console.log
-        // longer than ~1KB across multiple physical lines, and only the first
-        // chunk carries the `[express]` prefix. The deploy log-tail error
-        // gate filters on `[express]` to skip request logs — continuation
-        // chunks slip through, and routes that return large JSON arrays
-        // containing strings like `column "x" does not exist` (e.g. the
-        // admin error-history endpoint) end up tripping the gate on perfectly
-        // healthy deploys. 200 chars is plenty for at-a-glance debugging
-        // and keeps the whole log line well under pm2's split threshold.
-        const body = JSON.stringify(capturedJsonResponse);
-        logLine += ` :: ${body.length > 200 ? body.slice(0, 200) + "…" : body}`;
-      }
+      // service login passwords from "My Services") never have their body
+      // embedded in the request log, even truncated. The decision + the
+      // 200-char body cap live in server/request-log.ts so both are covered by
+      // server/request-log.test.ts (importing this file in a test would boot
+      // the whole server).
+      const logLine = buildApiLogLine({
+        method: req.method,
+        path,
+        statusCode: res.statusCode,
+        durationMs: duration,
+        body: capturedJsonResponse,
+      });
 
       log(logLine);
 
