@@ -109,6 +109,54 @@ test("parseInvoiceLineItem: normalizes id, description, amount", () => {
   assert.equal(item.id, 9);
   assert.equal(item.description, "Web Hosting (01/06/2026 - 30/06/2026)");
   assert.equal(item.amount, "39.95");
+  // No type/relid -> no linked service.
+  assert.equal(item.type, "");
+  assert.equal(item.serviceId, null);
+  assert.equal(item.serviceUrl, null);
+});
+
+// ---------- parseInvoiceLineItem: related service mapping (Task #414) ----------
+// WHMCS puts the renewed service id in `relid` on a "Hosting" line item; capture
+// it + the outbound product-detail deep link so customers can jump from a payment
+// to the product it was for. Only "Hosting" lines map — domains / ad-hoc items don't.
+
+test("parseInvoiceLineItem: a Hosting line captures relid as serviceId + builds the service URL", () => {
+  const item = parseInvoiceLineItem(
+    { id: 1, type: "Hosting", relid: "55", description: "VPS Renewal", amount: "20.00" },
+    "https://billing.example.com",
+  );
+  assert.equal(item.type, "Hosting");
+  assert.equal(item.serviceId, 55);
+  assert.equal(item.serviceUrl, "https://billing.example.com/clientarea.php?action=productdetails&id=55");
+});
+
+test("parseInvoiceLineItem: Hosting type is case-insensitive, serviceUrl null without a base URL", () => {
+  const item = parseInvoiceLineItem({ id: 2, type: "hosting", relid: 7, description: "Hosting", amount: "5.00" });
+  assert.equal(item.serviceId, 7);
+  // No base URL -> no deep link, but the id is still captured.
+  assert.equal(item.serviceUrl, null);
+});
+
+test("parseInvoiceLineItem: non-Hosting lines never link a service, even with a relid", () => {
+  const domain = parseInvoiceLineItem(
+    { id: 3, type: "Domain", relid: "88", description: "example.com", amount: "12.00" },
+    "https://billing.example.com",
+  );
+  assert.equal(domain.serviceId, null);
+  assert.equal(domain.serviceUrl, null);
+  const credit = parseInvoiceLineItem(
+    { id: 4, type: "AddFunds", relid: "99", description: "Add Funds", amount: "50.00" },
+    "https://billing.example.com",
+  );
+  assert.equal(credit.serviceId, null);
+  assert.equal(credit.serviceUrl, null);
+});
+
+test("parseInvoiceLineItem: Hosting with a zero/absent/non-numeric relid stays unlinked", () => {
+  const base = "https://billing.example.com";
+  assert.equal(parseInvoiceLineItem({ id: 1, type: "Hosting", relid: 0 }, base).serviceId, null);
+  assert.equal(parseInvoiceLineItem({ id: 2, type: "Hosting" }, base).serviceId, null);
+  assert.equal(parseInvoiceLineItem({ id: 3, type: "Hosting", relid: "abc" }, base).serviceId, null);
 });
 
 // ---------- parseInvoiceDetail ----------
@@ -166,6 +214,30 @@ test("parseInvoiceDetail: extracts line items, totals breakdown, dates, status, 
   assert.equal(detail.lineItems[0].description, "Web Hosting");
   assert.equal(detail.payUrl, "https://billing.example.com/viewinvoice.php?id=100");
   assert.equal(detail.pdfUrl, "https://billing.example.com/dl.php?type=i&id=100");
+});
+
+test("parseInvoiceDetail: threads the base URL into line items so a Hosting line links its service", () => {
+  const detail = parseInvoiceDetail(
+    {
+      invoiceid: 200,
+      userid: 5,
+      total: "20.00",
+      status: "Paid",
+      items: {
+        item: [
+          { id: 1, type: "Hosting", relid: 55, description: "VPS Renewal", amount: "20.00" },
+          { id: 2, type: "Domain", relid: 88, description: "example.com", amount: "12.00" },
+        ],
+      },
+    },
+    "https://billing.example.com",
+    TODAY,
+  );
+  assert.equal(detail.lineItems[0].serviceId, 55);
+  assert.equal(detail.lineItems[0].serviceUrl, "https://billing.example.com/clientarea.php?action=productdetails&id=55");
+  // The domain line stays unlinked.
+  assert.equal(detail.lineItems[1].serviceId, null);
+  assert.equal(detail.lineItems[1].serviceUrl, null);
 });
 
 test("parseInvoiceDetail: single-item collapses to array, absent money fields are null, paid date kept", () => {
@@ -847,6 +919,38 @@ test("buildTransactionHistory: single object collapses to a one-element array", 
   assert.equal(history.transactions[0].id, 7);
 });
 
+test("parseTransaction: captures a service relid + builds the deep link, null when absent", () => {
+  // A renewal transaction tied to a hosting service carries its id in `relid`.
+  const renewal = parseTransaction(
+    { id: 1, relid: "55", amountin: "20.00", description: "VPS Renewal" },
+    "USD",
+    "https://billing.example.com",
+  );
+  assert.equal(renewal.serviceId, 55);
+  assert.equal(renewal.serviceUrl, "https://billing.example.com/clientarea.php?action=productdetails&id=55");
+  // No relid (manual payment / add-funds) -> no linked service.
+  const manual = parseTransaction({ id: 2, amountin: "10.00" }, "USD", "https://billing.example.com");
+  assert.equal(manual.serviceId, null);
+  assert.equal(manual.serviceUrl, null);
+  // relid present but no base URL -> id captured, no deep link.
+  const noBase = parseTransaction({ id: 3, relid: 7, amountin: "5.00" }, "USD");
+  assert.equal(noBase.serviceId, 7);
+  assert.equal(noBase.serviceUrl, null);
+  // Zero / non-numeric relid stays unlinked.
+  assert.equal(parseTransaction({ id: 4, relid: 0 }, "USD", "https://billing.example.com").serviceId, null);
+  assert.equal(parseTransaction({ id: 5, relid: "abc" }, "USD", "https://billing.example.com").serviceId, null);
+});
+
+test("buildTransactionHistory: threads the base URL so a renewal transaction links its service", () => {
+  const history = buildTransactionHistory(
+    okBilling({ transactions: { transaction: { id: 9, relid: "55", date: "2026-05-01", amountin: "20.00" } } }),
+    "USD",
+    "https://billing.example.com",
+  );
+  assert.equal(history.transactions[0].serviceId, 55);
+  assert.equal(history.transactions[0].serviceUrl, "https://billing.example.com/clientarea.php?action=productdetails&id=55");
+});
+
 test("buildTransactionHistory: no transactions yields an empty, reachable list", () => {
   const history = buildTransactionHistory(okBilling({ transactions: {} }), "USD");
   assert.deepEqual(history.transactions, []);
@@ -885,7 +989,7 @@ test("loadTransactionHistory: fetches scoped to the given client id and shapes t
     calledWith = clientId;
     return { ok: true, data: { transactions: { transaction: [{ id: 1, date: "2026-05-01", amountin: "10.00" }] } } };
   };
-  const history = await loadTransactionHistory(42, "USD", fetcher);
+  const history = await loadTransactionHistory(42, "USD", null, fetcher);
   assert.equal(calledWith, 42);
   assert.equal(history.transactions.length, 1);
   assert.equal(history.transactions[0].currencyCode, "USD");
@@ -893,7 +997,7 @@ test("loadTransactionHistory: fetches scoped to the given client id and shapes t
 
 test("loadTransactionHistory: a failed fetch degrades to empty + unreachable", async () => {
   const fetcher = async () => ({ ok: false, error: "boom", reason: "network" as const });
-  const history = await loadTransactionHistory(42, "USD", fetcher);
+  const history = await loadTransactionHistory(42, "USD", null, fetcher);
   assert.deepEqual(history.transactions, []);
   assert.equal(history.unreachable, true);
 });

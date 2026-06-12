@@ -158,14 +158,37 @@ export interface ParsedInvoiceLineItem {
   id: number;
   description: string;
   amount: string;
+  /** Raw WHMCS line item type ("Hosting", "Domain", "Invoice", "AddFunds", …). */
+  type: string;
+  /**
+   * The WHMCS service id (tblhosting.id) this line renewed, or null. Only
+   * hosting/VPS line items (`type === "Hosting"`) map to a product detail page;
+   * for those WHMCS puts the service id in `relid`. Domains and ad-hoc items
+   * carry an unrelated relid (a domain id / nothing), so they stay null.
+   */
+  serviceId: number | null;
+  /** Deep link to that service's WHMCS detail page when serviceId + baseUrl exist. */
+  serviceUrl: string | null;
 }
 
-/** Map a raw WHMCS GetInvoice `items.item` record into a line item. */
-export function parseInvoiceLineItem(raw: any): ParsedInvoiceLineItem {
+/**
+ * Map a raw WHMCS GetInvoice `items.item` record into a line item. When the
+ * line renewed a hosting service (`type === "Hosting"`), `relid` is the service
+ * id — capture it (and the outbound product-detail deep link) so the customer
+ * can jump from "I paid this" to "what product this was for". Pure.
+ */
+export function parseInvoiceLineItem(raw: any, baseUrl: string | null = null): ParsedInvoiceLineItem {
+  const type = String(raw?.type ?? "").trim();
+  const relId = Number(raw?.relid ?? 0);
+  const serviceId =
+    type.toLowerCase() === "hosting" && Number.isFinite(relId) && relId > 0 ? relId : null;
   return {
     id: Number(raw?.id ?? 0),
     description: String(raw?.description ?? "").trim(),
     amount: String(raw?.amount ?? "").trim(),
+    type,
+    serviceId,
+    serviceUrl: serviceId ? buildServiceUrl(baseUrl, serviceId) : null,
   };
 }
 
@@ -227,7 +250,7 @@ export function parseInvoiceDetail(raw: any, baseUrl: string | null, today: stri
     rawStatus,
     paymentMethod,
     notes: cleanMoney(raw?.notes),
-    lineItems: normalizeListField(raw?.items, "item").map(parseInvoiceLineItem),
+    lineItems: normalizeListField(raw?.items, "item").map((item) => parseInvoiceLineItem(item, baseUrl)),
     payUrl: buildInvoicePayUrl(baseUrl, id),
     pdfUrl: buildInvoicePdfUrl(baseUrl, id),
   };
@@ -300,6 +323,15 @@ export interface ParsedTransaction {
   /** Money sent out (a refund), as a clean string. null when zero/absent. */
   amountOut: string | null;
   currencyCode: string | null;
+  /**
+   * The WHMCS service id this payment renewed, or null. WHMCS only populates a
+   * service relation on a transaction when the gateway recorded the renewal
+   * against a hosting service (the `relid` field); most transactions (manual
+   * payments, add-funds, refunds) have no relid and stay null.
+   */
+  serviceId: number | null;
+  /** Deep link to that service's WHMCS detail page when serviceId + baseUrl exist. */
+  serviceUrl: string | null;
 }
 
 /** A money string trimmed to null when it is absent OR numerically zero. */
@@ -313,12 +345,20 @@ function nonZeroMoney(raw: any): string | null {
  * Map a raw WHMCS GetTransactions record into our normalized transaction shape.
  * WHMCS's `currency` field on a transaction is a numeric currency id (useless
  * for display without a lookup) — only honour it when it's actually a 3-letter
- * code, otherwise fall back to the client's currency. Pure → unit tested.
+ * code, otherwise fall back to the client's currency. When the row carries a
+ * service relation (`relid`), capture it + the outbound product-detail deep link
+ * so a payment can point at the service it renewed. Pure → unit tested.
  */
-export function parseTransaction(raw: any, currencyDefault: string | null): ParsedTransaction {
+export function parseTransaction(
+  raw: any,
+  currencyDefault: string | null,
+  baseUrl: string | null = null,
+): ParsedTransaction {
   const rawCurrency = String(raw?.currency ?? "").trim();
   const currencyCode = /^[A-Za-z]{3}$/.test(rawCurrency) ? rawCurrency.toUpperCase() : currencyDefault;
   const invoiceIdRaw = Number(raw?.invoiceid ?? 0);
+  const relId = Number(raw?.relid ?? 0);
+  const serviceId = Number.isFinite(relId) && relId > 0 ? relId : null;
   return {
     id: Number(raw?.id ?? 0),
     invoiceId: Number.isFinite(invoiceIdRaw) && invoiceIdRaw > 0 ? invoiceIdRaw : null,
@@ -328,6 +368,8 @@ export function parseTransaction(raw: any, currencyDefault: string | null): Pars
     amountIn: nonZeroMoney(raw?.amountin),
     amountOut: nonZeroMoney(raw?.amountout),
     currencyCode,
+    serviceId,
+    serviceUrl: serviceId ? buildServiceUrl(baseUrl, serviceId) : null,
   };
 }
 
@@ -346,12 +388,13 @@ export interface TransactionHistoryData {
 export function buildTransactionHistory(
   transactionsResult: WhmcsRawFetch,
   currencyDefault: string | null,
+  baseUrl: string | null = null,
 ): TransactionHistoryData {
   if (!transactionsResult.ok) {
     return { transactions: [], unreachable: true };
   }
   const transactions = normalizeListField(transactionsResult.data?.transactions, "transaction")
-    .map((raw) => parseTransaction(raw, currencyDefault))
+    .map((raw) => parseTransaction(raw, currencyDefault, baseUrl))
     .sort((a, b) => {
       const da = a.date ?? "";
       const db = b.date ?? "";
@@ -374,10 +417,11 @@ export function buildTransactionHistory(
 export async function loadTransactionHistory(
   clientId: number,
   currencyDefault: string | null,
+  baseUrl: string | null = null,
   fetcher: (clientId: number) => Promise<WhmcsRawFetch> = getClientTransactions,
 ): Promise<TransactionHistoryData> {
   const result = await fetcher(clientId);
-  return buildTransactionHistory(result, currencyDefault);
+  return buildTransactionHistory(result, currencyDefault, baseUrl);
 }
 
 /** Drop the credentials so a product is safe to embed in the shared summary. */

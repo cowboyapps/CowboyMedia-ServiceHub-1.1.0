@@ -96,6 +96,10 @@ export interface BillingTransaction {
   amountIn: string | null;
   amountOut: string | null;
   currencyCode: string | null;
+  /** The WHMCS service this payment renewed, or null when not tied to one. */
+  serviceId?: number | null;
+  /** Deep link to that service's WHMCS detail page, when available. */
+  serviceUrl?: string | null;
 }
 
 export interface BillingSummary {
@@ -119,6 +123,12 @@ export interface InvoiceLineItem {
   id: number;
   description: string;
   amount: string;
+  /** WHMCS line item type ("Hosting", "Domain", …). */
+  type?: string;
+  /** The WHMCS service id this line renewed, or null when not a service line. */
+  serviceId?: number | null;
+  /** Deep link to that service's WHMCS detail page, when available. */
+  serviceUrl?: string | null;
 }
 
 export interface InvoiceDetail {
@@ -374,7 +384,21 @@ function InvoiceDetailDialog({
                 <div className="rounded-md border divide-y">
                   {invoice.lineItems.map((item) => (
                     <div key={item.id} className="flex items-start justify-between gap-3 p-2.5" data-testid={`row-invoice-item-${item.id}`}>
-                      <span className="text-sm min-w-0" data-testid={`text-invoice-item-desc-${item.id}`}>{item.description || "—"}</span>
+                      <div className="min-w-0">
+                        <span className="text-sm block" data-testid={`text-invoice-item-desc-${item.id}`}>{item.description || "—"}</span>
+                        {item.serviceUrl && (
+                          <a
+                            href={item.serviceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
+                            data-testid={`link-invoice-item-service-${item.id}`}
+                          >
+                            <ServerCog className="w-3 h-3" />
+                            View service
+                          </a>
+                        )}
+                      </div>
                       <span className="text-sm font-medium shrink-0" data-testid={`text-invoice-item-amount-${item.id}`}>
                         {formatMoney(item.amount, invoice.currencyCode)}
                       </span>
@@ -766,6 +790,19 @@ function PaymentHistory({
                       {formatDate(t.date)}
                       {t.gateway && t.description ? ` · ${t.gateway}` : ""}
                     </p>
+                    {t.serviceUrl && (
+                      <a
+                        href={t.serviceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
+                        data-testid={`link-transaction-service-${t.id}`}
+                      >
+                        <ServerCog className="w-3 h-3" />
+                        View service
+                      </a>
+                    )}
                   </div>
                 );
                 return (

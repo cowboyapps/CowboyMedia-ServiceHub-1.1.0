@@ -6435,7 +6435,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const summary = await loadBillingSummary(clientId, baseUrl);
       // Transaction history is fetched alongside (its own degradation flag) so a
       // failed GetTransactions only blanks the history, not the whole summary.
-      const history = await loadTransactionHistory(clientId, summary.balance?.currencyCode ?? null);
+      const history = await loadTransactionHistory(clientId, summary.balance?.currencyCode ?? null, baseUrl);
       return res.json({
         configured,
         enabled,
