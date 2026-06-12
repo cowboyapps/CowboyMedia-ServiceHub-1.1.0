@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { AddressInfo } from "node:net";
@@ -12,7 +12,17 @@ import {
   createReportLimiter,
   createWhmcsLinkRequestLimiter,
   createWhmcsLinkVerifyLimiter,
+  bypassRateLimitForAdmins,
 } from "./rate-limits";
+import { storage } from "./storage";
+import { pool } from "./db";
+import type { User } from "@shared/schema";
+
+// Importing storage pulls in the pg pool, whose idle handles keep the process
+// alive after the tests finish. Close it so the test subprocess exits cleanly.
+after(async () => {
+  await pool.end();
+});
 
 type Role = "customer" | "admin" | "master_admin";
 
@@ -408,6 +418,149 @@ test("whmcs link verify limiter: 15/15min/user, 16th is blocked, master_admin by
   } finally {
     await close();
   }
+});
+
+// ---------- Real bypassRateLimitForAdmins middleware (DB-lookup branch) ----------
+
+// Sets only req.session.userId — unlike withSession it never sets
+// req.skipRateLimit, so the real bypass middleware must make the decision
+// itself via its storage.getUser lookup.
+function withSessionUserId(userId?: string) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    (req as any).session = userId ? { userId } : {};
+    next();
+  };
+}
+
+// Swaps storage.getUser for the duration of a test, restoring it afterwards.
+async function withStubbedGetUser(
+  impl: (id: string) => Promise<User | undefined>,
+  run: () => Promise<void>,
+) {
+  const original = storage.getUser;
+  (storage as any).getUser = (id: string) => impl(id);
+  try {
+    await run();
+  } finally {
+    (storage as any).getUser = original;
+  }
+}
+
+function fakeUser(role: Role, id: string): User {
+  return { id, role } as unknown as User;
+}
+
+test("bypassRateLimitForAdmins: admin from a real session is not throttled past the budget", async () => {
+  await withStubbedGetUser(
+    async (id) => fakeUser("admin", id),
+    async () => {
+      const { url, close } = await startApp((app) => {
+        app.post(
+          "/whmcs/request",
+          withSessionUserId("admin-real-1"),
+          bypassRateLimitForAdmins,
+          createWhmcsLinkRequestLimiter(),
+          (_req, res) => res.json({ ok: true }),
+        );
+      });
+      try {
+        // Budget is 5; an admin should sail well past it via the DB-lookup bypass.
+        for (let i = 0; i < 20; i++) {
+          const r = await postJson(`${url}/whmcs/request`);
+          assert.equal(r.status, 200, `admin attempt ${i + 1} should never be limited`);
+        }
+      } finally {
+        await close();
+      }
+    },
+  );
+});
+
+test("bypassRateLimitForAdmins: master_admin from a real session is not throttled past the budget", async () => {
+  await withStubbedGetUser(
+    async (id) => fakeUser("master_admin", id),
+    async () => {
+      const { url, close } = await startApp((app) => {
+        app.post(
+          "/whmcs/verify",
+          withSessionUserId("admin-real-2"),
+          bypassRateLimitForAdmins,
+          createWhmcsLinkVerifyLimiter(),
+          (_req, res) => res.json({ ok: true }),
+        );
+      });
+      try {
+        // Budget is 15; a master_admin should pass it freely.
+        for (let i = 0; i < 30; i++) {
+          const r = await postJson(`${url}/whmcs/verify`);
+          assert.equal(r.status, 200, `master_admin attempt ${i + 1} should never be limited`);
+        }
+      } finally {
+        await close();
+      }
+    },
+  );
+});
+
+test("bypassRateLimitForAdmins: a customer from a real session is still throttled", async () => {
+  await withStubbedGetUser(
+    async (id) => fakeUser("customer", id),
+    async () => {
+      const { url, close } = await startApp((app) => {
+        app.post(
+          "/whmcs/request",
+          withSessionUserId("customer-real-1"),
+          bypassRateLimitForAdmins,
+          createWhmcsLinkRequestLimiter(),
+          (_req, res) => res.json({ ok: true }),
+        );
+      });
+      try {
+        for (let i = 0; i < 5; i++) {
+          const r = await postJson(`${url}/whmcs/request`);
+          assert.equal(r.status, 200, `customer attempt ${i + 1} should still be allowed`);
+        }
+        const blocked = await postJson(`${url}/whmcs/request`);
+        assert.equal(blocked.status, 429, "customer must be throttled past the budget");
+      } finally {
+        await close();
+      }
+    },
+  );
+});
+
+test("bypassRateLimitForAdmins: a failed getUser lookup does not block the request and the limiter still applies", async () => {
+  let lookups = 0;
+  await withStubbedGetUser(
+    async () => {
+      lookups++;
+      throw new Error("db down");
+    },
+    async () => {
+      const { url, close } = await startApp((app) => {
+        app.post(
+          "/whmcs/request",
+          withSessionUserId("user-when-db-down"),
+          bypassRateLimitForAdmins,
+          createWhmcsLinkRequestLimiter(),
+          (_req, res) => res.json({ ok: true }),
+        );
+      });
+      try {
+        // The thrown lookup is swallowed best-effort: requests still flow,
+        // but without a bypass the limiter throttles past the budget.
+        for (let i = 0; i < 5; i++) {
+          const r = await postJson(`${url}/whmcs/request`);
+          assert.equal(r.status, 200, `attempt ${i + 1} should still be served despite the lookup error`);
+        }
+        const blocked = await postJson(`${url}/whmcs/request`);
+        assert.equal(blocked.status, 429, "limiter must still apply when the bypass lookup fails");
+        assert.ok(lookups > 0, "the failing getUser branch must actually be exercised");
+      } finally {
+        await close();
+      }
+    },
+  );
 });
 
 test("whmcs link limiters: separate user buckets do not interfere", async () => {
