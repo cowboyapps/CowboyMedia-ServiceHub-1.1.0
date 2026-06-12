@@ -530,3 +530,59 @@ test("admin download: target user does not exist → 404, WHMCS never queried", 
   assert.equal(r.status, 404);
   assert.equal(ctx.downloadCalls.length, 0);
 });
+
+// ============ Forced save-to-device coverage (Task #381) ============
+// Mirrors the invoice-PDF download assertions (server/whmcs-invoice-pdf-route.test.ts,
+// Task #378), which guard that a "Download" action reliably saves to the device on
+// mobile — where inline viewing is unreliable. The invoice proxy switches between
+// inline (preview) and attachment (forced save) on ?download=1; the ticket
+// attachment proxies have no preview mode at all — they ALWAYS force a save
+// (Content-Disposition: attachment), because ticket attachments are arbitrary
+// files that should never be rendered inline. These tests lock that behaviour in
+// so the same regression that would silently break mobile downloads can't land
+// here: the disposition must stay "attachment" by default AND regardless of any
+// query string (including a stray ?download=0 / ?inline=1 a caller might add).
+
+test("customer download: default → Content-Disposition forces a save (attachment)", async () => {
+  const ctx = makeDownloadApp({ mode: "customer" });
+  const r = await getDownload(ctx.app, CUSTOMER_DL_URL, { type: "ticket", relatedid: String(TICKET_ID), index: "0" });
+  assert.equal(r.status, 200);
+  assert.match(r.disposition ?? "", /^attachment; filename="invoice.pdf"$/, "must save to device, not display inline");
+});
+
+test("customer download: stays attachment regardless of query (no inline mode)", async () => {
+  const extras: Record<string, string>[] = [{ download: "0" }, { inline: "1" }, { download: "false" }];
+  for (const extra of extras) {
+    const ctx = makeDownloadApp({ mode: "customer" });
+    const r = await getDownload(ctx.app, CUSTOMER_DL_URL, {
+      type: "ticket",
+      relatedid: String(TICKET_ID),
+      index: "0",
+      ...extra,
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.disposition ?? "", /^attachment; /, `expected forced save for query ${JSON.stringify(extra)}`);
+  }
+});
+
+test("admin download: default → Content-Disposition forces a save (attachment)", async () => {
+  const ctx = makeDownloadApp({ mode: "admin" });
+  const r = await getDownload(ctx.app, ADMIN_DL_URL, { type: "reply", relatedid: "100", index: "0" });
+  assert.equal(r.status, 200);
+  assert.match(r.disposition ?? "", /^attachment; filename="invoice.pdf"$/, "must save to device, not display inline");
+});
+
+test("admin download: stays attachment regardless of query (no inline mode)", async () => {
+  const extras: Record<string, string>[] = [{ download: "0" }, { inline: "1" }, { download: "false" }];
+  for (const extra of extras) {
+    const ctx = makeDownloadApp({ mode: "admin" });
+    const r = await getDownload(ctx.app, ADMIN_DL_URL, {
+      type: "reply",
+      relatedid: "100",
+      index: "0",
+      ...extra,
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.disposition ?? "", /^attachment; /, `expected forced save for query ${JSON.stringify(extra)}`);
+  }
+});
