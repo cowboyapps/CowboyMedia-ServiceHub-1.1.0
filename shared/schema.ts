@@ -846,6 +846,18 @@ export const updateWhmcsProfileSchema = z.object({
 
 export type UpdateWhmcsProfileData = z.infer<typeof updateWhmcsProfileSchema>;
 
+// Customer-initiated service cancellation request (Task #401). The target
+// service id is NEVER part of this payload — it comes from the route path and is
+// ownership-checked against the session user's linked WHMCS client server-side.
+// `type` maps directly to the two timing options WHMCS's AddCancelRequest
+// accepts; `reason` is an optional free-text note the customer can add.
+export const requestServiceCancellationSchema = z.object({
+  type: z.enum(["Immediate", "End of Billing Period"]),
+  reason: z.string().trim().max(1000).optional(),
+});
+
+export type RequestServiceCancellationData = z.infer<typeof requestServiceCancellationSchema>;
+
 // Maps a WHMCS product/package (keyed by its `pid`) to one or more ServiceHub
 // monitored services (Task #335). Many-to-many: a single product can cover
 // several services and a service can be covered by several products. The unique

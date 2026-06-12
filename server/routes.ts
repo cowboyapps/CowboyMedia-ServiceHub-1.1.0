@@ -43,6 +43,7 @@ import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, parseProdu
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
+import { createRequestCancellationHandler } from "./whmcs-cancel-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -103,6 +104,7 @@ import {
   createReportLimiter,
   createWhmcsLinkRequestLimiter,
   createWhmcsLinkVerifyLimiter,
+  createWhmcsCancelLimiter,
   bypassRateLimitForAdmins,
 } from "./rate-limits";
 import { logError } from "./error-log";
@@ -6477,6 +6479,34 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       });
     }
   });
+
+  // Customer self-action: request cancellation of one of the logged-in user's
+  // OWN linked WHMCS services. The WHMCS client id is ALWAYS derived from the
+  // session user, and the handler confirms the target service id (from the path)
+  // belongs to that client AND is active before the WHMCS write — so a customer
+  // can never cancel a service that isn't theirs. Rate-limited (admins bypass);
+  // never 500s — degrades cleanly when WHMCS is unconfigured/unreachable, the
+  // account isn't linked, or the API role lacks the cancel permission.
+  const requestCancellation = createRequestCancellationHandler({
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getUser: (id) => storage.getUser(id),
+  });
+  app.post(
+    "/api/billing/services/:serviceId/cancel",
+    requireAuth,
+    bypassRateLimitForAdmins,
+    createWhmcsCancelLimiter(),
+    async (req, res) => {
+      await requestCancellation(req, res);
+      const userId = req.session.userId;
+      if (res.statusCode === 200 && userId) {
+        logActivity("user", "whmcs_cancel_requested", {
+          actorId: userId,
+          summary: `Requested cancellation of billing service #${getParam(req, "serviceId")}`,
+        });
+      }
+    },
+  );
 
   // Customer invoice-PDF download proxy. Streams a single invoice's official
   // WHMCS PDF through ServiceHub (mirror-on-read — nothing stored) so the

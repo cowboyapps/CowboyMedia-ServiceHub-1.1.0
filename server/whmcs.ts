@@ -490,6 +490,32 @@ export async function getClientProducts(clientId: number): Promise<WhmcsRawFetch
   return whmcsApiCall("GetClientsProducts", { clientid: clientId, stats: true });
 }
 
+/** The two cancellation-timing options WHMCS accepts for AddCancelRequest. */
+export type WhmcsCancellationType = "Immediate" | "End of Billing Period";
+
+/**
+ * Submit a service cancellation request to WHMCS via AddCancelRequest. This is a
+ * customer-initiated WHMCS WRITE: the caller MUST have already resolved the
+ * owning client from the SESSION user and confirmed the target service id
+ * belongs to that client before calling — this stateless wrapper does no
+ * ownership check of its own. `type` is the WHMCS cancellation timing
+ * ("Immediate" | "End of Billing Period"); `reason` is an optional free-text
+ * note (omitted when blank). No-throw tagged result like every other writer
+ * here — WHMCS surfaces "no active service" / duplicate-request errors as
+ * result:error, returned with reason "whmcs_error" so the caller can show a
+ * friendly message.
+ */
+export async function addCancelRequest(
+  serviceId: number,
+  type: WhmcsCancellationType,
+  reason?: string,
+): Promise<WhmcsRawFetch> {
+  const params: Record<string, string | number> = { serviceid: serviceId, type };
+  const trimmed = (reason ?? "").trim();
+  if (trimmed) params.reason = trimmed;
+  return whmcsApiCall("AddCancelRequest", params);
+}
+
 // --- Product catalogue (Task #335) ---
 
 export interface WhmcsProductSummary {

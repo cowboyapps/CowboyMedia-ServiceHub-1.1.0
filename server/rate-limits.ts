@@ -116,6 +116,18 @@ export function createWhmcsLinkVerifyLimiter(): RateLimitRequestHandler {
   });
 }
 
+// Customer-initiated service-cancellation request. A deliberate, low-frequency
+// action — keep a light cap (5 / hr / user) consistent with other customer
+// WHMCS write routes. Admin/master_admin sessions bypass via
+// bypassRateLimitForAdmins like every other limiter.
+export function createWhmcsCancelLimiter(): RateLimitRequestHandler {
+  return buildHandler({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    keyGenerator: userOrIpKey,
+  });
+}
+
 export async function bypassRateLimitForAdmins(
   req: Request,
   _res: Response,

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Wallet,
   Receipt,
@@ -23,6 +29,8 @@ import {
   FileText,
   Download,
   ChevronRight,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 // Shared, read-only presentation of a WHMCS billing summary. Driven entirely by
@@ -429,6 +437,145 @@ function InvoiceDetailDialog({
   );
 }
 
+type CancellationType = "End of Billing Period" | "Immediate";
+
+/**
+ * Customer-only confirm dialog for requesting cancellation of an active service.
+ * Lets the customer pick the cancellation timing and add an optional reason, then
+ * POSTs to /api/billing/services/:id/cancel. The server re-checks ownership +
+ * active status before touching WHMCS, so this is just the friendly front door.
+ * Pending/disabled while submitting; success + error toasts; never leaves the
+ * billing view half-done (the dialog closes only on success).
+ */
+function CancelServiceDialog({
+  product,
+  open,
+  onClose,
+}: {
+  product: BillingProduct | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [type, setType] = useState<CancellationType>("End of Billing Period");
+  const [reason, setReason] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!product) throw new Error("No service selected");
+      const res = await apiRequest("POST", `/api/billing/services/${product.id}/cancel`, {
+        type,
+        reason: reason.trim() || undefined,
+      });
+      return res.json() as Promise<{ ok: boolean; message?: string }>;
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Cancellation request received",
+        description:
+          result.message ??
+          "We've passed your request on to billing. You'll be notified once it's processed.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
+      handleClose();
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Couldn't submit your request",
+        description: e.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  function handleClose() {
+    if (mutation.isPending) return;
+    setType("End of Billing Period");
+    setReason("");
+    onClose();
+  }
+
+  const submitting = mutation.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+      <DialogContent className="max-w-md" data-testid="dialog-cancel-service">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-destructive" />
+            Request cancellation
+          </DialogTitle>
+          <DialogDescription data-testid="text-cancel-service-name">
+            {product
+              ? `You're about to request cancellation of "${product.name}". This stops the service and you'll no longer be billed for it.`
+              : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-medium mb-2">When should it be cancelled?</p>
+            <RadioGroup
+              value={type}
+              onValueChange={(v) => setType(v as CancellationType)}
+              className="space-y-2"
+            >
+              <div className="flex items-start gap-2.5 rounded-md border p-3">
+                <RadioGroupItem value="End of Billing Period" id="cancel-eobp" className="mt-0.5" data-testid="radio-cancel-end-of-period" />
+                <Label htmlFor="cancel-eobp" className="font-normal cursor-pointer">
+                  <span className="font-medium">At the end of the billing period</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    Keep using the service until the period you've already paid for runs out.
+                  </span>
+                </Label>
+              </div>
+              <div className="flex items-start gap-2.5 rounded-md border p-3">
+                <RadioGroupItem value="Immediate" id="cancel-immediate" className="mt-0.5" data-testid="radio-cancel-immediate" />
+                <Label htmlFor="cancel-immediate" className="font-normal cursor-pointer">
+                  <span className="font-medium">Immediately</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    Cancel right away. You may lose access before the current period ends.
+                  </span>
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          <div>
+            <Label htmlFor="cancel-reason" className="text-sm font-medium">
+              Reason <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <Textarea
+              id="cancel-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Let us know why you're cancelling (optional)"
+              maxLength={1000}
+              rows={3}
+              className="mt-1.5 resize-none"
+              data-testid="input-cancel-reason"
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={handleClose} disabled={submitting} data-testid="button-cancel-dismiss">
+            Keep service
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => mutation.mutate()}
+            disabled={submitting}
+            data-testid="button-cancel-confirm"
+          >
+            {submitting ? "Submitting..." : "Request cancellation"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface BillingSummaryViewProps {
   data: BillingSummary | undefined;
   isLoading: boolean;
@@ -440,6 +587,7 @@ interface BillingSummaryViewProps {
 
 export function BillingSummaryView({ data, isLoading, context = "customer", userId }: BillingSummaryViewProps) {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  const [cancelProduct, setCancelProduct] = useState<BillingProduct | null>(null);
   if (isLoading) {
     return (
       <div className="space-y-3" data-testid="billing-loading">
@@ -548,28 +696,49 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
           </p>
         ) : (
           <div className="space-y-2">
-            {data.products.map((p) => (
-              <Card key={p.id} data-testid={`card-billing-product-${p.id}`}>
-                <CardContent className="p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate" data-testid={`text-product-name-${p.id}`}>{p.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {p.domain ? `${p.domain} · ` : ""}
-                      {p.billingCycle || "—"}
-                      {p.amount ? ` · ${formatMoney(p.amount, null)}` : ""}
-                    </p>
-                    {p.nextDueDate && (
-                      <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-product-due-${p.id}`}>
-                        Next due {formatDate(p.nextDueDate)}
-                      </p>
+            {data.products.map((p) => {
+              // Customers can request cancellation of their OWN active services.
+              // Hidden in the admin (read-only) view and for non-active products.
+              const canCancel = !isAdmin && p.status.toLowerCase() === "active";
+              return (
+                <Card key={p.id} data-testid={`card-billing-product-${p.id}`}>
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate" data-testid={`text-product-name-${p.id}`}>{p.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {p.domain ? `${p.domain} · ` : ""}
+                          {p.billingCycle || "—"}
+                          {p.amount ? ` · ${formatMoney(p.amount, null)}` : ""}
+                        </p>
+                        {p.nextDueDate && (
+                          <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-product-due-${p.id}`}>
+                            Next due {formatDate(p.nextDueDate)}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant="outline" className={`shrink-0 ${productBadgeClass(p.status)}`} data-testid={`badge-product-status-${p.id}`}>
+                        {p.status || "—"}
+                      </Badge>
+                    </div>
+                    {canCancel && (
+                      <div className="mt-2.5 flex justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 h-8 text-destructive hover:text-destructive"
+                          onClick={() => setCancelProduct(p)}
+                          data-testid={`button-request-cancel-${p.id}`}
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          Request cancellation
+                        </Button>
+                      </div>
                     )}
-                  </div>
-                  <Badge variant="outline" className={`shrink-0 ${productBadgeClass(p.status)}`} data-testid={`badge-product-status-${p.id}`}>
-                    {p.status || "—"}
-                  </Badge>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>
@@ -674,6 +843,14 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
         userId={userId}
         onClose={() => setSelectedInvoiceId(null)}
       />
+
+      {!isAdmin && (
+        <CancelServiceDialog
+          product={cancelProduct}
+          open={cancelProduct != null}
+          onClose={() => setCancelProduct(null)}
+        />
+      )}
     </div>
   );
 }
