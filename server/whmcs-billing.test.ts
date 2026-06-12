@@ -12,6 +12,13 @@ import {
   parseProduct,
   buildBillingSummary,
   loadInvoiceDetail,
+  parseMoneyNumber,
+  monthlyizeAmount,
+  buildBillingDashboard,
+  type BillingSummaryData,
+  type ParsedInvoice,
+  type ParsedProduct,
+  type DashboardCustomerEntry,
 } from "./whmcs-billing";
 
 const TODAY = "2026-06-11";
@@ -366,4 +373,209 @@ test("loadInvoiceDetail: any other failure surfaces as unreachable, not not-foun
   assert.equal(result.unreachable, true);
   assert.equal(result.notFound, false);
   assert.equal(result.invoice, null);
+});
+
+// ---------- parseMoneyNumber ----------
+// WHMCS money strings carry symbols, codes and thousands separators; a bad
+// field must never NaN a running total.
+
+test("parseMoneyNumber: strips symbols and separators", () => {
+  assert.equal(parseMoneyNumber("$1,234.56"), 1234.56);
+  assert.equal(parseMoneyNumber("1234.56 USD"), 1234.56);
+  assert.equal(parseMoneyNumber("  10.00  "), 10);
+  assert.equal(parseMoneyNumber("-5.50"), -5.5);
+});
+
+test("parseMoneyNumber: absent/unparseable becomes 0", () => {
+  assert.equal(parseMoneyNumber(null), 0);
+  assert.equal(parseMoneyNumber(undefined), 0);
+  assert.equal(parseMoneyNumber(""), 0);
+  assert.equal(parseMoneyNumber("abc"), 0);
+});
+
+// ---------- monthlyizeAmount ----------
+// Only known recurring cycles contribute to MRR; one-time/unknown -> 0.
+
+test("monthlyizeAmount: normalizes each recurring cycle to per-month", () => {
+  assert.equal(monthlyizeAmount("30.00", "Monthly"), 30);
+  assert.equal(monthlyizeAmount("30.00", "Quarterly"), 10);
+  assert.equal(monthlyizeAmount("60.00", "Semi-Annually"), 10);
+  assert.equal(monthlyizeAmount("120.00", "Annually"), 10);
+  assert.equal(monthlyizeAmount("120.00", "yearly"), 10);
+  assert.equal(monthlyizeAmount("240.00", "Biennially"), 10);
+  assert.equal(monthlyizeAmount("360.00", "Triennially"), 10);
+});
+
+test("monthlyizeAmount: one-time/unknown/zero contribute nothing", () => {
+  assert.equal(monthlyizeAmount("100.00", "One Time"), 0);
+  assert.equal(monthlyizeAmount("100.00", ""), 0);
+  assert.equal(monthlyizeAmount("0.00", "Monthly"), 0);
+  assert.equal(monthlyizeAmount(null, "Monthly"), 0);
+});
+
+// ---------- buildBillingDashboard ----------
+
+function inv(over: Partial<ParsedInvoice>): ParsedInvoice {
+  return {
+    id: 1,
+    invoiceNum: "1",
+    date: "2026-01-01",
+    dueDate: "2026-01-01",
+    datePaid: null,
+    total: "0.00",
+    balance: null,
+    currencyCode: "USD",
+    status: "paid",
+    rawStatus: "Paid",
+    payUrl: null,
+    ...over,
+  };
+}
+
+function prod(over: Partial<ParsedProduct>): ParsedProduct {
+  return {
+    id: 1,
+    pid: 1,
+    name: "Service",
+    domain: "",
+    status: "Active",
+    nextDueDate: null,
+    billingCycle: "Monthly",
+    amount: "0.00",
+    ...over,
+  };
+}
+
+function summary(over: Partial<BillingSummaryData>): BillingSummaryData {
+  return {
+    client: { id: 1, name: "Client", status: "Active" },
+    balance: { creditBalance: null, currencyCode: "USD" },
+    invoices: [],
+    products: [],
+    portalUrl: null,
+    unreachable: false,
+    ...over,
+  };
+}
+
+function entry(userId: string, fallbackName: string, s: BillingSummaryData | null): DashboardCustomerEntry {
+  return { userId, fallbackName, summary: s };
+}
+
+test("buildBillingDashboard: rolls up outstanding, overdue, services and MRR", () => {
+  const dash = buildBillingDashboard(
+    [
+      entry("u1", "Alice", summary({
+        client: { id: 10, name: "Acme", status: "Active" },
+        invoices: [
+          inv({ id: 1, status: "overdue", balance: "30.00" }),
+          inv({ id: 2, status: "unpaid", balance: "20.00" }),
+          inv({ id: 3, status: "paid", balance: "0.00" }),
+        ],
+        products: [
+          prod({ status: "Active", billingCycle: "Monthly", amount: "10.00" }),
+          prod({ status: "Active", billingCycle: "Annually", amount: "120.00" }),
+          prod({ status: "Suspended", billingCycle: "Monthly", amount: "5.00" }),
+        ],
+      })),
+      entry("u2", "Bob", summary({
+        client: { id: 11, name: "Beta", status: "Active" },
+        invoices: [inv({ id: 4, status: "unpaid", balance: "5.00" })],
+        products: [prod({ status: "Active", billingCycle: "Monthly", amount: "7.00" })],
+      })),
+    ],
+    "2026-06-11T00:00:00.000Z",
+  );
+
+  assert.equal(dash.summary.linkedCustomers, 2);
+  assert.equal(dash.summary.customersLoaded, 2);
+  assert.equal(dash.summary.customersFailed, 0);
+  assert.equal(dash.summary.totalOutstanding, 55);
+  assert.equal(dash.summary.overdueAmount, 30);
+  assert.equal(dash.summary.overdueInvoiceCount, 1);
+  assert.equal(dash.summary.unpaidInvoiceCount, 3);
+  assert.equal(dash.summary.activeServices, 3);
+  assert.equal(dash.summary.suspendedServices, 1);
+  // 10 (monthly) + 120/12 (annual) + 7 (monthly) = 27
+  assert.equal(dash.summary.estimatedMrr, 27);
+  assert.equal(dash.partial, false);
+  assert.equal(dash.unreachable, false);
+  // Highest outstanding first: Acme (50) before Beta (5).
+  assert.deepEqual(dash.customers.map((c) => c.userId), ["u1", "u2"]);
+  assert.equal(dash.customers[0].outstanding, 50);
+  assert.equal(dash.customers[0].overdue, 30);
+});
+
+test("buildBillingDashboard: balance falls back to total when invoice balance null", () => {
+  const dash = buildBillingDashboard(
+    [entry("u1", "Alice", summary({
+      invoices: [inv({ id: 1, status: "unpaid", balance: null, total: "42.00" })],
+    }))],
+    "2026-06-11T00:00:00.000Z",
+  );
+  assert.equal(dash.summary.totalOutstanding, 42);
+  assert.equal(dash.customers[0].outstanding, 42);
+});
+
+test("buildBillingDashboard: a failed customer is skipped, counted, flips partial", () => {
+  const dash = buildBillingDashboard(
+    [
+      entry("u1", "Alice", summary({
+        invoices: [inv({ id: 1, status: "unpaid", balance: "10.00" })],
+      })),
+      entry("u2", "Bob", null),
+      entry("u3", "Carol", summary({ unreachable: true })),
+    ],
+    "2026-06-11T00:00:00.000Z",
+  );
+  assert.equal(dash.summary.linkedCustomers, 3);
+  assert.equal(dash.summary.customersLoaded, 1);
+  assert.equal(dash.summary.customersFailed, 2);
+  assert.equal(dash.summary.totalOutstanding, 10);
+  assert.equal(dash.partial, true);
+  assert.equal(dash.unreachable, false);
+});
+
+test("buildBillingDashboard: all customers failing flips unreachable", () => {
+  const dash = buildBillingDashboard(
+    [entry("u1", "Alice", null), entry("u2", "Bob", summary({ unreachable: true }))],
+    "2026-06-11T00:00:00.000Z",
+  );
+  assert.equal(dash.unreachable, true);
+  assert.equal(dash.partial, true);
+  assert.equal(dash.customers.length, 0);
+});
+
+test("buildBillingDashboard: no entries is empty, not unreachable", () => {
+  const dash = buildBillingDashboard([], "2026-06-11T00:00:00.000Z");
+  assert.equal(dash.summary.linkedCustomers, 0);
+  assert.equal(dash.unreachable, false);
+  assert.equal(dash.partial, false);
+  assert.equal(dash.customers.length, 0);
+});
+
+test("buildBillingDashboard: paid-up customer omitted from owing list but still aggregated", () => {
+  const dash = buildBillingDashboard(
+    [entry("u1", "Alice", summary({
+      invoices: [inv({ id: 1, status: "paid", balance: "0.00" })],
+      products: [prod({ status: "Active", billingCycle: "Monthly", amount: "9.00" })],
+    }))],
+    "2026-06-11T00:00:00.000Z",
+  );
+  assert.equal(dash.customers.length, 0);
+  assert.equal(dash.summary.activeServices, 1);
+  assert.equal(dash.summary.estimatedMrr, 9);
+  assert.equal(dash.summary.totalOutstanding, 0);
+});
+
+test("buildBillingDashboard: customer name falls back to ServiceHub name when WHMCS client null", () => {
+  const dash = buildBillingDashboard(
+    [entry("u1", "Fallback Name", summary({
+      client: null,
+      invoices: [inv({ id: 1, status: "unpaid", balance: "3.00" })],
+    }))],
+    "2026-06-11T00:00:00.000Z",
+  );
+  assert.equal(dash.customers[0].name, "Fallback Name");
+  assert.equal(dash.customers[0].clientId, 0);
 });

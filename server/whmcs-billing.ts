@@ -407,6 +407,273 @@ export async function loadBillingSummary(clientId: number, baseUrl: string | nul
   return data;
 }
 
+// --- Admin billing dashboard rollup (Task #370) ---
+// A fleet-wide view across every linked customer: outstanding/overdue totals,
+// active vs suspended service counts, and estimated recurring revenue. The pure
+// `buildBillingDashboard` rolls up already-fetched per-customer summaries so it's
+// unit-tested without network; `loadBillingDashboard` is the throttled async
+// orchestrator that fetches each customer (reusing the cached loadBillingSummary)
+// and tolerates per-customer failures.
+
+/** Round a money figure to 2 decimals, avoiding float drift on the .005 edge. */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Parse a numeric amount out of a WHMCS money string. Strips currency symbols,
+ * codes, and thousands separators, leaving a plain number. Returns 0 for any
+ * absent/unparseable value so a single bad field never NaNs a running total.
+ */
+export function parseMoneyNumber(raw: string | null | undefined): number {
+  if (raw === null || raw === undefined) return 0;
+  const cleaned = String(raw).trim().replace(/[^0-9.,-]/g, "").replace(/,/g, "");
+  if (!cleaned) return 0;
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Normalize a recurring product amount to a per-month figure for MRR. Only the
+ * known recurring WHMCS billing cycles contribute; one-time / free / unknown
+ * cycles return 0 so MRR is never inflated by non-recurring charges. Pure.
+ */
+export function monthlyizeAmount(amount: string | null | undefined, billingCycle: string | null | undefined): number {
+  const n = parseMoneyNumber(amount);
+  if (n <= 0) return 0;
+  switch (String(billingCycle ?? "").trim().toLowerCase()) {
+    case "monthly":
+      return n;
+    case "quarterly":
+      return n / 3;
+    case "semi-annually":
+    case "semiannually":
+    case "semi annually":
+      return n / 6;
+    case "annually":
+    case "yearly":
+      return n / 12;
+    case "biennially":
+      return n / 24;
+    case "triennially":
+      return n / 36;
+    default:
+      return 0;
+  }
+}
+
+export interface BillingDashboardCustomerRow {
+  /** ServiceHub user id — used for drill-through to the customer's billing. */
+  userId: string;
+  /** WHMCS client id. */
+  clientId: number;
+  name: string;
+  /** WHMCS client status (Active / Inactive / Closed). */
+  status: string;
+  /** Sum of balances on this customer's unpaid + overdue invoices. */
+  outstanding: number;
+  /** Sum of balances on this customer's overdue invoices only. */
+  overdue: number;
+  /** Count of unpaid + overdue invoices (overdue is a subset). */
+  unpaidCount: number;
+  /** Count of overdue invoices. */
+  overdueCount: number;
+  currencyCode: string | null;
+}
+
+export interface BillingDashboardSummary {
+  linkedCustomers: number;
+  customersLoaded: number;
+  customersFailed: number;
+  totalOutstanding: number;
+  overdueAmount: number;
+  overdueInvoiceCount: number;
+  /** Unpaid + overdue invoice count across the fleet. */
+  unpaidInvoiceCount: number;
+  activeServices: number;
+  suspendedServices: number;
+  estimatedMrr: number;
+  /** First currency seen — installs are usually single-currency. */
+  currencyCode: string | null;
+}
+
+export interface BillingDashboardData {
+  summary: BillingDashboardSummary;
+  /** Customers with a positive outstanding balance, highest first. */
+  customers: BillingDashboardCustomerRow[];
+  /** True when at least one linked customer's read failed (skipped + counted). */
+  partial: boolean;
+  /** True when there were customers but every one failed (full outage). */
+  unreachable: boolean;
+  generatedAt: string;
+}
+
+export interface DashboardCustomerEntry {
+  userId: string;
+  /** ServiceHub display name, used when WHMCS doesn't return a client name. */
+  fallbackName: string;
+  /** null/unreachable summary => the customer is counted as failed. */
+  summary: BillingSummaryData | null;
+}
+
+/**
+ * Roll up per-customer billing summaries into the fleet-wide dashboard. Pure —
+ * the caller fetches the summaries, this just aggregates. A customer whose
+ * summary is null or `unreachable` is skipped and counted in `customersFailed`,
+ * flipping `partial`; the rest still aggregate so one bad customer never sinks
+ * the whole dashboard.
+ */
+export function buildBillingDashboard(entries: DashboardCustomerEntry[], generatedAt: string): BillingDashboardData {
+  let totalOutstanding = 0;
+  let overdueAmount = 0;
+  let overdueInvoiceCount = 0;
+  let unpaidInvoiceCount = 0;
+  let activeServices = 0;
+  let suspendedServices = 0;
+  let estimatedMrr = 0;
+  let customersLoaded = 0;
+  let customersFailed = 0;
+  let currencyCode: string | null = null;
+  const customers: BillingDashboardCustomerRow[] = [];
+
+  for (const entry of entries) {
+    const s = entry.summary;
+    if (!s || s.unreachable) {
+      customersFailed++;
+      continue;
+    }
+    customersLoaded++;
+
+    let custOutstanding = 0;
+    let custOverdue = 0;
+    let custUnpaid = 0;
+    let custOverdueCount = 0;
+    let custCurrency: string | null = null;
+
+    for (const inv of s.invoices) {
+      if (inv.status !== "unpaid" && inv.status !== "overdue") continue;
+      const bal = parseMoneyNumber(inv.balance ?? inv.total);
+      custOutstanding += bal;
+      custUnpaid++;
+      if (inv.status === "overdue") {
+        custOverdue += bal;
+        custOverdueCount++;
+      }
+      if (!custCurrency && inv.currencyCode) custCurrency = inv.currencyCode;
+    }
+
+    for (const p of s.products) {
+      const st = p.status.toLowerCase();
+      if (st === "active") {
+        activeServices++;
+        estimatedMrr += monthlyizeAmount(p.amount, p.billingCycle);
+      } else if (st === "suspended") {
+        suspendedServices++;
+      }
+    }
+
+    if (!currencyCode) currencyCode = custCurrency || s.balance?.currencyCode || null;
+    totalOutstanding += custOutstanding;
+    overdueAmount += custOverdue;
+    overdueInvoiceCount += custOverdueCount;
+    unpaidInvoiceCount += custUnpaid;
+
+    if (custOutstanding > 0.0001) {
+      customers.push({
+        userId: entry.userId,
+        clientId: s.client?.id ?? 0,
+        name: s.client?.name || entry.fallbackName,
+        status: s.client?.status ?? "",
+        outstanding: round2(custOutstanding),
+        overdue: round2(custOverdue),
+        unpaidCount: custUnpaid,
+        overdueCount: custOverdueCount,
+        currencyCode: custCurrency,
+      });
+    }
+  }
+
+  customers.sort((a, b) => b.outstanding - a.outstanding);
+
+  return {
+    summary: {
+      linkedCustomers: entries.length,
+      customersLoaded,
+      customersFailed,
+      totalOutstanding: round2(totalOutstanding),
+      overdueAmount: round2(overdueAmount),
+      overdueInvoiceCount,
+      unpaidInvoiceCount,
+      activeServices,
+      suspendedServices,
+      estimatedMrr: round2(estimatedMrr),
+      currencyCode,
+    },
+    customers,
+    partial: customersFailed > 0,
+    unreachable: entries.length > 0 && customersLoaded === 0,
+    generatedAt,
+  };
+}
+
+const DASHBOARD_CACHE_TTL_MS = 60_000;
+const DASHBOARD_CONCURRENCY = 4;
+let dashboardCache: { at: number; signature: string; data: BillingDashboardData } | null = null;
+
+/** Reset the dashboard cache (test hook). */
+export function resetBillingDashboardCache(): void {
+  dashboardCache = null;
+}
+
+export interface DashboardLinkedCustomer {
+  userId: string;
+  fallbackName: string;
+  clientId: number;
+}
+
+/**
+ * Fetch + roll up the billing dashboard across every linked customer. Fans out
+ * one cached loadBillingSummary per customer (the N+1), but throttled to a small
+ * concurrency so we never hammer WHMCS, and each call is no-throw so one bad
+ * customer is skipped + counted rather than failing the batch. A short whole-
+ * dashboard TTL cache keeps repeat loads cheap; the cache is keyed by the set of
+ * linked client ids so it busts when the linked set changes, and a full outage
+ * is never pinned.
+ */
+export async function loadBillingDashboard(
+  linked: DashboardLinkedCustomer[],
+  baseUrl: string | null,
+): Promise<BillingDashboardData> {
+  const signature = linked.map((l) => l.clientId).sort((a, b) => a - b).join(",");
+  const now = Date.now();
+  if (dashboardCache && dashboardCache.signature === signature && now - dashboardCache.at < DASHBOARD_CACHE_TTL_MS) {
+    return dashboardCache.data;
+  }
+
+  const entries: DashboardCustomerEntry[] = new Array(linked.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= linked.length) return;
+      const l = linked[i];
+      let summary: BillingSummaryData | null = null;
+      try {
+        summary = await loadBillingSummary(l.clientId, baseUrl);
+      } catch {
+        summary = null;
+      }
+      entries[i] = { userId: l.userId, fallbackName: l.fallbackName, summary };
+    }
+  }
+  const workerCount = Math.min(DASHBOARD_CONCURRENCY, Math.max(1, linked.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  const data = buildBillingDashboard(entries, todayUtc());
+  if (!data.unreachable) dashboardCache = { at: now, signature, data };
+  return data;
+}
+
 export interface InvoicesListData {
   invoices: ParsedInvoice[];
   /** True when the single GetInvoices read failed (outage or missing perm). */

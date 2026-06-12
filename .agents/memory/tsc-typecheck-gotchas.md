@@ -13,5 +13,8 @@ description: Non-obvious things that make `npm run check` (tsc) behave unexpecte
 
 - **`target` must be ≥ ES2020** in `tsconfig.json` or Set/Map iteration triggers `--downlevelIteration` errors. Keep the `target` line.
 
+- **A full `tsc --noEmit` here takes ~2–3 min — longer than a single tool window.** Run it detached writing to a **workspace-root** log file and poll for the pid to exit (`setsid npx tsc --noEmit -p tsconfig.json > tsc_out.log 2>&1 < /dev/null & disown`). Do NOT write the log to `/tmp` or `.local/` — both get cleaned mid-run and the file vanishes. And NEVER leave multiple `tsc` runs alive at once: they thrash CPU/memory and each gets several times slower, so kill stragglers before relaunching.
+  **Why:** repeated single-shot runs timed out and looked like hangs; stale concurrent runs made it worse. **How to apply:** any time you need a full typecheck in this repo.
+
 - **Tests ARE type-checked now.** `tsconfig.json` includes `test/**/*` and no longer excludes `**/*.test.ts`, so `npm run check` (and the prebuild gate) catches type drift in test files. Keep them honest against `shared/schema.ts`.
   **Why:** excluded tests could compile-rot silently until they crashed at runtime. **How to apply:** when a test mock is passed where a real type is expected (e.g. an Express `Response`), type the mock as `Response & { extra }` and cast the factory return `as unknown as MockRes` — import `Response` from `express`, NOT the global DOM `Response`, or `statusCode`/`status()` won't resolve. For `React.createElement(Component, props, ...children)` where the component's props require `children` (e.g. wouter's `Router`), pass children inside the props object — variadic children don't satisfy a required `children` prop and trigger TS2769.

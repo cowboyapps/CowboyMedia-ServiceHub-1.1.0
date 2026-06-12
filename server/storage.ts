@@ -367,6 +367,7 @@ export interface IStorage {
   getWhmcsSettings(): Promise<WhmcsSettings | undefined>;
   updateWhmcsSettings(data: UpdateWhmcsSettingsData): Promise<WhmcsSettings>;
   getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
+  getWhmcsLinkedUsers(): Promise<User[]>;
   getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>>;
   recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void>;
   getWhmcsInvoiceNotifyState(userId: string): Promise<Record<string, string>>;
@@ -1387,6 +1388,10 @@ export class DatabaseStorage implements IStorage {
   async getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.whmcsClientId, whmcsClientId));
     return user;
+  }
+
+  async getWhmcsLinkedUsers(): Promise<User[]> {
+    return db.select().from(users).where(isNotNull(users.whmcsClientId));
   }
 
   async getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>> {

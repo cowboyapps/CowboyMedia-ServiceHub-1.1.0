@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -5903,6 +5903,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "announcements": "announcements",
   "knowledge-base": "knowledge_base",
   "overview": "dashboard.view",
+  "billing-dashboard": "users.view",
 };
 
 const TILE_MANAGE_MAP: Record<string, string> = {
@@ -7445,6 +7446,237 @@ function WhmcsProductMappingSection() {
   );
 }
 
+type BillingDashboardCustomer = {
+  userId: string;
+  clientId: number;
+  name: string;
+  status: string;
+  outstanding: number;
+  overdue: number;
+  unpaidCount: number;
+  overdueCount: number;
+  currencyCode: string | null;
+};
+
+type BillingDashboardPayload = {
+  configured: boolean;
+  enabled: boolean;
+  unreachable: boolean;
+  partial: boolean;
+  generatedAt: string;
+  summary: {
+    linkedCustomers: number;
+    customersLoaded: number;
+    customersFailed: number;
+    totalOutstanding: number;
+    overdueAmount: number;
+    overdueInvoiceCount: number;
+    unpaidInvoiceCount: number;
+    activeServices: number;
+    suspendedServices: number;
+    estimatedMrr: number;
+    currencyCode: string | null;
+  };
+  customers: BillingDashboardCustomer[];
+};
+
+function formatDashboardMoney(amount: number, currencyCode: string | null): string {
+  const value = (amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currencyCode ? `${value} ${currencyCode}` : value;
+}
+
+function BillingSummaryCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone = "default",
+  testid,
+}: {
+  icon: typeof Wallet;
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "default" | "danger" | "success";
+  testid: string;
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "bg-destructive/10 text-destructive"
+      : tone === "success"
+        ? "bg-green-500/10 text-green-600 dark:text-green-400"
+        : "bg-primary/10 text-primary";
+  return (
+    <Card data-testid={testid}>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${toneClass}`}>
+            <Icon className="w-4 h-4" />
+          </div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+        </div>
+        <p className="text-2xl font-bold mt-2 truncate" data-testid={`${testid}-value`}>{value}</p>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Admin billing dashboard (Task #370): a fleet-wide, read-only billing health
+// view across every linked customer. Snapshot only — totals + the customers who
+// owe money, each drilling through to that customer's existing billing detail.
+function BillingDashboardTab() {
+  const [, navigate] = useLocation();
+  const { data, isLoading, isFetching, refetch } = useQuery<BillingDashboardPayload>({
+    queryKey: ["/api/admin/whmcs/billing/dashboard"],
+  });
+
+  const goToCustomer = (userId: string) => {
+    navigate(`/admin?tab=users&user=${encodeURIComponent(userId)}`);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4" data-testid="billing-dashboard-loading">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+        </div>
+        <Skeleton className="h-48 rounded-xl" />
+      </div>
+    );
+  }
+
+  if (!data || !data.configured || !data.enabled) {
+    return (
+      <div className="text-center py-12" data-testid="billing-dashboard-unconfigured">
+        <CreditCard className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+        <p className="text-base font-semibold">Billing dashboard unavailable</p>
+        <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+          WHMCS billing isn't configured or is currently disabled. Enable it under the WHMCS Billing section to see fleet-wide billing health.
+        </p>
+      </div>
+    );
+  }
+
+  if (data.unreachable) {
+    return (
+      <div className="text-center py-12" data-testid="billing-dashboard-unreachable">
+        <ServerCog className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+        <p className="text-base font-semibold">Billing temporarily unavailable</p>
+        <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+          We couldn't reach the billing system for any customer right now. Please try again in a few minutes.
+        </p>
+        <Button variant="outline" size="sm" className="mt-4 gap-1.5" onClick={() => refetch()} data-testid="button-billing-dashboard-retry">
+          <RefreshCw className="w-3.5 h-3.5" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const s = data.summary;
+  const code = s.currencyCode;
+
+  return (
+    <div className="space-y-4" data-testid="billing-dashboard">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h3 className="font-semibold">Billing health</h3>
+          <p className="text-xs text-muted-foreground">
+            Across {s.linkedCustomers} linked customer{s.linkedCustomers === 1 ? "" : "s"}
+            {data.generatedAt ? ` · updated ${formatDistanceToNow(new Date(data.generatedAt), { addSuffix: true })}` : ""}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetch()} disabled={isFetching} data-testid="button-billing-dashboard-refresh">
+          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+        </Button>
+      </div>
+
+      {data.partial && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm" data-testid="billing-dashboard-partial">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <span>
+            Showing partial data — {s.customersFailed} of {s.linkedCustomers} customer{s.customersFailed === 1 ? "" : "s"} couldn't be loaded from WHMCS and were skipped. Totals below cover the {s.customersLoaded} that loaded.
+          </span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <BillingSummaryCard icon={Users} label="Linked customers" value={String(s.linkedCustomers)} hint={`${s.customersLoaded} loaded`} testid="card-billing-linked" />
+        <BillingSummaryCard icon={Wallet} label="Total outstanding" value={formatDashboardMoney(s.totalOutstanding, code)} hint={`${s.unpaidInvoiceCount} unpaid invoice${s.unpaidInvoiceCount === 1 ? "" : "s"}`} tone={s.totalOutstanding > 0 ? "danger" : "default"} testid="card-billing-outstanding" />
+        <BillingSummaryCard icon={AlertTriangle} label="Overdue" value={formatDashboardMoney(s.overdueAmount, code)} hint={`${s.overdueInvoiceCount} overdue invoice${s.overdueInvoiceCount === 1 ? "" : "s"}`} tone={s.overdueAmount > 0 ? "danger" : "default"} testid="card-billing-overdue" />
+        <BillingSummaryCard icon={Server} label="Active services" value={String(s.activeServices)} hint="across linked customers" tone="success" testid="card-billing-active-services" />
+        <BillingSummaryCard icon={ServerCog} label="Suspended services" value={String(s.suspendedServices)} hint="across linked customers" tone={s.suspendedServices > 0 ? "danger" : "default"} testid="card-billing-suspended-services" />
+        <BillingSummaryCard icon={TrendingUp} label="Est. monthly revenue" value={formatDashboardMoney(s.estimatedMrr, code)} hint="from active services" tone="success" testid="card-billing-mrr" />
+      </div>
+
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Wallet className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold" data-testid="heading-billing-owing">Customers with balances</h3>
+        </div>
+        {data.customers.length === 0 ? (
+          <div className="text-center py-8 border rounded-md" data-testid="billing-dashboard-no-owing">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
+            <p className="text-sm font-medium">No outstanding balances</p>
+            <p className="text-xs text-muted-foreground mt-1">Every linked customer is paid up.</p>
+          </div>
+        ) : (
+          <div className="border rounded-md overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead className="text-right hidden sm:table-cell">Overdue</TableHead>
+                  <TableHead className="text-right">Invoices</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.customers.map((c) => (
+                  <TableRow
+                    key={c.userId}
+                    className="cursor-pointer"
+                    onClick={() => goToCustomer(c.userId)}
+                    data-testid={`row-billing-customer-${c.userId}`}
+                  >
+                    <TableCell>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate" data-testid={`text-billing-customer-name-${c.userId}`}>{c.name}</p>
+                        {c.status && <p className="text-xs text-muted-foreground truncate">WHMCS: {c.status}</p>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold" data-testid={`text-billing-customer-outstanding-${c.userId}`}>
+                      {formatDashboardMoney(c.outstanding, c.currencyCode ?? code)}
+                    </TableCell>
+                    <TableCell className="text-right hidden sm:table-cell">
+                      {c.overdue > 0 ? (
+                        <span className="text-destructive font-medium" data-testid={`text-billing-customer-overdue-${c.userId}`}>
+                          {formatDashboardMoney(c.overdue, c.currencyCode ?? code)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant="outline" className={c.overdueCount > 0 ? "bg-destructive/15 text-destructive border-destructive/30" : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"}>
+                        {c.unpaidCount}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ChevronRight className="w-4 h-4 text-muted-foreground inline" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WhmcsTab() {
   const { toast } = useToast();
   const [baseUrl, setBaseUrl] = useState("");
@@ -8883,6 +9115,7 @@ export default function AdminPortal() {
     { key: "telegram", label: "Telegram", icon: Send, color: "text-blue-400", bg: "bg-blue-400/10", group: "integrations" },
     { key: "discord", label: "Discord", icon: Hash, color: "text-indigo-400", bg: "bg-indigo-400/10", group: "integrations" },
     { key: "whmcs", label: "WHMCS Billing", icon: CreditCard, color: "text-emerald-400", bg: "bg-emerald-400/10", group: "integrations" },
+    { key: "billing-dashboard", label: "Billing", icon: Wallet, color: "text-emerald-500", bg: "bg-emerald-500/10", group: "integrations" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10", group: "system" },
     { key: "support-away", label: "Support Away", icon: Clock, color: "text-orange-500", bg: "bg-orange-500/10", group: "support" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10", group: "content" },
@@ -8938,6 +9171,7 @@ export default function AdminPortal() {
       case "telegram": return <TelegramTab />;
       case "discord": return <DiscordTab />;
       case "whmcs": return <WhmcsTab />;
+      case "billing-dashboard": return <BillingDashboardTab />;
       case "business-hours": return <BusinessHoursTab />;
       case "support-away": return <SupportAwayTab />;
       case "announcements": return <AnnouncementsTab />;

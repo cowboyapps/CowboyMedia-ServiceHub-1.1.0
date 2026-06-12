@@ -39,7 +39,7 @@ import {
   getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummary, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummary, loadBillingDashboard, loadInvoiceDetail, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
@@ -6490,6 +6490,64 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.status(500).json({ message: getErrorMessage(e) });
     }
   });
+
+  // Admin billing dashboard (Task #370): fleet-wide rollup across every linked
+  // customer — outstanding/overdue totals, active vs suspended services, and
+  // estimated MRR, plus the list of customers who owe money. Pure / never 500:
+  // it degrades to a clean unconfigured/empty/unreachable state and tolerates
+  // per-customer WHMCS failures (skipped + counted, flips `partial`) so one bad
+  // customer never sinks the whole dashboard.
+  const emptyBillingDashboard = (over: Record<string, unknown>) => ({
+    configured: false,
+    enabled: false,
+    unreachable: false,
+    partial: false,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      linkedCustomers: 0,
+      customersLoaded: 0,
+      customersFailed: 0,
+      totalOutstanding: 0,
+      overdueAmount: 0,
+      overdueInvoiceCount: 0,
+      unpaidInvoiceCount: 0,
+      activeServices: 0,
+      suspendedServices: 0,
+      estimatedMrr: 0,
+      currencyCode: null,
+    },
+    customers: [],
+    ...over,
+  });
+
+  app.get(
+    "/api/admin/whmcs/billing/dashboard",
+    requirePermission("users.view", "users.manage"),
+    async (_req, res) => {
+      try {
+        const settings = await storage.getWhmcsSettings();
+        const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+        const configured = hasWhmcsCredentials() && !!baseUrl;
+        const enabled = !!settings?.enabled;
+        if (!configured || !enabled) {
+          return res.json(emptyBillingDashboard({ configured, enabled }));
+        }
+        const linkedUsers = await storage.getWhmcsLinkedUsers();
+        const linked = linkedUsers
+          .filter((u) => u.whmcsClientId != null)
+          .map((u) => ({
+            userId: u.id,
+            fallbackName: u.fullName || u.username || u.email || `Client #${u.whmcsClientId}`,
+            clientId: u.whmcsClientId as number,
+          }));
+        const dashboard = await loadBillingDashboard(linked, baseUrl);
+        return res.json({ configured, enabled, ...dashboard });
+      } catch {
+        // Read-only contract: never 500 — degrade to a stable unreachable state.
+        return res.json(emptyBillingDashboard({ configured: true, enabled: true, unreachable: true }));
+      }
+    },
+  );
 
   // ---------- WHMCS product → service mapping (Task #335) ----------
 
