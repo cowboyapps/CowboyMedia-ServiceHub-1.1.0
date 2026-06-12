@@ -6561,6 +6561,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await resetServicePassword(req, res);
       const userId = req.session.userId;
       if (res.statusCode === 200 && userId) {
+        // A password reset is a customer-initiated WHMCS write that mutates the
+        // live service's state — drop this client's cached summary + transaction
+        // history so the next /api/billing load reflects it immediately instead
+        // of waiting out the 60s TTL (mirrors the cancellation route).
+        const actor = await storage.getUser(userId);
+        if (actor?.whmcsClientId) invalidateBillingCaches(actor.whmcsClientId);
         logActivity("user", "whmcs_service_password_reset", {
           actorId: userId,
           summary: `Reset the password for billing service #${getParam(req, "serviceId")}`,
