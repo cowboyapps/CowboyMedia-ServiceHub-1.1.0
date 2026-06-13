@@ -20,7 +20,7 @@ import {
 
 interface AppOpts {
   sessionUserId?: string | null;
-  users: Record<string, { whmcsClientId: number | null } | undefined>;
+  users: Record<string, { whmcsClientId: number | null; role?: string | null } | undefined>;
   getUser?: RefreshRouteDeps["getUser"];
   invalidateBillingCaches?: RefreshRouteDeps["invalidateBillingCaches"];
 }
@@ -101,6 +101,26 @@ test("getUser is looked up by the SESSION user id", async () => {
   assert.equal(body.ok, true);
   assert.equal(seenLookupId, "u-session");
   assert.deepEqual(invalidated, [42]);
+});
+
+// ---------- staff-account block ----------
+
+test("admin session → 403, cache never invalidated", async () => {
+  const invalidated: number[] = [];
+  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 5, role: "admin" } } }, invalidated);
+  const { status, body } = await call(app);
+  assert.equal(status, 403, "staff accounts must be rejected from the customer refresh action");
+  assert.equal(body.ok, false);
+  assert.deepEqual(invalidated, [], "cache must not be invalidated for a staff account");
+});
+
+test("master_admin session → 403, cache never invalidated", async () => {
+  const invalidated: number[] = [];
+  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 5, role: "master_admin" } } }, invalidated);
+  const { status, body } = await call(app);
+  assert.equal(status, 403);
+  assert.equal(body.ok, false);
+  assert.deepEqual(invalidated, []);
 });
 
 // ---------- never 500s / degraded paths ----------

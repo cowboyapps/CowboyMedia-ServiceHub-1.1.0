@@ -29,6 +29,12 @@ import { requestServiceCancellationSchema } from "@shared/schema";
 
 export interface CancelRouteUser {
   whmcsClientId?: number | null;
+  role?: string | null;
+}
+
+/** Staff roles barred from the customer-only service-cancellation action. */
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "master_admin";
 }
 
 export interface CancelRouteSettings {
@@ -87,6 +93,12 @@ export function createRequestCancellationHandler(deps: CancelRouteDeps) {
       }
 
       const user = await deps.getUser(req.session.userId!);
+      // Defence-in-depth: staff accounts never have a linked WHMCS client and
+      // can only reach this via a UI-gate bypass — reject them before the
+      // clientId lookup so WHMCS is never queried for a staff account.
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json({ ok: false, message: "Staff accounts can't use customer billing actions." });
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.status(409).json({ ok: false, message: "Your account isn't linked to billing yet." });

@@ -23,6 +23,12 @@ import { invalidateBillingCaches as defaultInvalidateBillingCaches } from "./whm
 
 export interface RefreshRouteUser {
   whmcsClientId?: number | null;
+  role?: string | null;
+}
+
+/** Staff roles barred from the customer-only billing-cache refresh. */
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "master_admin";
 }
 
 export interface RefreshRouteDeps {
@@ -42,6 +48,13 @@ export function createBillingRefreshHandler(deps: RefreshRouteDeps) {
   return async (req: Request, res: Response) => {
     try {
       const user = await deps.getUser(req.session.userId!);
+      // Defence-in-depth: staff accounts never have a linked WHMCS client and
+      // can only reach this via a UI-gate bypass — reject them outright so the
+      // customer-only action surface is consistent. Ordered before the clientId
+      // lookup; WHMCS/cache is never touched for staff.
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json({ ok: false, message: "Staff accounts can't use customer billing actions." });
+      }
       if (user?.whmcsClientId) invalidate(user.whmcsClientId);
     } catch {
       // Cache invalidation is best-effort — never 500 for the customer.

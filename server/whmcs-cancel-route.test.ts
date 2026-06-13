@@ -39,7 +39,7 @@ function svc(id: number, status = "Active") {
 
 interface AppOpts {
   sessionUserId?: string | null;
-  users: Record<string, { whmcsClientId: number | null } | undefined>;
+  users: Record<string, { whmcsClientId: number | null; role?: string | null } | undefined>;
   enabled?: boolean;
   baseUrl?: string | null;
   hasCredentials?: boolean;
@@ -141,6 +141,36 @@ test("rejects cancelling a non-active service (409)", async () => {
   });
   const { status, body } = await call(app, 100, { type: "Immediate" });
   assert.equal(status, 409);
+  assert.equal(body.ok, false);
+  assert.equal(called, false);
+});
+
+// ---------- staff-account block ----------
+
+test("admin session → 403, WHMCS never called", async () => {
+  let called = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5, role: "admin" } },
+    loadServicesList: async (): Promise<ServicesListData> => { called = true; return { services: [svc(100)], unreachable: false }; },
+    addCancelRequest: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
+  });
+  const { status, body } = await call(app, 100, { type: "Immediate" });
+  assert.equal(status, 403, "staff accounts must be rejected from the customer cancellation action");
+  assert.equal(body.ok, false);
+  assert.equal(called, false, "WHMCS must not be queried for a staff account");
+});
+
+test("master_admin session → 403, WHMCS never called", async () => {
+  let called = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5, role: "master_admin" } },
+    loadServicesList: async (): Promise<ServicesListData> => { called = true; return { services: [svc(100)], unreachable: false }; },
+    addCancelRequest: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
+  });
+  const { status, body } = await call(app, 100, { type: "Immediate" });
+  assert.equal(status, 403);
   assert.equal(body.ok, false);
   assert.equal(called, false);
 });
