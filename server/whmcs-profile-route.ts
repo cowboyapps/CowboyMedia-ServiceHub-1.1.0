@@ -27,6 +27,12 @@ import { updateWhmcsProfileSchema } from "@shared/schema";
 
 export interface ProfileRouteUser {
   whmcsClientId?: number | null;
+  role?: string | null;
+}
+
+/** Staff roles barred from the customer-only billing profile read/save. */
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "master_admin";
 }
 
 export interface ProfileRouteSettings {
@@ -79,6 +85,9 @@ export function createGetProfileHandler(deps: ProfileRouteDeps) {
         return res.json(emptyProfile({ configured, enabled }));
       }
       const user = await deps.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json(emptyProfile({ configured, enabled, linked: false }));
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.json(emptyProfile({ configured, enabled, linked: false }));
@@ -121,6 +130,9 @@ export function createUpdateProfileHandler(deps: ProfileRouteDeps) {
         return res.status(409).json({ ok: false, message: "Account editing is unavailable right now." });
       }
       const user = await deps.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json({ ok: false, message: "Staff accounts can't edit customer billing profiles." });
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.status(409).json({ ok: false, message: "Your account isn't linked to billing yet." });

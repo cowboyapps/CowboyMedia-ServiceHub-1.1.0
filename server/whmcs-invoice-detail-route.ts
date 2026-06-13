@@ -18,6 +18,12 @@ import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData }
 
 export interface InvoiceDetailRouteUser {
   whmcsClientId?: number | null;
+  role?: string | null;
+}
+
+/** Staff roles barred from the customer-only billing reads. */
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "master_admin";
 }
 
 export interface InvoiceDetailRouteSettings {
@@ -70,6 +76,9 @@ export function createCustomerInvoiceDetailHandler(deps: InvoiceDetailRouteDeps)
         return res.json(emptyInvoiceDetail({ configured, enabled }));
       }
       const user = await deps.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json(emptyInvoiceDetail({ configured, enabled, linked: false }));
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.json(emptyInvoiceDetail({ configured, enabled, linked: false }));

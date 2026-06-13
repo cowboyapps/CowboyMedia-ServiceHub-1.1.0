@@ -14,3 +14,4 @@
 - [OTP not in email subject](otp-not-in-email-subject.md) — server/email.ts logs every subject in plaintext; keep one-time codes/tokens in the body only, never the subject.
 - [notification_templates.enabled semantics](notification-template-enabled-semantics.md) — `enabled` = "use custom wording", NOT send/suppress; off → default wording, notification still fires.
 - [WHMCS tests vs deploy-gate live API](whmcs-test-live-api-on-deploy-gate.md) — deploy gate runs on the VPS where WHMCS is reachable; billing loader tests must inject loadSummary, never rely on ambient unreachability.
+- [WHMCS customer endpoints reject staff](whmcs-customer-endpoint-staff-block.md) — customer-only billing routes must 403 admin/master_admin (after configured/enabled, before clientId), fail-closed in the locked shape.

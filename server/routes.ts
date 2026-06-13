@@ -6333,6 +6333,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   // ---------- Billing (read-only WHMCS) ----------
+  // Staff roles barred from the customer-only billing screens. These endpoints
+  // are scoped to the SESSION user's own linked WHMCS client, which staff never
+  // have — so reject them server-side (defence-in-depth) even if a UI gate is
+  // bypassed, matching the seamless pay-link routes.
+  const isStaffRole = (role: string | null | undefined): boolean =>
+    role === "admin" || role === "master_admin";
   // A clean, fully-empty billing payload. Both routes fall back to this for the
   // unconfigured / disabled / unlinked / unreachable states so the frontend
   // always receives the same locked shape and never has to branch on missing
@@ -6432,6 +6438,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.json(emptyBilling({ configured, enabled }));
       }
       const user = await storage.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json(emptyBilling({ configured, enabled, linked: false }));
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.json(emptyBilling({ configured, enabled, linked: false }));
@@ -6631,6 +6640,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(404).json({ message: "Invoice not found" });
       }
       const user = await storage.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json({ message: "Staff accounts can't download customer invoices." });
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.status(404).json({ message: "Invoice not found" });

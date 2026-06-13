@@ -46,7 +46,7 @@ const SAMPLE: WhmcsClientProfile = {
 
 interface AppOpts {
   sessionUserId?: string | null;
-  users: Record<string, { whmcsClientId: number | null } | undefined>;
+  users: Record<string, { whmcsClientId: number | null; role?: string | null } | undefined>;
   enabled?: boolean;
   baseUrl?: string | null;
   hasCredentials?: boolean;
@@ -163,6 +163,31 @@ test("GET: linked=false when the session user has no linked client", async () =>
   assert.equal(body.profile, null);
 });
 
+test("GET: admin session → 403, WHMCS never queried", async () => {
+  let called = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5, role: "admin" } },
+    getClientProfile: async (): Promise<WhmcsClientProfileResult> => { called = true; return { ok: true, profile: SAMPLE }; },
+  });
+  const { status, body } = await call(app, "GET");
+  assert.equal(status, 403, "staff accounts must be rejected from the customer profile read");
+  assert.equal(body.profile, null);
+  assert.equal(called, false, "WHMCS must not be queried for a staff account");
+});
+
+test("GET: master_admin session → 403, WHMCS never queried", async () => {
+  let called = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5, role: "master_admin" } },
+    getClientProfile: async (): Promise<WhmcsClientProfileResult> => { called = true; return { ok: true, profile: SAMPLE }; },
+  });
+  const { status } = await call(app, "GET");
+  assert.equal(status, 403);
+  assert.equal(called, false);
+});
+
 test("GET: returns the profile for a linked user", async () => {
   const app = makeApp({
     sessionUserId: "u1",
@@ -208,6 +233,32 @@ test("PATCH: client id comes from the session, NOT the body", async () => {
   assert.equal(status, 200);
   assert.equal(savedClientId, 5);
   assert.equal(body.ok, true);
+});
+
+test("PATCH: admin session → 403, WHMCS never written", async () => {
+  let called = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5, role: "admin" } },
+    updateClient: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
+  });
+  const { status, body } = await call(app, "PATCH", { firstName: "Grace" });
+  assert.equal(status, 403, "staff accounts must be rejected from the customer profile save");
+  assert.equal(body.ok, false);
+  assert.equal(called, false, "WHMCS must not be written for a staff account");
+});
+
+test("PATCH: master_admin session → 403, WHMCS never written", async () => {
+  let called = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5, role: "master_admin" } },
+    updateClient: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
+  });
+  const { status, body } = await call(app, "PATCH", { firstName: "Grace" });
+  assert.equal(status, 403);
+  assert.equal(body.ok, false);
+  assert.equal(called, false);
 });
 
 test("PATCH: rejects when the session user has no linked client", async () => {

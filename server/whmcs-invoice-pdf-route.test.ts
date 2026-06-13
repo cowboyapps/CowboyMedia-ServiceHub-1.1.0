@@ -26,7 +26,12 @@ interface FakeDeps {
   loader: (invoiceId: number, clientId: number, baseUrl: string) => Promise<Record<string, unknown>>;
   pdf: (invoiceId: number) => Promise<{ ok: boolean; data?: string; error?: string }>;
   userExists?: boolean;
+  /** Session user's role on the customer route — staff are rejected (Task #439). */
+  role?: string | null;
 }
+
+const isStaffRole = (role: string | null | undefined): boolean =>
+  role === "admin" || role === "master_admin";
 
 function makeApp(deps: FakeDeps) {
   const app = express();
@@ -40,6 +45,9 @@ function makeApp(deps: FakeDeps) {
       const { configured, enabled } = deps;
       if (!configured || !enabled) {
         return res.status(404).json({ message: "Invoice not found" });
+      }
+      if (isStaffRole(deps.role)) {
+        return res.status(403).json({ message: "Staff accounts can't download customer invoices." });
       }
       const clientId = deps.clientId;
       if (!clientId) {
@@ -164,6 +172,22 @@ test("customer: not configured → 404, no loader call", async () => {
   const app = makeApp(baseDeps({ configured: false, loader: async () => { called = true; return {}; } }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 404);
+  assert.equal(called, false);
+});
+
+test("customer: admin session → 403, no loader/pdf call", async () => {
+  let called = false;
+  const app = makeApp(baseDeps({ role: "admin", loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 403, "staff accounts must be rejected from the customer PDF download");
+  assert.equal(called, false, "WHMCS must not be queried for a staff account");
+});
+
+test("customer: master_admin session → 403, no loader/pdf call", async () => {
+  let called = false;
+  const app = makeApp(baseDeps({ role: "master_admin", loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 403);
   assert.equal(called, false);
 });
 

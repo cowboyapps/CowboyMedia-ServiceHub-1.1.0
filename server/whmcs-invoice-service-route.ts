@@ -20,6 +20,12 @@ import { loadInvoiceServiceHint as defaultLoadInvoiceServiceHint, type InvoiceSe
 
 export interface InvoiceServiceRouteUser {
   whmcsClientId?: number | null;
+  role?: string | null;
+}
+
+/** Staff roles barred from the customer-only billing reads. */
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "master_admin";
 }
 
 export interface InvoiceServiceRouteSettings {
@@ -72,6 +78,9 @@ export function createCustomerInvoiceServiceHandler(deps: InvoiceServiceRouteDep
         return res.json(emptyInvoiceService({ configured, enabled }));
       }
       const user = await deps.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json(emptyInvoiceService({ configured, enabled, linked: false }));
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.json(emptyInvoiceService({ configured, enabled, linked: false }));
