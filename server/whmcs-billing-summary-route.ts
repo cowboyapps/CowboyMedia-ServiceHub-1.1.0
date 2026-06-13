@@ -5,6 +5,7 @@ import {
   type CustomerBillingData,
 } from "./whmcs-billing";
 import { emptyBilling } from "./whmcs-admin-billing-route";
+import { isStaffRole } from "./roles";
 
 // Handler factory for the customer billing-summary endpoint:
 //   GET /api/billing
@@ -37,11 +38,6 @@ export interface BillingSummaryRouteDeps {
   normalizeBaseUrl?: (raw: string | null) => string | null;
   /** Defaults to the real loader; injectable for tests. */
   loadCustomerBillingWithServices?: (clientId: number, baseUrl: string | null) => Promise<CustomerBillingData>;
-}
-
-/** Staff roles barred from the customer-only billing screens. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 /**

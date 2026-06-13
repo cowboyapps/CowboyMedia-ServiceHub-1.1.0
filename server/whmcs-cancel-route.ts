@@ -8,6 +8,7 @@ import {
 } from "./whmcs";
 import { loadServicesList as defaultLoadServicesList, type ServicesListData } from "./whmcs-billing";
 import { getParam } from "./http-params";
+import { isStaffRole } from "./roles";
 import { requestServiceCancellationSchema } from "@shared/schema";
 
 // Handler factory for the customer service-cancellation endpoint:
@@ -30,11 +31,6 @@ import { requestServiceCancellationSchema } from "@shared/schema";
 export interface CancelRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only service-cancellation action. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface CancelRouteSettings {

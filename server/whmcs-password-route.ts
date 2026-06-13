@@ -8,6 +8,7 @@ import {
 } from "./whmcs";
 import { loadServicesList as defaultLoadServicesList, type ServicesListData } from "./whmcs-billing";
 import { getParam } from "./http-params";
+import { isStaffRole } from "./roles";
 
 // Handler factory for the customer service-password-reset endpoint:
 //   POST /api/my/services/:serviceId/password
@@ -58,11 +59,6 @@ export function generateServicePassword(length = 16): string {
 export interface PasswordRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only service-password reset action. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface PasswordRouteSettings {

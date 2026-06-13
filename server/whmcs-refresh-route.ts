@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { invalidateBillingCaches as defaultInvalidateBillingCaches } from "./whmcs-billing";
+import { isStaffRole } from "./roles";
 
 // Handler factory for the customer billing-cache refresh endpoint:
 //   POST /api/billing/refresh
@@ -24,11 +25,6 @@ import { invalidateBillingCaches as defaultInvalidateBillingCaches } from "./whm
 export interface RefreshRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only billing-cache refresh. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface RefreshRouteDeps {

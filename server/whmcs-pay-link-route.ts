@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { getParam } from "./http-params";
+import { isStaffRole } from "./roles";
 import {
   hasWhmcsCredentials,
   normalizeBaseUrl,
@@ -35,11 +36,6 @@ import {
 export interface PayLinkRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only seamless pay links. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface PayLinkRouteSettings {

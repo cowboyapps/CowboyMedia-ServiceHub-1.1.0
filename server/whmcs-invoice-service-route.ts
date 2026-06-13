@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { getParam } from "./http-params";
 import { hasWhmcsCredentials, normalizeBaseUrl } from "./whmcs";
 import { loadInvoiceServiceHint as defaultLoadInvoiceServiceHint, type InvoiceServiceHintData } from "./whmcs-billing";
+import { isStaffRole } from "./roles";
 
 // Handler factories for the per-invoice renewed-service lookup endpoints:
 //   GET /api/billing/invoices/:invoiceId/service                        (customer)
@@ -21,11 +22,6 @@ import { loadInvoiceServiceHint as defaultLoadInvoiceServiceHint, type InvoiceSe
 export interface InvoiceServiceRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only billing reads. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface InvoiceServiceRouteSettings {

@@ -3,6 +3,7 @@ import { getParam } from "./http-params";
 import { hasWhmcsCredentials, normalizeBaseUrl, getInvoicePdf as defaultGetInvoicePdf, type WhmcsInvoicePdfDownload } from "./whmcs";
 import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData } from "./whmcs-billing";
 import { getErrorMessage } from "./error-utils";
+import { isStaffRole } from "./roles";
 
 // Handler factories for the invoice-PDF download proxies (Task #373):
 //   GET /api/billing/invoices/:invoiceId/pdf                         (customer)
@@ -41,11 +42,6 @@ export interface InvoicePdfRouteDeps {
   loadInvoiceDetail?: (invoiceId: number, clientId: number, baseUrl: string | null) => Promise<InvoiceDetailData>;
   /** Defaults to the real PDF fetch; injectable for tests. */
   getInvoicePdf?: (invoiceId: number) => Promise<WhmcsInvoicePdfDownload>;
-}
-
-/** Staff roles barred from the customer-only billing screens. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 function streamPdf(res: Response, req: Request, invoiceId: number, data: string): void {

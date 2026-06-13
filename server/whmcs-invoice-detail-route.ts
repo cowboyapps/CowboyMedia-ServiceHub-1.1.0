@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { getParam } from "./http-params";
 import { hasWhmcsCredentials, normalizeBaseUrl } from "./whmcs";
 import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData } from "./whmcs-billing";
+import { isStaffRole } from "./roles";
 
 // Handler factories for the single-invoice detail endpoints:
 //   GET /api/billing/invoices/:invoiceId                        (customer self)
@@ -19,11 +20,6 @@ import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData }
 export interface InvoiceDetailRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only billing reads. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface InvoiceDetailRouteSettings {

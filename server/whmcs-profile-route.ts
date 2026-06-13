@@ -9,6 +9,7 @@ import {
   type WhmcsRawFetch,
 } from "./whmcs";
 import { updateWhmcsProfileSchema } from "@shared/schema";
+import { isStaffRole } from "./roles";
 
 // Handler factories for the customer WHMCS-profile endpoints:
 //   GET   /api/billing/profile   (load the session user's own editable profile)
@@ -28,11 +29,6 @@ import { updateWhmcsProfileSchema } from "@shared/schema";
 export interface ProfileRouteUser {
   whmcsClientId?: number | null;
   role?: string | null;
-}
-
-/** Staff roles barred from the customer-only billing profile read/save. */
-function isStaffRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "master_admin";
 }
 
 export interface ProfileRouteSettings {
