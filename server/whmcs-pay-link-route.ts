@@ -34,6 +34,12 @@ import {
 
 export interface PayLinkRouteUser {
   whmcsClientId?: number | null;
+  role?: string | null;
+}
+
+/** Staff roles barred from the customer-only seamless pay links. */
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "master_admin";
 }
 
 export interface PayLinkRouteSettings {
@@ -89,6 +95,9 @@ export function createCustomerPayLinkHandler(deps: PayLinkRouteDeps) {
         return res.status(503).json({ message: "Online billing isn't available right now.", fallback: true });
       }
       const user = await deps.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json({ message: "Staff accounts can't use customer payment links.", fallback: true });
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.status(409).json({ message: "Your account isn't linked to billing yet.", fallback: true });
@@ -137,6 +146,9 @@ export function createCustomerPayAllLinkHandler(deps: PayLinkRouteDeps) {
         return res.status(503).json({ message: "Online billing isn't available right now.", fallback: true });
       }
       const user = await deps.getUser(req.session.userId!);
+      if (isStaffRole(user?.role)) {
+        return res.status(403).json({ message: "Staff accounts can't use customer payment links.", fallback: true });
+      }
       const clientId = user?.whmcsClientId ?? null;
       if (!clientId) {
         return res.status(409).json({ message: "Your account isn't linked to billing yet.", fallback: true });

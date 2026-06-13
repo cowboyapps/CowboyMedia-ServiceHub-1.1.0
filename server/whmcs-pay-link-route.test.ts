@@ -120,6 +120,26 @@ test("single: 409 + fallback when the user isn't linked", async () => {
   assert.equal(body.fallback, true);
 });
 
+test("single: 403 + fallback when the session user is an admin", async () => {
+  let ssoCalled = false;
+  const deps = baseDeps({
+    getUser: async () => ({ whmcsClientId: 7, role: "admin" }),
+    createSsoToken: async () => { ssoCalled = true; return { ok: true, data: {} }; },
+  });
+  const { status, body } = await call(singleApp(deps), "/api/billing/invoices/42/pay-link");
+  assert.equal(status, 403);
+  assert.equal(body.fallback, true);
+  assert.equal(body.url, undefined);
+  assert.equal(ssoCalled, false, "must not mint a token for a staff account");
+});
+
+test("single: 403 + fallback when the session user is a master_admin", async () => {
+  const deps = baseDeps({ getUser: async () => ({ whmcsClientId: 7, role: "master_admin" }) });
+  const { status, body } = await call(singleApp(deps), "/api/billing/invoices/42/pay-link");
+  assert.equal(status, 403);
+  assert.equal(body.fallback, true);
+});
+
 test("single: 503 + fallback when WHMCS is disabled", async () => {
   const deps = baseDeps({ getWhmcsSettings: async () => ({ baseUrl: "https://b.example", enabled: false }) });
   const { status, body } = await call(singleApp(deps), "/api/billing/invoices/42/pay-link");
@@ -210,5 +230,28 @@ test("all: 409 + fallback when the user isn't linked", async () => {
   const deps = baseDeps({ getUser: async () => ({ whmcsClientId: null }) });
   const { status, body } = await call(allApp(deps), "/api/billing/pay-all-link");
   assert.equal(status, 409);
+  assert.equal(body.fallback, true);
+});
+
+test("all: 403 + fallback when the session user is an admin", async () => {
+  let summaryLoaded = false;
+  const deps = baseDeps({
+    getUser: async () => ({ whmcsClientId: 7, role: "admin" }),
+    loadBillingSummary: async () => {
+      summaryLoaded = true;
+      return { invoices: [], unreachable: false } as unknown as BillingSummaryData;
+    },
+  });
+  const { status, body } = await call(allApp(deps), "/api/billing/pay-all-link");
+  assert.equal(status, 403);
+  assert.equal(body.fallback, true);
+  assert.equal(body.url, undefined);
+  assert.equal(summaryLoaded, false, "must not derive invoices for a staff account");
+});
+
+test("all: 403 + fallback when the session user is a master_admin", async () => {
+  const deps = baseDeps({ getUser: async () => ({ whmcsClientId: 7, role: "master_admin" }) });
+  const { status, body } = await call(allApp(deps), "/api/billing/pay-all-link");
+  assert.equal(status, 403);
   assert.equal(body.fallback, true);
 });
