@@ -36,6 +36,7 @@ import {
   History,
   Search,
   CheckCircle2,
+  Info,
   X,
 } from "lucide-react";
 
@@ -339,6 +340,36 @@ export function detectPaymentSettled(
   after: BillingSummary | undefined,
 ): boolean {
   return classifyPaymentSettlement(before, after).settled;
+}
+
+/**
+ * Decide whether to reassure the customer that NOTHING was charged after they
+ * returned from WHMCS's hosted checkout without paying (cancelled / closed the
+ * tab). Only true when:
+ *  - no payment settled across the refresh window (so we never contradict the
+ *    green "Payment received" banner), AND
+ *  - there was actually something outstanding to pay BEFORE they left (avoids a
+ *    false note for a customer with a zero balance who somehow followed a link),
+ *    AND
+ *  - something is still outstanding afterward (the invoice really is still open;
+ *    an outstanding -> cancelled/refunded flow leaves nothing open, so we stay
+ *    silent there too).
+ * This is gated in the effect by `payClickedRef` so it can only fire after the
+ * customer actually followed a pay link.
+ */
+export function shouldShowNoPaymentNotice(
+  before: OutstandingSnapshot,
+  after: BillingSummary | undefined,
+): boolean {
+  if (!after) return false;
+  if (classifyPaymentSettlement(before, after).settled) return false;
+  const hadOutstanding =
+    before.outstandingInvoiceIds.length > 0 ||
+    (before.outstandingTotal != null && before.outstandingTotal > 0);
+  if (!hadOutstanding) return false;
+  return after.invoices.some(
+    (inv) => inv.status === "unpaid" || inv.status === "overdue",
+  );
 }
 
 /** A simple full-width informational state (not configured / not linked / etc). */
@@ -1157,6 +1188,11 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
     title: string;
     description: string;
   } | null>(null);
+  // Neutral counterpart to the success banner: shown when the customer returned
+  // from WHMCS's hosted checkout WITHOUT paying (cancelled / closed the tab) and
+  // an invoice is still outstanding, so the silent screen doesn't leave them
+  // wondering whether anything was charged.
+  const [noPaymentNotice, setNoPaymentNotice] = useState(false);
 
   // Payments happen on WHMCS's off-site hosted checkout (the pay links open in a
   // new tab), so our server never sees them and the per-client billing cache can
@@ -1181,6 +1217,9 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
       const before = summarizeOutstanding(
         queryClient.getQueryData<BillingSummary>(["/api/billing"]),
       );
+      // Clear any stale notice from a previous return before re-evaluating.
+      setNoPaymentNotice(false);
+      let settled = false;
       try {
         // WHMCS can lag a beat behind the customer returning — the gateway
         // callback that flips the invoice to Paid may land just after they
@@ -1207,11 +1246,21 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                 };
             setPaymentConfirmation(confirmation);
             toast(confirmation);
+            settled = true;
             break;
           }
           // Nothing detected yet — wait briefly and try again (unless last).
           if (attempt < MAX_ATTEMPTS - 1) {
             await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+        }
+        // The retry window closed without a payment landing. If the customer
+        // clearly had something to pay and it's still outstanding, reassure them
+        // that nothing was charged (cancelled / abandoned checkout).
+        if (!settled) {
+          const after = queryClient.getQueryData<BillingSummary>(["/api/billing"]);
+          if (shouldShowNoPaymentNotice(before, after)) {
+            setNoPaymentNotice(true);
           }
         }
       } finally {
@@ -1327,6 +1376,45 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
               onClick={() => setPaymentConfirmation(null)}
               aria-label="Dismiss"
               data-testid="button-dismiss-payment-confirmation"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No-payment notice: neutral reassurance after an abandoned / cancelled
+          checkout (persists until dismissed). Distinct, calm tone — not the
+          green success banner, not an error-red alert. */}
+      {noPaymentNotice && (
+        <Card
+          className="border-muted-foreground/30 bg-muted/40"
+          data-testid="card-no-payment-notice"
+        >
+          <CardContent className="p-3 flex items-start gap-3">
+            <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p
+                className="text-sm font-semibold"
+                data-testid="text-no-payment-notice-title"
+              >
+                No payment detected
+              </p>
+              <p
+                className="text-xs text-muted-foreground mt-0.5"
+                data-testid="text-no-payment-notice-description"
+              >
+                Nothing was charged and your invoice is still open. You can try
+                the payment again whenever you're ready.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 -mt-0.5 -mr-1"
+              onClick={() => setNoPaymentNotice(false)}
+              aria-label="Dismiss"
+              data-testid="button-dismiss-no-payment-notice"
             >
               <X className="w-4 h-4" />
             </Button>

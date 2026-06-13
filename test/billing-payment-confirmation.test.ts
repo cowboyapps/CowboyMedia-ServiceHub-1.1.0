@@ -4,6 +4,7 @@ import {
   summarizeOutstanding,
   detectPaymentSettled,
   classifyPaymentSettlement,
+  shouldShowNoPaymentNotice,
   type BillingSummary,
   type BillingInvoice,
   type InvoiceStatus,
@@ -175,4 +176,45 @@ test("classifyPaymentSettlement: missing after data is not settled", () => {
     paidInvoiceCount: 0,
     fullyCleared: false,
   });
+});
+
+// shouldShowNoPaymentNotice — the neutral "nothing was charged, invoice still
+// open" reassurance shown after a cancelled / abandoned WHMCS checkout.
+
+test("shouldShowNoPaymentNotice: true when an outstanding invoice is still open and nothing settled", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  const after = summary([inv(1, "unpaid")], "$10.00 USD");
+  assert.equal(shouldShowNoPaymentNotice(before, after), true);
+});
+
+test("shouldShowNoPaymentNotice: false when a payment settled (success banner owns that case)", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  const after = summary([inv(1, "paid")], null);
+  assert.equal(shouldShowNoPaymentNotice(before, after), false);
+});
+
+test("shouldShowNoPaymentNotice: false when there was nothing outstanding to begin with", () => {
+  const before = summarizeOutstanding(summary([inv(1, "paid")], null));
+  const after = summary([inv(1, "paid")], null);
+  assert.equal(shouldShowNoPaymentNotice(before, after), false);
+});
+
+test("shouldShowNoPaymentNotice: false when the invoice was cancelled (nothing left open)", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  const after = summary([inv(1, "cancelled")], null);
+  assert.equal(shouldShowNoPaymentNotice(before, after), false);
+});
+
+test("shouldShowNoPaymentNotice: false when after data is missing", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  assert.equal(shouldShowNoPaymentNotice(before, undefined), false);
+});
+
+test("shouldShowNoPaymentNotice: true on partial-pay abandon (some still owed, none settled vs snapshot)", () => {
+  // Two invoices owed; customer returns having paid neither. Still open.
+  const before = summarizeOutstanding(
+    summary([inv(1, "unpaid"), inv(2, "overdue")], "$20.00 USD"),
+  );
+  const after = summary([inv(1, "unpaid"), inv(2, "overdue")], "$20.00 USD");
+  assert.equal(shouldShowNoPaymentNotice(before, after), true);
 });
