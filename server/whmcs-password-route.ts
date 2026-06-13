@@ -8,7 +8,7 @@ import {
 } from "./whmcs";
 import { loadServicesList as defaultLoadServicesList, type ServicesListData } from "./whmcs-billing";
 import { getParam } from "./http-params";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 
 // Handler factory for the customer service-password-reset endpoint:
 //   POST /api/my/services/:serviceId/password
@@ -112,10 +112,11 @@ export function createResetServicePasswordHandler(deps: PasswordRouteDeps) {
       }
 
       const user = await deps.getUser(req.session.userId!);
-      // Defence-in-depth: staff accounts never have a linked WHMCS client and
-      // can only reach this via a UI-gate bypass — reject them before the
-      // clientId lookup so WHMCS is never queried for a staff account.
-      if (isStaffRole(user?.role)) {
+      // Defence-in-depth: reject staff who AREN'T themselves a linked WHMCS
+      // customer — they can only reach this via a UI-gate bypass. A staff member
+      // who is also a paying customer is served like any other customer. WHMCS is
+      // never queried for a blocked staff account.
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json({ ok: false, message: "Staff accounts can't use customer billing actions." });
       }
       const clientId = user?.whmcsClientId ?? null;

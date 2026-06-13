@@ -125,7 +125,7 @@ test("customer: not configured → 404, no loader call", async () => {
 
 test("customer: admin session → 403, no loader/pdf call", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ role: "admin", loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const app = makeApp(baseDeps({ role: "admin", clientId: null, loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 403, "staff accounts must be rejected from the customer PDF download");
   assert.equal(called, false, "WHMCS must not be queried for a staff account");
@@ -133,7 +133,7 @@ test("customer: admin session → 403, no loader/pdf call", async () => {
 
 test("customer: master_admin session → 403, no loader/pdf call", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ role: "master_admin", loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const app = makeApp(baseDeps({ role: "master_admin", clientId: null, loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 403);
   assert.equal(called, false);

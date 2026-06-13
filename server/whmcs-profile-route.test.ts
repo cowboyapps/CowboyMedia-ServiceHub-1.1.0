@@ -167,7 +167,7 @@ test("GET: admin session → 403, WHMCS never queried", async () => {
   let called = false;
   const app = makeApp({
     sessionUserId: "u1",
-    users: { u1: { whmcsClientId: 5, role: "admin" } },
+    users: { u1: { whmcsClientId: null, role: "admin" } },
     getClientProfile: async (): Promise<WhmcsClientProfileResult> => { called = true; return { ok: true, profile: SAMPLE }; },
   });
   const { status, body } = await call(app, "GET");
@@ -180,7 +180,7 @@ test("GET: master_admin session → 403, WHMCS never queried", async () => {
   let called = false;
   const app = makeApp({
     sessionUserId: "u1",
-    users: { u1: { whmcsClientId: 5, role: "master_admin" } },
+    users: { u1: { whmcsClientId: null, role: "master_admin" } },
     getClientProfile: async (): Promise<WhmcsClientProfileResult> => { called = true; return { ok: true, profile: SAMPLE }; },
   });
   const { status } = await call(app, "GET");
@@ -239,7 +239,7 @@ test("PATCH: admin session → 403, WHMCS never written", async () => {
   let called = false;
   const app = makeApp({
     sessionUserId: "u1",
-    users: { u1: { whmcsClientId: 5, role: "admin" } },
+    users: { u1: { whmcsClientId: null, role: "admin" } },
     updateClient: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
   });
   const { status, body } = await call(app, "PATCH", { firstName: "Grace" });
@@ -252,7 +252,7 @@ test("PATCH: master_admin session → 403, WHMCS never written", async () => {
   let called = false;
   const app = makeApp({
     sessionUserId: "u1",
-    users: { u1: { whmcsClientId: 5, role: "master_admin" } },
+    users: { u1: { whmcsClientId: null, role: "master_admin" } },
     updateClient: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
   });
   const { status, body } = await call(app, "PATCH", { firstName: "Grace" });

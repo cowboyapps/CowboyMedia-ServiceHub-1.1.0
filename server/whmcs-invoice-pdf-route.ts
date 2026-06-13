@@ -3,7 +3,7 @@ import { getParam } from "./http-params";
 import { hasWhmcsCredentials, normalizeBaseUrl, getInvoicePdf as defaultGetInvoicePdf, type WhmcsInvoicePdfDownload } from "./whmcs";
 import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData } from "./whmcs-billing";
 import { getErrorMessage } from "./error-utils";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 
 // Handler factories for the invoice-PDF download proxies (Task #373):
 //   GET /api/billing/invoices/:invoiceId/pdf                         (customer)
@@ -81,7 +81,7 @@ export function createInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
         return res.status(404).json({ message: "Invoice not found" });
       }
       const user = await deps.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json({ message: "Staff accounts can't download customer invoices." });
       }
       const clientId = user?.whmcsClientId ?? null;

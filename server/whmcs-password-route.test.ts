@@ -185,7 +185,7 @@ test("admin session → 403, WHMCS never called", async () => {
   let called = false;
   const app = makeApp({
     sessionUserId: "u1",
-    users: { u1: { whmcsClientId: 5, role: "admin" } },
+    users: { u1: { whmcsClientId: null, role: "admin" } },
     loadServicesList: async (): Promise<ServicesListData> => { called = true; return { services: [svc(100)] as any, unreachable: false }; },
     changeServicePassword: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
   });
@@ -200,7 +200,7 @@ test("master_admin session → 403, WHMCS never called", async () => {
   let called = false;
   const app = makeApp({
     sessionUserId: "u1",
-    users: { u1: { whmcsClientId: 5, role: "master_admin" } },
+    users: { u1: { whmcsClientId: null, role: "master_admin" } },
     loadServicesList: async (): Promise<ServicesListData> => { called = true; return { services: [svc(100)] as any, unreachable: false }; },
     changeServicePassword: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
   });

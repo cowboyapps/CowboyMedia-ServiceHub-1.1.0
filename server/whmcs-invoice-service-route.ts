@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { getParam } from "./http-params";
 import { hasWhmcsCredentials, normalizeBaseUrl } from "./whmcs";
 import { loadInvoiceServiceHint as defaultLoadInvoiceServiceHint, type InvoiceServiceHintData } from "./whmcs-billing";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 
 // Handler factories for the per-invoice renewed-service lookup endpoints:
 //   GET /api/billing/invoices/:invoiceId/service                        (customer)
@@ -74,7 +74,7 @@ export function createCustomerInvoiceServiceHandler(deps: InvoiceServiceRouteDep
         return res.json(emptyInvoiceService({ configured, enabled }));
       }
       const user = await deps.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json(emptyInvoiceService({ configured, enabled, linked: false }));
       }
       const clientId = user?.whmcsClientId ?? null;

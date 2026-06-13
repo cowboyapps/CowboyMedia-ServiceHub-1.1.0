@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { invalidateBillingCaches as defaultInvalidateBillingCaches } from "./whmcs-billing";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 
 // Handler factory for the customer billing-cache refresh endpoint:
 //   POST /api/billing/refresh
@@ -44,11 +44,11 @@ export function createBillingRefreshHandler(deps: RefreshRouteDeps) {
   return async (req: Request, res: Response) => {
     try {
       const user = await deps.getUser(req.session.userId!);
-      // Defence-in-depth: staff accounts never have a linked WHMCS client and
-      // can only reach this via a UI-gate bypass — reject them outright so the
-      // customer-only action surface is consistent. Ordered before the clientId
-      // lookup; WHMCS/cache is never touched for staff.
-      if (isStaffRole(user?.role)) {
+      // Defence-in-depth: reject staff who AREN'T themselves a linked WHMCS
+      // customer — they can only reach this via a UI-gate bypass. A staff member
+      // who is also a paying customer (has their own whmcs_client_id) is served
+      // like any other customer. WHMCS/cache is never touched for blocked staff.
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json({ ok: false, message: "Staff accounts can't use customer billing actions." });
       }
       if (user?.whmcsClientId) invalidate(user.whmcsClientId);

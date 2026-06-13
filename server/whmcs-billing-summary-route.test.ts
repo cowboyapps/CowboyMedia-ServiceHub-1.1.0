@@ -57,21 +57,31 @@ const baseDeps = (over: Partial<FakeDeps> = {}): FakeDeps => ({
   ...over,
 });
 
-test("customer: admin session → 403, WHMCS never queried", async () => {
+test("customer: UNLINKED admin session → 403, WHMCS never queried", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ role: "admin", loadSummary: async () => { called = true; return { summary: {}, transactions: [], transactionsUnreachable: false }; } }));
+  const app = makeApp(baseDeps({ role: "admin", clientId: null, loadSummary: async () => { called = true; return { summary: {}, transactions: [], transactionsUnreachable: false }; } }));
   const r = await get(app);
-  assert.equal(r.status, 403, "staff accounts must be rejected from the customer billing summary");
+  assert.equal(r.status, 403, "unlinked staff accounts must be rejected from the customer billing summary");
   assert.equal(r.body.linked, false);
-  assert.equal(called, false, "WHMCS must not be queried for a staff account");
+  assert.equal(called, false, "WHMCS must not be queried for an unlinked staff account");
 });
 
-test("customer: master_admin session → 403, WHMCS never queried", async () => {
+test("customer: UNLINKED master_admin session → 403, WHMCS never queried", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ role: "master_admin", loadSummary: async () => { called = true; return { summary: {}, transactions: [], transactionsUnreachable: false }; } }));
+  const app = makeApp(baseDeps({ role: "master_admin", clientId: null, loadSummary: async () => { called = true; return { summary: {}, transactions: [], transactionsUnreachable: false }; } }));
   const r = await get(app);
   assert.equal(r.status, 403);
   assert.equal(called, false);
+});
+
+test("customer: LINKED admin session (owner who is also a paying customer) → 200 with own summary", async () => {
+  // Regression: a staff member who is ALSO a linked WHMCS customer must see their
+  // own billing. The route is scoped to the session user's own clientId, so this
+  // leaks nothing. Previously linked staff hit a blanket 403 → "Billing unavailable".
+  const app = makeApp(baseDeps({ role: "admin", clientId: 100 }));
+  const r = await get(app);
+  assert.equal(r.status, 200, "linked staff must be served their own billing");
+  assert.equal(r.body.linked, true);
 });
 
 test("customer: regular linked user → 200 with summary", async () => {

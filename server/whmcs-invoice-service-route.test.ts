@@ -153,7 +153,7 @@ test("customer: no linked WHMCS client → rejected cleanly, WHMCS never queried
 
 test("customer: admin session → 403, WHMCS never queried", async () => {
   const { loader, calls } = spyLoader();
-  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 100, role: "admin" } }, loader });
+  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: null, role: "admin" } }, loader });
   const r = await get(app, "/api/billing/invoices/55/service");
   assert.equal(r.status, 403, "staff accounts must be rejected from the customer billing read");
   okShape(r.body);
@@ -163,7 +163,7 @@ test("customer: admin session → 403, WHMCS never queried", async () => {
 
 test("customer: master_admin session → 403, WHMCS never queried", async () => {
   const { loader, calls } = spyLoader();
-  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 100, role: "master_admin" } }, loader });
+  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: null, role: "master_admin" } }, loader });
   const r = await get(app, "/api/billing/invoices/55/service");
   assert.equal(r.status, 403);
   assert.deepEqual(calls, []);

@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { getParam } from "./http-params";
 import { hasWhmcsCredentials, normalizeBaseUrl } from "./whmcs";
 import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData } from "./whmcs-billing";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 
 // Handler factories for the single-invoice detail endpoints:
 //   GET /api/billing/invoices/:invoiceId                        (customer self)
@@ -72,7 +72,7 @@ export function createCustomerInvoiceDetailHandler(deps: InvoiceDetailRouteDeps)
         return res.json(emptyInvoiceDetail({ configured, enabled }));
       }
       const user = await deps.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json(emptyInvoiceDetail({ configured, enabled, linked: false }));
       }
       const clientId = user?.whmcsClientId ?? null;

@@ -123,7 +123,7 @@ test("single: 409 + fallback when the user isn't linked", async () => {
 test("single: 403 + fallback when the session user is an admin", async () => {
   let ssoCalled = false;
   const deps = baseDeps({
-    getUser: async () => ({ whmcsClientId: 7, role: "admin" }),
+    getUser: async () => ({ whmcsClientId: null, role: "admin" }),
     createSsoToken: async () => { ssoCalled = true; return { ok: true, data: {} }; },
   });
   const { status, body } = await call(singleApp(deps), "/api/billing/invoices/42/pay-link");
@@ -134,7 +134,7 @@ test("single: 403 + fallback when the session user is an admin", async () => {
 });
 
 test("single: 403 + fallback when the session user is a master_admin", async () => {
-  const deps = baseDeps({ getUser: async () => ({ whmcsClientId: 7, role: "master_admin" }) });
+  const deps = baseDeps({ getUser: async () => ({ whmcsClientId: null, role: "master_admin" }) });
   const { status, body } = await call(singleApp(deps), "/api/billing/invoices/42/pay-link");
   assert.equal(status, 403);
   assert.equal(body.fallback, true);
@@ -236,7 +236,7 @@ test("all: 409 + fallback when the user isn't linked", async () => {
 test("all: 403 + fallback when the session user is an admin", async () => {
   let summaryLoaded = false;
   const deps = baseDeps({
-    getUser: async () => ({ whmcsClientId: 7, role: "admin" }),
+    getUser: async () => ({ whmcsClientId: null, role: "admin" }),
     loadBillingSummary: async () => {
       summaryLoaded = true;
       return { invoices: [], unreachable: false } as unknown as BillingSummaryData;
@@ -250,7 +250,7 @@ test("all: 403 + fallback when the session user is an admin", async () => {
 });
 
 test("all: 403 + fallback when the session user is a master_admin", async () => {
-  const deps = baseDeps({ getUser: async () => ({ whmcsClientId: 7, role: "master_admin" }) });
+  const deps = baseDeps({ getUser: async () => ({ whmcsClientId: null, role: "master_admin" }) });
   const { status, body } = await call(allApp(deps), "/api/billing/pay-all-link");
   assert.equal(status, 403);
   assert.equal(body.fallback, true);

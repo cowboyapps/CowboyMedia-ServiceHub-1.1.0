@@ -5,7 +5,7 @@ import {
   type CustomerBillingData,
 } from "./whmcs-billing";
 import { emptyBilling } from "./whmcs-admin-billing-route";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 
 // Handler factory for the customer billing-summary endpoint:
 //   GET /api/billing
@@ -62,7 +62,7 @@ export function createCustomerBillingHandler(deps: BillingSummaryRouteDeps) {
         return res.json(emptyBilling({ configured, enabled }));
       }
       const user = await deps.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json(emptyBilling({ configured, enabled, linked: false }));
       }
       const clientId = user?.whmcsClientId ?? null;

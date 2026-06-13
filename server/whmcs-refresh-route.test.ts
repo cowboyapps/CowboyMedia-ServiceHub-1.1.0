@@ -107,7 +107,7 @@ test("getUser is looked up by the SESSION user id", async () => {
 
 test("admin session → 403, cache never invalidated", async () => {
   const invalidated: number[] = [];
-  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 5, role: "admin" } } }, invalidated);
+  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: null, role: "admin" } } }, invalidated);
   const { status, body } = await call(app);
   assert.equal(status, 403, "staff accounts must be rejected from the customer refresh action");
   assert.equal(body.ok, false);
@@ -116,7 +116,7 @@ test("admin session → 403, cache never invalidated", async () => {
 
 test("master_admin session → 403, cache never invalidated", async () => {
   const invalidated: number[] = [];
-  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 5, role: "master_admin" } } }, invalidated);
+  const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: null, role: "master_admin" } } }, invalidated);
   const { status, body } = await call(app);
   assert.equal(status, 403);
   assert.equal(body.ok, false);

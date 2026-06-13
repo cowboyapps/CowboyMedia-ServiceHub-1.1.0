@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { getParam } from "./http-params";
-import { isStaffRole } from "./roles";
+import { isUnlinkedStaff } from "./roles";
 import {
   hasWhmcsCredentials,
   normalizeBaseUrl,
@@ -91,7 +91,7 @@ export function createCustomerPayLinkHandler(deps: PayLinkRouteDeps) {
         return res.status(503).json({ message: "Online billing isn't available right now.", fallback: true });
       }
       const user = await deps.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json({ message: "Staff accounts can't use customer payment links.", fallback: true });
       }
       const clientId = user?.whmcsClientId ?? null;
@@ -142,7 +142,7 @@ export function createCustomerPayAllLinkHandler(deps: PayLinkRouteDeps) {
         return res.status(503).json({ message: "Online billing isn't available right now.", fallback: true });
       }
       const user = await deps.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
+      if (isUnlinkedStaff(user?.role, user?.whmcsClientId)) {
         return res.status(403).json({ message: "Staff accounts can't use customer payment links.", fallback: true });
       }
       const clientId = user?.whmcsClientId ?? null;
