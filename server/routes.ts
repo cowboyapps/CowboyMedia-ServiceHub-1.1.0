@@ -36,14 +36,15 @@ import {
   addTicketReplyAsClient as addWhmcsTicketReplyAsClient,
   addTicketReplyAsAdmin as addWhmcsTicketReplyAsAdmin,
   getTicketAttachment as getWhmcsTicketAttachment,
-  getInvoicePdf as getWhmcsInvoicePdf,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummaryWithInvoiceServices, loadCustomerBillingWithServices, loadBillingDashboard, loadInvoiceDetail, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummaryWithInvoiceServices, loadBillingDashboard, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
+import { createCustomerBillingHandler } from "./whmcs-billing-summary-route";
+import { createInvoicePdfHandler, createAdminInvoicePdfHandler } from "./whmcs-invoice-pdf-route";
 import { createCustomerInvoiceServiceHandler, createAdminInvoiceServiceHandler } from "./whmcs-invoice-service-route";
 import { createCustomerPayLinkHandler, createCustomerPayAllLinkHandler } from "./whmcs-pay-link-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
@@ -6333,31 +6334,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   // ---------- Billing (read-only WHMCS) ----------
-  // Staff roles barred from the customer-only billing screens. These endpoints
-  // are scoped to the SESSION user's own linked WHMCS client, which staff never
-  // have — so reject them server-side (defence-in-depth) even if a UI gate is
-  // bypassed, matching the seamless pay-link routes.
-  const isStaffRole = (role: string | null | undefined): boolean =>
-    role === "admin" || role === "master_admin";
-  // A clean, fully-empty billing payload. Both routes fall back to this for the
-  // unconfigured / disabled / unlinked / unreachable states so the frontend
-  // always receives the same locked shape and never has to branch on missing
-  // keys. Callers override the few flags that differ per state.
-  const emptyBilling = (over: Record<string, unknown>) => ({
-    configured: false,
-    enabled: false,
-    linked: false,
-    unreachable: false,
-    client: null,
-    balance: null,
-    invoices: [],
-    products: [],
-    transactions: [],
-    transactionsUnreachable: false,
-    portalUrl: null,
-    payAll: null,
-    ...over,
-  });
+  // The customer billing screens are scoped to the SESSION user's own linked
+  // WHMCS client; staff are rejected server-side inside the extracted handlers
+  // (createCustomerBillingHandler / createInvoicePdfHandler), and the locked
+  // empty-billing shape lives in server/whmcs-admin-billing-route.ts.
 
   // ---- Customer self-service WHMCS account linking (email-code verified) ----
   // Security model: the WHMCS client id is ALWAYS resolved server-side from the
@@ -6428,43 +6408,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // client. Never accepts a clientId param, never forwards raw WHMCS error
   // strings (they can leak server IPs), and never 500s — it degrades to a clean
   // disabled / unlinked / unreachable state so the page always renders.
-  app.get("/api/billing", requireAuth, async (req, res) => {
-    try {
-      const settings = await storage.getWhmcsSettings();
-      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
-      const configured = hasWhmcsCredentials() && !!baseUrl;
-      const enabled = !!settings?.enabled;
-      if (!configured || !enabled) {
-        return res.json(emptyBilling({ configured, enabled }));
-      }
-      const user = await storage.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
-        return res.status(403).json(emptyBilling({ configured, enabled, linked: false }));
-      }
-      const clientId = user?.whmcsClientId ?? null;
-      if (!clientId) {
-        return res.json(emptyBilling({ configured, enabled, linked: false }));
-      }
-      // Both the invoice rows AND the payment-history rows are labelled with the
-      // hosting service each renewed, correlated from the invoices' line items.
-      // The two features share one round of invoice fetches (deduped + capped),
-      // and each section degrades on its own (a failed GetTransactions only
-      // blanks the history, not the whole summary).
-      const { summary, transactions, transactionsUnreachable } =
-        await loadCustomerBillingWithServices(clientId, baseUrl);
-      return res.json({
-        configured,
-        enabled,
-        linked: true,
-        ...summary,
-        transactions,
-        transactionsUnreachable,
-      });
-    } catch {
-      // Never leak / never 500 for the customer — show a clean unreachable state.
-      return res.json(emptyBilling({ configured: true, enabled: true, linked: true, unreachable: true }));
-    }
-  });
+  app.get(
+    "/api/billing",
+    requireAuth,
+    createCustomerBillingHandler({
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      getUser: (id) => storage.getUser(id),
+    }),
+  );
 
   // Customer self-action: force-drop the session user's OWN cached billing so the
   // next /api/billing load re-fetches fresh from WHMCS. Fired by the billing page
@@ -6626,48 +6577,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // any invoice whose owning client doesn't match the session user's linked
   // client (returns notFound), so a customer can't pull another client's PDF by
   // guessing its id. Never 500s — degrades to a clean 404 / 502 / 503.
-  app.get("/api/billing/invoices/:invoiceId/pdf", requireAuth, async (req, res) => {
-    try {
-      const invoiceId = Number(getParam(req, "invoiceId"));
-      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const settings = await storage.getWhmcsSettings();
-      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
-      const configured = hasWhmcsCredentials() && !!baseUrl;
-      const enabled = !!settings?.enabled;
-      if (!configured || !enabled) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const user = await storage.getUser(req.session.userId!);
-      if (isStaffRole(user?.role)) {
-        return res.status(403).json({ message: "Staff accounts can't download customer invoices." });
-      }
-      const clientId = user?.whmcsClientId ?? null;
-      if (!clientId) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl);
-      if (detail.unreachable) {
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
-      }
-      if (detail.notFound || !detail.invoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const dl = await getWhmcsInvoicePdf(invoiceId);
-      if (!dl.ok || !dl.data) {
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
-      }
-      const buffer = Buffer.from(dl.data, "base64");
-      const disposition = req.query.download === "1" ? "attachment" : "inline";
-      res.set("Content-Type", "application/pdf");
-      res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
-      res.set("Cache-Control", "private, max-age=300");
-      return res.send(buffer);
-    } catch {
-      return res.status(503).json({ message: "Billing system is temporarily unavailable" });
-    }
-  });
+  app.get(
+    "/api/billing/invoices/:invoiceId/pdf",
+    requireAuth,
+    createInvoicePdfHandler({
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      getUser: (id) => storage.getUser(id),
+    }),
+  );
 
   // Admin customer-detail view: a single invoice's full detail for any linked
   // customer. Permission-gated. The handler (createAdminInvoiceDetailHandler)
@@ -6703,43 +6620,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get(
     "/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf",
     requirePermission("users.view", "users.manage"),
-    async (req, res) => {
-      try {
-        const user = await storage.getUser(getParam(req, "id"));
-        if (!user) return res.status(404).json({ message: "Invoice not found" });
-        const invoiceId = Number(getParam(req, "invoiceId"));
-        if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
-          return res.status(404).json({ message: "Invoice not found" });
-        }
-        const settings = await storage.getWhmcsSettings();
-        const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
-        const configured = hasWhmcsCredentials() && !!baseUrl;
-        const enabled = !!settings?.enabled;
-        const clientId = user.whmcsClientId ?? null;
-        if (!configured || !enabled || !clientId) {
-          return res.status(404).json({ message: "Invoice not found" });
-        }
-        const detail = await loadInvoiceDetail(invoiceId, clientId, baseUrl);
-        if (detail.unreachable) {
-          return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
-        }
-        if (detail.notFound || !detail.invoice) {
-          return res.status(404).json({ message: "Invoice not found" });
-        }
-        const dl = await getWhmcsInvoicePdf(invoiceId);
-        if (!dl.ok || !dl.data) {
-          return res.status(502).json({ message: `Could not download this invoice: ${dl.error ?? "unknown error"}` });
-        }
-        const buffer = Buffer.from(dl.data, "base64");
-        const disposition = req.query.download === "1" ? "attachment" : "inline";
-        res.set("Content-Type", "application/pdf");
-        res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
-        res.set("Cache-Control", "private, max-age=300");
-        return res.send(buffer);
-      } catch (e) {
-        res.status(500).json({ message: getErrorMessage(e) });
-      }
-    },
+    createAdminInvoicePdfHandler({
+      getWhmcsSettings: () => storage.getWhmcsSettings(),
+      getUser: (id) => storage.getUser(id),
+    }),
   );
 
   // Admin customer-detail view: any linked customer's billing. Permission-gated

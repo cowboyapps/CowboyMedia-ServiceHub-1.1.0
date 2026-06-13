@@ -1,114 +1,62 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
+import { createInvoicePdfHandler, createAdminInvoicePdfHandler } from "./whmcs-invoice-pdf-route";
 
 // Route-level tests for the invoice-PDF download proxies (Task #373):
 //   GET /api/billing/invoices/:invoiceId/pdf                         (customer)
 //   GET /api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf   (admin)
 //
-// Contract: the proxy fetches a single invoice's official WHMCS PDF and streams
-// the bytes through ServiceHub so the customer never gets bounced to a WHMCS
-// client-area login. Ownership is enforced exactly like the invoice-detail read
-// (loadInvoiceDetail rejects any invoice whose owning client doesn't match), so
-// a customer can't pull another client's PDF by guessing an id. Failures degrade
-// cleanly: 404 (not found / unconfigured / unlinked / ownership mismatch), 502
-// (WHMCS unreachable or PDF fetch failed), 503 (unexpected throw) — never a leak.
-//
-// We mirror the route wiring in a standalone express app (same pattern as
-// server/whmcs-invoice-detail-route.test.ts) with injectable loader + pdf fetch
-// so we can drive every branch without a live WHMCS.
+// Drives the REAL production handlers (createInvoicePdfHandler /
+// createAdminInvoicePdfHandler) — not a mirror copy — so a regression in either
+// route's branch logic is caught here. Contract: the proxy fetches a single
+// invoice's official WHMCS PDF and streams the bytes through ServiceHub so the
+// customer never gets bounced to a WHMCS client-area login. Ownership is enforced
+// exactly like the invoice-detail read (loadInvoiceDetail rejects any invoice
+// whose owning client doesn't match), so a customer can't pull another client's
+// PDF by guessing an id; the customer route additionally rejects staff (Task
+// #439). Failures degrade cleanly: 404 (not found / unconfigured / unlinked /
+// ownership mismatch), 502 (WHMCS unreachable or PDF fetch failed), 503/500
+// (unexpected throw) — never a leak. The loader, pdf fetch, credential check and
+// base-url normalizer are all injected so we can drive every branch without a
+// live WHMCS.
 
 interface FakeDeps {
   configured: boolean;
   enabled: boolean;
   baseUrl: string | null;
   clientId: number | null;
-  loader: (invoiceId: number, clientId: number, baseUrl: string) => Promise<Record<string, unknown>>;
+  loader: (invoiceId: number, clientId: number, baseUrl: string | null) => Promise<any>;
   pdf: (invoiceId: number) => Promise<{ ok: boolean; data?: string; error?: string }>;
   userExists?: boolean;
   /** Session user's role on the customer route — staff are rejected (Task #439). */
   role?: string | null;
 }
 
-const isStaffRole = (role: string | null | undefined): boolean =>
-  role === "admin" || role === "master_admin";
-
 function makeApp(deps: FakeDeps) {
   const app = express();
+  app.use((req, _res, next) => { (req as any).session = { userId: "u1" }; next(); });
 
-  app.get("/api/billing/invoices/:invoiceId/pdf", async (req, res) => {
-    try {
-      const invoiceId = Number(req.params.invoiceId);
-      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const { configured, enabled } = deps;
-      if (!configured || !enabled) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      if (isStaffRole(deps.role)) {
-        return res.status(403).json({ message: "Staff accounts can't download customer invoices." });
-      }
-      const clientId = deps.clientId;
-      if (!clientId) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const detail = await deps.loader(invoiceId, clientId, deps.baseUrl!);
-      if (detail.unreachable) {
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
-      }
-      if (detail.notFound || !detail.invoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const dl = await deps.pdf(invoiceId);
-      if (!dl.ok || !dl.data) {
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
-      }
-      const buffer = Buffer.from(dl.data, "base64");
-      const disposition = req.query.download === "1" ? "attachment" : "inline";
-      res.set("Content-Type", "application/pdf");
-      res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
-      res.set("Cache-Control", "private, max-age=300");
-      return res.send(buffer);
-    } catch {
-      return res.status(503).json({ message: "Billing system is temporarily unavailable" });
-    }
+  const customer = createInvoicePdfHandler({
+    getWhmcsSettings: async () => ({ baseUrl: deps.baseUrl, enabled: deps.enabled }),
+    getUser: async () => (deps.userExists === false ? null : { whmcsClientId: deps.clientId, role: deps.role ?? "customer" }),
+    hasWhmcsCredentials: () => deps.configured,
+    normalizeBaseUrl: (raw) => raw,
+    loadInvoiceDetail: deps.loader as any,
+    getInvoicePdf: deps.pdf as any,
   });
 
-  app.get("/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf", async (req, res) => {
-    try {
-      if (deps.userExists === false) return res.status(404).json({ message: "Invoice not found" });
-      const invoiceId = Number(req.params.invoiceId);
-      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const { configured, enabled } = deps;
-      const clientId = deps.clientId;
-      if (!configured || !enabled || !clientId) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const detail = await deps.loader(invoiceId, clientId, deps.baseUrl!);
-      if (detail.unreachable) {
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
-      }
-      if (detail.notFound || !detail.invoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      const dl = await deps.pdf(invoiceId);
-      if (!dl.ok || !dl.data) {
-        return res.status(502).json({ message: `Could not download this invoice: ${dl.error ?? "unknown error"}` });
-      }
-      const buffer = Buffer.from(dl.data, "base64");
-      const disposition = req.query.download === "1" ? "attachment" : "inline";
-      res.set("Content-Type", "application/pdf");
-      res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
-      res.set("Cache-Control", "private, max-age=300");
-      return res.send(buffer);
-    } catch {
-      return res.status(500).json({ message: "boom" });
-    }
+  const admin = createAdminInvoicePdfHandler({
+    getWhmcsSettings: async () => ({ baseUrl: deps.baseUrl, enabled: deps.enabled }),
+    getUser: async () => (deps.userExists === false ? null : { whmcsClientId: deps.clientId, role: deps.role ?? "customer" }),
+    hasWhmcsCredentials: () => deps.configured,
+    normalizeBaseUrl: (raw) => raw,
+    loadInvoiceDetail: deps.loader as any,
+    getInvoicePdf: deps.pdf as any,
   });
 
+  app.get("/api/billing/invoices/:invoiceId/pdf", customer);
+  app.get("/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf", admin);
   return app;
 }
 
@@ -252,6 +200,19 @@ test("admin: ownership mismatch → 404, pdf never fetched", async () => {
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
   assert.equal(r.status, 404);
   assert.equal(pdfCalled, false);
+});
+
+test("admin: PDF fetch fails → 502 surfaces the underlying error", async () => {
+  const app = makeApp(baseDeps({ pdf: async () => ({ ok: false, error: "nope" }) }));
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
+  assert.equal(r.status, 502);
+  assert.match(r.json?.message ?? "", /nope/);
+});
+
+test("admin: unexpected throw → 500", async () => {
+  const app = makeApp(baseDeps({ loader: async () => { throw new Error("boom"); } }));
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
+  assert.equal(r.status, 500);
 });
 
 // Content-Disposition switching (Task #378): the "Download PDF" action appends
