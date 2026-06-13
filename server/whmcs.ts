@@ -490,6 +490,38 @@ export async function getClientProducts(clientId: number): Promise<WhmcsRawFetch
   return whmcsApiCall("GetClientsProducts", { clientid: clientId, stats: true });
 }
 
+/**
+ * Mint a single-use WHMCS auto-login (SSO) URL for a client, landing them on
+ * `redirectPath` (e.g. "/viewinvoice.php?id=123") ALREADY AUTHENTICATED in the
+ * WHMCS client area — so a ServiceHub customer can pay an invoice without hitting
+ * WHMCS's login wall. Calls WHMCS's `CreateSsoToken` with the custom-redirect
+ * destination; the one-time URL is returned by the caller as `data.redirect_url`.
+ *
+ * The caller MUST have already resolved `clientId` from the SESSION user and
+ * confirmed ownership of whatever `redirectPath` targets — this stateless wrapper
+ * does NO ownership check of its own. `redirectPath` must be a WHMCS-relative
+ * path the caller has validated (never raw request input).
+ *
+ * No-throw tagged result like every other writer here. SSO can be disabled for
+ * the API role, or unsupported on older WHMCS builds — those surface as
+ * result:error with reason "whmcs_error", which the caller turns into a clean
+ * "fall back to the direct pay link" signal so payment is never a dead end.
+ *
+ * NEVER log the returned `redirect_url` — it is a single-use login credential.
+ *
+ * WHMCS version nuance: `CreateSsoToken` historically keys on `client_id`; WHMCS
+ * 8+ prefers `user_id` (a client can own multiple users) but still resolves
+ * `client_id` to the owner user. We send `client_id`; if a future install
+ * rejects it, the route degrades to the direct link.
+ */
+export async function createSsoToken(clientId: number, redirectPath: string): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("CreateSsoToken", {
+    client_id: clientId,
+    destination: "sso:custom_redirect",
+    sso_redirect_path: redirectPath,
+  });
+}
+
 /** The two cancellation-timing options WHMCS accepts for AddCancelRequest. */
 export type WhmcsCancellationType = "Immediate" | "End of Billing Period";
 

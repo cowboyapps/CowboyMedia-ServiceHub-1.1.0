@@ -26,6 +26,15 @@ test("isSensitiveBodyPath: unrelated paths are NOT sensitive (no over-matching)"
   assert.equal(isSensitiveBodyPath("/api/tickets"), false);
 });
 
+test("isSensitiveBodyPath: seamless pay-link routes (one-time SSO url) are sensitive", () => {
+  assert.ok(SENSITIVE_BODY_PATHS.includes("/api/billing/pay-all-link"));
+  assert.equal(isSensitiveBodyPath("/api/billing/pay-all-link"), true);
+  // Single-invoice variant has a dynamic id segment — matched on the suffix.
+  assert.equal(isSensitiveBodyPath("/api/billing/invoices/42/pay-link"), true);
+  // Ordinary invoice reads (no SSO url in the body) stay loggable.
+  assert.equal(isSensitiveBodyPath("/api/billing/invoices/42"), false);
+});
+
 // ---------- buildApiLogLine: sensitive path ----------
 
 test("buildApiLogLine: NEVER embeds the /api/my/services body (password stays out of logs)", () => {

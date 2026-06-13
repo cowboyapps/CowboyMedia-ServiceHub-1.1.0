@@ -110,6 +110,18 @@ export function buildMassPayUrl(baseUrl: string | null, ids: number[]): string |
   return `${baseUrl}/viewinvoice.php?id=${valid.join(",")}`;
 }
 
+/**
+ * WHMCS-relative path to the hosted payment page for one or more invoice ids,
+ * used as the `sso_redirect_path` when minting a seamless auto-login pay link.
+ * Always built server-side from ids the caller has ownership-checked — never
+ * from raw request input. Returns null when no valid id is present.
+ */
+export function buildInvoicePayPath(ids: number[]): string | null {
+  const valid = ids.filter((id) => Number.isFinite(id) && id > 0);
+  if (valid.length === 0) return null;
+  return `/viewinvoice.php?id=${valid.join(",")}`;
+}
+
 export interface ParsedInvoice {
   id: number;
   invoiceNum: string;

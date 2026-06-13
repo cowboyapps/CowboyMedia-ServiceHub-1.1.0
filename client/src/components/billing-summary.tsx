@@ -350,6 +350,40 @@ function TotalsRow({
 }
 
 /**
+ * Open WHMCS's hosted payment page for the customer. First asks `endpoint` to
+ * mint a single-use auto-login (SSO) URL so they land on the payment page ALREADY
+ * signed in (no WHMCS login wall); on ANY failure it falls back to the plain
+ * `directUrl` (the existing viewinvoice deep link) so payment is never a dead end.
+ *
+ * The new tab is opened SYNCHRONOUSLY on the click so it survives popup blockers,
+ * then redirected once the URL is known. The minted URL is a one-time credential
+ * and is never persisted or logged client-side.
+ */
+async function openWhmcsPay(endpoint: string, directUrl: string): Promise<void> {
+  const win = window.open("about:blank", "_blank");
+  if (win) {
+    try {
+      win.opener = null;
+    } catch {
+      // ignore — some browsers disallow reassigning opener
+    }
+  }
+  let target = directUrl;
+  try {
+    const res = await apiRequest("POST", endpoint);
+    const body = await res.json().catch(() => null);
+    if (body?.url) target = body.url as string;
+  } catch {
+    // SSO unavailable / not linked / unreachable — fall back to the direct link.
+  }
+  if (win) {
+    win.location.href = target;
+  } else {
+    window.open(target, "_blank", "noopener,noreferrer");
+  }
+}
+
+/**
  * Full-detail view of a single invoice, fetched on demand. Reused by both the
  * customer billing screen and the admin customer-billing panel — the only
  * difference is which endpoint it reads (derived from `context` + `userId`).
@@ -361,12 +395,14 @@ function InvoiceDetailDialog({
   userId,
   onClose,
   onPayClick,
+  enableSso,
 }: {
   invoiceId: number | null;
   context: "customer" | "admin";
   userId?: string;
   onClose: () => void;
   onPayClick?: () => void;
+  enableSso?: boolean;
 }) {
   const isAdmin = context === "admin";
   const queryKey =
@@ -548,7 +584,19 @@ function InvoiceDetailDialog({
                 </a>
               )}
               {needsPay && invoice.payUrl && (
-                <a href={invoice.payUrl} target="_blank" rel="noopener noreferrer" onClick={onPayClick} data-testid="link-invoice-detail-pay">
+                <a
+                  href={invoice.payUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    onPayClick?.();
+                    if (enableSso) {
+                      e.preventDefault();
+                      void openWhmcsPay(`/api/billing/invoices/${invoice.id}/pay-link`, invoice.payUrl!);
+                    }
+                  }}
+                  data-testid="link-invoice-detail-pay"
+                >
                   <Button size="sm" className="gap-1.5">
                     <ExternalLink className="w-3.5 h-3.5" />
                     Pay now
@@ -1303,7 +1351,13 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                 href={data.payAll.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={markPayClicked}
+                onClick={(e) => {
+                  markPayClicked();
+                  if (!isAdmin) {
+                    e.preventDefault();
+                    void openWhmcsPay("/api/billing/pay-all-link", data.payAll!.url!);
+                  }
+                }}
                 data-testid="link-pay-all-outstanding"
               >
                 <Button size="sm" className="gap-1.5 shrink-0">
@@ -1359,7 +1413,19 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                     </button>
                     {needsPay && inv.payUrl && (
                       <div className="mt-2.5 flex justify-end">
-                        <a href={inv.payUrl} target="_blank" rel="noopener noreferrer" onClick={markPayClicked} data-testid={`link-invoice-pay-${inv.id}`}>
+                        <a
+                          href={inv.payUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => {
+                            markPayClicked();
+                            if (!isAdmin) {
+                              e.preventDefault();
+                              void openWhmcsPay(`/api/billing/invoices/${inv.id}/pay-link`, inv.payUrl!);
+                            }
+                          }}
+                          data-testid={`link-invoice-pay-${inv.id}`}
+                        >
                           <Button size="sm" className="gap-1.5 h-8">
                             <ExternalLink className="w-3.5 h-3.5" />
                             Pay in billing portal
@@ -1381,6 +1447,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
         userId={userId}
         onClose={() => setSelectedInvoiceId(null)}
         onPayClick={isAdmin ? undefined : markPayClicked}
+        enableSso={!isAdmin}
       />
 
       {!isAdmin && (

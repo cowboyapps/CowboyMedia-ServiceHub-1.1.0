@@ -45,6 +45,7 @@ import { createMyServicesHandler } from "./whmcs-services-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import { createCustomerInvoiceServiceHandler, createAdminInvoiceServiceHandler } from "./whmcs-invoice-service-route";
+import { createCustomerPayLinkHandler, createCustomerPayAllLinkHandler } from "./whmcs-pay-link-route";
 import { createWhmcsLinkRequestHandler, createWhmcsLinkVerifyHandler, createWhmcsLinkStatusHandler, createWhmcsLinkDismissHandler } from "./whmcs-link-route";
 import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-profile-route";
 import { createRequestCancellationHandler } from "./whmcs-cancel-route";
@@ -6498,6 +6499,21 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       getUser: (id) => storage.getUser(id),
     }),
   );
+
+  // Customer self-action: mint a single-use WHMCS auto-login (SSO) pay link so
+  // the customer lands straight on WHMCS's hosted payment page already signed in
+  // — no second login wall. The WHMCS client id is ALWAYS derived from the
+  // session user; the single-invoice route ownership-checks the invoice and the
+  // pay-all route derives the outstanding set server-side, so a customer can only
+  // ever pay their OWN invoices. Both fail closed with `{ fallback: true }` so the
+  // frontend silently drops back to the plain viewinvoice deep link; never 500s.
+  // The minted URL is a one-time credential and is NEVER logged.
+  const payLinkDeps = {
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getUser: (id: string) => storage.getUser(id),
+  };
+  app.post("/api/billing/invoices/:invoiceId/pay-link", requireAuth, createCustomerPayLinkHandler(payLinkDeps));
+  app.post("/api/billing/pay-all-link", requireAuth, createCustomerPayAllLinkHandler(payLinkDeps));
 
   // Customer self-view: load + save the logged-in user's OWN linked WHMCS
   // client's editable contact profile. The client id is ALWAYS derived from the

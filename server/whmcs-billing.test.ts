@@ -7,6 +7,7 @@ import {
   buildInvoicePdfUrl,
   buildPortalUrl,
   buildMassPayUrl,
+  buildInvoicePayPath,
   buildPayAllOutstanding,
   parseInvoice,
   parseInvoiceDetail,
@@ -110,6 +111,17 @@ test("buildMassPayUrl: builds a comma-separated mass-pay link, drops invalid ids
   assert.equal(buildMassPayUrl(null, [1, 2]), null);
   assert.equal(buildMassPayUrl("https://billing.example.com", []), null);
   assert.equal(buildMassPayUrl("https://billing.example.com", [0]), null);
+});
+
+test("buildInvoicePayPath: builds a base-relative pay path, drops invalid ids", () => {
+  // Used as the SSO `sso_redirect_path` — base-URL-relative, comma-joined.
+  assert.equal(buildInvoicePayPath([42]), "/viewinvoice.php?id=42");
+  assert.equal(buildInvoicePayPath([10, 12]), "/viewinvoice.php?id=10,12");
+  // Zero / negative / NaN ids are dropped before joining.
+  assert.equal(buildInvoicePayPath([0, 5, -1, NaN, 7]), "/viewinvoice.php?id=5,7");
+  // No valid id -> null (caller falls back / 404s).
+  assert.equal(buildInvoicePayPath([]), null);
+  assert.equal(buildInvoicePayPath([0, -3]), null);
 });
 
 // ---------- parseInvoiceLineItem ----------
