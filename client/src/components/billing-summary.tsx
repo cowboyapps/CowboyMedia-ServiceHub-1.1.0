@@ -35,6 +35,8 @@ import {
   AlertTriangle,
   History,
   Search,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 
 // Shared, read-only presentation of a WHMCS billing summary. Driven entirely by
@@ -281,6 +283,52 @@ export function summarizeOutstanding(d: BillingSummary | undefined): Outstanding
 }
 
 /**
+ * Richer outcome of comparing the outstanding state before and after a forced
+ * billing refresh. `settled` is the headline (did any money land); the extra
+ * fields let the UI tailor the confirmation copy for the three flows the task
+ * cares about: a single invoice paid, a partial payment (some still owed), and
+ * a pay-all that cleared everything.
+ */
+export interface PaymentSettlement {
+  /** True when a payment actually landed (an invoice flipped to Paid, or the
+   *  aggregate outstanding total dropped). */
+  settled: boolean;
+  /** How many previously-outstanding invoices are now marked Paid. */
+  paidInvoiceCount: number;
+  /** True when a payment landed AND nothing is left outstanding afterward. */
+  fullyCleared: boolean;
+}
+
+/**
+ * Classify what happened to the customer's outstanding balance across a forced
+ * billing refresh. A payment counts when a previously-outstanding invoice is now
+ * Paid, OR the aggregate outstanding total dropped (covers partial payments and
+ * pay-all). Cancellation / refund of an invoice (outstanding -> cancelled) does
+ * NOT count as a payment.
+ */
+export function classifyPaymentSettlement(
+  before: OutstandingSnapshot,
+  after: BillingSummary | undefined,
+): PaymentSettlement {
+  if (!after) return { settled: false, paidInvoiceCount: 0, fullyCleared: false };
+  const afterById = new Map(after.invoices.map((inv) => [inv.id, inv]));
+  let paidInvoiceCount = 0;
+  for (const id of before.outstandingInvoiceIds) {
+    if (afterById.get(id)?.status === "paid") paidInvoiceCount++;
+  }
+  const afterTotal = parseAmount(after.payAll?.total ?? null);
+  const totalDropped =
+    before.outstandingTotal != null &&
+    afterTotal != null &&
+    afterTotal < before.outstandingTotal;
+  const settled = paidInvoiceCount > 0 || totalDropped;
+  const stillOutstanding = after.invoices.some(
+    (inv) => inv.status === "unpaid" || inv.status === "overdue",
+  );
+  return { settled, paidInvoiceCount, fullyCleared: settled && !stillOutstanding };
+}
+
+/**
  * Given the outstanding state before and after a forced billing refresh, decide
  * whether a payment actually landed. True when an invoice that was outstanding is
  * now Paid, or when the aggregate outstanding total dropped. Cancellation /
@@ -290,20 +338,7 @@ export function detectPaymentSettled(
   before: OutstandingSnapshot,
   after: BillingSummary | undefined,
 ): boolean {
-  if (!after) return false;
-  const afterById = new Map(after.invoices.map((inv) => [inv.id, inv]));
-  for (const id of before.outstandingInvoiceIds) {
-    if (afterById.get(id)?.status === "paid") return true;
-  }
-  const afterTotal = parseAmount(after.payAll?.total ?? null);
-  if (
-    before.outstandingTotal != null &&
-    afterTotal != null &&
-    afterTotal < before.outstandingTotal
-  ) {
-    return true;
-  }
-  return false;
+  return classifyPaymentSettlement(before, after).settled;
 }
 
 /** A simple full-width informational state (not configured / not linked / etc). */
@@ -1114,6 +1149,14 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
   const { toast } = useToast();
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [cancelProduct, setCancelProduct] = useState<BillingProduct | null>(null);
+  // Persistent "Payment received" confirmation shown after returning from WHMCS's
+  // off-site checkout. A toast alone is easy to miss (it auto-dismisses, and the
+  // payment happens in a SEPARATE tab so the customer may glance away), so we also
+  // surface a dismissible success banner at the top of the page until they ack it.
+  const [paymentConfirmation, setPaymentConfirmation] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
   // Payments happen on WHMCS's off-site hosted checkout (the pay links open in a
   // new tab), so our server never sees them and the per-client billing cache can
@@ -1139,14 +1182,37 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
         queryClient.getQueryData<BillingSummary>(["/api/billing"]),
       );
       try {
-        await apiRequest("POST", "/api/billing/refresh").catch(() => {});
-        await queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
-        const after = queryClient.getQueryData<BillingSummary>(["/api/billing"]);
-        if (detectPaymentSettled(before, after)) {
-          toast({
-            title: "Payment received — thanks!",
-            description: "Your payment went through and your billing is now up to date.",
-          });
+        // WHMCS can lag a beat behind the customer returning — the gateway
+        // callback that flips the invoice to Paid may land just after they
+        // switch tabs back. A single refresh would then miss it and leave them
+        // unsure. Re-check a few times (short backoff) before giving up so a
+        // genuine payment reliably surfaces a confirmation.
+        const MAX_ATTEMPTS = 3;
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+          await apiRequest("POST", "/api/billing/refresh").catch(() => {});
+          await queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
+          const after = queryClient.getQueryData<BillingSummary>(["/api/billing"]);
+          const result = classifyPaymentSettlement(before, after);
+          if (result.settled) {
+            const confirmation = result.fullyCleared
+              ? {
+                  title: "Payment received — thanks!",
+                  description:
+                    "Your payment went through and you're all paid up.",
+                }
+              : {
+                  title: "Payment received — thanks!",
+                  description:
+                    "Your payment went through. You still have an outstanding balance below.",
+                };
+            setPaymentConfirmation(confirmation);
+            toast(confirmation);
+            break;
+          }
+          // Nothing detected yet — wait briefly and try again (unless last).
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
         }
       } finally {
         refreshingRef.current = false;
@@ -1232,6 +1298,42 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
 
   return (
     <div className="space-y-4" data-testid="billing-summary">
+      {/* Payment received confirmation (persists until dismissed) */}
+      {paymentConfirmation && (
+        <Card
+          className="border-green-500/40 bg-green-500/5"
+          data-testid="card-payment-confirmation"
+        >
+          <CardContent className="p-3 flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-500 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p
+                className="text-sm font-semibold text-green-700 dark:text-green-400"
+                data-testid="text-payment-confirmation-title"
+              >
+                {paymentConfirmation.title}
+              </p>
+              <p
+                className="text-xs text-muted-foreground mt-0.5"
+                data-testid="text-payment-confirmation-description"
+              >
+                {paymentConfirmation.description}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 -mt-0.5 -mr-1"
+              onClick={() => setPaymentConfirmation(null)}
+              aria-label="Dismiss"
+              data-testid="button-dismiss-payment-confirmation"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Account balance */}
       {data.balance && (
         <Card data-testid="card-billing-balance">

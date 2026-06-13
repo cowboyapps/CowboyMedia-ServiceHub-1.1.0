@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   summarizeOutstanding,
   detectPaymentSettled,
+  classifyPaymentSettlement,
   type BillingSummary,
   type BillingInvoice,
   type InvoiceStatus,
@@ -102,4 +103,76 @@ test("detectPaymentSettled does NOT count a cancellation as a payment", () => {
 test("detectPaymentSettled is false when after data is missing", () => {
   const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
   assert.equal(detectPaymentSettled(before, undefined), false);
+});
+
+// classifyPaymentSettlement — richer result that drives the confirmation copy
+// (full vs partial) shown when returning from WHMCS's hosted checkout.
+
+test("classifyPaymentSettlement: single invoice paid clears everything (fullyCleared)", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  const after = summary([inv(1, "paid")], null);
+  assert.deepEqual(classifyPaymentSettlement(before, after), {
+    settled: true,
+    paidInvoiceCount: 1,
+    fullyCleared: true,
+  });
+});
+
+test("classifyPaymentSettlement: pay-all clears multiple invoices (fullyCleared)", () => {
+  const before = summarizeOutstanding(
+    summary([inv(1, "unpaid"), inv(2, "overdue")], "$20.00 USD"),
+  );
+  const after = summary([inv(1, "paid"), inv(2, "paid")], null);
+  assert.deepEqual(classifyPaymentSettlement(before, after), {
+    settled: true,
+    paidInvoiceCount: 2,
+    fullyCleared: true,
+  });
+});
+
+test("classifyPaymentSettlement: partial payment leaves a balance (not fullyCleared)", () => {
+  const before = summarizeOutstanding(
+    summary([inv(1, "unpaid"), inv(2, "unpaid")], "$20.00 USD"),
+  );
+  // One invoice paid, the other still owed.
+  const after = summary([inv(1, "paid"), inv(2, "unpaid")], "$10.00 USD");
+  assert.deepEqual(classifyPaymentSettlement(before, after), {
+    settled: true,
+    paidInvoiceCount: 1,
+    fullyCleared: false,
+  });
+});
+
+test("classifyPaymentSettlement: total drop with no invoice flip still counts (partial)", () => {
+  // payAll total dropped (e.g. WHMCS applied a part-payment to the balance) but
+  // no individual invoice flipped to Paid yet — still a settled payment.
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$20.00 USD"));
+  const after = summary([inv(1, "unpaid")], "$5.00 USD");
+  assert.deepEqual(classifyPaymentSettlement(before, after), {
+    settled: true,
+    paidInvoiceCount: 0,
+    fullyCleared: false,
+  });
+});
+
+test("classifyPaymentSettlement: payment cancelled / nothing changed is not settled", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  const unchanged = summary([inv(1, "unpaid")], "$10.00 USD");
+  assert.deepEqual(classifyPaymentSettlement(before, unchanged), {
+    settled: false,
+    paidInvoiceCount: 0,
+    fullyCleared: false,
+  });
+  // Cancellation (outstanding -> cancelled) must not read as a payment.
+  const cancelled = summary([inv(1, "cancelled")], null);
+  assert.equal(classifyPaymentSettlement(before, cancelled).settled, false);
+});
+
+test("classifyPaymentSettlement: missing after data is not settled", () => {
+  const before = summarizeOutstanding(summary([inv(1, "unpaid")], "$10.00 USD"));
+  assert.deepEqual(classifyPaymentSettlement(before, undefined), {
+    settled: false,
+    paidInvoiceCount: 0,
+    fullyCleared: false,
+  });
 });
