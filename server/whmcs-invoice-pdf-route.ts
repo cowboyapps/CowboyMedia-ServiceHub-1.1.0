@@ -10,21 +10,30 @@ import {
   loadInvoiceDetail as defaultLoadInvoiceDetail,
   buildInvoicePdfUrl,
   buildInvoicePdfPath,
+  buildInvoiceViewUrl,
+  buildInvoiceViewPath,
   type InvoiceDetailData,
 } from "./whmcs-billing";
 import { getErrorMessage } from "./error-utils";
 import { isUnlinkedStaff } from "./roles";
 
-// Handler factories for the invoice-PDF download endpoints:
+// Handler factories for the invoice-PDF endpoints:
 //   GET /api/billing/invoices/:invoiceId/pdf                         (customer)
 //   GET /api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf   (admin)
+//
+// Two distinct affordances, selected by the `?download=1` query:
+//   - DOWNLOAD (`?download=1`) → WHMCS `dl.php?type=i&id=<id>`, which serves the
+//     generated PDF as a file attachment ("Download PDF" button).
+//   - VIEW (no query, the default) → WHMCS `viewinvoice.php?id=<id>`, the
+//     rendered invoice page shown inline on screen ("View PDF" button), so the
+//     customer can read an invoice without saving a file first.
 //
 // WHMCS has NO API action that returns invoice PDF bytes (the old code called a
 // non-existent "GetInvoicePDF" action, which is why downloads failed in prod).
 // Instead we mint a SINGLE-USE auto-login URL (CreateSsoToken with
-// sso:custom_redirect) that lands the linked client straight on WHMCS's own
-// rendered PDF at `dl.php?type=i&id=<id>` — no second login wall — and 302 the
-// browser to it. This mirrors the seamless pay-link route exactly.
+// sso:custom_redirect) that lands the linked client straight on the chosen WHMCS
+// target — no second login wall — and 302 the browser to it. This mirrors the
+// seamless pay-link route exactly.
 //
 // Ownership: the WHMCS client id is ALWAYS resolved from the session (customer
 // route) or the SELECTED user (admin route), never request input, and the
@@ -60,6 +69,16 @@ export interface InvoicePdfRouteDeps {
   loadInvoiceDetail?: (invoiceId: number, clientId: number, baseUrl: string | null) => Promise<InvoiceDetailData>;
   /** Defaults to the real WHMCS SSO call; injectable for tests. */
   createSsoToken?: (clientId: number, redirectPath: string) => Promise<WhmcsRawFetch>;
+}
+
+/**
+ * Whether the request asked for the file to be downloaded (`?download=1`) rather
+ * than viewed inline. Anything else (no query, the "View PDF" button) means view.
+ */
+function wantsDownload(req: Request): boolean {
+  const v = req.query?.download;
+  if (Array.isArray(v)) return v.some((x) => x === "1" || x === "true");
+  return v === "1" || v === "true";
 }
 
 /** Pull the one-time redirect URL out of a CreateSsoToken result, or null. */
@@ -103,23 +122,28 @@ export function createInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
       if (!clientId) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      // Plain (login-walled) WHMCS PDF link — the graceful fallback target.
-      const fallbackUrl = buildInvoicePdfUrl(baseUrl, invoiceId);
+      // Download (?download=1) → the file at dl.php; otherwise view the invoice
+      // inline at viewinvoice.php. The plain (login-walled) WHMCS link for the
+      // chosen mode is the graceful fallback target.
+      const download = wantsDownload(req);
+      const fallbackUrl = download
+        ? buildInvoicePdfUrl(baseUrl, invoiceId)
+        : buildInvoiceViewUrl(baseUrl, invoiceId);
       const detail = await load(invoiceId, clientId, baseUrl);
       if (detail.unreachable) {
         // Can't verify ownership right now; send them to the login-walled link
         // (WHMCS re-checks ownership after login) instead of a dead end.
         if (fallbackUrl) return res.redirect(fallbackUrl);
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
+        return res.status(502).json({ message: "Could not open this invoice right now. Please try again shortly." });
       }
       if (detail.notFound || !detail.invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      const path = buildInvoicePdfPath(invoiceId);
+      const path = download ? buildInvoicePdfPath(invoiceId) : buildInvoiceViewPath(invoiceId);
       const ssoUrl = path ? extractSsoUrl(await createSso(clientId, path)) : null;
       const target = ssoUrl ?? fallbackUrl;
       if (!target) {
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
+        return res.status(502).json({ message: "Could not open this invoice right now. Please try again shortly." });
       }
       return res.redirect(target);
     } catch {
@@ -156,20 +180,23 @@ export function createAdminInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
       if (!configured || !enabled || !clientId) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      const fallbackUrl = buildInvoicePdfUrl(baseUrl, invoiceId);
+      const download = wantsDownload(req);
+      const fallbackUrl = download
+        ? buildInvoicePdfUrl(baseUrl, invoiceId)
+        : buildInvoiceViewUrl(baseUrl, invoiceId);
       const detail = await load(invoiceId, clientId, baseUrl);
       if (detail.unreachable) {
         if (fallbackUrl) return res.redirect(fallbackUrl);
-        return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
+        return res.status(502).json({ message: "Could not open this invoice right now. Please try again shortly." });
       }
       if (detail.notFound || !detail.invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      const path = buildInvoicePdfPath(invoiceId);
+      const path = download ? buildInvoicePdfPath(invoiceId) : buildInvoiceViewPath(invoiceId);
       const ssoUrl = path ? extractSsoUrl(await createSso(clientId, path)) : null;
       const target = ssoUrl ?? fallbackUrl;
       if (!target) {
-        return res.status(502).json({ message: "Could not download this invoice right now." });
+        return res.status(502).json({ message: "Could not open this invoice right now." });
       }
       return res.redirect(target);
     } catch (e) {

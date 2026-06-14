@@ -31,6 +31,7 @@ import type { WhmcsRawFetch } from "./whmcs";
 const BASE = "https://billing.example.com";
 const SSO_URL = "https://billing.example.com/dl.php?type=i&id=7&sso=onetimetoken";
 const FALLBACK_PDF = `${BASE}/dl.php?type=i&id=7`;
+const FALLBACK_VIEW = `${BASE}/viewinvoice.php?id=7`;
 
 interface FakeDeps {
   configured: boolean;
@@ -104,10 +105,18 @@ test("customer: happy path → 302 redirect to the minted SSO URL", async () => 
   assert.equal(r.location, SSO_URL);
 });
 
-test("customer: SSO redirect path targets WHMCS dl.php for the requested invoice", async () => {
+test("customer: default (no ?download) SSO redirect path targets WHMCS viewinvoice.php (inline view)", async () => {
   let seenPath: string | null = null;
   const app = makeApp(baseDeps({ sso: async (_c, path) => { seenPath = path; return ssoOk(); } }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 302);
+  assert.equal(seenPath, "/viewinvoice.php?id=7");
+});
+
+test("customer: ?download=1 SSO redirect path targets WHMCS dl.php (file download)", async () => {
+  let seenPath: string | null = null;
+  const app = makeApp(baseDeps({ sso: async (_c, path) => { seenPath = path; return ssoOk(); } }));
+  const r = await get(app, "/api/billing/invoices/7/pdf?download=1");
   assert.equal(r.status, 302);
   assert.equal(seenPath, "/dl.php?type=i&id=7");
 });
@@ -163,7 +172,7 @@ test("customer: ownership mismatch (loader notFound) → 404, SSO never minted",
   assert.equal(ssoCalled, false, "must not mint an SSO token for a non-owned invoice");
 });
 
-test("customer: WHMCS unreachable on detail → 302 fallback to plain WHMCS PDF link", async () => {
+test("customer: WHMCS unreachable on detail → 302 fallback to plain WHMCS view link", async () => {
   let ssoCalled = false;
   const app = makeApp(baseDeps({
     loader: async () => ({ unreachable: true, notFound: false, invoice: null }),
@@ -171,22 +180,31 @@ test("customer: WHMCS unreachable on detail → 302 fallback to plain WHMCS PDF 
   }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 302);
-  assert.equal(r.location, FALLBACK_PDF);
+  assert.equal(r.location, FALLBACK_VIEW);
   assert.equal(ssoCalled, false, "no token minted when ownership can't be verified");
 });
 
-test("customer: SSO refused (ok:false) → 302 fallback to plain WHMCS PDF link", async () => {
-  const app = makeApp(baseDeps({ sso: async () => ({ ok: false, error: "sso disabled" }) }));
-  const r = await get(app, "/api/billing/invoices/7/pdf");
+test("customer: ?download=1 unreachable on detail → 302 fallback to plain WHMCS PDF (download) link", async () => {
+  const app = makeApp(baseDeps({
+    loader: async () => ({ unreachable: true, notFound: false, invoice: null }),
+  }));
+  const r = await get(app, "/api/billing/invoices/7/pdf?download=1");
   assert.equal(r.status, 302);
   assert.equal(r.location, FALLBACK_PDF);
 });
 
-test("customer: SSO ok but no redirect_url → 302 fallback to plain WHMCS PDF link", async () => {
+test("customer: SSO refused (ok:false) → 302 fallback to plain WHMCS view link", async () => {
+  const app = makeApp(baseDeps({ sso: async () => ({ ok: false, error: "sso disabled" }) }));
+  const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_VIEW);
+});
+
+test("customer: SSO ok but no redirect_url → 302 fallback to plain WHMCS view link", async () => {
   const app = makeApp(baseDeps({ sso: async () => ({ ok: true, data: {} }) }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 302);
-  assert.equal(r.location, FALLBACK_PDF);
+  assert.equal(r.location, FALLBACK_VIEW);
 });
 
 test("customer: unexpected throw → 503, never 500/leak", async () => {
@@ -219,7 +237,23 @@ test("admin: ownership mismatch → 404, SSO never minted", async () => {
   assert.equal(ssoCalled, false);
 });
 
-test("admin: WHMCS unreachable on detail → 302 fallback to plain WHMCS PDF link", async () => {
+test("admin: default (no ?download) SSO redirect path targets WHMCS viewinvoice.php (inline view)", async () => {
+  let seenPath: string | null = null;
+  const app = makeApp(baseDeps({ sso: async (_c, path) => { seenPath = path; return ssoOk(); } }));
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
+  assert.equal(r.status, 302);
+  assert.equal(seenPath, "/viewinvoice.php?id=7");
+});
+
+test("admin: ?download=1 SSO redirect path targets WHMCS dl.php (file download)", async () => {
+  let seenPath: string | null = null;
+  const app = makeApp(baseDeps({ sso: async (_c, path) => { seenPath = path; return ssoOk(); } }));
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf?download=1");
+  assert.equal(r.status, 302);
+  assert.equal(seenPath, "/dl.php?type=i&id=7");
+});
+
+test("admin: WHMCS unreachable on detail → 302 fallback to plain WHMCS view link", async () => {
   let ssoCalled = false;
   const app = makeApp(baseDeps({
     loader: async () => ({ unreachable: true, notFound: false, invoice: null }),
@@ -227,15 +261,24 @@ test("admin: WHMCS unreachable on detail → 302 fallback to plain WHMCS PDF lin
   }));
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
   assert.equal(r.status, 302);
-  assert.equal(r.location, FALLBACK_PDF);
+  assert.equal(r.location, FALLBACK_VIEW);
   assert.equal(ssoCalled, false);
 });
 
-test("admin: SSO refused → 302 fallback to plain WHMCS PDF link", async () => {
+test("admin: ?download=1 unreachable on detail → 302 fallback to plain WHMCS PDF (download) link", async () => {
+  const app = makeApp(baseDeps({
+    loader: async () => ({ unreachable: true, notFound: false, invoice: null }),
+  }));
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf?download=1");
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_PDF);
+});
+
+test("admin: SSO refused → 302 fallback to plain WHMCS view link", async () => {
   const app = makeApp(baseDeps({ sso: async () => ({ ok: false, error: "nope" }) }));
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
   assert.equal(r.status, 302);
-  assert.equal(r.location, FALLBACK_PDF);
+  assert.equal(r.location, FALLBACK_VIEW);
 });
 
 test("admin: unexpected throw → 500", async () => {

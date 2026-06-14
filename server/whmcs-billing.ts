@@ -85,6 +85,32 @@ export function buildInvoicePdfUrl(baseUrl: string | null, id: number): string |
   return `${baseUrl}/dl.php?type=i&id=${id}`;
 }
 
+/**
+ * Outbound link to the WHMCS rendered invoice page (`viewinvoice.php?id=<id>`),
+ * used as the inline-VIEW target (vs `buildInvoicePdfUrl`'s download). WHMCS
+ * shows the invoice on screen here — no forced file download — and offers the
+ * pay button for unpaid invoices. Requires the client to be authenticated; we
+ * link out / SSO into it, we never render it ourselves. The plain (login-walled)
+ * fallback when an SSO token can't be minted. Null without a base URL or id.
+ */
+export function buildInvoiceViewUrl(baseUrl: string | null, id: number): string | null {
+  if (!baseUrl || !id) return null;
+  return `${baseUrl}/viewinvoice.php?id=${id}`;
+}
+
+/**
+ * WHMCS-relative path to the rendered invoice page for ONE invoice, used as the
+ * `sso_redirect_path` when minting a seamless auto-login VIEW link. Dropping the
+ * customer at `viewinvoice.php?id=<id>` via an SSO token opens the invoice on
+ * screen (inline) with no login wall — the read counterpart of
+ * `buildInvoicePdfPath`'s download. Built server-side from an id the caller has
+ * ownership-checked, never from raw request input. Returns null for an invalid id.
+ */
+export function buildInvoiceViewPath(id: number): string | null {
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return `/viewinvoice.php?id=${id}`;
+}
+
 /** Outbound link to the WHMCS client area home. */
 export function buildPortalUrl(baseUrl: string | null): string | null {
   if (!baseUrl) return null;

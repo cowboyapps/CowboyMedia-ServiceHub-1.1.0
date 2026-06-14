@@ -484,9 +484,11 @@ function InvoiceDetailDialog({
   const invoice = data?.invoice ?? null;
   const needsPay = invoice && (invoice.status === "unpaid" || invoice.status === "overdue");
 
-  // The official WHMCS PDF, streamed through our own proxy so the customer never
-  // gets bounced to a WHMCS client-area login. The proxy enforces ownership
-  // against the linked client, so we only build the URL when we have an invoice.
+  // Our invoice endpoint, which SSO-redirects the customer straight into WHMCS so
+  // they never get bounced to a client-area login. It serves two affordances by
+  // query: bare URL ("View PDF") opens the invoice inline at viewinvoice.php;
+  // `?download=1` ("Download PDF") saves the file from dl.php. Ownership is
+  // enforced against the linked client, so we only build the URL with an invoice.
   const pdfProxyUrl =
     invoice
       ? isAdmin && userId
