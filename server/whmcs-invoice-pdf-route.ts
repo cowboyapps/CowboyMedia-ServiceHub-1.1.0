@@ -1,25 +1,43 @@
 import type { Request, Response } from "express";
 import { getParam } from "./http-params";
-import { hasWhmcsCredentials, normalizeBaseUrl, getInvoicePdf as defaultGetInvoicePdf, type WhmcsInvoicePdfDownload } from "./whmcs";
-import { loadInvoiceDetail as defaultLoadInvoiceDetail, type InvoiceDetailData } from "./whmcs-billing";
+import {
+  hasWhmcsCredentials,
+  normalizeBaseUrl,
+  createSsoToken as defaultCreateSsoToken,
+  type WhmcsRawFetch,
+} from "./whmcs";
+import {
+  loadInvoiceDetail as defaultLoadInvoiceDetail,
+  buildInvoicePdfUrl,
+  buildInvoicePdfPath,
+  type InvoiceDetailData,
+} from "./whmcs-billing";
 import { getErrorMessage } from "./error-utils";
 import { isUnlinkedStaff } from "./roles";
 
-// Handler factories for the invoice-PDF download proxies (Task #373):
+// Handler factories for the invoice-PDF download endpoints:
 //   GET /api/billing/invoices/:invoiceId/pdf                         (customer)
 //   GET /api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf   (admin)
 //
-// Extracted from registerRoutes so the security-critical contract can be unit-
-// tested directly against the production handler (same pattern as
-// createCustomerInvoiceDetailHandler in server/whmcs-invoice-detail-route.ts).
-// The proxy streams a single invoice's official WHMCS PDF through ServiceHub so
-// the customer never gets bounced to a WHMCS client-area login. Ownership is
-// enforced exactly like the invoice-detail read (loadInvoiceDetail rejects any
-// invoice whose owning client doesn't match), so a customer can't pull another
-// client's PDF by guessing an id. The customer route additionally rejects staff
-// accounts (Task #439). Failures degrade cleanly: 404 (not found / unconfigured
-// / unlinked / ownership mismatch), 502 (WHMCS unreachable or PDF fetch failed),
-// 503/500 (unexpected throw) — never a leak.
+// WHMCS has NO API action that returns invoice PDF bytes (the old code called a
+// non-existent "GetInvoicePDF" action, which is why downloads failed in prod).
+// Instead we mint a SINGLE-USE auto-login URL (CreateSsoToken with
+// sso:custom_redirect) that lands the linked client straight on WHMCS's own
+// rendered PDF at `dl.php?type=i&id=<id>` — no second login wall — and 302 the
+// browser to it. This mirrors the seamless pay-link route exactly.
+//
+// Ownership: the WHMCS client id is ALWAYS resolved from the session (customer
+// route) or the SELECTED user (admin route), never request input, and the
+// invoice is ownership-checked via loadInvoiceDetail before any token is minted
+// (loadInvoiceDetail collapses "not yours" and "doesn't exist" into notFound, so
+// no enumeration oracle). WHMCS itself re-enforces ownership after SSO login.
+//
+// Fail-soft: if SSO can't be minted (disabled for the API role, older WHMCS, or
+// any error) OR the ownership read is unreachable, we redirect to the plain
+// (login-walled) WHMCS PDF link instead of erroring — PDF access is never a dead
+// end. Hard-deny paths (invalid id, unconfigured/disabled, unlinked, staff, not
+// found / not theirs) still return a clean 404/403 and never leak. The minted
+// URL is a one-time login credential and is NEVER logged.
 
 export interface InvoicePdfRouteUser {
   whmcsClientId?: number | null;
@@ -40,33 +58,30 @@ export interface InvoicePdfRouteDeps {
   normalizeBaseUrl?: (raw: string | null) => string | null;
   /** Defaults to the real loader; injectable for tests. */
   loadInvoiceDetail?: (invoiceId: number, clientId: number, baseUrl: string | null) => Promise<InvoiceDetailData>;
-  /** Defaults to the real PDF fetch; injectable for tests. */
-  getInvoicePdf?: (invoiceId: number) => Promise<WhmcsInvoicePdfDownload>;
+  /** Defaults to the real WHMCS SSO call; injectable for tests. */
+  createSsoToken?: (clientId: number, redirectPath: string) => Promise<WhmcsRawFetch>;
 }
 
-function streamPdf(res: Response, req: Request, invoiceId: number, data: string): void {
-  const buffer = Buffer.from(data, "base64");
-  const disposition = req.query.download === "1" ? "attachment" : "inline";
-  res.set("Content-Type", "application/pdf");
-  res.set("Content-Disposition", `${disposition}; filename="invoice-${invoiceId}.pdf"`);
-  res.set("Cache-Control", "private, max-age=300");
-  res.send(buffer);
+/** Pull the one-time redirect URL out of a CreateSsoToken result, or null. */
+function extractSsoUrl(result: WhmcsRawFetch): string | null {
+  if (!result.ok) return null;
+  const url = result.data?.redirect_url;
+  return typeof url === "string" && url.length > 0 ? url : null;
 }
 
 /**
- * Customer invoice-PDF download proxy. Streams a single invoice's official WHMCS
- * PDF through ServiceHub (mirror-on-read — nothing stored) so the customer never
- * has to log into the WHMCS client area to read it. Ownership is enforced exactly
- * like the invoice detail read: loadInvoiceDetail rejects any invoice whose
- * owning client doesn't match the session user's linked client (returns
- * notFound), so a customer can't pull another client's PDF by guessing its id.
- * Never 500s — degrades to a clean 404 / 502 / 503.
+ * Customer invoice-PDF download. Mints a single-use SSO redirect to the official
+ * WHMCS PDF link for ONE of the logged-in user's OWN invoices and 302s to it, so
+ * the customer never hits a WHMCS login wall. Ownership is enforced exactly like
+ * the invoice-detail read (loadInvoiceDetail rejects any invoice whose owning
+ * client doesn't match → notFound). Falls back to the plain WHMCS PDF link when
+ * SSO can't be minted or the read is unreachable; never 500s.
  */
 export function createInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
   const credentials = deps.hasWhmcsCredentials ?? hasWhmcsCredentials;
   const normalize = deps.normalizeBaseUrl ?? normalizeBaseUrl;
   const load = deps.loadInvoiceDetail ?? defaultLoadInvoiceDetail;
-  const fetchPdf = deps.getInvoicePdf ?? defaultGetInvoicePdf;
+  const createSso = deps.createSsoToken ?? defaultCreateSsoToken;
   return async (req: Request, res: Response) => {
     try {
       const invoiceId = Number(getParam(req, "invoiceId"));
@@ -88,18 +103,25 @@ export function createInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
       if (!clientId) {
         return res.status(404).json({ message: "Invoice not found" });
       }
+      // Plain (login-walled) WHMCS PDF link — the graceful fallback target.
+      const fallbackUrl = buildInvoicePdfUrl(baseUrl, invoiceId);
       const detail = await load(invoiceId, clientId, baseUrl);
       if (detail.unreachable) {
+        // Can't verify ownership right now; send them to the login-walled link
+        // (WHMCS re-checks ownership after login) instead of a dead end.
+        if (fallbackUrl) return res.redirect(fallbackUrl);
         return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
       }
       if (detail.notFound || !detail.invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      const dl = await fetchPdf(invoiceId);
-      if (!dl.ok || !dl.data) {
+      const path = buildInvoicePdfPath(invoiceId);
+      const ssoUrl = path ? extractSsoUrl(await createSso(clientId, path)) : null;
+      const target = ssoUrl ?? fallbackUrl;
+      if (!target) {
         return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
       }
-      return streamPdf(res, req, invoiceId, dl.data);
+      return res.redirect(target);
     } catch {
       return res.status(503).json({ message: "Billing system is temporarily unavailable" });
     }
@@ -107,16 +129,17 @@ export function createInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
 }
 
 /**
- * Admin invoice-PDF download proxy for a linked customer. Permission-gated;
- * ownership enforced against the SELECTED user's linked client id (same guard as
- * the customer route). Streams the PDF bytes through — nothing is stored. MAY
- * surface the underlying error message (it's admin-only, not customer-facing).
+ * Admin invoice-PDF download for a linked customer. Permission-gated; ownership
+ * enforced against the SELECTED user's linked client id (same guard as the
+ * customer route). Mints an SSO redirect to the customer's official WHMCS PDF
+ * link and 302s to it, with the same plain-link fallback. MAY surface the
+ * underlying error message (it's admin-only, not customer-facing).
  */
 export function createAdminInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
   const credentials = deps.hasWhmcsCredentials ?? hasWhmcsCredentials;
   const normalize = deps.normalizeBaseUrl ?? normalizeBaseUrl;
   const load = deps.loadInvoiceDetail ?? defaultLoadInvoiceDetail;
-  const fetchPdf = deps.getInvoicePdf ?? defaultGetInvoicePdf;
+  const createSso = deps.createSsoToken ?? defaultCreateSsoToken;
   return async (req: Request, res: Response) => {
     try {
       const user = await deps.getUser(getParam(req, "id"));
@@ -133,18 +156,22 @@ export function createAdminInvoicePdfHandler(deps: InvoicePdfRouteDeps) {
       if (!configured || !enabled || !clientId) {
         return res.status(404).json({ message: "Invoice not found" });
       }
+      const fallbackUrl = buildInvoicePdfUrl(baseUrl, invoiceId);
       const detail = await load(invoiceId, clientId, baseUrl);
       if (detail.unreachable) {
+        if (fallbackUrl) return res.redirect(fallbackUrl);
         return res.status(502).json({ message: "Could not download this invoice right now. Please try again shortly." });
       }
       if (detail.notFound || !detail.invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
-      const dl = await fetchPdf(invoiceId);
-      if (!dl.ok || !dl.data) {
-        return res.status(502).json({ message: `Could not download this invoice: ${dl.error ?? "unknown error"}` });
+      const path = buildInvoicePdfPath(invoiceId);
+      const ssoUrl = path ? extractSsoUrl(await createSso(clientId, path)) : null;
+      const target = ssoUrl ?? fallbackUrl;
+      if (!target) {
+        return res.status(502).json({ message: "Could not download this invoice right now." });
       }
-      return streamPdf(res, req, invoiceId, dl.data);
+      return res.redirect(target);
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }

@@ -15,3 +15,4 @@
 - [notification_templates.enabled semantics](notification-template-enabled-semantics.md) — `enabled` = "use custom wording", NOT send/suppress; off → default wording, notification still fires.
 - [WHMCS customer endpoints block UNLINKED staff](whmcs-customer-endpoint-staff-block.md) — guard customer billing routes with `isUnlinkedStaff`, not `isStaffRole`; linked staff get their own session-scoped billing.
 - [WHMCS tests vs deploy-gate live API](whmcs-test-live-api-on-deploy-gate.md) — deploy gate runs on the VPS where WHMCS is reachable; billing loader tests must inject loadSummary, never rely on ambient unreachability.
+- [WHMCS has no invoice-PDF-bytes API](whmcs-no-pdf-bytes-api.md) — `GetInvoicePDF` isn't a real action; serve the PDF via an SSO redirect to `dl.php?type=i&id=<id>`, not a byte fetch.

@@ -2,24 +2,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
 import { createInvoicePdfHandler, createAdminInvoicePdfHandler } from "./whmcs-invoice-pdf-route";
+import type { WhmcsRawFetch } from "./whmcs";
 
-// Route-level tests for the invoice-PDF download proxies (Task #373):
+// Route-level tests for the invoice-PDF download endpoints:
 //   GET /api/billing/invoices/:invoiceId/pdf                         (customer)
 //   GET /api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf   (admin)
 //
 // Drives the REAL production handlers (createInvoicePdfHandler /
-// createAdminInvoicePdfHandler) — not a mirror copy — so a regression in either
-// route's branch logic is caught here. Contract: the proxy fetches a single
-// invoice's official WHMCS PDF and streams the bytes through ServiceHub so the
-// customer never gets bounced to a WHMCS client-area login. Ownership is enforced
-// exactly like the invoice-detail read (loadInvoiceDetail rejects any invoice
-// whose owning client doesn't match), so a customer can't pull another client's
-// PDF by guessing an id; the customer route additionally rejects staff (Task
-// #439). Failures degrade cleanly: 404 (not found / unconfigured / unlinked /
-// ownership mismatch), 502 (WHMCS unreachable or PDF fetch failed), 503/500
-// (unexpected throw) — never a leak. The loader, pdf fetch, credential check and
-// base-url normalizer are all injected so we can drive every branch without a
-// live WHMCS.
+// createAdminInvoicePdfHandler) — not a mirror copy. WHMCS has NO API action
+// that returns PDF bytes, so the handler mints a single-use SSO auto-login URL
+// (CreateSsoToken) and 302s the browser to WHMCS's own `dl.php?type=i&id=<id>`
+// PDF link. Contracts under test:
+//   1. Happy path → 302 to the minted SSO redirect URL (built from a server-side
+//      ownership-checked id only).
+//   2. Ownership — client id resolved from the session (customer) / selected user
+//      (admin); loadInvoiceDetail rejects a non-owned invoice (notFound → 404)
+//      BEFORE any SSO token is minted, so request input can't reach another
+//      client's PDF. The customer route also rejects staff (403).
+//   3. Fail-soft — when SSO can't be minted OR the ownership read is unreachable,
+//      the route 302s to the plain (login-walled) WHMCS PDF link instead of a
+//      dead end. WHMCS re-enforces ownership after login.
+//   4. Hard-deny — invalid id / unconfigured / unlinked / not-found stay clean
+//      404/403; an unexpected throw degrades to 503 (customer) / 500 (admin),
+//      never a leak.
+// The loader, SSO call, credential check and base-url normalizer are injected so
+// every branch is driven without a live WHMCS.
+
+const BASE = "https://billing.example.com";
+const SSO_URL = "https://billing.example.com/dl.php?type=i&id=7&sso=onetimetoken";
+const FALLBACK_PDF = `${BASE}/dl.php?type=i&id=7`;
 
 interface FakeDeps {
   configured: boolean;
@@ -27,9 +38,9 @@ interface FakeDeps {
   baseUrl: string | null;
   clientId: number | null;
   loader: (invoiceId: number, clientId: number, baseUrl: string | null) => Promise<any>;
-  pdf: (invoiceId: number) => Promise<{ ok: boolean; data?: string; error?: string }>;
+  sso: (clientId: number, redirectPath: string) => Promise<WhmcsRawFetch>;
   userExists?: boolean;
-  /** Session user's role on the customer route — staff are rejected (Task #439). */
+  /** Session user's role on the customer route — staff are rejected. */
   role?: string | null;
 }
 
@@ -37,48 +48,32 @@ function makeApp(deps: FakeDeps) {
   const app = express();
   app.use((req, _res, next) => { (req as any).session = { userId: "u1" }; next(); });
 
-  const customer = createInvoicePdfHandler({
+  const wired = {
     getWhmcsSettings: async () => ({ baseUrl: deps.baseUrl, enabled: deps.enabled }),
     getUser: async () => (deps.userExists === false ? null : { whmcsClientId: deps.clientId, role: deps.role ?? "customer" }),
     hasWhmcsCredentials: () => deps.configured,
-    normalizeBaseUrl: (raw) => raw,
+    normalizeBaseUrl: (raw: string | null) => raw,
     loadInvoiceDetail: deps.loader as any,
-    getInvoicePdf: deps.pdf as any,
-  });
+    createSsoToken: deps.sso,
+  };
 
-  const admin = createAdminInvoicePdfHandler({
-    getWhmcsSettings: async () => ({ baseUrl: deps.baseUrl, enabled: deps.enabled }),
-    getUser: async () => (deps.userExists === false ? null : { whmcsClientId: deps.clientId, role: deps.role ?? "customer" }),
-    hasWhmcsCredentials: () => deps.configured,
-    normalizeBaseUrl: (raw) => raw,
-    loadInvoiceDetail: deps.loader as any,
-    getInvoicePdf: deps.pdf as any,
-  });
-
-  app.get("/api/billing/invoices/:invoiceId/pdf", customer);
-  app.get("/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf", admin);
+  app.get("/api/billing/invoices/:invoiceId/pdf", createInvoicePdfHandler(wired));
+  app.get("/api/admin/users/:id/whmcs/billing/invoices/:invoiceId/pdf", createAdminInvoicePdfHandler(wired));
   return app;
 }
 
-async function get(app: express.Express, path: string): Promise<{ status: number; contentType: string | null; disposition: string | null; bytes: Buffer; json: any }> {
+async function get(app: express.Express, path: string): Promise<{ status: number; location: string | null; json: any }> {
   return await new Promise((resolve, reject) => {
     const server = app.listen(0, () => {
       const port = (server.address() as any).port;
-      fetch(`http://127.0.0.1:${port}${path}`)
+      fetch(`http://127.0.0.1:${port}${path}`, { redirect: "manual" })
         .then(async (r) => {
-          const buf = Buffer.from(await r.arrayBuffer());
           const ct = r.headers.get("content-type");
           let json: any = null;
           if (ct && ct.includes("application/json")) {
-            try { json = JSON.parse(buf.toString("utf8")); } catch { /* ignore */ }
+            try { json = JSON.parse(await r.text()); } catch { /* ignore */ }
           }
-          return {
-            status: r.status,
-            contentType: ct,
-            disposition: r.headers.get("content-disposition"),
-            bytes: buf,
-            json,
-          };
+          return { status: r.status, location: r.headers.get("location"), json };
         })
         .then((out) => { server.close(); resolve(out); })
         .catch((err) => { server.close(); reject(err); });
@@ -86,30 +81,40 @@ async function get(app: express.Express, path: string): Promise<{ status: number
   });
 }
 
-const PDF_B64 = Buffer.from("%PDF-1.4 fake").toString("base64");
+const ssoOk = async (): Promise<WhmcsRawFetch> => ({ ok: true, data: { redirect_url: SSO_URL } });
 
 const baseDeps = (over: Partial<FakeDeps> = {}): FakeDeps => ({
   configured: true,
   enabled: true,
-  baseUrl: "https://billing.example.com",
+  baseUrl: BASE,
   clientId: 100,
-  loader: async () => ({ unreachable: false, notFound: false, invoice: { id: 1, total: "10.00" } }),
-  pdf: async () => ({ ok: true, data: PDF_B64 }),
+  loader: async () => ({ unreachable: false, notFound: false, invoice: { id: 7, total: "10.00" } }),
+  sso: ssoOk,
   ...over,
 });
 
-test("customer: happy path → 200 application/pdf with bytes", async () => {
+// --- The regression that started Task #450: the old code "succeeded" by calling
+// a non-existent WHMCS action behind an injected stub. The contract is now a
+// redirect to a real WHMCS link, so a test can no longer pass by faking bytes. ---
+
+test("customer: happy path → 302 redirect to the minted SSO URL", async () => {
   const app = makeApp(baseDeps());
   const r = await get(app, "/api/billing/invoices/7/pdf");
-  assert.equal(r.status, 200);
-  assert.equal(r.contentType, "application/pdf");
-  assert.match(r.disposition ?? "", /inline; filename="invoice-7\.pdf"/);
-  assert.equal(r.bytes.toString("utf8"), "%PDF-1.4 fake");
+  assert.equal(r.status, 302);
+  assert.equal(r.location, SSO_URL);
 });
 
-test("customer: invalid invoice id → 404, no loader/pdf call", async () => {
+test("customer: SSO redirect path targets WHMCS dl.php for the requested invoice", async () => {
+  let seenPath: string | null = null;
+  const app = makeApp(baseDeps({ sso: async (_c, path) => { seenPath = path; return ssoOk(); } }));
+  const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 302);
+  assert.equal(seenPath, "/dl.php?type=i&id=7");
+});
+
+test("customer: invalid invoice id → 404, no loader/sso call", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const app = makeApp(baseDeps({ loader: async () => { called = true; return {}; }, sso: async () => { called = true; return ssoOk(); } }));
   const r = await get(app, "/api/billing/invoices/0/pdf");
   assert.equal(r.status, 404);
   assert.equal(called, false);
@@ -123,17 +128,17 @@ test("customer: not configured → 404, no loader call", async () => {
   assert.equal(called, false);
 });
 
-test("customer: admin session → 403, no loader/pdf call", async () => {
+test("customer: admin session → 403, no loader/sso call", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ role: "admin", clientId: null, loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const app = makeApp(baseDeps({ role: "admin", clientId: null, loader: async () => { called = true; return {}; }, sso: async () => { called = true; return ssoOk(); } }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 403, "staff accounts must be rejected from the customer PDF download");
   assert.equal(called, false, "WHMCS must not be queried for a staff account");
 });
 
-test("customer: master_admin session → 403, no loader/pdf call", async () => {
+test("customer: master_admin session → 403, no loader/sso call", async () => {
   let called = false;
-  const app = makeApp(baseDeps({ role: "master_admin", clientId: null, loader: async () => { called = true; return {}; }, pdf: async () => { called = true; return { ok: false }; } }));
+  const app = makeApp(baseDeps({ role: "master_admin", clientId: null, loader: async () => { called = true; return {}; }, sso: async () => { called = true; return ssoOk(); } }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 403);
   assert.equal(called, false);
@@ -147,28 +152,41 @@ test("customer: no linked client → 404, no loader call", async () => {
   assert.equal(called, false);
 });
 
-test("customer: ownership mismatch (loader notFound) → 404, pdf never fetched", async () => {
-  let pdfCalled = false;
+test("customer: ownership mismatch (loader notFound) → 404, SSO never minted", async () => {
+  let ssoCalled = false;
   const app = makeApp(baseDeps({
     loader: async () => ({ unreachable: false, notFound: true, invoice: null }),
-    pdf: async () => { pdfCalled = true; return { ok: true, data: PDF_B64 }; },
+    sso: async () => { ssoCalled = true; return ssoOk(); },
   }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
   assert.equal(r.status, 404);
-  assert.equal(pdfCalled, false, "must not fetch PDF for a non-owned invoice");
+  assert.equal(ssoCalled, false, "must not mint an SSO token for a non-owned invoice");
 });
 
-test("customer: WHMCS unreachable on detail → 502", async () => {
-  const app = makeApp(baseDeps({ loader: async () => ({ unreachable: true, notFound: false, invoice: null }) }));
+test("customer: WHMCS unreachable on detail → 302 fallback to plain WHMCS PDF link", async () => {
+  let ssoCalled = false;
+  const app = makeApp(baseDeps({
+    loader: async () => ({ unreachable: true, notFound: false, invoice: null }),
+    sso: async () => { ssoCalled = true; return ssoOk(); },
+  }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
-  assert.equal(r.status, 502);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_PDF);
+  assert.equal(ssoCalled, false, "no token minted when ownership can't be verified");
 });
 
-test("customer: PDF fetch fails → 502 (clean message, no crash)", async () => {
-  const app = makeApp(baseDeps({ pdf: async () => ({ ok: false, error: "nope" }) }));
+test("customer: SSO refused (ok:false) → 302 fallback to plain WHMCS PDF link", async () => {
+  const app = makeApp(baseDeps({ sso: async () => ({ ok: false, error: "sso disabled" }) }));
   const r = await get(app, "/api/billing/invoices/7/pdf");
-  assert.equal(r.status, 502);
-  assert.equal(r.contentType?.includes("application/json"), true);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_PDF);
+});
+
+test("customer: SSO ok but no redirect_url → 302 fallback to plain WHMCS PDF link", async () => {
+  const app = makeApp(baseDeps({ sso: async () => ({ ok: true, data: {} }) }));
+  const r = await get(app, "/api/billing/invoices/7/pdf");
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_PDF);
 });
 
 test("customer: unexpected throw → 503, never 500/leak", async () => {
@@ -177,12 +195,11 @@ test("customer: unexpected throw → 503, never 500/leak", async () => {
   assert.equal(r.status, 503);
 });
 
-test("admin: happy path → 200 application/pdf", async () => {
+test("admin: happy path → 302 redirect to the minted SSO URL", async () => {
   const app = makeApp(baseDeps());
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
-  assert.equal(r.status, 200);
-  assert.equal(r.contentType, "application/pdf");
-  assert.equal(r.bytes.toString("utf8"), "%PDF-1.4 fake");
+  assert.equal(r.status, 302);
+  assert.equal(r.location, SSO_URL);
 });
 
 test("admin: unknown user → 404", async () => {
@@ -191,77 +208,38 @@ test("admin: unknown user → 404", async () => {
   assert.equal(r.status, 404);
 });
 
-test("admin: ownership mismatch → 404, pdf never fetched", async () => {
-  let pdfCalled = false;
+test("admin: ownership mismatch → 404, SSO never minted", async () => {
+  let ssoCalled = false;
   const app = makeApp(baseDeps({
     loader: async () => ({ unreachable: false, notFound: true, invoice: null }),
-    pdf: async () => { pdfCalled = true; return { ok: true, data: PDF_B64 }; },
+    sso: async () => { ssoCalled = true; return ssoOk(); },
   }));
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
   assert.equal(r.status, 404);
-  assert.equal(pdfCalled, false);
+  assert.equal(ssoCalled, false);
 });
 
-test("admin: PDF fetch fails → 502 surfaces the underlying error", async () => {
-  const app = makeApp(baseDeps({ pdf: async () => ({ ok: false, error: "nope" }) }));
+test("admin: WHMCS unreachable on detail → 302 fallback to plain WHMCS PDF link", async () => {
+  let ssoCalled = false;
+  const app = makeApp(baseDeps({
+    loader: async () => ({ unreachable: true, notFound: false, invoice: null }),
+    sso: async () => { ssoCalled = true; return ssoOk(); },
+  }));
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
-  assert.equal(r.status, 502);
-  assert.match(r.json?.message ?? "", /nope/);
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_PDF);
+  assert.equal(ssoCalled, false);
+});
+
+test("admin: SSO refused → 302 fallback to plain WHMCS PDF link", async () => {
+  const app = makeApp(baseDeps({ sso: async () => ({ ok: false, error: "nope" }) }));
+  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
+  assert.equal(r.status, 302);
+  assert.equal(r.location, FALLBACK_PDF);
 });
 
 test("admin: unexpected throw → 500", async () => {
   const app = makeApp(baseDeps({ loader: async () => { throw new Error("boom"); } }));
   const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
   assert.equal(r.status, 500);
-});
-
-// Content-Disposition switching (Task #378): the "Download PDF" action appends
-// ?download=1 to force a save-to-device on mobile, where inline PDF viewing is
-// unreliable. Without ?download=1 the proxy must keep serving the bytes inline
-// so in-browser/in-app preview still works. Both proxy routes must honour this.
-
-test("customer: default (no ?download) → Content-Disposition inline", async () => {
-  const app = makeApp(baseDeps());
-  const r = await get(app, "/api/billing/invoices/7/pdf");
-  assert.equal(r.status, 200);
-  assert.match(r.disposition ?? "", /^inline; filename="invoice-7\.pdf"$/);
-});
-
-test("customer: ?download=1 → Content-Disposition attachment", async () => {
-  const app = makeApp(baseDeps());
-  const r = await get(app, "/api/billing/invoices/7/pdf?download=1");
-  assert.equal(r.status, 200);
-  assert.match(r.disposition ?? "", /^attachment; filename="invoice-7\.pdf"$/);
-});
-
-test("customer: ?download=0 (and other values) → stays inline", async () => {
-  const app = makeApp(baseDeps());
-  for (const q of ["download=0", "download=true", "download=", "foo=1"]) {
-    const r = await get(app, `/api/billing/invoices/7/pdf?${q}`);
-    assert.equal(r.status, 200);
-    assert.match(r.disposition ?? "", /^inline; /, q);
-  }
-});
-
-test("admin: default (no ?download) → Content-Disposition inline", async () => {
-  const app = makeApp(baseDeps());
-  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf");
-  assert.equal(r.status, 200);
-  assert.match(r.disposition ?? "", /^inline; filename="invoice-7\.pdf"$/);
-});
-
-test("admin: ?download=1 → Content-Disposition attachment", async () => {
-  const app = makeApp(baseDeps());
-  const r = await get(app, "/api/admin/users/abc/whmcs/billing/invoices/7/pdf?download=1");
-  assert.equal(r.status, 200);
-  assert.match(r.disposition ?? "", /^attachment; filename="invoice-7\.pdf"$/);
-});
-
-test("admin: ?download=0 (and other values) → stays inline", async () => {
-  const app = makeApp(baseDeps());
-  for (const q of ["download=0", "download=true", "download=", "foo=1"]) {
-    const r = await get(app, `/api/admin/users/abc/whmcs/billing/invoices/7/pdf?${q}`);
-    assert.equal(r.status, 200);
-    assert.match(r.disposition ?? "", /^inline; /, q);
-  }
 });

@@ -122,6 +122,20 @@ export function buildInvoicePayPath(ids: number[]): string | null {
   return `/viewinvoice.php?id=${valid.join(",")}`;
 }
 
+/**
+ * WHMCS-relative path to the official rendered PDF for ONE invoice, used as the
+ * `sso_redirect_path` when minting a seamless auto-login PDF link. WHMCS serves
+ * the generated PDF from `dl.php?type=i&id=<id>` to an authenticated client, so
+ * dropping the customer there via an SSO token opens the real PDF with no login
+ * wall — we never fetch/generate the PDF bytes ourselves. Built server-side from
+ * an id the caller has ownership-checked, never from raw request input. Returns
+ * null for an invalid id.
+ */
+export function buildInvoicePdfPath(id: number): string | null {
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return `/dl.php?type=i&id=${id}`;
+}
+
 export interface ParsedInvoice {
   id: number;
   invoiceNum: string;

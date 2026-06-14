@@ -744,27 +744,3 @@ export async function getTicketAttachment(
   const data = typeof r.data?.data === "string" ? r.data.data : "";
   return { ok: true, filename, data };
 }
-
-export interface WhmcsInvoicePdfDownload {
-  ok: boolean;
-  /** base64 of the raw PDF bytes. */
-  data?: string;
-  error?: string;
-  reason?: WhmcsFailureReason;
-}
-
-/**
- * Fetch a single invoice's official PDF bytes via WHMCS GetInvoicePDF. WHMCS
- * returns the rendered PDF base64-encoded under `pdf`. Used by the download
- * proxy so a customer can grab their invoice PDF in-app without a separate
- * WHMCS client-area login — mirror-on-read, nothing is stored in ServiceHub.
- * No-throw tagged result like every other fetcher here; the caller does the
- * ownership check (the invoice must belong to the session user's linked client)
- * BEFORE calling this, exactly like the ticket-attachment proxy.
- */
-export async function getInvoicePdf(invoiceId: number): Promise<WhmcsInvoicePdfDownload> {
-  const r = await whmcsApiCall("GetInvoicePDF", { invoiceid: invoiceId });
-  if (!r.ok) return { ok: false, error: r.error, reason: r.reason };
-  const data = typeof r.data?.pdf === "string" ? r.data.pdf : "";
-  return { ok: true, data };
-}
