@@ -47,6 +47,7 @@ import {
 import { loadBillingSummaryWithInvoiceServices, loadBillingDashboard, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
 import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import { createMyServicesHandler } from "./whmcs-services-route";
+import { createListProductDnsHandler, createSetProductDnsHandler } from "./whmcs-product-dns-route";
 import { createAdminBillingHandler } from "./whmcs-admin-billing-route";
 import { createCustomerInvoiceDetailHandler, createAdminInvoiceDetailHandler } from "./whmcs-invoice-detail-route";
 import { createCustomerBillingHandler } from "./whmcs-billing-summary-route";
@@ -6751,39 +6752,25 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  // List the admin-set per-product DNS values (Task #473), keyed by WHMCS pid.
-  // Pure DB read — works even when WHMCS is unreachable.
-  app.get("/api/admin/whmcs/product-dns", requireAdmin, async (_req, res) => {
-    try {
-      const rows = await storage.listWhmcsProductDns();
-      res.json({ entries: rows.map((r) => ({ whmcsProductId: r.whmcsProductId, dns: r.dns })) });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
-
-  // Set/clear the DNS (connection address) for a single WHMCS product. An empty
-  // dns clears it. The DNS is shown to customers alongside their service login.
-  app.put("/api/admin/whmcs/product-dns", requireAdmin, async (req, res) => {
-    try {
-      const whmcsProductId = Number(req.body?.whmcsProductId);
-      if (!Number.isInteger(whmcsProductId) || whmcsProductId <= 0) {
-        return res.status(400).json({ message: "A valid WHMCS product id is required" });
-      }
-      const dns = typeof req.body?.dns === "string" ? req.body.dns : "";
-      const row = await storage.setWhmcsProductDns(whmcsProductId, dns);
+  // Admin per-product DNS endpoints (Task #473). Handlers are extracted into
+  // whmcs-product-dns-route.ts so the validation/persistence/clear semantics are
+  // unit-tested against the SAME code mounted here; both stay behind requireAdmin.
+  // The list is a pure DB read — works even when WHMCS is unreachable.
+  const productDnsDeps = {
+    listProductDns: () => storage.listWhmcsProductDns(),
+    setProductDns: (pid: number, dns: string) => storage.setWhmcsProductDns(pid, dns),
+    logActivity: ({ actorId, whmcsProductId, set }: { actorId?: string; whmcsProductId: number; set: boolean }) =>
       logActivity("setting", "whmcs_product_dns_set", {
-        actorId: req.session.userId,
+        actorId,
         targetType: "setting",
-        summary: row
+        summary: set
           ? `Set DNS for WHMCS product #${whmcsProductId}`
           : `Cleared DNS for WHMCS product #${whmcsProductId}`,
-      });
-      res.json({ ok: true, whmcsProductId, dns: row?.dns ?? "" });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
+      }),
+    getErrorMessage,
+  };
+  app.get("/api/admin/whmcs/product-dns", requireAdmin, createListProductDnsHandler(productDnsDeps));
+  app.put("/api/admin/whmcs/product-dns", requireAdmin, createSetProductDnsHandler(productDnsDeps));
 
   // Locked-shape derived-services payload, mirroring emptyBilling. The customer
   // and admin routes both fall back to this so the frontend never branches on
