@@ -5,6 +5,7 @@ import {
   createAdminServiceActionHandler,
   type AdminServiceActionDeps,
 } from "./whmcs-admin-service-action-route";
+import { getParam } from "./http-params";
 import type { ServicesListData } from "./whmcs-billing";
 import type { WhmcsRawFetch } from "./whmcs";
 
@@ -344,4 +345,143 @@ test("network failure degrades to 502 (no 500, no audit)", async () => {
   assert.equal(status, 502);
   assert.equal(body.ok, false);
   assert.equal(audits.length, 0);
+});
+
+// ---------- billing-cache invalidation wiring ----------
+//
+// registerRoutes wraps this handler with an after-hook that drops the SELECTED
+// customer's cached billing the moment an action SUCCEEDS — otherwise the admin
+// panel (and the customer's own /api/billing) keeps serving the pre-action
+// status until the 60s TTL expires. Unlike the customer cancel route (which
+// keys off the SESSION user via createBillingCacheInvalidator), this route
+// resolves the client id from the SELECTED customer's :id path param. These
+// tests mount the REAL handler factory + the SAME inline wrapper routes.ts uses
+// and spy on the invalidator to assert the exact gating: invalidate only on a
+// 200, for the target customer's client id, and never on a degraded response.
+
+function makeWiredApp(opts: AppOpts) {
+  const invalidated: number[] = [];
+  const audits: AuditEntry[] = [];
+  const deps: AdminServiceActionDeps = {
+    getWhmcsSettings: async () => ({
+      baseUrl: opts.baseUrl === undefined ? "https://billing.example.com" : opts.baseUrl,
+      enabled: opts.enabled ?? true,
+    }),
+    getUser: async (id: string) => opts.users[id],
+    logActivity: (category, action, o) => { audits.push({ category, action, opts: o }); },
+    hasWhmcsCredentials: () => opts.hasCredentials ?? true,
+    normalizeBaseUrl: (raw) => raw,
+    loadServicesList: opts.loadServicesList,
+    moduleSuspend: opts.moduleSuspend,
+    moduleUnsuspend: opts.moduleUnsuspend,
+    moduleTerminate: opts.moduleTerminate,
+  };
+  const handler = createAdminServiceActionHandler(deps);
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: opts.sessionUserId ?? "admin1" };
+    next();
+  });
+  // Mirror exactly how registerRoutes composes the route: run the handler, then
+  // on a 200 re-resolve the SELECTED customer (path :id) and drop their cache.
+  app.post("/api/admin/users/:id/whmcs/services/:serviceId/:action", async (req, res) => {
+    await handler(req, res);
+    if (res.statusCode === 200) {
+      const target = opts.users[getParam(req, "id")];
+      if (target?.whmcsClientId) invalidated.push(target.whmcsClientId);
+    }
+  });
+  return { app, invalidated };
+}
+
+test("invalidates the SELECTED customer's billing cache after a successful action (200)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    sessionUserId: "admin1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, "u1", 100, "suspend");
+  assert.equal(status, 200);
+  // Cache dropped exactly once, for the TARGET customer's linked client id —
+  // not the acting admin's (admin1 has no client).
+  assert.deepEqual(invalidated, [5]);
+});
+
+test("unsuspend and terminate also drop the target customer's cache on success", async () => {
+  const un = makeWiredApp({
+    users: { u1: { whmcsClientId: 7 } },
+    loadServicesList: okList([svc(100, "Suspended")]),
+    moduleUnsuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const unRes = await call(un.app, "u1", 100, "unsuspend");
+  assert.equal(unRes.status, 200);
+  assert.deepEqual(un.invalidated, [7]);
+
+  const term = makeWiredApp({
+    users: { u1: { whmcsClientId: 9 } },
+    loadServicesList: okList([svc(100, "Active")]),
+    moduleTerminate: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const termRes = await call(term.app, "u1", 100, "terminate");
+  assert.equal(termRes.status, 200);
+  assert.deepEqual(term.invalidated, [9]);
+});
+
+test("does NOT invalidate when the action surfaces a WHMCS error (400)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: false, reason: "whmcs_error", error: "Module does not support suspend" }),
+  });
+  const { status } = await call(app, "u1", 100, "suspend");
+  assert.equal(status, 400);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the service isn't the customer's (404)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, "u1", 999, "suspend");
+  assert.equal(status, 404);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate on a status-guard rejection (409)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100, "Suspended")]),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, "u1", 100, "suspend");
+  assert.equal(status, 409);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the services list is unreachable (502)", async () => {
+  const { app, invalidated } = makeWiredApp({
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: async (): Promise<ServicesListData> => ({ services: [], unreachable: true }),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, "u1", 100, "suspend");
+  assert.equal(status, 502);
+  assert.deepEqual(invalidated, []);
+});
+
+test("does NOT invalidate when the selected customer has no linked client (409)", async () => {
+  // The handler itself 409s here, but even on a hypothetical 200 there is no
+  // client id to act on — so nothing is dropped either way.
+  const { app, invalidated } = makeWiredApp({
+    users: { u1: { whmcsClientId: null } },
+    loadServicesList: okList([svc(100)]),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status } = await call(app, "u1", 100, "suspend");
+  assert.equal(status, 409);
+  assert.deepEqual(invalidated, []);
 });
