@@ -6193,9 +6193,33 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     getClientById: getWhmcsClientById,
     getClientByEmail: getWhmcsClientByEmail,
   };
-  app.post("/api/admin/users/:id/whmcs/link", requirePermission("users.view", "users.manage"), createWhmcsLinkHandler(whmcsLinkDeps));
-  app.delete("/api/admin/users/:id/whmcs/link", requirePermission("users.view", "users.manage"), createWhmcsUnlinkHandler(whmcsLinkDeps));
-  app.post("/api/admin/users/:id/whmcs/auto-match", requirePermission("users.view", "users.manage"), createWhmcsAutoMatchHandler(whmcsLinkDeps));
+  // Wrap each LINKING write so a successful (2xx) link / unlink / auto-match
+  // drops the affected customer's cached billing immediately — same hygiene the
+  // service-lifecycle route applies. Because these writes CHANGE which client a
+  // user is bound to, we capture the previously-linked client id BEFORE the
+  // handler and re-read the user AFTER, then invalidate BOTH (the old one on
+  // unlink/relink AND the new one on link/auto-match). De-duped + null-skipped.
+  // Only fires on a 2xx success — a rejected/degraded response leaves the cache
+  // untouched.
+  const withBillingInvalidation =
+    (handler: (req: Request, res: Response) => unknown) =>
+    async (req: Request, res: Response) => {
+      const userId = getParam(req, "id");
+      const before = await storage.getUser(userId);
+      const prevClientId = before?.whmcsClientId ?? null;
+      await handler(req, res);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        const after = await storage.getUser(userId);
+        const nextClientId = after?.whmcsClientId ?? null;
+        const affected = new Set<number>();
+        if (prevClientId) affected.add(prevClientId);
+        if (nextClientId) affected.add(nextClientId);
+        for (const clientId of affected) invalidateBillingCaches(clientId);
+      }
+    };
+  app.post("/api/admin/users/:id/whmcs/link", requirePermission("users.view", "users.manage"), withBillingInvalidation(createWhmcsLinkHandler(whmcsLinkDeps)));
+  app.delete("/api/admin/users/:id/whmcs/link", requirePermission("users.view", "users.manage"), withBillingInvalidation(createWhmcsUnlinkHandler(whmcsLinkDeps)));
+  app.post("/api/admin/users/:id/whmcs/auto-match", requirePermission("users.view", "users.manage"), withBillingInvalidation(createWhmcsAutoMatchHandler(whmcsLinkDeps)));
 
   // ---------- Billing (read-only WHMCS) ----------
   // The customer billing screens are scoped to the SESSION user's own linked

@@ -437,3 +437,128 @@ test("manual link to a client already linked to the SAME user succeeds (not a co
   assert.equal(body.ok, true);
   assert.equal(spies.updates.length, 1);
 });
+
+// ---------- billing-cache invalidation on link/unlink/auto-match ----------
+//
+// A successful (2xx) link / unlink / auto-match must drop the affected
+// customer's cached billing immediately so the admin panel and the customer's
+// own /api/billing reflect the new link without waiting for the 60s TTL — the
+// same hygiene the service-lifecycle route applies. Because these writes CHANGE
+// which client a user is bound to, the wrapper invalidates BOTH the previously
+// linked client (on unlink / relink) AND the newly linked one (on link /
+// auto-match), de-duped + null-skipped, and ONLY on a 2xx. These tests mount the
+// real handler factory behind the SAME inline wrapper routes.ts uses and spy on
+// the invalidator to assert the exact gating.
+
+interface InvalAppOpts extends MakeDepsOpts {
+  sessionUserId?: string;
+}
+
+function makeInvalApp(opts: InvalAppOpts) {
+  const invalidated: number[] = [];
+  // Mutable user store so updateUser is reflected in the post-handler re-read,
+  // exactly like storage in production.
+  const users = { ...opts.users };
+  const { deps, spies } = makeDeps({ ...opts, users });
+  deps.updateUser = async (id, patch) => {
+    spies.updates.push({ id, patch });
+    const u = users[id];
+    const next = u ? { ...u, ...patch } : undefined;
+    if (next) users[id] = next;
+    return next;
+  };
+  // Mirror server/routes.ts:withBillingInvalidation exactly.
+  const withBillingInvalidation =
+    (handler: (req: any, res: any) => unknown) =>
+    async (req: any, res: any) => {
+      const userId = req.params.id;
+      const before = users[userId];
+      const prevClientId = before?.whmcsClientId ?? null;
+      await handler(req, res);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        const after = users[userId];
+        const nextClientId = after?.whmcsClientId ?? null;
+        const affected = new Set<number>();
+        if (prevClientId) affected.add(prevClientId);
+        if (nextClientId) affected.add(nextClientId);
+        for (const clientId of affected) invalidated.push(clientId);
+      }
+    };
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => { (req as any).session = { userId: opts.sessionUserId ?? "admin1" }; next(); });
+  app.post("/api/admin/users/:id/whmcs/link", withBillingInvalidation(createWhmcsLinkHandler(deps)));
+  app.delete("/api/admin/users/:id/whmcs/link", withBillingInvalidation(createWhmcsUnlinkHandler(deps)));
+  app.post("/api/admin/users/:id/whmcs/auto-match", withBillingInvalidation(createWhmcsAutoMatchHandler(deps)));
+  return { app, invalidated, spies };
+}
+
+test("manual link drops the newly-linked client's billing cache on success (200)", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", email: "alice@example.com" } },
+    getClientById: async () => okClient(client(5, "alice@example.com")),
+  });
+  const { status } = await call(app, "POST", LINK_PATH, { clientId: 5 });
+  assert.equal(status, 200);
+  assert.deepEqual(invalidated, [5]);
+});
+
+test("relink drops BOTH the previous and the new client's cache", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", email: "alice@example.com", whmcsClientId: 3 } },
+    getClientById: async () => okClient(client(8, "alice@example.com")),
+  });
+  const { status } = await call(app, "POST", LINK_PATH, { clientId: 8 });
+  assert.equal(status, 200);
+  assert.deepEqual(invalidated.sort(), [3, 8]);
+});
+
+test("unlink drops the previously-linked client's cache on success", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", whmcsClientId: 7 } },
+  });
+  const { status } = await call(app, "DELETE", LINK_PATH);
+  assert.equal(status, 200);
+  assert.deepEqual(invalidated, [7]);
+});
+
+test("auto-match drops the matched client's cache on a real match (200)", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", email: "alice@example.com" } },
+    getClientByEmail: async () => okClient(client(11, "alice@example.com")),
+  });
+  const { status } = await call(app, "POST", MATCH_PATH);
+  assert.equal(status, 200);
+  assert.deepEqual(invalidated, [11]);
+});
+
+test("manual link does NOT invalidate when the client is not found (404)", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", email: "alice@example.com" } },
+    getClientById: async () => okClient(null),
+  });
+  const { status } = await call(app, "POST", LINK_PATH, { clientId: 5 });
+  assert.equal(status, 404);
+  assert.deepEqual(invalidated, []);
+});
+
+test("manual link does NOT invalidate on a 409 conflict", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", email: "alice@example.com" } },
+    usersByClientId: { 5: { id: "u2", username: "bob", whmcsClientId: 5 } },
+    getClientById: async () => okClient(client(5, "bob@example.com")),
+  });
+  const { status } = await call(app, "POST", LINK_PATH, { clientId: 5 });
+  assert.equal(status, 409);
+  assert.deepEqual(invalidated, []);
+});
+
+test("auto-match no-op (no email match) does not invalidate", async () => {
+  const { app, invalidated } = makeInvalApp({
+    users: { u1: { id: "u1", username: "alice", email: "alice@example.com" } },
+    getClientByEmail: async () => okClient(null),
+  });
+  const { status } = await call(app, "POST", MATCH_PATH);
+  assert.equal(status, 200);
+  assert.deepEqual(invalidated, []);
+});
