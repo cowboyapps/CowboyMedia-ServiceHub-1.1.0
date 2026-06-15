@@ -851,7 +851,10 @@ function CancelServiceDialog({
     onError: (e: Error) => {
       toast({
         title: "Couldn't submit your request",
-        description: e.message,
+        description: serverActionErrorMessage(
+          e,
+          "We couldn't reach billing right now. Please try again shortly.",
+        ),
         variant: "destructive",
       });
     },
