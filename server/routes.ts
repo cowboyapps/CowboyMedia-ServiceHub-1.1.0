@@ -63,6 +63,7 @@ import { createListOrderableProductsHandler, createPlaceOrderHandler } from "./w
 import { createUpgradeOptionsHandler, createSubmitUpgradeHandler } from "./whmcs-upgrade-route";
 import { createAdminServiceActionHandler } from "./whmcs-admin-service-action-route";
 import { createWhmcsLinkHandler, createWhmcsUnlinkHandler, createWhmcsAutoMatchHandler } from "./whmcs-admin-link-route";
+import { createWhmcsLinkReadHandler } from "./whmcs-admin-link-read-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -6162,37 +6163,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // { configured, enabled, link, linkedClient, suggestion }. Has NO
   // side-effects (no auto-persist) and never 500s on WHMCS unreachability —
   // linkedClient/suggestion degrade to null instead. The frontend fires the
-  // POST /auto-match mutation when it sees a suggestion.
-  app.get("/api/admin/users/:id/whmcs", requirePermission("users.view", "users.manage"), async (req, res) => {
-    try {
-      const user = await storage.getUser(getParam(req, "id"));
-      if (!user) return res.status(404).json({ message: "User not found" });
-      const settings = await storage.getWhmcsSettings();
-      const configured = hasWhmcsCredentials() && !!normalizeWhmcsBaseUrl(settings?.baseUrl);
-      const enabled = !!settings?.enabled;
-      const autoMatch = settings?.autoMatchByEmail ?? true;
-
-      const link = user.whmcsClientId
-        ? { whmcsClientId: user.whmcsClientId, whmcsLinkedAt: user.whmcsLinkedAt }
-        : null;
-
-      let linkedClient = null;
-      if (configured && link) {
-        const r = await getWhmcsClientById(link.whmcsClientId);
-        linkedClient = r.ok ? (r.client ?? null) : null;
-      }
-
-      let suggestion = null;
-      if (configured && enabled && autoMatch && !link && user.email) {
-        const r = await getWhmcsClientByEmail(user.email);
-        suggestion = r.ok ? (r.client ?? null) : null;
-      }
-
-      res.json({ configured, enabled, link, linkedClient, suggestion });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
+  // POST /auto-match mutation when it sees a suggestion. Extracted into
+  // createWhmcsLinkReadHandler so the locked-shape + never-writes contract is
+  // tested against the real handler (see server/whmcs-admin-link-read-route.test.ts).
+  app.get("/api/admin/users/:id/whmcs", requirePermission("users.view", "users.manage"), createWhmcsLinkReadHandler({
+    getUser: (id: string) => storage.getUser(id),
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    hasWhmcsCredentials,
+    normalizeBaseUrl: normalizeWhmcsBaseUrl,
+    getClientById: getWhmcsClientById,
+    getClientByEmail: getWhmcsClientByEmail,
+  }));
 
   // Staff WHMCS account-LINKING writes — manual link, unlink, and auto-match by
   // email. These mutate a customer's billing RELATIONSHIP, so like the
