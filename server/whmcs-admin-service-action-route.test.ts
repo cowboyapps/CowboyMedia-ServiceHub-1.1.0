@@ -485,3 +485,204 @@ test("does NOT invalidate when the selected customer has no linked client (409)"
   assert.equal(status, 409);
   assert.deepEqual(invalidated, []);
 });
+
+// ---------- authorization gate (the real server-side safety boundary) ----------
+//
+// In production this endpoint is mounted behind
+//   requirePermission("users.view", "users.manage")
+// and the action (suspend/unsuspend/terminate) is always a POST. Because POST is
+// a WRITE method, requirePermission resolves the REQUIRED permission to the
+// MANAGE perm — so a view-only admin (or a customer, or an unauthenticated
+// caller, or an admin with no role) MUST be rejected before the handler runs and
+// before WHMCS is ever touched. The tests above mount the bare handler; these
+// mount a faithful replica of routes.ts's requirePermission IN FRONT of the REAL
+// handler so the full chain — authorization + the WHMCS write — is exercised.
+//
+// The replica mirrors server/routes.ts:requirePermission exactly, including the
+// isWrite → managePerm selection that is the crux of this route's safety: a
+// view-only admin can SEE a customer's services but must not be able to change
+// their lifecycle.
+
+type GuardUser = { role: string; adminRoleId?: string | null };
+
+function makeRequirePermission(
+  users: Record<string, GuardUser | undefined>,
+  rolePerms: Record<string, string[] | undefined>,
+) {
+  return (viewPerm: string, managePerm?: string) =>
+    async (req: any, res: any, next: () => void) => {
+      const uid = req.session?.userId;
+      if (!uid) return res.status(401).json({ message: "Unauthorized" });
+      const user = users[uid];
+      if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (user.role === "master_admin") return next();
+      const isWrite = ["POST", "PATCH", "PUT", "DELETE"].includes(req.method);
+      const requiredPerm = isWrite && managePerm ? managePerm : viewPerm;
+      if (!user.adminRoleId) {
+        return res.status(403).json({ message: "No admin role assigned" });
+      }
+      const perms = rolePerms[user.adminRoleId];
+      if (!perms || !perms.includes(requiredPerm)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      next();
+    };
+}
+
+interface GuardedAppOpts extends AppOpts {
+  /** Acting (session) user's role + admin role; absent uid → unauthenticated. */
+  callers: Record<string, GuardUser | undefined>;
+  rolePerms: Record<string, string[] | undefined>;
+}
+
+function makeGuardedApp(opts: GuardedAppOpts) {
+  const audits: AuditEntry[] = [];
+  let whmcsCalled = false;
+  const wrap = <T extends (...args: any[]) => Promise<WhmcsRawFetch>>(fn: T | undefined) =>
+    (async (...args: any[]) => {
+      whmcsCalled = true;
+      return fn ? fn(...args) : { ok: true };
+    }) as unknown as T;
+  const deps: AdminServiceActionDeps = {
+    getWhmcsSettings: async () => ({
+      baseUrl: opts.baseUrl === undefined ? "https://billing.example.com" : opts.baseUrl,
+      enabled: opts.enabled ?? true,
+    }),
+    getUser: async (id: string) => opts.users[id],
+    logActivity: (category, action, o) => { audits.push({ category, action, opts: o }); },
+    hasWhmcsCredentials: () => opts.hasCredentials ?? true,
+    normalizeBaseUrl: (raw) => raw,
+    loadServicesList: opts.loadServicesList,
+    moduleSuspend: wrap(opts.moduleSuspend),
+    moduleUnsuspend: wrap(opts.moduleUnsuspend),
+    moduleTerminate: wrap(opts.moduleTerminate),
+  };
+  const requirePermission = makeRequirePermission(opts.callers, opts.rolePerms);
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = opts.sessionUserId === null ? {} : { userId: opts.sessionUserId ?? "admin1" };
+    next();
+  });
+  // Mirror the production mount: permission gate THEN the real handler.
+  app.post(
+    "/api/admin/users/:id/whmcs/services/:serviceId/:action",
+    requirePermission("users.view", "users.manage") as any,
+    createAdminServiceActionHandler(deps),
+  );
+  return { app, audits, whmcsCalled: () => whmcsCalled };
+}
+
+test("unauthenticated caller is rejected with 401 before the handler runs", async () => {
+  const g = makeGuardedApp({
+    sessionUserId: null,
+    callers: {},
+    rolePerms: {},
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+  });
+  const { status, body } = await call(g.app, "u1", 100, "suspend");
+  assert.equal(status, 401);
+  assert.equal(g.whmcsCalled(), false);
+  assert.equal(g.audits.length, 0);
+});
+
+test("a customer (non-admin) is rejected with 403 (WHMCS never called)", async () => {
+  const g = makeGuardedApp({
+    sessionUserId: "cust",
+    callers: { cust: { role: "customer" } },
+    rolePerms: {},
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+  });
+  const { status } = await call(g.app, "u1", 100, "terminate");
+  assert.equal(status, 403);
+  assert.equal(g.whmcsCalled(), false);
+  assert.equal(g.audits.length, 0);
+});
+
+test("a view-only admin (users.view but not users.manage) cannot suspend/unsuspend/terminate (403)", async () => {
+  // The crux: POST is a write, so the gate requires users.MANAGE. An admin who
+  // can only VIEW customers must not be able to change a service's lifecycle.
+  for (const action of ["suspend", "unsuspend", "terminate"] as const) {
+    const g = makeGuardedApp({
+      sessionUserId: "viewer",
+      callers: { viewer: { role: "admin", adminRoleId: "role-view" } },
+      rolePerms: { "role-view": ["users.view"] },
+      users: { u1: { whmcsClientId: 5 } },
+      loadServicesList: okList([svc(100, action === "unsuspend" ? "Suspended" : "Active")]),
+    });
+    const { status, body } = await call(g.app, "u1", 100, action);
+    assert.equal(status, 403, `${action} should be forbidden for a view-only admin`);
+    assert.match(body.message, /Insufficient permissions/);
+    assert.equal(g.whmcsCalled(), false, `${action} must not reach WHMCS`);
+    assert.equal(g.audits.length, 0, `${action} must not be audited`);
+  }
+});
+
+test("an admin with NO role assigned is rejected with 403 (WHMCS never called)", async () => {
+  const g = makeGuardedApp({
+    sessionUserId: "noRole",
+    callers: { noRole: { role: "admin", adminRoleId: null } },
+    rolePerms: {},
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+  });
+  const { status, body } = await call(g.app, "u1", 100, "suspend");
+  assert.equal(status, 403);
+  assert.match(body.message, /No admin role assigned/);
+  assert.equal(g.whmcsCalled(), false);
+  assert.equal(g.audits.length, 0);
+});
+
+test("an admin WITH users.manage passes the gate and the action goes through (200 + audit)", async () => {
+  const g = makeGuardedApp({
+    sessionUserId: "manager",
+    callers: { manager: { role: "admin", adminRoleId: "role-manage" } },
+    rolePerms: { "role-manage": ["users.view", "users.manage"] },
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100)]),
+    moduleSuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status, body } = await call(g.app, "u1", 100, "suspend");
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(g.whmcsCalled(), true);
+  assert.equal(g.audits.length, 1);
+  assert.equal(g.audits[0].opts.actorId, "manager");
+});
+
+test("a master_admin bypasses the per-permission check and the action goes through (200)", async () => {
+  const g = makeGuardedApp({
+    sessionUserId: "boss",
+    callers: { boss: { role: "master_admin" } },
+    rolePerms: {},
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100, "Suspended")]),
+    moduleUnsuspend: async (): Promise<WhmcsRawFetch> => ({ ok: true }),
+  });
+  const { status, body } = await call(g.app, "u1", 100, "unsuspend");
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(g.whmcsCalled(), true);
+  assert.equal(g.audits.length, 1);
+});
+
+test("the authorization gate runs BEFORE status guards — a view-only admin is blocked even when the action would also be a no-op", async () => {
+  // Defense-in-depth ordering check: authorization must not leak the service's
+  // status. A view-only admin terminating an already-terminated service should
+  // get 403 (not the 409 a permitted admin would see), proving the gate fires
+  // first and WHMCS is never consulted.
+  const g = makeGuardedApp({
+    sessionUserId: "viewer",
+    callers: { viewer: { role: "admin", adminRoleId: "role-view" } },
+    rolePerms: { "role-view": ["users.view"] },
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okList([svc(100, "Terminated")]),
+  });
+  const { status } = await call(g.app, "u1", 100, "terminate");
+  assert.equal(status, 403);
+  assert.equal(g.whmcsCalled(), false);
+});
