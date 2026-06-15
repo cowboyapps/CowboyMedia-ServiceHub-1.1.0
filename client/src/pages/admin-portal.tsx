@@ -7446,6 +7446,170 @@ function WhmcsProductMappingSection() {
   );
 }
 
+interface WhmcsProductDnsRow {
+  whmcsProductId: number;
+  dns: string;
+}
+
+// Admin UI to assign a DNS (connection address) to each WHMCS product (Task
+// #473). The DNS is a property of the product TYPE, so it's keyed by WHMCS pid
+// and shown to every customer holding that product alongside their login. The
+// product picker is live from WHMCS; the saved DNS values are a pure DB read so
+// they render even when WHMCS is down.
+function WhmcsProductDnsSection() {
+  const { toast } = useToast();
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [dnsValue, setDnsValue] = useState<string>("");
+
+  const { data: productsData, isLoading: productsLoading } = useQuery<{
+    ok: boolean;
+    products?: WhmcsProductSummary[];
+    error?: string;
+    reason?: string;
+  }>({
+    queryKey: ["/api/admin/whmcs/products"],
+  });
+
+  const { data: dnsData } = useQuery<{ entries: WhmcsProductDnsRow[] }>({
+    queryKey: ["/api/admin/whmcs/product-dns"],
+  });
+
+  const products = productsData?.ok ? productsData.products ?? [] : [];
+  const entries = dnsData?.entries ?? [];
+
+  const productName = (pid: number) => {
+    const p = products.find((p) => p.id === pid);
+    if (!p) return `Product #${pid}`;
+    return p.groupName ? `${p.name} (${p.groupName})` : p.name;
+  };
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/whmcs/product-dns"] });
+
+  const saveMutation = useMutation({
+    mutationFn: async (vars: { whmcsProductId: number; dns: string }) => {
+      const res = await apiRequest("PUT", "/api/admin/whmcs/product-dns", vars);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.message || "Failed to save DNS");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      invalidate();
+      setSelectedProductId("");
+      setDnsValue("");
+      toast({ title: vars.dns.trim() ? "DNS saved" : "DNS cleared" });
+    },
+    onError: (e: Error) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const startEdit = (row: WhmcsProductDnsRow) => {
+    setSelectedProductId(String(row.whmcsProductId));
+    setDnsValue(row.dns);
+  };
+
+  const handleSave = () => {
+    const pid = Number(selectedProductId);
+    if (!Number.isInteger(pid) || pid <= 0) {
+      toast({ title: "Pick a WHMCS product first", variant: "destructive" });
+      return;
+    }
+    saveMutation.mutate({ whmcsProductId: pid, dns: dnsValue });
+  };
+
+  return (
+    <Card data-testid="card-whmcs-dns">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Server className="w-5 h-5" /> Product DNS (connection address)</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Assign a connection address (DNS) to each WHMCS product. Customers see it next to their login under "My Services" — including brand-new signups, since the DNS belongs to the product, not the individual account.
+        </p>
+
+        {/* Existing DNS values */}
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-no-dns">No product DNS set yet.</p>
+        ) : (
+          <div className="space-y-2" data-testid="list-whmcs-dns">
+            {entries.map((row) => (
+              <div key={row.whmcsProductId} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-dns-${row.whmcsProductId}`}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" data-testid={`text-dns-product-${row.whmcsProductId}`}>{productName(row.whmcsProductId)}</p>
+                  <p className="mt-1 text-sm text-muted-foreground break-all font-mono" data-testid={`text-dns-value-${row.whmcsProductId}`}>{row.dns}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(row)} data-testid={`button-edit-dns-${row.whmcsProductId}`}>
+                    <Edit className="w-3 h-3" /> Edit
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => saveMutation.mutate({ whmcsProductId: row.whmcsProductId, dns: "" })} disabled={saveMutation.isPending} data-testid={`button-remove-dns-${row.whmcsProductId}`}>
+                    <Trash2 className="w-3 h-3" /> Clear
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add / edit form */}
+        <div className="rounded-md border p-3 space-y-3">
+          <p className="text-sm font-medium">Set or edit a product's DNS</p>
+          {productsLoading ? (
+            <Skeleton className="h-9 w-full" />
+          ) : !productsData?.ok ? (
+            <p className="text-sm text-amber-600" data-testid="text-dns-products-unavailable">
+              {productsData?.reason === "not_configured"
+                ? "Configure and enable WHMCS above to load the product list."
+                : `Couldn't load WHMCS products${productsData?.error ? `: ${productsData.error}` : "."}`}
+            </p>
+          ) : products.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-dns-no-products">No products found in WHMCS.</p>
+          ) : (
+            <>
+              <div>
+                <Label>WHMCS product</Label>
+                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                  <SelectTrigger data-testid="select-whmcs-dns-product"><SelectValue placeholder="Choose a product…" /></SelectTrigger>
+                  <SelectContent>
+                    {products.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)} data-testid={`option-dns-product-${p.id}`}>
+                        {p.groupName ? `${p.name} · ${p.groupName}` : p.name} (#{p.id})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="input-dns-value">DNS / connection address</Label>
+                <Input
+                  id="input-dns-value"
+                  value={dnsValue}
+                  onChange={(e) => setDnsValue(e.target.value)}
+                  placeholder="e.g. host.example.com"
+                  data-testid="input-dns-value"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={handleSave} disabled={saveMutation.isPending || !selectedProductId} data-testid="button-save-dns">
+                  {saveMutation.isPending ? "Saving..." : "Save DNS"}
+                </Button>
+                {(selectedProductId || dnsValue) && (
+                  <Button type="button" variant="ghost" onClick={() => { setSelectedProductId(""); setDnsValue(""); }} data-testid="button-cancel-dns">
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Saving with an empty DNS removes it for that product.</p>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 type BillingDashboardCustomer = {
   userId: string;
   clientId: number;
@@ -7842,6 +8006,7 @@ function WhmcsTab() {
       </Card>
 
       <WhmcsProductMappingSection />
+      <WhmcsProductDnsSection />
     </div>
   );
 }

@@ -923,6 +923,29 @@ export const insertWhmcsProductMappingSchema = createInsertSchema(whmcsProductMa
 export type WhmcsProductMapping = typeof whmcsProductMappings.$inferSelect;
 export type InsertWhmcsProductMapping = z.infer<typeof insertWhmcsProductMappingSchema>;
 
+// Per-WHMCS-product DNS (connection address) set by admins (Task #473). Keyed
+// uniquely by the WHMCS product id (pid) — the DNS is a property of the product
+// TYPE, so every customer holding that product sees the same address and a
+// brand-new signup can show it immediately. WHMCS product ids are NOT FK-checked
+// (they live in WHMCS, not here); a row for a deleted WHMCS product simply never
+// matches an active product and is harmless. The DNS is ServiceHub-stored only —
+// never synced to/from WHMCS — and is surfaced to customers alongside their
+// service login in "My Services".
+export const whmcsProductDns = pgTable("whmcs_product_dns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  whmcsProductId: integer("whmcs_product_id").notNull().unique(),
+  dns: text("dns").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWhmcsProductDnsSchema = createInsertSchema(whmcsProductDns).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type WhmcsProductDns = typeof whmcsProductDns.$inferSelect;
+export type InsertWhmcsProductDns = z.infer<typeof insertWhmcsProductDnsSchema>;
+
 // Per-(user, WHMCS ticket) marker recording the last staff-reply date we have
 // already notified the customer about (Task #344). WHMCS tickets are never
 // stored (read-on-demand), so this is the ONLY server-side state for the

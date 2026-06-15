@@ -43,6 +43,11 @@ export interface ServicesRouteDeps {
   normalizeBaseUrl?: (raw: string | null) => string | null;
   /** Defaults to the real products fetcher; injectable for tests. */
   getClientProducts?: (clientId: number) => Promise<WhmcsRawFetch>;
+  /**
+   * Admin-set per-product DNS rows (Task #473). Optional: when absent or failing,
+   * services still render — the DNS line is simply omitted. Keyed by WHMCS pid.
+   */
+  listProductDns?: () => Promise<Array<{ whmcsProductId: number; dns: string }>>;
 }
 
 /** The locked degraded shape every "My Services" response carries. */
@@ -81,7 +86,17 @@ export function createMyServicesHandler(deps: ServicesRouteDeps) {
         return res.json(emptyActiveServices({ configured, enabled, linked: true, unreachable: true }));
       }
       const products = normalizeListField(productsResult.data?.products, "product").map(parseProduct);
-      const services = selectActiveServices(products);
+      let dnsByPid: Map<number, string> | undefined;
+      if (deps.listProductDns) {
+        try {
+          const rows = await deps.listProductDns();
+          dnsByPid = new Map(rows.map((r) => [r.whmcsProductId, r.dns]));
+        } catch {
+          // DNS is a non-critical enrichment — never let it break the services list.
+          dnsByPid = undefined;
+        }
+      }
+      const services = selectActiveServices(products, dnsByPid);
       return res.json({ configured, enabled, linked: true, unreachable: false, services });
     } catch {
       return res.json(emptyActiveServices({ configured: true, enabled: true, linked: true, unreachable: true }));

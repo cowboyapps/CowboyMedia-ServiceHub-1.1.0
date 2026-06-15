@@ -28,6 +28,7 @@ interface AppOpts {
   baseUrl?: string | null;
   hasCredentials?: boolean;
   getClientProducts?: ServicesRouteDeps["getClientProducts"];
+  listProductDns?: ServicesRouteDeps["listProductDns"];
 }
 
 function makeApp(opts: AppOpts) {
@@ -40,6 +41,7 @@ function makeApp(opts: AppOpts) {
     hasWhmcsCredentials: () => opts.hasCredentials ?? true,
     normalizeBaseUrl: (raw) => raw,
     getClientProducts: opts.getClientProducts,
+    listProductDns: opts.listProductDns,
   };
   const app = express();
   app.use(express.json());
@@ -166,6 +168,44 @@ test("GET: returns ONLY active services, each with its own login credentials", a
   // The customer's OWN credentials are present on this surface (by design).
   assert.equal(s.username, "u1login");
   assert.equal(s.password, "s3cr3t!");
+});
+
+test("GET: joins admin-set product DNS onto active services by pid", async () => {
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    getClientProducts: async (): Promise<WhmcsRawFetch> =>
+      okProducts({
+        products: {
+          product: [
+            { id: 1, pid: 10, name: "Has DNS", status: "Active", username: "a", password: "b" },
+            { id: 2, pid: 20, name: "No DNS", status: "Active", username: "c", password: "d" },
+          ],
+        },
+      }),
+    listProductDns: async () => [{ whmcsProductId: 10, dns: "host.example.com" }],
+  });
+  const { status, body } = await call(app);
+  assert.equal(status, 200);
+  assert.equal(body.services.length, 2);
+  const byId = Object.fromEntries(body.services.map((s: any) => [s.id, s]));
+  assert.equal(byId[1].dns, "host.example.com");
+  assert.equal(byId[2].dns, "");
+});
+
+test("GET: a DNS lookup failure does NOT break services (dns falls back to '')", async () => {
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    getClientProducts: async (): Promise<WhmcsRawFetch> =>
+      okProducts({ products: { product: [{ id: 1, pid: 10, name: "VPS", status: "Active", username: "a", password: "b" }] } }),
+    listProductDns: async () => { throw new Error("dns table boom"); },
+  });
+  const { status, body } = await call(app);
+  assert.equal(status, 200);
+  assert.equal(body.unreachable, false);
+  assert.equal(body.services.length, 1);
+  assert.equal(body.services[0].dns, "");
 });
 
 test("GET: a thrown storage error degrades to unreachable, never 500", async () => {

@@ -49,6 +49,8 @@ import {
   type UpdateWhmcsSettingsData,
   whmcsProductMappings,
   type WhmcsProductMapping,
+  whmcsProductDns,
+  type WhmcsProductDns,
   whmcsTicketNotifications,
   whmcsInvoiceNotifications,
   whmcsServiceNotifications,
@@ -383,6 +385,9 @@ export interface IStorage {
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
   deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
+  listWhmcsProductDns(): Promise<WhmcsProductDns[]>;
+  getWhmcsProductDns(whmcsProductId: number): Promise<WhmcsProductDns | undefined>;
+  setWhmcsProductDns(whmcsProductId: number, dns: string): Promise<WhmcsProductDns | undefined>;
   getDiscordSettings(): Promise<DiscordSettings | undefined>;
   updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
   getAppSettings(): Promise<AppSettings>;
@@ -1389,6 +1394,34 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWhmcsProductMappings(whmcsProductId: number): Promise<void> {
     await db.delete(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
+  }
+
+  async listWhmcsProductDns(): Promise<WhmcsProductDns[]> {
+    return db.select().from(whmcsProductDns);
+  }
+
+  async getWhmcsProductDns(whmcsProductId: number): Promise<WhmcsProductDns | undefined> {
+    const [row] = await db.select().from(whmcsProductDns).where(eq(whmcsProductDns.whmcsProductId, whmcsProductId));
+    return row;
+  }
+
+  // Upsert a product's DNS. An empty/whitespace value clears it (delete row) and
+  // returns undefined, so the customer view falls back to omitting the DNS line.
+  async setWhmcsProductDns(whmcsProductId: number, dns: string): Promise<WhmcsProductDns | undefined> {
+    const trimmed = dns.trim();
+    if (!trimmed) {
+      await db.delete(whmcsProductDns).where(eq(whmcsProductDns.whmcsProductId, whmcsProductId));
+      return undefined;
+    }
+    const [row] = await db
+      .insert(whmcsProductDns)
+      .values({ whmcsProductId, dns: trimmed })
+      .onConflictDoUpdate({
+        target: whmcsProductDns.whmcsProductId,
+        set: { dns: trimmed, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
   }
 
   async getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined> {

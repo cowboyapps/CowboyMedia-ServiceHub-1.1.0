@@ -164,6 +164,7 @@ interface ActiveService {
   amount: string;
   username: string;
   password: string;
+  dns: string;
 }
 
 interface ActiveServicesPayload {
@@ -217,7 +218,7 @@ function ServiceCredentialRow({
   value: string;
   secret?: boolean;
   serviceId: number;
-  field: "username" | "password" | "newpassword";
+  field: "username" | "password" | "newpassword" | "dns";
 }) {
   const { toast } = useToast();
   const [revealed, setRevealed] = useState(false);
@@ -418,6 +419,9 @@ function ActiveServiceCard({ service }: { service: ActiveService }) {
           <div className="mt-3 pt-3 border-t space-y-3" data-testid={`panel-service-credentials-${service.id}`}>
             <ServiceCredentialRow label="Username" value={service.username} serviceId={service.id} field="username" />
             <ServiceCredentialRow label="Password" value={service.password} secret serviceId={service.id} field="password" />
+            {service.dns ? (
+              <ServiceCredentialRow label="DNS" value={service.dns} serviceId={service.id} field="dns" />
+            ) : null}
             <ResetPasswordAction service={service} />
             <UpgradePlanAction service={service} />
           </div>

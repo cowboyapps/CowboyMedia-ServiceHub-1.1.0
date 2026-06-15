@@ -413,8 +413,23 @@ test("selectActiveServices: keeps ONLY active products and projects to the acces
   assert.equal(s.nextDueDate, "2026-08-01");
   assert.equal(s.username, "u1");
   assert.equal(s.password, "p1");
-  // Only the access view fields — no pid/domain carried through.
-  assert.deepEqual(Object.keys(s).sort(), ["amount", "billingCycle", "id", "name", "nextDueDate", "password", "status", "username"]);
+  // pid is carried through to key the admin-set per-product DNS (Task #473);
+  // dns defaults to "" when no map is supplied. domain is still NOT carried.
+  assert.equal(s.dns, "");
+  assert.deepEqual(Object.keys(s).sort(), ["amount", "billingCycle", "dns", "id", "name", "nextDueDate", "password", "pid", "status", "username"]);
+});
+
+test("selectActiveServices: joins admin-set DNS by pid, defaults to '' when absent", () => {
+  const services = selectActiveServices(
+    [
+      parseProduct({ id: 1, pid: 10, name: "Has DNS", status: "Active", username: "u1", password: "p1" }),
+      parseProduct({ id: 2, pid: 20, name: "No DNS", status: "Active", username: "u2", password: "p2" }),
+    ],
+    new Map([[10, "host.example.com"]]),
+  );
+  assert.equal(services.length, 2);
+  assert.equal(services[0].dns, "host.example.com");
+  assert.equal(services[1].dns, "");
 });
 
 test("selectActiveServices: 'active' is case-insensitive, empty list when none active", () => {

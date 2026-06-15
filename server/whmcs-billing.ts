@@ -748,6 +748,8 @@ export function stripProductCredentials(p: ParsedProduct): ProductSummary {
  */
 export interface ActiveService {
   id: number;
+  /** WHMCS product/package id — keys the admin-set per-product DNS (Task #473). */
+  pid: number;
   name: string;
   status: string;
   billingCycle: string;
@@ -755,6 +757,8 @@ export interface ActiveService {
   amount: string;
   username: string;
   password: string;
+  /** Admin-assigned connection address for this product type ("" when unset). */
+  dns: string;
 }
 
 /**
@@ -762,11 +766,15 @@ export interface ActiveService {
  * unit tested without network. Suspended/terminated/cancelled/pending/fraud
  * products are excluded so customers only ever see live logins.
  */
-export function selectActiveServices(products: ParsedProduct[]): ActiveService[] {
+export function selectActiveServices(
+  products: ParsedProduct[],
+  dnsByPid?: Map<number, string>,
+): ActiveService[] {
   return products
     .filter((p) => p.status.toLowerCase() === "active")
     .map((p) => ({
       id: p.id,
+      pid: p.pid,
       name: p.name,
       status: p.status,
       billingCycle: p.billingCycle,
@@ -774,6 +782,7 @@ export function selectActiveServices(products: ParsedProduct[]): ActiveService[]
       amount: p.amount,
       username: p.username,
       password: p.password,
+      dns: dnsByPid?.get(p.pid) ?? "",
     }));
 }
 
