@@ -54,6 +54,7 @@ import { createBillingRefreshHandler } from "./whmcs-refresh-route";
 import { createResetServicePasswordHandler } from "./whmcs-password-route";
 import { createListOrderableProductsHandler, createPlaceOrderHandler } from "./whmcs-order-route";
 import { createUpgradeOptionsHandler, createSubmitUpgradeHandler } from "./whmcs-upgrade-route";
+import { createAdminServiceActionHandler } from "./whmcs-admin-service-action-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -6700,6 +6701,33 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // Enrich each invoice row with the hosting service it renewed (Task #424).
       loadBillingSummary: loadBillingSummaryWithInvoiceServices,
     }),
+  );
+
+  // Admin staff action (Task #454): suspend / unsuspend / terminate one of a
+  // SELECTED customer's WHMCS services. Permission-gated (POST → users.manage);
+  // the owning client id is resolved from the selected user (the :id path param)
+  // and the target service id is confirmed to belong to that client before any
+  // WHMCS write — never request input — so staff can't action a service that
+  // isn't this customer's. Audit-logged on success; never 500s. After a
+  // successful action we drop THAT customer's cached billing so the admin panel
+  // (and the customer's own /api/billing) reflects the new status immediately.
+  const adminServiceAction = createAdminServiceActionHandler({
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getUser: (id) => storage.getUser(id),
+    hasWhmcsCredentials,
+    normalizeBaseUrl: normalizeWhmcsBaseUrl,
+    logActivity,
+  });
+  app.post(
+    "/api/admin/users/:id/whmcs/services/:serviceId/:action",
+    requirePermission("users.view", "users.manage"),
+    async (req, res) => {
+      await adminServiceAction(req, res);
+      if (res.statusCode === 200) {
+        const target = await storage.getUser(getParam(req, "id"));
+        if (target?.whmcsClientId) invalidateBillingCaches(target.whmcsClientId);
+      }
+    },
   );
 
   // Admin billing dashboard (Task #370): fleet-wide rollup across every linked

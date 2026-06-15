@@ -568,6 +568,42 @@ export async function changeServicePassword(
   return whmcsApiCall("ModuleChangePw", { serviceid: serviceId, servicepassword: newPassword });
 }
 
+// --- Admin service module actions (Task #454) ---
+// Staff-only WHMCS WRITES against a customer's LIVE service. Each is a no-throw
+// tagged result like every other writer here; the caller (the
+// permission-gated admin route) resolves the owning client from the SELECTED
+// customer and confirms the target service id belongs to that client before
+// calling — these stateless wrappers do no ownership check of their own. These
+// must NEVER be wired to a customer-facing route.
+
+/**
+ * Suspend a customer's service module via ModuleSuspend. `reason` is optional
+ * and forwarded as WHMCS's `suspendreason` (shown in the client area + emails).
+ * Modules that don't implement suspend surface a result:error with reason
+ * "whmcs_error", which the caller turns into a friendly message.
+ */
+export async function moduleSuspend(serviceId: number, reason?: string): Promise<WhmcsRawFetch> {
+  const params: Record<string, string | number> = { serviceid: serviceId };
+  const trimmed = (reason ?? "").trim();
+  if (trimmed) params.suspendreason = trimmed;
+  return whmcsApiCall("ModuleSuspend", params);
+}
+
+/** Unsuspend a customer's service module via ModuleUnsuspend. */
+export async function moduleUnsuspend(serviceId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("ModuleUnsuspend", { serviceid: serviceId });
+}
+
+/**
+ * Terminate a customer's service module via ModuleTerminate. Destructive — the
+ * caller MUST gate this behind an explicit confirmation. Like every writer here
+ * it never throws; module/permission errors come back tagged for the caller to
+ * map to a friendly message.
+ */
+export async function moduleTerminate(serviceId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("ModuleTerminate", { serviceid: serviceId });
+}
+
 /**
  * Raw GetTransactions for a client. Returns every recorded payment / refund
  * transaction for the client (WHMCS keys the client param as `clientid` here).

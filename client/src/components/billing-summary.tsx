@@ -38,6 +38,9 @@ import {
   CheckCircle2,
   Info,
   X,
+  PauseCircle,
+  PlayCircle,
+  Trash2,
 } from "lucide-react";
 
 // Shared, read-only presentation of a WHMCS billing summary. Driven entirely by
@@ -942,6 +945,148 @@ function CancelServiceDialog({
   );
 }
 
+type AdminServiceAction = "suspend" | "unsuspend" | "terminate";
+
+const ADMIN_ACTION_COPY: Record<
+  AdminServiceAction,
+  { title: string; verb: string; confirm: string; pendingLabel: string; doneTitle: string; destructive: boolean }
+> = {
+  suspend: {
+    title: "Suspend service",
+    verb: "suspend",
+    confirm: "Suspend service",
+    pendingLabel: "Suspending...",
+    doneTitle: "Service suspended",
+    destructive: false,
+  },
+  unsuspend: {
+    title: "Unsuspend service",
+    verb: "unsuspend",
+    confirm: "Unsuspend service",
+    pendingLabel: "Unsuspending...",
+    doneTitle: "Service unsuspended",
+    destructive: false,
+  },
+  terminate: {
+    title: "Terminate service",
+    verb: "terminate",
+    confirm: "Terminate service",
+    pendingLabel: "Terminating...",
+    doneTitle: "Service terminated",
+    destructive: true,
+  },
+};
+
+/**
+ * Admin-only dialog to suspend / unsuspend / terminate a customer's WHMCS
+ * service. Hits the permission-gated admin endpoint; terminate requires an
+ * explicit confirm (the dialog itself is the confirmation step) and is styled
+ * destructive. Suspend optionally carries a reason shown to the customer.
+ */
+function AdminServiceActionDialog({
+  product,
+  action,
+  userId,
+  open,
+  onClose,
+}: {
+  product: BillingProduct | null;
+  action: AdminServiceAction | null;
+  userId?: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [reason, setReason] = useState("");
+  const copy = action ? ADMIN_ACTION_COPY[action] : null;
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!product || !action || !userId) throw new Error("No service selected");
+      const res = await apiRequest(
+        "POST",
+        `/api/admin/users/${userId}/whmcs/services/${product.id}/${action}`,
+        action === "suspend" ? { reason: reason.trim() || undefined } : undefined,
+      );
+      return res.json() as Promise<{ ok: boolean; message?: string }>;
+    },
+    onSuccess: (result) => {
+      toast({
+        title: copy?.doneTitle ?? "Done",
+        description: result.message ?? "The change has been applied.",
+      });
+      if (userId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "whmcs", "billing"] });
+      }
+      handleClose();
+    },
+    onError: (e: Error) => {
+      toast({ title: "Couldn't complete that action", description: e.message, variant: "destructive" });
+    },
+  });
+
+  function handleClose() {
+    if (mutation.isPending) return;
+    setReason("");
+    onClose();
+  }
+
+  const submitting = mutation.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+      <DialogContent className="max-w-md" data-testid="dialog-admin-service-action">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {copy?.destructive && <AlertTriangle className="w-5 h-5 text-destructive" />}
+            {copy?.title ?? "Service action"}
+          </DialogTitle>
+          <DialogDescription data-testid="text-admin-action-service-name">
+            {product && copy
+              ? `You're about to ${copy.verb} "${product.name}" for this customer.${
+                  copy.destructive
+                    ? " This permanently ends the service and cannot be undone."
+                    : ""
+                }`
+              : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        {action === "suspend" && (
+          <div>
+            <Label htmlFor="admin-suspend-reason" className="text-sm font-medium">
+              Reason <span className="text-muted-foreground font-normal">(optional, shown to the customer)</span>
+            </Label>
+            <Input
+              id="admin-suspend-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Overdue invoice"
+              maxLength={255}
+              className="mt-1.5"
+              data-testid="input-admin-suspend-reason"
+            />
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={handleClose} disabled={submitting} data-testid="button-admin-action-dismiss">
+            Cancel
+          </Button>
+          <Button
+            variant={copy?.destructive ? "destructive" : "default"}
+            onClick={() => mutation.mutate()}
+            disabled={submitting}
+            data-testid="button-admin-action-confirm"
+          >
+            {submitting ? copy?.pendingLabel ?? "Working..." : copy?.confirm ?? "Confirm"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 type TransactionTypeFilter = "all" | "payments" | "refunds";
 
 /**
@@ -1182,6 +1327,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
   const { toast } = useToast();
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [cancelProduct, setCancelProduct] = useState<BillingProduct | null>(null);
+  const [adminAction, setAdminAction] = useState<{ product: BillingProduct; action: AdminServiceAction } | null>(null);
   // Persistent "Payment received" confirmation shown after returning from WHMCS's
   // off-site checkout. A toast alone is easy to miss (it auto-dismisses, and the
   // payment happens in a SEPARATE tab so the customer may glance away), so we also
@@ -1476,6 +1622,14 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
               // Customers can request cancellation of their OWN active services.
               // Hidden in the admin (read-only) view and for non-active products.
               const canCancel = !isAdmin && p.status.toLowerCase() === "active";
+              // Admin staff lifecycle controls. Mirror the route's status guards:
+              // only an active service can be suspended, only a suspended one
+              // unsuspended; terminate is offered on anything not already gone.
+              const pStatus = p.status.toLowerCase();
+              const canSuspend = isAdmin && pStatus === "active";
+              const canUnsuspend = isAdmin && pStatus === "suspended";
+              const canTerminate = isAdmin && pStatus !== "terminated";
+              const hasAdminActions = canSuspend || canUnsuspend || canTerminate;
               return (
                 <Card key={p.id} data-testid={`card-billing-product-${p.id}`}>
                   <CardContent className="p-3">
@@ -1509,6 +1663,46 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                           <XCircle className="w-3.5 h-3.5" />
                           Request cancellation
                         </Button>
+                      </div>
+                    )}
+                    {hasAdminActions && (
+                      <div className="mt-2.5 flex flex-wrap justify-end gap-2">
+                        {canSuspend && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 h-8"
+                            onClick={() => setAdminAction({ product: p, action: "suspend" })}
+                            data-testid={`button-admin-suspend-${p.id}`}
+                          >
+                            <PauseCircle className="w-3.5 h-3.5" />
+                            Suspend
+                          </Button>
+                        )}
+                        {canUnsuspend && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 h-8"
+                            onClick={() => setAdminAction({ product: p, action: "unsuspend" })}
+                            data-testid={`button-admin-unsuspend-${p.id}`}
+                          >
+                            <PlayCircle className="w-3.5 h-3.5" />
+                            Unsuspend
+                          </Button>
+                        )}
+                        {canTerminate && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 h-8 text-destructive hover:text-destructive"
+                            onClick={() => setAdminAction({ product: p, action: "terminate" })}
+                            data-testid={`button-admin-terminate-${p.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Terminate
+                          </Button>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -1647,6 +1841,16 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
           product={cancelProduct}
           open={cancelProduct != null}
           onClose={() => setCancelProduct(null)}
+        />
+      )}
+
+      {isAdmin && (
+        <AdminServiceActionDialog
+          product={adminAction?.product ?? null}
+          action={adminAction?.action ?? null}
+          userId={userId}
+          open={adminAction != null}
+          onClose={() => setAdminAction(null)}
         />
       )}
     </div>

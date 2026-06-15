@@ -885,6 +885,18 @@ export const submitUpgradeSchema = z.object({
 
 export type SubmitUpgradeData = z.infer<typeof submitUpgradeSchema>;
 
+// Admin service module actions (Task #454). Staff-only suspend/unsuspend/
+// terminate against a customer's live WHMCS service. The action is taken from
+// the route path; this schema validates only the optional suspend reason.
+export const ADMIN_SERVICE_ACTIONS = ["suspend", "unsuspend", "terminate"] as const;
+export type AdminServiceAction = (typeof ADMIN_SERVICE_ACTIONS)[number];
+
+export const adminSuspendServiceSchema = z.object({
+  reason: z.string().trim().max(255).optional(),
+});
+
+export type AdminSuspendServiceData = z.infer<typeof adminSuspendServiceSchema>;
+
 // Maps a WHMCS product/package (keyed by its `pid`) to one or more ServiceHub
 // monitored services (Task #335). Many-to-many: a single product can cover
 // several services and a service can be covered by several products. The unique
