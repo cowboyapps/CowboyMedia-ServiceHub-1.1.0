@@ -40,6 +40,12 @@ export interface ServiceNotifyCandidate {
   status: string;
   /** Next due / renewal date as YYYY-MM-DD, or null when WHMCS has none. */
   nextDueDate: string | null;
+  /**
+   * WHMCS product id (pid) this service was provisioned from (optional). Used by
+   * the "new service is ready" notifier (Task #474) to match a brand-new active
+   * service to the customer's unfulfilled pending order for the same product.
+   */
+  pid?: number;
 }
 
 /**
@@ -195,4 +201,26 @@ export function serviceNotifBody(
   override?: NotificationTemplateOverride | null,
 ): string {
   return renderNotification(serviceTemplateKey(kind), serviceVars(service, today), override).body;
+}
+
+// --- "New service is ready" copy (Task #474) ----------------------------------
+// A one-time message fired when a newly ordered service finishes provisioning.
+// It is NOT a ServiceEventKind (no marker transition drives it), so it has its
+// own template key + copy helpers. Strictly credential-free: it names the
+// service and tells the customer to open My Services to see their login details.
+
+/** Notification-template key for the "new service is ready" message. */
+export const SERVICE_READY_TEMPLATE_KEY: NotificationTemplateKey = "whmcs.service.ready";
+
+/** Title for the "new service is ready" message (admin override wins). */
+export function serviceReadyTitle(override?: NotificationTemplateOverride | null): string {
+  return renderNotification(SERVICE_READY_TEMPLATE_KEY, {}, override).title;
+}
+
+/** Body for the "new service is ready" message (admin override wins). */
+export function serviceReadyBody(
+  service: ServiceNotifyCandidate,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(SERVICE_READY_TEMPLATE_KEY, { service: serviceLabel(service) }, override).body;
 }

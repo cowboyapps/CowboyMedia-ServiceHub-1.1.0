@@ -89,6 +89,13 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["push", "email"],
   },
   {
+    key: "whmcs_service_ready",
+    label: "New service is ready",
+    description: "When a service you just ordered has finished setting up and is ready to use",
+    group: "Billing",
+    channels: ["push"],
+  },
+  {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",

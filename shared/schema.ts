@@ -1001,6 +1001,35 @@ export const whmcsServiceNotifications = pgTable("whmcs_service_notifications", 
 
 export type WhmcsServiceNotification = typeof whmcsServiceNotifications.$inferSelect;
 
+// Records a customer's just-placed WHMCS order so the service notifier can later
+// recognise the resulting service as NEWLY provisioned and fire the one-time
+// "your new service is now ready" message (Task #474). WHMCS provisioning is
+// asynchronous — the service id isn't known at order time — so we store the
+// WHMCS product id (pid) the customer ordered plus (when known) the invoice id,
+// then match by pid when a brand-new active service first appears for that user.
+// `fulfilledAt` is stamped the moment the ready message fires, so it never
+// repeats across poll passes or restarts (the fulfilled flag is the ultimate
+// dedup). NO credentials are ever stored here.
+export const whmcsPendingOrders = pgTable("whmcs_pending_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  whmcsProductId: integer("whmcs_product_id").notNull(),
+  whmcsInvoiceId: integer("whmcs_invoice_id"),
+  fulfilledAt: timestamp("fulfilled_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("whmcs_pending_orders_user_id_idx").on(table.userId),
+}));
+
+export const insertWhmcsPendingOrderSchema = createInsertSchema(whmcsPendingOrders).omit({
+  id: true,
+  fulfilledAt: true,
+  createdAt: true,
+});
+
+export type WhmcsPendingOrder = typeof whmcsPendingOrders.$inferSelect;
+export type InsertWhmcsPendingOrder = z.infer<typeof insertWhmcsPendingOrderSchema>;
+
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production
 // deploys from the UI during a maintenance window without touching the VPS.

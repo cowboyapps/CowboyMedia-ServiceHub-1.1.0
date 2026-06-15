@@ -8,6 +8,8 @@ import {
   serviceRenewPhrase,
   serviceNotifTitle,
   serviceNotifBody,
+  serviceReadyTitle,
+  serviceReadyBody,
   type ServiceNotifyCandidate,
   type ServiceMarkerMap,
 } from "../shared/whmcs-service-notify";
@@ -131,4 +133,29 @@ test("serviceNotifTitle + serviceNotifBody: customer-friendly copy", () => {
     serviceNotifBody(svc({ name: "Web Hosting", domain: "example.com", nextDueDate: "2026-06-14" }), "renewal", TODAY),
     "Your service Web Hosting (example.com) renews in 3 days.",
   );
+});
+
+test("serviceReadyTitle + serviceReadyBody: customer-friendly, names the service", () => {
+  assert.equal(serviceReadyTitle(), "Your new service is ready");
+  assert.equal(
+    serviceReadyBody(svc({ name: "Starter VPS", domain: "vps.example.com" })),
+    "Starter VPS (vps.example.com) is ready — tap to view your login details.",
+  );
+});
+
+test("ready copy is strictly credential-free (no passwords/secrets leak into title/body)", () => {
+  // The service candidate must never carry creds into the copy. Even if upstream
+  // data were polluted, the template only interpolates the service label.
+  const polluted = {
+    ...svc({ name: "Starter VPS", domain: "vps.example.com" }),
+    password: "hunter2",
+    username: "root",
+  } as unknown as ServiceNotifyCandidate;
+  const title = serviceReadyTitle();
+  const body = serviceReadyBody(polluted);
+  for (const text of [title, body]) {
+    assert.ok(!/hunter2/i.test(text), `credential leaked into: ${text}`);
+    assert.ok(!/\broot\b/i.test(text), `username leaked into: ${text}`);
+    assert.ok(!/password/i.test(text), `the word "password" must not appear: ${text}`);
+  }
 });

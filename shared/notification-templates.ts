@@ -19,6 +19,7 @@ export type NotificationTemplateKey =
   | "whmcs.service.renewal"
   | "whmcs.service.suspended"
   | "whmcs.service.unsuspended"
+  | "whmcs.service.ready"
   | "whmcs.invoice.due_soon"
   | "whmcs.invoice.overdue"
   | "whmcs.ticket.reply";
@@ -104,6 +105,15 @@ export const NOTIFICATION_TEMPLATE_DEFS: NotificationTemplateDef[] = [
     description: "Sent when a suspended service is reactivated (unsuspended).",
     defaultTitle: "Service reactivated",
     defaultBody: "Your service {service} is active again.",
+    variables: [SERVICE_VAR],
+  },
+  {
+    key: "whmcs.service.ready",
+    group: "Service",
+    label: "New service is ready",
+    description: "Sent once when a newly ordered service has finished provisioning and is ready to use.",
+    defaultTitle: "Your new service is ready",
+    defaultBody: "{service} is ready — tap to view your login details.",
     variables: [SERVICE_VAR],
   },
   {

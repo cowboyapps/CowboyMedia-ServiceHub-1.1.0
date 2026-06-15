@@ -65,6 +65,13 @@ export interface OrderRouteDeps {
     billingCycle: string;
     paymentMethod: string;
   }) => Promise<WhmcsRawFetch>;
+  /**
+   * Best-effort hook to record a just-placed order so the service notifier can
+   * later recognise the resulting service as newly provisioned and fire the
+   * one-time "your new service is ready" message (Task #474). Optional and
+   * fire-and-forget: a failure here must NEVER change the order response.
+   */
+  recordPendingOrder?: (userId: string, pid: number, invoiceId: number | null) => Promise<void>;
 }
 
 /**
@@ -198,6 +205,18 @@ export function createPlaceOrderHandler(deps: OrderRouteDeps) {
 
       const invoiceId = extractInvoiceId(result.data);
       const payUrl = invoiceId ? buildInvoicePayUrl(baseUrl, invoiceId) : null;
+
+      // Record the order so the service notifier can later fire the one-time
+      // "your new service is ready" message once provisioning completes. Strictly
+      // best-effort — never let a tracking failure change the order response.
+      if (deps.recordPendingOrder) {
+        try {
+          await deps.recordPendingOrder(req.session.userId!, parsed.data.pid, invoiceId);
+        } catch {
+          /* pending-order tracking is best-effort; ignore */
+        }
+      }
+
       return res.json({
         ok: true,
         message: "Your order has been placed.",

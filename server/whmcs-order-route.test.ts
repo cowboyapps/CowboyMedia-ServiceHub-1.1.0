@@ -47,6 +47,7 @@ interface AppOpts {
   loadOrderableProducts?: OrderRouteDeps["loadOrderableProducts"];
   loadPaymentMethods?: OrderRouteDeps["loadPaymentMethods"];
   addOrder?: OrderRouteDeps["addOrder"];
+  recordPendingOrder?: OrderRouteDeps["recordPendingOrder"];
 }
 
 function makeDeps(opts: AppOpts): OrderRouteDeps {
@@ -61,6 +62,7 @@ function makeDeps(opts: AppOpts): OrderRouteDeps {
     loadOrderableProducts: opts.loadOrderableProducts,
     loadPaymentMethods: opts.loadPaymentMethods,
     addOrder: opts.addOrder,
+    recordPendingOrder: opts.recordPendingOrder,
   };
 }
 
@@ -215,6 +217,52 @@ test("order: places the order for the SESSION client and returns invoice + payUr
   assert.equal(seenPid, 10);
   assert.equal(seenCycle, "annually");
   assert.equal(seenMethod, "stripe");
+});
+
+test("order: records a pending order on success (userId + pid + invoiceId)", async () => {
+  const recorded: Array<{ userId: string; pid: number; invoiceId: number | null }> = [];
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadOrderableProducts: okCatalogue([product()]),
+    loadPaymentMethods: okMethods(),
+    addOrder: async (): Promise<WhmcsRawFetch> => ({ ok: true, data: { invoiceid: 4321 } }),
+    recordPendingOrder: async (userId, pid, invoiceId) => { recorded.push({ userId, pid, invoiceId }); },
+  });
+  const { status, body } = await post(app, "/api/billing/order", { pid: 10, billingCycle: "annually" });
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.deepEqual(recorded, [{ userId: "u1", pid: 10, invoiceId: 4321 }]);
+});
+
+test("order: does NOT record a pending order when the WHMCS write fails", async () => {
+  let recordCalled = false;
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadOrderableProducts: okCatalogue([product()]),
+    loadPaymentMethods: okMethods(),
+    addOrder: async (): Promise<WhmcsRawFetch> => ({ ok: false, reason: "whmcs_error", error: "boom" }),
+    recordPendingOrder: async () => { recordCalled = true; },
+  });
+  const { status } = await post(app, "/api/billing/order", { pid: 10, billingCycle: "annually" });
+  assert.equal(status, 400);
+  assert.equal(recordCalled, false);
+});
+
+test("order: a recordPendingOrder failure never changes the success response", async () => {
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadOrderableProducts: okCatalogue([product()]),
+    loadPaymentMethods: okMethods(),
+    addOrder: async (): Promise<WhmcsRawFetch> => ({ ok: true, data: { invoiceid: 4321 } }),
+    recordPendingOrder: async () => { throw new Error("db down"); },
+  });
+  const { status, body } = await post(app, "/api/billing/order", { pid: 10, billingCycle: "annually" });
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.invoiceId, 4321);
 });
 
 test("order: rejects a product/cycle not in the catalogue (404, no write)", async () => {

@@ -31,6 +31,7 @@ import {
 } from "@shared/whmcs-invoice-notify";
 import {
   startWhmcsServiceNotifier,
+  SERVICE_READY_CATEGORY_KEY,
   type ServiceNotifierUser,
   type NotifierService,
 } from "./whmcs-service-notifier";
@@ -40,6 +41,9 @@ import {
   serviceLabel,
   serviceRenewPhrase,
   serviceTemplateKey,
+  SERVICE_READY_TEMPLATE_KEY,
+  serviceReadyTitle,
+  serviceReadyBody,
 } from "@shared/whmcs-service-notify";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -533,6 +537,59 @@ void (async () => {
       return (
         userWantsChannel(prefs, categoryKey, "push") || userWantsChannel(prefs, categoryKey, "email")
       );
+    },
+    // --- "New service is ready" hooks (Task #474) -----------------------------
+    getPendingOrders: (userId) =>
+      storage
+        .getUnfulfilledWhmcsPendingOrders(userId)
+        .then((rows) => rows.map((r) => ({ id: r.id, whmcsProductId: r.whmcsProductId }))),
+    markPendingOrderFulfilled: (orderId) => storage.markWhmcsPendingOrderFulfilled(orderId),
+    createReadyInApp: async (user, service) => {
+      // In-app is the PRIMARY channel for "ready" (fires regardless of push
+      // prefs). The bell row deep-links to /my-services — the secure surface
+      // where login details + DNS are shown. Strictly credential-free. Never
+      // throws: a failure here must not abort the pass.
+      try {
+        const ov = await getNotificationOverride(SERVICE_READY_TEMPLATE_KEY);
+        const row = await storage.createUserNotification({
+          userId: user.id,
+          type: "whmcs_service_ready",
+          title: serviceReadyTitle(ov),
+          body: serviceReadyBody(service, ov),
+          referenceType: "whmcs_service",
+          referenceId: String(service.id),
+          url: "/my-services",
+        });
+        return row.id;
+      } catch (e) {
+        console.error("[whmcs-service-notifier] createReadyInApp failed:", (e as Error)?.message);
+        return null;
+      }
+    },
+    sendReadyPush: (user, service, _baseUrl, notificationId) => {
+      void (async () => {
+        const ov = await getNotificationOverride(SERVICE_READY_TEMPLATE_KEY);
+        // Deep-link to the in-app /my-services screen (the secure surface). No
+        // credentials in the payload — only the service name + a tap target.
+        void sendPushToUser(
+          user.id,
+          {
+            title: serviceReadyTitle(ov),
+            body: serviceReadyBody(service, ov),
+            url: "/my-services",
+            tag: `whmcs-service-${service.id}-ready`,
+            resourceLabel: serviceLabel(service),
+            rollupNoun: "updates",
+          },
+          notificationId
+            ? { notificationId }
+            : {
+                type: "whmcs_service_ready",
+                referenceType: "whmcs_service",
+                referenceId: String(service.id),
+              },
+        );
+      })();
     },
   });
 

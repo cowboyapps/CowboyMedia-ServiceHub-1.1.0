@@ -4,9 +4,11 @@ import {
   runWhmcsServiceNotifyPass,
   RENEW_SOON_DAYS,
   categoryForKind,
+  SERVICE_READY_CATEGORY_KEY,
   type WhmcsServiceNotifierDeps,
   type ServiceNotifierUser,
   type NotifierService,
+  type PendingOrder,
 } from "../server/whmcs-service-notifier";
 import type { ServiceEventKind, ServiceMarker, ServiceMarkerMap } from "../shared/whmcs-service-notify";
 
@@ -39,6 +41,9 @@ interface Recorder {
   emails: Array<{ userId: string; serviceId: number; kind: ServiceEventKind }>;
   recorded: Array<{ userId: string; serviceId: number; marker: ServiceMarker }>;
   loads: Array<{ clientId: number }>;
+  readyInApp: Array<{ userId: string; serviceId: number }>;
+  readyPushes: Array<{ userId: string; serviceId: number; notificationId: string | null }>;
+  fulfilled: string[];
 }
 
 function makeDeps(opts: {
@@ -54,10 +59,27 @@ function makeDeps(opts: {
   getConfigThrows?: boolean;
   getLinkedUsersThrows?: boolean;
   createInAppReturns?: string | null;
+  // Ready-detection (Task #474). Supplying pendingByUser enables all four hooks.
+  pendingByUser?: Record<string, PendingOrder[]>;
+  getPendingOrdersThrows?: boolean;
+  readyInAppReturns?: string | null;
+  wantsReadyPush?: boolean;
 }): { deps: WhmcsServiceNotifierDeps; rec: Recorder; state: Record<string, ServiceMarkerMap> } {
-  const rec: Recorder = { inApp: [], pushes: [], emails: [], recorded: [], loads: [] };
+  const rec: Recorder = {
+    inApp: [],
+    pushes: [],
+    emails: [],
+    recorded: [],
+    loads: [],
+    readyInApp: [],
+    readyPushes: [],
+    fulfilled: [],
+  };
   const state: Record<string, ServiceMarkerMap> = JSON.parse(JSON.stringify(opts.markerState ?? {}));
   const unreachable = opts.unreachableClients ?? new Set<number>();
+  // Mutable copy so consumed orders persist across passes within one test.
+  const pending: Record<string, PendingOrder[]> = JSON.parse(JSON.stringify(opts.pendingByUser ?? {}));
+  const readyEnabled = opts.pendingByUser !== undefined;
 
   const deps: WhmcsServiceNotifierDeps = {
     now: NOW,
@@ -86,10 +108,31 @@ function makeDeps(opts: {
     sendPush: (user, service, kind, _baseUrl, notificationId) =>
       rec.pushes.push({ userId: user.id, serviceId: service.id, kind, notificationId }),
     sendEmail: (user, service, kind) => rec.emails.push({ userId: user.id, serviceId: service.id, kind }),
-    wantsPush: () => opts.wantsPush ?? true,
+    wantsPush: (_user, categoryKey) =>
+      categoryKey === SERVICE_READY_CATEGORY_KEY ? (opts.wantsReadyPush ?? true) : (opts.wantsPush ?? true),
     wantsEmail: () => opts.wantsEmail ?? true,
     prefsOn: () => opts.prefsOn ?? true,
   };
+
+  if (readyEnabled) {
+    deps.getPendingOrders = async (userId) => {
+      if (opts.getPendingOrdersThrows) throw new Error("pending boom");
+      return pending[userId] ?? [];
+    };
+    deps.markPendingOrderFulfilled = async (orderId) => {
+      rec.fulfilled.push(orderId);
+      // Remove from every user's queue so a fulfilled order can't fire again.
+      for (const uid of Object.keys(pending)) {
+        pending[uid] = pending[uid].filter((o) => o.id !== orderId);
+      }
+    };
+    deps.createReadyInApp = async (user, service) => {
+      rec.readyInApp.push({ userId: user.id, serviceId: service.id });
+      return opts.readyInAppReturns === undefined ? "ready-notif-1" : opts.readyInAppReturns;
+    };
+    deps.sendReadyPush = (user, service, _baseUrl, notificationId) =>
+      rec.readyPushes.push({ userId: user.id, serviceId: service.id, notificationId });
+  }
 
   return { deps, rec, state };
 }
@@ -396,4 +439,157 @@ test("RENEW_SOON_DAYS window boundary: service due exactly today+RENEW_SOON_DAYS
   });
   await runWhmcsServiceNotifyPass(deps);
   assert.deepEqual(rec.pushes.map((p) => p.kind), ["renewal"]);
+});
+
+// --- "New service is ready" detection (Task #474) ----------------------------
+
+test("ready fires on a brand-new ACTIVE service (baseline) matching a pending order", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 1);
+  assert.deepEqual(rec.readyInApp, [{ userId: "u1", serviceId: 7 }]);
+  assert.deepEqual(rec.readyPushes, [{ userId: "u1", serviceId: 7, notificationId: "ready-notif-1" }]);
+  assert.deepEqual(rec.fulfilled, ["ord-1"]);
+  // Still records the silent baseline marker as usual.
+  assert.deepEqual(rec.recorded, [
+    { userId: "u1", serviceId: 7, marker: { lastSeenStatus: "active", lastRenewalNotified: null } },
+  ]);
+});
+
+test("ready fires on pending->active transition matching an order", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    markerState: { u1: { "7": { lastSeenStatus: "pending", lastRenewalNotified: null } } },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 1);
+  assert.deepEqual(rec.readyInApp, [{ userId: "u1", serviceId: 7 }]);
+  assert.deepEqual(rec.fulfilled, ["ord-1"]);
+});
+
+test("ready does NOT fire on unsuspend (suspended->active), even with a matching order", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    markerState: { u1: { "7": { lastSeenStatus: "suspended", lastRenewalNotified: null } } },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 0);
+  assert.equal(rec.readyInApp.length, 0);
+  assert.equal(rec.readyPushes.length, 0);
+  assert.equal(rec.fulfilled.length, 0);
+  // The unsuspended lifecycle event still fires (unchanged behaviour).
+  assert.deepEqual(rec.pushes.map((p) => p.kind), ["unsuspended"]);
+});
+
+test("ready does NOT fire on terminated->active re-enable, even with a matching order", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    markerState: { u1: { "7": { lastSeenStatus: "terminated", lastRenewalNotified: null } } },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 0);
+  assert.equal(rec.readyInApp.length, 0);
+  assert.equal(rec.readyPushes.length, 0);
+  assert.equal(rec.fulfilled.length, 0);
+});
+
+test("ready does NOT fire without a matching pending order", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 999 }] }, // different pid
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 0);
+  assert.equal(rec.readyInApp.length, 0);
+  assert.equal(rec.fulfilled.length, 0);
+});
+
+test("ready is one-time: a fulfilled order never re-fires on the next pass", async () => {
+  const services = { 100: [mkService({ id: 7, status: "Active", pid: 42 })] };
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: services,
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  await runWhmcsServiceNotifyPass(deps);
+  const second = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(second.readyNotified, 0);
+  assert.equal(rec.readyInApp.length, 1);
+  assert.equal(rec.readyPushes.length, 1);
+  assert.deepEqual(rec.fulfilled, ["ord-1"]);
+});
+
+test("ready in-app fires regardless of push prefs; push is gated by wantsPush", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+    wantsReadyPush: false,
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 1);
+  assert.deepEqual(rec.readyInApp, [{ userId: "u1", serviceId: 7 }]); // bell still created
+  assert.equal(rec.readyPushes.length, 0); // push suppressed
+  assert.deepEqual(rec.fulfilled, ["ord-1"]); // still fulfilled (one-time)
+});
+
+test("two new same-pid services consume two distinct orders (no double-grab)", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: {
+      100: [
+        mkService({ id: 7, status: "Active", pid: 42 }),
+        mkService({ id: 8, status: "Active", pid: 42 }),
+      ],
+    },
+    pendingByUser: {
+      u1: [
+        { id: "ord-1", whmcsProductId: 42 },
+        { id: "ord-2", whmcsProductId: 42 },
+      ],
+    },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 2);
+  assert.deepEqual(rec.readyInApp.map((r) => r.serviceId).sort(), [7, 8]);
+  assert.deepEqual(rec.fulfilled.sort(), ["ord-1", "ord-2"]);
+});
+
+test("ready degrades cleanly when getPendingOrders throws (no fire, lifecycle unaffected)", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+    getPendingOrdersThrows: true,
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 0);
+  assert.equal(rec.readyInApp.length, 0);
+  // Baseline marker still written despite the pending-order failure.
+  assert.deepEqual(rec.recorded, [
+    { userId: "u1", serviceId: 7, marker: { lastSeenStatus: "active", lastRenewalNotified: null } },
+  ]);
+});
+
+test("ready detection is OFF when hooks are not wired (lifecycle behaves as before)", async () => {
+  const { deps, rec } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    // no pendingByUser → readyEnabled false
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.readyNotified, 0);
+  assert.equal(rec.readyInApp.length, 0);
+  assert.equal(rec.readyPushes.length, 0);
 });

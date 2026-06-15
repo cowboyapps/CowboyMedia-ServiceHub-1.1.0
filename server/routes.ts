@@ -6468,6 +6468,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   const orderRouteDeps = {
     getWhmcsSettings: () => storage.getWhmcsSettings(),
     getUser: (id: string) => storage.getUser(id),
+    recordPendingOrder: (userId: string, pid: number, invoiceId: number | null) =>
+      storage.createWhmcsPendingOrder(userId, pid, invoiceId).then(() => undefined),
   };
   app.get("/api/billing/products", requireAuth, createListOrderableProductsHandler(orderRouteDeps));
   const placeOrder = createPlaceOrderHandler(orderRouteDeps);

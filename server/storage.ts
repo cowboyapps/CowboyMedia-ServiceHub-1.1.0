@@ -51,6 +51,8 @@ import {
   type WhmcsProductMapping,
   whmcsProductDns,
   type WhmcsProductDns,
+  whmcsPendingOrders,
+  type WhmcsPendingOrder,
   whmcsTicketNotifications,
   whmcsInvoiceNotifications,
   whmcsServiceNotifications,
@@ -388,6 +390,9 @@ export interface IStorage {
   listWhmcsProductDns(): Promise<WhmcsProductDns[]>;
   getWhmcsProductDns(whmcsProductId: number): Promise<WhmcsProductDns | undefined>;
   setWhmcsProductDns(whmcsProductId: number, dns: string): Promise<WhmcsProductDns | undefined>;
+  createWhmcsPendingOrder(userId: string, whmcsProductId: number, whmcsInvoiceId: number | null): Promise<WhmcsPendingOrder>;
+  getUnfulfilledWhmcsPendingOrders(userId: string): Promise<WhmcsPendingOrder[]>;
+  markWhmcsPendingOrderFulfilled(id: string): Promise<void>;
   getDiscordSettings(): Promise<DiscordSettings | undefined>;
   updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
   getAppSettings(): Promise<AppSettings>;
@@ -1422,6 +1427,30 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return row;
+  }
+
+  async createWhmcsPendingOrder(userId: string, whmcsProductId: number, whmcsInvoiceId: number | null): Promise<WhmcsPendingOrder> {
+    const [row] = await db
+      .insert(whmcsPendingOrders)
+      .values({ userId, whmcsProductId, whmcsInvoiceId })
+      .returning();
+    return row;
+  }
+
+  // Oldest-first so two same-pid orders are consumed FIFO by the notifier.
+  async getUnfulfilledWhmcsPendingOrders(userId: string): Promise<WhmcsPendingOrder[]> {
+    return db
+      .select()
+      .from(whmcsPendingOrders)
+      .where(and(eq(whmcsPendingOrders.userId, userId), isNull(whmcsPendingOrders.fulfilledAt)))
+      .orderBy(whmcsPendingOrders.createdAt);
+  }
+
+  async markWhmcsPendingOrderFulfilled(id: string): Promise<void> {
+    await db
+      .update(whmcsPendingOrders)
+      .set({ fulfilledAt: new Date() })
+      .where(eq(whmcsPendingOrders.id, id));
   }
 
   async getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined> {

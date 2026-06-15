@@ -103,6 +103,38 @@ export interface WhmcsServiceNotifierDeps {
   prefsOn: (user: ServiceNotifierUser, categoryKey: string) => boolean;
   /** Injectable clock for tests. */
   now?: () => Date;
+
+  // --- "New service is ready" hooks (Task #474) -------------------------------
+  // All four must be supplied together to enable the feature; when any is
+  // missing the notifier behaves exactly as before (no ready detection). Kept
+  // optional so existing call sites / tests don't break.
+  /** The customer's unfulfilled pending orders (oldest first), or [] / throws. */
+  getPendingOrders?: (userId: string) => Promise<PendingOrder[]>;
+  /** Mark a pending order fulfilled so the ready message never repeats. */
+  markPendingOrderFulfilled?: (orderId: string) => Promise<void>;
+  /**
+   * Create the in-app (bell) row for the ready message and return its id (null
+   * on failure). In-app is the primary channel for "ready" so this fires
+   * regardless of push prefs. Never throws.
+   */
+  createReadyInApp?: (
+    user: ServiceNotifierUser,
+    service: NotifierService,
+    baseUrl: string | null,
+  ) => Promise<string | null>;
+  /** Fire the ready push (caller decides delivery; never throws). */
+  sendReadyPush?: (
+    user: ServiceNotifierUser,
+    service: NotifierService,
+    baseUrl: string | null,
+    notificationId: string | null,
+  ) => void;
+}
+
+/** A customer's recorded pending order, matched to a new service by product id. */
+export interface PendingOrder {
+  id: string;
+  whmcsProductId: number;
 }
 
 /** Renewal reminders and status changes are separate opt-in categories. */
@@ -110,10 +142,15 @@ export function categoryForKind(kind: ServiceEventKind): string {
   return kind === "renewal" ? "whmcs_service_renewal" : "whmcs_service_status";
 }
 
+/** Opt-in push category for the "new service is ready" message. */
+export const SERVICE_READY_CATEGORY_KEY = "whmcs_service_ready";
+
 export interface ServiceNotifyPassResult {
   active: boolean;
   usersScanned: number;
   eventsNotified: number;
+  /** Count of "new service is ready" messages fired this pass. */
+  readyNotified: number;
 }
 
 /** Current calendar date (UTC) as YYYY-MM-DD. */
@@ -132,22 +169,32 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
 
   let usersScanned = 0;
   let eventsNotified = 0;
+  let readyNotified = 0;
+
+  // The "new service is ready" feature is active only when ALL its hooks are
+  // wired (production). Tests of the lifecycle events leave them off.
+  const readyEnabled = !!(
+    deps.getPendingOrders &&
+    deps.markPendingOrderFulfilled &&
+    deps.createReadyInApp &&
+    deps.sendReadyPush
+  );
 
   let config: { active: boolean; baseUrl: string | null };
   try {
     config = await deps.getConfig();
   } catch (e) {
     console.error("[whmcs-service-notifier] getConfig failed:", (e as Error)?.message);
-    return { active: false, usersScanned, eventsNotified };
+    return { active: false, usersScanned, eventsNotified, readyNotified };
   }
-  if (!config.active) return { active: false, usersScanned, eventsNotified };
+  if (!config.active) return { active: false, usersScanned, eventsNotified, readyNotified };
 
   let users: ServiceNotifierUser[];
   try {
     users = await deps.getLinkedUsers();
   } catch (e) {
     console.error("[whmcs-service-notifier] getLinkedUsers failed:", (e as Error)?.message);
-    return { active: true, usersScanned, eventsNotified };
+    return { active: true, usersScanned, eventsNotified, readyNotified };
   }
 
   for (const user of users) {
@@ -162,18 +209,69 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
       const markers = await deps.getMarkers(user.id);
       const plans = planServiceNotifications(list.services, markers, today, RENEW_SOON_DAYS);
 
+      // Pending orders for the ready-detection (Task #474). Fetched once per
+      // user; consumed in-pass so two new same-pid services don't grab one order.
+      // A fetch failure degrades cleanly (no ready this pass, retry next).
+      let pending: PendingOrder[] | null = null;
+      if (readyEnabled) {
+        try {
+          pending = await deps.getPendingOrders!(user.id);
+        } catch (e) {
+          console.error(`[whmcs-service-notifier] getPendingOrders ${user.id} failed:`, (e as Error)?.message);
+          pending = null;
+        }
+      }
+
+      // Fire the one-time "your new service is ready" message when a brand-new
+      // ACTIVE service first appears that matches an unfulfilled pending order by
+      // product id. "New" = baseline-active OR a strict pending->active transition
+      // — i.e. a service WHMCS just finished provisioning. Any other prior state
+      // is an EXISTING service and never counts: an unsuspend (suspended->active)
+      // is a reactivation, and terminated/cancelled/fraud->active is a re-enable,
+      // not a new order. The fulfilled flag is the ultimate cross-pass/restart
+      // dedup. In-app fires regardless of push prefs (it's the primary channel);
+      // push is gated on the opt-in category.
+      const fireReadyIfNewProvision = async (p: typeof plans[number]) => {
+        if (!readyEnabled || !pending || pending.length === 0) return;
+        if (p.status !== "active") return;
+        const isNewProvision = p.isBaseline
+          ? true
+          : p.prev!.lastSeenStatus === "pending";
+        if (!isNewProvision) return;
+        const pid = p.service.pid;
+        if (pid == null) return;
+        const idx = pending.findIndex((o) => o.whmcsProductId === pid);
+        if (idx === -1) return;
+        const order = pending[idx];
+        pending.splice(idx, 1); // consume so a second new service won't reuse it
+
+        const notificationId = await deps.createReadyInApp!(user, p.service, config.baseUrl);
+        if (deps.wantsPush(user, SERVICE_READY_CATEGORY_KEY)) {
+          deps.sendReadyPush!(user, p.service, config.baseUrl, notificationId);
+        }
+        await deps.markPendingOrderFulfilled!(order.id);
+        readyNotified++;
+      };
+
       for (const plan of plans) {
         const { service } = plan;
 
         // First sighting: record the current state silently so we never blast
-        // about pre-existing suspensions / renewals.
+        // about pre-existing suspensions / renewals. A brand-new service caught
+        // already-active here is still a NEW PROVISION (matched to a pending
+        // order), so check ready BEFORE the silent baseline write.
         if (plan.isBaseline) {
+          await fireReadyIfNewProvision(plan);
           await deps.recordMarker(user.id, service.id, {
             lastSeenStatus: plan.status,
             lastRenewalNotified: plan.renewalDue ? service.nextDueDate : null,
           });
           continue;
         }
+
+        // pending->active (provisioning finished after we'd already baselined the
+        // service as Pending) is also a new provision — check before the events.
+        await fireReadyIfNewProvision(plan);
 
         const prev = plan.prev!;
         // Start from the previous marker; advance each field only as events are
@@ -227,7 +325,7 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
     }
   }
 
-  return { active: true, usersScanned, eventsNotified };
+  return { active: true, usersScanned, eventsNotified, readyNotified };
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
