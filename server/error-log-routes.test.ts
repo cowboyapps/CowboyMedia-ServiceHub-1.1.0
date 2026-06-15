@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ErrorLog, InsertErrorLog } from "../shared/schema";
+import { createRequirePermission } from "./require-permission";
 
 type ErrorLogStorage = {
   createErrorLog(data: InsertErrorLog): Promise<ErrorLog>;
@@ -120,29 +121,26 @@ test("countUnresolvedErrorLogsSince counts only unresolved within window", async
 
 // ---------- Permission gating ----------
 
-type Req = { session?: { userId?: string }; headers?: Record<string, string> };
 type Res = { statusCode: number; body?: any; status: (n: number) => Res; json: (b: any) => Res };
 function makeRes(): Res {
   const r: any = { statusCode: 200, status(n: number) { r.statusCode = n; return r; }, json(b: any) { r.body = b; return r; } };
   return r;
 }
 
-function makeRequirePermission(getUserPerms: (userId: string) => string[], userRoles: Record<string, string>) {
-  return (perm: string) => async (req: Req, res: Res, next: () => void) => {
-    const uid = req.session?.userId;
-    if (!uid) return res.status(401).json({ message: "Unauthorized" });
-    const role = userRoles[uid];
-    if (role === "master_admin") return next();
-    if (role !== "admin") return res.status(403).json({ message: "Forbidden" });
-    if (!getUserPerms(uid).includes(perm)) return res.status(403).json({ message: "Forbidden" });
-    next();
-  };
-}
-
+// Uses the REAL production gate (server/require-permission.ts) — admins are
+// keyed to an adminRoleId whose permission list is resolved via getAdminRole.
 test("permission gate blocks customers and admins lacking error_log.view", async () => {
-  const userRoles: Record<string, string> = { cust: "customer", adminA: "admin", adminB: "admin", master: "master_admin" };
-  const perms: Record<string, string[]> = { adminA: [], adminB: ["error_log.view"] };
-  const requirePermission = makeRequirePermission(uid => perms[uid] || [], userRoles);
+  const users: Record<string, { role: string; adminRoleId: string | null }> = {
+    cust: { role: "customer", adminRoleId: null },
+    adminA: { role: "admin", adminRoleId: "role-empty" },
+    adminB: { role: "admin", adminRoleId: "role-errlog" },
+    master: { role: "master_admin", adminRoleId: null },
+  };
+  const rolePerms: Record<string, string[]> = { "role-empty": [], "role-errlog": ["error_log.view"] };
+  const requirePermission = createRequirePermission({
+    getUser: async (id) => users[id],
+    getAdminRole: async (id) => (rolePerms[id] ? { permissions: rolePerms[id] } : undefined),
+  });
   const handler = requirePermission("error_log.view");
 
   const cases: Array<{ uid: string | undefined; expected: number }> = [
@@ -155,7 +153,8 @@ test("permission gate blocks customers and admins lacking error_log.view", async
   for (const c of cases) {
     const res = makeRes();
     let nextCalled = false;
-    await handler({ session: c.uid ? { userId: c.uid } : undefined }, res, () => { nextCalled = true; });
+    const req: any = { session: c.uid ? { userId: c.uid } : {}, method: "GET" };
+    await handler(req, res as any, () => { nextCalled = true; });
     if (c.expected === 200) {
       assert.equal(nextCalled, true, `uid=${c.uid} should pass`);
     } else {

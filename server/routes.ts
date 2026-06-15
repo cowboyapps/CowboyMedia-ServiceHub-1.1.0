@@ -6,6 +6,7 @@ import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from 
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getParam } from "./http-params";
+import { createRequirePermission } from "./require-permission";
 import { getCachedPublicStatus, setCachedPublicStatus } from "./public-status-cache";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
@@ -494,28 +495,7 @@ async function requireMasterAdmin<P>(req: Request<P>, res: Response, next: NextF
   next();
 }
 
-function requirePermission(viewPerm: string, managePerm?: string) {
-  return async <P>(req: Request<P>, res: Response, next: NextFunction) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const user = await storage.getUser(req.session.userId);
-    if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-    if (user.role === "master_admin") return next();
-    const isWrite = ["POST", "PATCH", "PUT", "DELETE"].includes(req.method);
-    const requiredPerm = isWrite && managePerm ? managePerm : viewPerm;
-    if (!user.adminRoleId) {
-      return res.status(403).json({ message: "No admin role assigned" });
-    }
-    const role = await storage.getAdminRole(user.adminRoleId);
-    if (!role || !role.permissions?.includes(requiredPerm)) {
-      return res.status(403).json({ message: "Insufficient permissions" });
-    }
-    next();
-  };
-}
+const requirePermission = createRequirePermission(storage);
 
 async function getAdminCategoryAccess(userId: string): Promise<string[]> {
   const user = await storage.getUser(userId);

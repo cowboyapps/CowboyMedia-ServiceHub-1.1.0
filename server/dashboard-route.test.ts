@@ -3,34 +3,14 @@ import assert from "node:assert/strict";
 import express from "express";
 import { createDashboardHandler } from "./dashboard";
 import type { DashboardMetrics } from "./storage";
+import { createRequirePermission } from "./require-permission";
 
-// Authorization guard mirroring the production requirePermission shape:
-// only admin / master_admin with the specific permission may pass.
+// Authorization is enforced by the REAL production gate
+// (server/require-permission.ts) — no local replica. We inject a fake user/role
+// lookup and a session middleware so the same factory routes.ts mounts is what
+// guards this route under test.
 type FakeUser = { id: string; role: string; adminRoleId: string | null };
 type FakeRole = { id: string; permissions: string[] };
-
-function makeRequirePermission(opts: {
-  users: Map<string, FakeUser>;
-  roles: Map<string, FakeRole>;
-  sessionUserId: string | null;
-}) {
-  return function requirePermission(viewPerm: string) {
-    return async (_req: any, res: any, next: any) => {
-      if (!opts.sessionUserId) return res.status(401).json({ message: "Unauthorized" });
-      const user = opts.users.get(opts.sessionUserId);
-      if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      if (user.role === "master_admin") return next();
-      if (!user.adminRoleId) return res.status(403).json({ message: "No admin role assigned" });
-      const role = opts.roles.get(user.adminRoleId);
-      if (!role || !role.permissions.includes(viewPerm)) {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-      next();
-    };
-  };
-}
 
 function metrics(): DashboardMetrics {
   return {
@@ -55,10 +35,17 @@ function makeApp(sessionUserId: string | null) {
     ["role-empty", { id: "role-empty", permissions: ["users.view"] }],
     ["role-dashboard", { id: "role-dashboard", permissions: ["dashboard.view"] }],
   ]);
-  const requirePermission = makeRequirePermission({ users, roles, sessionUserId });
+  const requirePermission = createRequirePermission({
+    getUser: async (id) => users.get(id),
+    getAdminRole: async (id) => roles.get(id),
+  });
   const handler = createDashboardHandler({ storage: { getDashboardMetrics: async () => metrics() } });
   const app = express();
-  app.get("/api/admin/dashboard", requirePermission("dashboard.view"), handler);
+  app.use((req, _res, next) => {
+    (req as any).session = sessionUserId ? { userId: sessionUserId } : {};
+    next();
+  });
+  app.get("/api/admin/dashboard", requirePermission("dashboard.view") as any, handler);
   return app;
 }
 

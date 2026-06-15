@@ -8,6 +8,7 @@ import {
 import { getParam } from "./http-params";
 import type { ServicesListData } from "./whmcs-billing";
 import type { WhmcsRawFetch } from "./whmcs";
+import { createRequirePermission } from "./require-permission";
 
 // Route-level tests for the admin service-lifecycle endpoint:
 //   POST /api/admin/users/:id/whmcs/services/:serviceId/:action
@@ -495,13 +496,12 @@ test("does NOT invalidate when the selected customer has no linked client (409)"
 // MANAGE perm — so a view-only admin (or a customer, or an unauthenticated
 // caller, or an admin with no role) MUST be rejected before the handler runs and
 // before WHMCS is ever touched. The tests above mount the bare handler; these
-// mount a faithful replica of routes.ts's requirePermission IN FRONT of the REAL
-// handler so the full chain — authorization + the WHMCS write — is exercised.
-//
-// The replica mirrors server/routes.ts:requirePermission exactly, including the
+// mount the REAL production gate (server/require-permission.ts) — the same
+// factory routes.ts ships, no local replica — IN FRONT of the REAL handler so
+// the full chain (authorization + the WHMCS write) is exercised, including the
 // isWrite → managePerm selection that is the crux of this route's safety: a
-// view-only admin can SEE a customer's services but must not be able to change
-// their lifecycle.
+// view-only admin can SEE a customer's services but must not change their
+// lifecycle.
 
 type GuardUser = { role: string; adminRoleId?: string | null };
 
@@ -509,26 +509,10 @@ function makeRequirePermission(
   users: Record<string, GuardUser | undefined>,
   rolePerms: Record<string, string[] | undefined>,
 ) {
-  return (viewPerm: string, managePerm?: string) =>
-    async (req: any, res: any, next: () => void) => {
-      const uid = req.session?.userId;
-      if (!uid) return res.status(401).json({ message: "Unauthorized" });
-      const user = users[uid];
-      if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      if (user.role === "master_admin") return next();
-      const isWrite = ["POST", "PATCH", "PUT", "DELETE"].includes(req.method);
-      const requiredPerm = isWrite && managePerm ? managePerm : viewPerm;
-      if (!user.adminRoleId) {
-        return res.status(403).json({ message: "No admin role assigned" });
-      }
-      const perms = rolePerms[user.adminRoleId];
-      if (!perms || !perms.includes(requiredPerm)) {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-      next();
-    };
+  return createRequirePermission({
+    getUser: async (id) => users[id],
+    getAdminRole: async (id) => (rolePerms[id] ? { permissions: rolePerms[id] } : undefined),
+  });
 }
 
 interface GuardedAppOpts extends AppOpts {
