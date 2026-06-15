@@ -31,7 +31,6 @@ import {
 } from "@shared/whmcs-invoice-notify";
 import {
   startWhmcsServiceNotifier,
-  SERVICE_READY_CATEGORY_KEY,
   type ServiceNotifierUser,
   type NotifierService,
 } from "./whmcs-service-notifier";
