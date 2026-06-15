@@ -546,9 +546,10 @@ void (async () => {
     markPendingOrderFulfilled: (orderId) => storage.markWhmcsPendingOrderFulfilled(orderId),
     createReadyInApp: async (user, service) => {
       // In-app is the PRIMARY channel for "ready" (fires regardless of push
-      // prefs). The bell row deep-links to /my-services — the secure surface
-      // where login details + DNS are shown. Strictly credential-free. Never
-      // throws: a failure here must not abort the pass.
+      // prefs). The bell row deep-links to /my-services?service=<id> — the secure
+      // surface where login details + DNS are shown, with the new service's card
+      // auto-expanded. Strictly credential-free. Never throws: a failure here must
+      // not abort the pass.
       try {
         const ov = await getNotificationOverride(SERVICE_READY_TEMPLATE_KEY);
         const row = await storage.createUserNotification({
@@ -558,7 +559,7 @@ void (async () => {
           body: serviceReadyBody(service, ov),
           referenceType: "whmcs_service",
           referenceId: String(service.id),
-          url: "/my-services",
+          url: `/my-services?service=${service.id}`,
         });
         return row.id;
       } catch (e) {
@@ -569,14 +570,15 @@ void (async () => {
     sendReadyPush: (user, service, _baseUrl, notificationId) => {
       void (async () => {
         const ov = await getNotificationOverride(SERVICE_READY_TEMPLATE_KEY);
-        // Deep-link to the in-app /my-services screen (the secure surface). No
-        // credentials in the payload — only the service name + a tap target.
+        // Deep-link to /my-services?service=<id> (the secure surface) so the new
+        // service's card auto-expands. No credentials in the payload — only the
+        // service name + a tap target.
         void sendPushToUser(
           user.id,
           {
             title: serviceReadyTitle(ov),
             body: serviceReadyBody(service, ov),
-            url: "/my-services",
+            url: `/my-services?service=${service.id}`,
             tag: `whmcs-service-${service.id}-ready`,
             resourceLabel: serviceLabel(service),
             rollupNoun: "updates",

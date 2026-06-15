@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import {
   Server,
   KeyRound,
@@ -380,10 +380,20 @@ function ResetPasswordAction({ service }: { service: ActiveService }) {
   );
 }
 
-function ActiveServiceCard({ service }: { service: ActiveService }) {
-  const [open, setOpen] = useState(false);
+function ActiveServiceCard({ service, autoOpen = false }: { service: ActiveService; autoOpen?: boolean }) {
+  const [open, setOpen] = useState(autoOpen);
+  const cardRef = useRef<HTMLDivElement>(null);
+  // When deep-linked from a "your new service is ready" notification
+  // (/my-services?service=<id>), expand this card and bring it into view so the
+  // customer lands directly on their new login details + DNS.
+  useEffect(() => {
+    if (autoOpen) {
+      setOpen(true);
+      cardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [autoOpen]);
   return (
-    <Card data-testid={`card-active-service-${service.id}`}>
+    <Card ref={cardRef} data-testid={`card-active-service-${service.id}`}>
       <CardContent className="p-3">
         <button
           type="button"
@@ -738,6 +748,11 @@ function MyActiveServices() {
     queryKey: ["/api/my/services"],
   });
 
+  // Deep-link target from a "your new service is ready" notification:
+  // /my-services?service=<id> auto-expands and scrolls to that service's card.
+  const search = useSearch();
+  const deepLinkServiceId = new URLSearchParams(search).get("service");
+
   if (isLoading) return <Skeleton className="h-28 rounded-xl" data-testid="active-services-loading" />;
   // Only render the section when billing is live and the customer is linked.
   if (!data || !data.configured || !data.enabled || !data.linked) return null;
@@ -764,7 +779,7 @@ function MyActiveServices() {
       ) : (
         <div className="space-y-2">
           {data.services.map((s) => (
-            <ActiveServiceCard key={s.id} service={s} />
+            <ActiveServiceCard key={s.id} service={s} autoOpen={String(s.id) === deepLinkServiceId} />
           ))}
         </div>
       )}

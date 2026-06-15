@@ -222,30 +222,37 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
         }
       }
 
-      // Fire the one-time "your new service is ready" message when a brand-new
-      // ACTIVE service first appears that matches an unfulfilled pending order by
-      // product id. "New" = baseline-active OR a strict pending->active transition
-      // — i.e. a service WHMCS just finished provisioning. Any other prior state
-      // is an EXISTING service and never counts: an unsuspend (suspended->active)
-      // is a reactivation, and terminated/cancelled/fraud->active is a re-enable,
-      // not a new order. The fulfilled flag is the ultimate cross-pass/restart
-      // dedup. In-app fires regardless of push prefs (it's the primary channel);
-      // push is gated on the opt-in category.
+      // Fire the one-time "your new service is ready" message ONLY when a service
+      // we previously saw as PENDING flips to ACTIVE — i.e. WHMCS has just finished
+      // provisioning a newly-ordered service — AND it matches an unfulfilled
+      // pending order by product id. We deliberately DO NOT fire on first baseline:
+      // an already-active service on its very first sighting is treated as
+      // PRE-EXISTING, never a new provision. That keeps existing customers from
+      // being falsely notified and stops a pending order being grabbed by the wrong
+      // (pre-existing) service before the genuinely-new one appears. Unsuspend
+      // (suspended->active) and re-enable (terminated/cancelled->active) are
+      // existing services and never count. The fulfilled flag is the ultimate
+      // cross-pass/restart dedup. In-app fires regardless of push prefs (it's the
+      // primary channel); push is gated on the opt-in category.
       const fireReadyIfNewProvision = async (p: typeof plans[number]) => {
         if (!readyEnabled || !pending || pending.length === 0) return;
         if (p.status !== "active") return;
-        const isNewProvision = p.isBaseline
-          ? true
-          : p.prev!.lastSeenStatus === "pending";
-        if (!isNewProvision) return;
+        // Strictly a pending->active provisioning transition. Never baseline.
+        if (p.isBaseline || p.prev!.lastSeenStatus !== "pending") return;
         const pid = p.service.pid;
         if (pid == null) return;
         const idx = pending.findIndex((o) => o.whmcsProductId === pid);
         if (idx === -1) return;
         const order = pending[idx];
-        pending.splice(idx, 1); // consume so a second new service won't reuse it
 
+        // Create the in-app bell FIRST and only consume + fulfill the order once it
+        // succeeds. If in-app creation fails (returns null), leave the order
+        // unconsumed and unfulfilled so the next pass retries — a transient failure
+        // must never permanently swallow the ready notification (in-app is the
+        // primary channel, so a lost bell row would mean the customer gets nothing).
         const notificationId = await deps.createReadyInApp!(user, p.service, config.baseUrl);
+        if (notificationId == null) return;
+        pending.splice(idx, 1); // consume so a second new service won't reuse it
         if (deps.wantsPush(user, SERVICE_READY_CATEGORY_KEY)) {
           deps.sendReadyPush!(user, p.service, config.baseUrl, notificationId);
         }
@@ -257,11 +264,11 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
         const { service } = plan;
 
         // First sighting: record the current state silently so we never blast
-        // about pre-existing suspensions / renewals. A brand-new service caught
-        // already-active here is still a NEW PROVISION (matched to a pending
-        // order), so check ready BEFORE the silent baseline write.
+        // about pre-existing suspensions / renewals. An already-active service on
+        // its first sighting is treated as PRE-EXISTING (never a new provision) —
+        // "ready" is fired only on the later pending->active transition, so we do
+        // NOT check ready here.
         if (plan.isBaseline) {
-          await fireReadyIfNewProvision(plan);
           await deps.recordMarker(user.id, service.id, {
             lastSeenStatus: plan.status,
             lastRenewalNotified: plan.renewalDue ? service.nextDueDate : null,
