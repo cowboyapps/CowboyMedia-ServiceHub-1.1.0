@@ -494,6 +494,38 @@ test("ready does NOT fulfill the order when the in-app bell create fails (retrie
   assert.equal(rec.fulfilled.length, 0); // order left unfulfilled for retry
 });
 
+test("ready retries on the next pass after a failed in-app create, then fires exactly once", async () => {
+  // Pass 1: createReadyInApp fails -> no fire, order not fulfilled, AND the marker
+  // must stay "pending" so pass 2 still sees pending->active. Pass 2: success.
+  const { deps, rec, state } = makeDeps({
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    markerState: { u1: { "7": { lastSeenStatus: "pending", lastRenewalNotified: null } } },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  let calls = 0;
+  deps.createReadyInApp = async (user, service) => {
+    rec.readyInApp.push({ userId: user.id, serviceId: service.id });
+    calls++;
+    return calls === 1 ? null : "ready-notif-1"; // fail first, succeed second
+  };
+
+  const first = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(first.readyNotified, 0);
+  assert.equal(rec.readyPushes.length, 0);
+  assert.equal(rec.fulfilled.length, 0);
+  // Marker must remain "pending" so the next pass re-detects the transition.
+  assert.deepEqual(state.u1["7"], { lastSeenStatus: "pending", lastRenewalNotified: null });
+
+  const second = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(second.readyNotified, 1);
+  assert.equal(rec.readyInApp.length, 2); // attempted twice (fail + success)
+  assert.deepEqual(rec.readyPushes, [{ userId: "u1", serviceId: 7, notificationId: "ready-notif-1" }]);
+  assert.deepEqual(rec.fulfilled, ["ord-1"]);
+  // Now the marker finally advances to active.
+  assert.deepEqual(state.u1["7"], { lastSeenStatus: "active", lastRenewalNotified: null });
+});
+
 test("ready does NOT fire on unsuspend (suspended->active), even with a matching order", async () => {
   const { deps, rec } = makeDeps({
     users: [mkUser({ id: "u1", whmcsClientId: 100 })],

@@ -234,30 +234,37 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
       // existing services and never count. The fulfilled flag is the ultimate
       // cross-pass/restart dedup. In-app fires regardless of push prefs (it's the
       // primary channel); push is gated on the opt-in category.
-      const fireReadyIfNewProvision = async (p: typeof plans[number]) => {
-        if (!readyEnabled || !pending || pending.length === 0) return;
-        if (p.status !== "active") return;
+      // Returns true when a ready notification was ATTEMPTED for a matching order
+      // but the in-app create failed — the caller must then pin this service's
+      // marker at "pending" (not advance it to "active") so the NEXT pass still
+      // sees a pending->active transition and retries. Returning false means
+      // either nothing to do or success; the marker may advance normally.
+      const fireReadyIfNewProvision = async (p: typeof plans[number]): Promise<boolean> => {
+        if (!readyEnabled || !pending || pending.length === 0) return false;
+        if (p.status !== "active") return false;
         // Strictly a pending->active provisioning transition. Never baseline.
-        if (p.isBaseline || p.prev!.lastSeenStatus !== "pending") return;
+        if (p.isBaseline || p.prev!.lastSeenStatus !== "pending") return false;
         const pid = p.service.pid;
-        if (pid == null) return;
+        if (pid == null) return false;
         const idx = pending.findIndex((o) => o.whmcsProductId === pid);
-        if (idx === -1) return;
+        if (idx === -1) return false;
         const order = pending[idx];
 
         // Create the in-app bell FIRST and only consume + fulfill the order once it
         // succeeds. If in-app creation fails (returns null), leave the order
-        // unconsumed and unfulfilled so the next pass retries — a transient failure
-        // must never permanently swallow the ready notification (in-app is the
-        // primary channel, so a lost bell row would mean the customer gets nothing).
+        // unconsumed and unfulfilled AND signal the caller to keep the marker at
+        // "pending" so the next pass retries — a transient failure must never
+        // permanently swallow the ready notification (in-app is the primary
+        // channel, so a lost bell row would mean the customer gets nothing).
         const notificationId = await deps.createReadyInApp!(user, p.service, config.baseUrl);
-        if (notificationId == null) return;
+        if (notificationId == null) return true;
         pending.splice(idx, 1); // consume so a second new service won't reuse it
         if (deps.wantsPush(user, SERVICE_READY_CATEGORY_KEY)) {
           deps.sendReadyPush!(user, p.service, config.baseUrl, notificationId);
         }
         await deps.markPendingOrderFulfilled!(order.id);
         readyNotified++;
+        return false;
       };
 
       for (const plan of plans) {
@@ -278,14 +285,17 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
 
         // pending->active (provisioning finished after we'd already baselined the
         // service as Pending) is also a new provision — check before the events.
-        await fireReadyIfNewProvision(plan);
+        const readyRetryNeeded = await fireReadyIfNewProvision(plan);
 
         const prev = plan.prev!;
         // Start from the previous marker; advance each field only as events are
         // accepted (delivered or prefs-off). A non-notifying status change
         // (e.g. active->terminated, pending->active) still advances lastSeenStatus
-        // so future transitions compute from the truth.
-        let newStatus = plan.statusEvent ? prev.lastSeenStatus : plan.status;
+        // so future transitions compute from the truth. EXCEPTION: when a ready
+        // notification was attempted but its in-app create failed, pin the marker
+        // at the previous status ("pending") so the next pass still sees the
+        // pending->active transition and retries the ready notification.
+        let newStatus = plan.statusEvent || readyRetryNeeded ? prev.lastSeenStatus : plan.status;
         let newRenewal = prev.lastRenewalNotified;
 
         const events: ServiceEventKind[] = [];
