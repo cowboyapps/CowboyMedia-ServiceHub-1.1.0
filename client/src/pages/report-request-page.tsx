@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { AlertTriangle, Film, Bug, CheckCircle, Clock, Paperclip, X } from "lucide-react";
@@ -115,7 +116,7 @@ export default function ReportRequestPage() {
       setTimeout(() => setShowSuccess(false), 4000);
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to submit", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to submit", description: serverActionErrorMessage(e, "Failed to submit your request. Please try again."), variant: "destructive" });
     },
   });
 

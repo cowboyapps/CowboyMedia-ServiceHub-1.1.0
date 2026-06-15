@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { markTicketSeen } from "@/lib/whmcs-unread";
@@ -61,7 +62,7 @@ export default function WhmcsTicketDetailPage() {
       toast({ title: "Reply sent" });
     },
     onError: (e: Error) => {
-      toast({ title: "Couldn't send reply", description: e.message, variant: "destructive" });
+      toast({ title: "Couldn't send reply", description: serverActionErrorMessage(e, "Couldn't send your reply. Please try again."), variant: "destructive" });
     },
   });
 

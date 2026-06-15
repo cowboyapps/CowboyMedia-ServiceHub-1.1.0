@@ -16,6 +16,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { updateWhmcsProfileSchema, type UpdateWhmcsProfileData } from "@shared/schema";
 
@@ -101,7 +102,7 @@ export function WhmcsProfileCard() {
       toast({ title: "Account details saved" });
     },
     onError: (e: Error) => {
-      toast({ title: "Couldn't save your details", description: e.message, variant: "destructive" });
+      toast({ title: "Couldn't save your details", description: serverActionErrorMessage(e, "Couldn't save your details. Please try again."), variant: "destructive" });
     },
   });
 

@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { format, formatDistanceToNow } from "date-fns";
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck, ChevronRight, Megaphone } from "lucide-react";
 import { Link } from "wouter";
@@ -100,7 +101,7 @@ function FollowDialog({ service, open, onOpenChange }: { service: PublicService;
       onOpenChange(false);
     },
     onError: (err: Error) => {
-      toast({ title: "Subscribe failed", description: err.message, variant: "destructive" });
+      toast({ title: "Subscribe failed", description: serverActionErrorMessage(err, "Couldn't subscribe right now. Please try again."), variant: "destructive" });
     },
   });
 

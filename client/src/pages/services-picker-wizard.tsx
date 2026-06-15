@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 
 interface Props {
   onDone: () => void;
@@ -68,7 +69,7 @@ export function ServicesPickerWizard({ onDone }: Props) {
       onDone();
     },
     onError: (e: Error) => {
-      toast({ title: "Couldn't save your picks", description: e.message, variant: "destructive" });
+      toast({ title: "Couldn't save your picks", description: serverActionErrorMessage(e, "Couldn't save your picks. Please try again."), variant: "destructive" });
     },
   });
 

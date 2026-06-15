@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Moon, Clock } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import type { User } from "@shared/schema";
@@ -85,7 +86,7 @@ export function QuietHoursSection() {
     },
     onError: (e: Error, _vars, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(ME_KEY, ctx.previous);
-      toast({ title: "Failed to save quiet hours", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to save quiet hours", description: serverActionErrorMessage(e, "Couldn't save your quiet hours. Please try again."), variant: "destructive" });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ME_KEY });

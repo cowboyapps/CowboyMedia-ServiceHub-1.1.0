@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Bell, Mail, RotateCcw, BellOff, ChevronDown, Smartphone } from "lucide-react";
@@ -85,7 +86,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     },
     onError: (e: Error, _vars, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(ME_KEY, ctx.previous);
-      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to update", description: serverActionErrorMessage(e, "Couldn't update your notification preferences. Please try again."), variant: "destructive" });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ME_KEY });
@@ -110,7 +111,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     },
     onError: (e: Error, _vars, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(ME_KEY, ctx.previous);
-      toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to update", description: serverActionErrorMessage(e, "Couldn't update your notification preferences. Please try again."), variant: "destructive" });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ME_KEY });
@@ -131,7 +132,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     },
     onError: (e: Error, _vars, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(ME_KEY, ctx.previous);
-      toast({ title: "Failed to reset", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to reset", description: serverActionErrorMessage(e, "Couldn't reset your notification preferences. Please try again."), variant: "destructive" });
     },
     onSuccess: () => {
       toast({ title: "Notification preferences reset to defaults" });

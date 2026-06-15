@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -159,7 +160,7 @@ export function PollComposerDialog({
       onOpenChange(false);
       onCreated?.(poll);
     },
-    onError: (e: Error) => toast({ title: "Failed to post poll", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed to post poll", description: serverActionErrorMessage(e, "Couldn't post the poll. Please try again."), variant: "destructive" }),
   });
 
   return (

@@ -46,6 +46,7 @@ import { WhmcsTicketList, type WhmcsTicketsListData } from "@/components/whmcs-t
 import { useWhmcsSeenMap } from "@/lib/whmcs-unread";
 import { countNewReplies, newReplyTicketIds } from "@shared/whmcs-unread";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import type { Ticket as TicketType, Service, TicketCategory } from "@shared/schema";
@@ -241,7 +242,7 @@ export default function TicketsPage() {
       toast({ title: "Ticket deleted" });
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to delete ticket", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to delete ticket", description: serverActionErrorMessage(e, "Failed to delete the ticket. Please try again."), variant: "destructive" });
     },
   });
 
@@ -272,7 +273,7 @@ export default function TicketsPage() {
       setLocation(`/tickets/${ticket.id}`);
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to create ticket", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to create ticket", description: serverActionErrorMessage(e, "Failed to create the ticket. Please try again."), variant: "destructive" });
     },
   });
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -55,7 +56,7 @@ export function Poll({ pollId, onDeleted, compact }: { pollId: string; onDeleted
       setPendingSelection(null);
     },
     onError: (e: Error) => {
-      toast({ title: "Vote failed", description: e.message, variant: "destructive" });
+      toast({ title: "Vote failed", description: serverActionErrorMessage(e, "Couldn't record your vote. Please try again."), variant: "destructive" });
       setPendingSelection(null);
     },
   });
@@ -68,7 +69,7 @@ export function Poll({ pollId, onDeleted, compact }: { pollId: string; onDeleted
       toast({ title: "Poll deleted" });
       onDeleted?.();
     },
-    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Delete failed", description: serverActionErrorMessage(e, "Couldn't delete the poll. Please try again."), variant: "destructive" }),
   });
 
   // Optimistic counts: subtract previously-voted options, add pending selections.

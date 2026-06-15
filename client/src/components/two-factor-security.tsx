@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ShieldCheck, ShieldAlert, Download, Copy, Check } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 
 interface StatusResponse {
@@ -51,7 +52,7 @@ export function TwoFactorSecurityCard() {
       setStage("setup");
       setActivateCode("");
     },
-    onError: (e: Error) => toast({ title: "Couldn't start setup", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Couldn't start setup", description: serverActionErrorMessage(e, "Couldn't start two-factor setup. Please try again."), variant: "destructive" }),
   });
 
   const activate = useMutation({
@@ -66,7 +67,7 @@ export function TwoFactorSecurityCard() {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/2fa/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
-    onError: (e: Error) => toast({ title: "Activation failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Activation failed", description: serverActionErrorMessage(e, "Couldn't activate two-factor authentication. Please try again."), variant: "destructive" }),
   });
 
   const disable = useMutation({
@@ -83,7 +84,7 @@ export function TwoFactorSecurityCard() {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/2fa/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
-    onError: (e: Error) => toast({ title: "Could not disable 2FA", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not disable 2FA", description: serverActionErrorMessage(e, "Couldn't disable two-factor authentication. Please try again."), variant: "destructive" }),
   });
 
   const regenerate = useMutation({
@@ -99,7 +100,7 @@ export function TwoFactorSecurityCard() {
       setRegenerateCode("");
       queryClient.invalidateQueries({ queryKey: ["/api/auth/2fa/status"] });
     },
-    onError: (e: Error) => toast({ title: "Couldn't regenerate codes", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Couldn't regenerate codes", description: serverActionErrorMessage(e, "Couldn't regenerate your backup codes. Please try again."), variant: "destructive" }),
   });
 
   const closeAndReset = () => {
