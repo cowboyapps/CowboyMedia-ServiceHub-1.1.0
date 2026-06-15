@@ -624,6 +624,107 @@ export async function listProducts(): Promise<WhmcsProductList> {
   return { ok: true, products };
 }
 
+// --- Ordering & upgrades (Task #453) ---
+// Customer-initiated WHMCS WRITES (AddOrder / UpgradeProduct) plus the read
+// helpers they depend on. Each is a no-throw tagged result like every other
+// wrapper here; the caller (the ownership-guarded route) resolves the owning
+// client from the SESSION user and validates ownership before any write. The
+// resulting invoice is paid via the existing single-use SSO handoff — we never
+// build a card form or pick a gateway beyond passing WHMCS one of its own
+// active payment modules.
+
+/**
+ * Raw GetProducts, optionally scoped to one product group (`gid`). The catalogue
+ * row carries the per-currency pricing block + setup fees that the order picker
+ * needs, so unlike `listProducts` (which projects to a flat id/name summary) this
+ * returns the raw result for the richer pure parser to shape. Caller normalizes
+ * `products.product`.
+ */
+export async function getProducts(gid?: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetProducts", gid && gid > 0 ? { gid } : {});
+}
+
+/**
+ * Raw GetPaymentMethods — the active payment gateways AddOrder / UpgradeProduct
+ * can bill against. AddOrder REQUIRES a `paymentmethod`, so the order route reads
+ * this to pick a valid module (and to surface a friendly "no payment gateway"
+ * message when WHMCS has none configured). Caller normalizes
+ * `paymentmethods.paymentmethod`.
+ */
+export async function getPaymentMethods(): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetPaymentMethods", {});
+}
+
+export interface AddOrderInput {
+  clientId: number;
+  pid: number;
+  billingCycle: string;
+  paymentMethod: string;
+  domain?: string;
+}
+
+/**
+ * Place a new product order for a client. Customer-initiated WHMCS WRITE: the
+ * caller MUST have resolved `clientId` from the SESSION user and validated the
+ * product/cycle before calling — this stateless wrapper does no ownership check
+ * of its own. WHMCS generates an invoice for the order and returns its id in
+ * `data.invoiceid` (plus `orderid`). No-throw tagged result; WHMCS validation
+ * errors (unknown product, disabled cycle, no gateway) surface as
+ * result:error with reason "whmcs_error".
+ */
+export async function addOrder(input: AddOrderInput): Promise<WhmcsRawFetch> {
+  const params: Record<string, string | number> = {
+    clientid: input.clientId,
+    pid: input.pid,
+    billingcycle: input.billingCycle,
+    paymentmethod: input.paymentMethod,
+  };
+  const domain = (input.domain ?? "").trim();
+  if (domain) params.domain = domain;
+  return whmcsApiCall("AddOrder", params);
+}
+
+export interface UpgradeProductInput {
+  serviceId: number;
+  newProductId: number;
+  billingCycle: string;
+  paymentMethod?: string;
+  /** When true, WHMCS only CALCULATES the prorated price (no order is created). */
+  calcOnly?: boolean;
+}
+
+/**
+ * Calculate or submit a product upgrade/downgrade for an existing service via
+ * UpgradeProduct. With `calcOnly: true` WHMCS returns the prorated price WITHOUT
+ * creating anything (used to quote each upgrade target); without it WHMCS creates
+ * the upgrade order + its invoice and returns `orderid` (the invoice id is then
+ * resolved from the order via {@link getOrders}). Customer-initiated WRITE on the
+ * submit path: the caller MUST have resolved the owning client from the SESSION
+ * user and confirmed the target service belongs to that client first. No-throw
+ * tagged result like every other writer here.
+ */
+export async function upgradeProduct(input: UpgradeProductInput): Promise<WhmcsRawFetch> {
+  const params: Record<string, string | number | boolean> = {
+    serviceid: input.serviceId,
+    type: "product",
+    newproductid: input.newProductId,
+    newproductbillingcycle: input.billingCycle,
+  };
+  if (input.paymentMethod) params.paymentmethod = input.paymentMethod;
+  if (input.calcOnly) params.calconly = true;
+  return whmcsApiCall("UpgradeProduct", params);
+}
+
+/**
+ * Raw GetOrders scoped to a single order id. UpgradeProduct returns only the
+ * `orderid` it created, so this resolves the invoice id WHMCS attached to that
+ * order (`orders.order[].invoiceid`) for the SSO pay handoff. Caller normalizes
+ * `orders.order`.
+ */
+export async function getOrders(orderId: number): Promise<WhmcsRawFetch> {
+  return whmcsApiCall("GetOrders", { id: orderId });
+}
+
 /**
  * Raw GetClientsDetails(stats=true) — provides the client identity/status,
  * currency, and the pre-formatted `stats.creditbalance` display string used

@@ -140,6 +140,18 @@ export function createWhmcsPasswordLimiter(): RateLimitRequestHandler {
   });
 }
 
+// Customer-initiated new order / plan change. Both create a WHMCS order + invoice
+// — deliberate, low-frequency actions — so keep a light cap (5 / hr / user)
+// consistent with the other customer WHMCS write routes. Admin/master_admin
+// sessions bypass via bypassRateLimitForAdmins like every other limiter.
+export function createWhmcsOrderLimiter(): RateLimitRequestHandler {
+  return buildHandler({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    keyGenerator: userOrIpKey,
+  });
+}
+
 export async function bypassRateLimitForAdmins(
   req: Request,
   _res: Response,

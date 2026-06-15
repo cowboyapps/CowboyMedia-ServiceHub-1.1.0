@@ -52,6 +52,8 @@ import { createGetProfileHandler, createUpdateProfileHandler } from "./whmcs-pro
 import { createRequestCancellationHandler } from "./whmcs-cancel-route";
 import { createBillingRefreshHandler } from "./whmcs-refresh-route";
 import { createResetServicePasswordHandler } from "./whmcs-password-route";
+import { createListOrderableProductsHandler, createPlaceOrderHandler } from "./whmcs-order-route";
+import { createUpgradeOptionsHandler, createSubmitUpgradeHandler } from "./whmcs-upgrade-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -112,6 +114,7 @@ import {
   createWhmcsLinkRequestLimiter,
   createWhmcsLinkVerifyLimiter,
   createWhmcsCancelLimiter,
+  createWhmcsOrderLimiter,
   createWhmcsPasswordLimiter,
   bypassRateLimitForAdmins,
 } from "./rate-limits";
@@ -6565,6 +6568,61 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         logActivity("user", "whmcs_service_password_reset", {
           actorId: userId,
           summary: `Reset the password for billing service #${getParam(req, "serviceId")}`,
+        });
+      }
+    },
+  );
+
+  // Customer in-app ordering + upgrades (Task #453). All four endpoints derive
+  // the WHMCS client id from the SESSION user, block unlinked staff, validate the
+  // product/cycle against the live catalogue before any write, and never 500.
+  // Order/upgrade POSTs return the new invoice id + a pay URL so the frontend
+  // reuses the existing single-use SSO pay flow; both drop the actor's cached
+  // billing data on success (a new invoice/plan must show immediately) and log
+  // the activity, mirroring the cancel route.
+  const orderRouteDeps = {
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getUser: (id: string) => storage.getUser(id),
+  };
+  app.get("/api/billing/products", requireAuth, createListOrderableProductsHandler(orderRouteDeps));
+  const placeOrder = createPlaceOrderHandler(orderRouteDeps);
+  app.post(
+    "/api/billing/order",
+    requireAuth,
+    bypassRateLimitForAdmins,
+    createWhmcsOrderLimiter(),
+    async (req, res) => {
+      await placeOrder(req, res);
+      await invalidateBillingAfterSelfAction(req, res);
+      const userId = req.session.userId;
+      if (res.statusCode === 200 && userId) {
+        logActivity("user", "whmcs_order_placed", {
+          actorId: userId,
+          summary: "Placed a new service order",
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/billing/services/:serviceId/upgrade-options",
+    requireAuth,
+    createUpgradeOptionsHandler(orderRouteDeps),
+  );
+  const submitUpgrade = createSubmitUpgradeHandler(orderRouteDeps);
+  app.post(
+    "/api/billing/services/:serviceId/upgrade",
+    requireAuth,
+    bypassRateLimitForAdmins,
+    createWhmcsOrderLimiter(),
+    async (req, res) => {
+      await submitUpgrade(req, res);
+      await invalidateBillingAfterSelfAction(req, res);
+      const userId = req.session.userId;
+      if (res.statusCode === 200 && userId) {
+        logActivity("user", "whmcs_plan_changed", {
+          actorId: userId,
+          summary: `Requested a plan change for billing service #${getParam(req, "serviceId")}`,
         });
       }
     },

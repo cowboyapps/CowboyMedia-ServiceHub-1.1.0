@@ -5,6 +5,8 @@ import {
   getClientBillingDetails,
   getClientTransactions,
   getInvoice,
+  getProducts,
+  getPaymentMethods,
   type WhmcsRawFetch,
 } from "./whmcs";
 
@@ -1414,6 +1416,216 @@ export async function loadServicesList(clientId: number): Promise<ServicesListDa
   if (!result.ok) return { services: [], unreachable: true };
   const services = normalizeListField(result.data?.products, "product").map(parseProduct);
   return { services, unreachable: false };
+}
+
+// --- Ordering & upgrades (Task #453): pure parsers + loaders ---
+// Shape the raw catalogue / payment-method / upgrade-calc results into the locked
+// view the customer order + upgrade routes return. All pure (the loaders take an
+// injectable fetcher) so they're unit-tested without touching the network.
+
+/**
+ * The recurring billing cycles a customer may pick when ordering or upgrading,
+ * in ascending term length. The `key` is the value WHMCS expects in
+ * `billingcycle`/`newproductbillingcycle`; the `label` is the customer-facing
+ * wording. One-time / free products are intentionally out of scope here.
+ */
+export const ORDER_BILLING_CYCLES = [
+  { key: "monthly", label: "Monthly" },
+  { key: "quarterly", label: "Quarterly" },
+  { key: "semiannually", label: "Semi-annually" },
+  { key: "annually", label: "Annually" },
+  { key: "biennially", label: "Biennially" },
+  { key: "triennially", label: "Triennially" },
+] as const;
+
+export type OrderBillingCycle = (typeof ORDER_BILLING_CYCLES)[number]["key"];
+
+/**
+ * Map a WHMCS billing-cycle LABEL (as returned by GetClientsProducts, e.g.
+ * "Monthly", "Semi-Annually") to the lowercase key UpgradeProduct/AddOrder
+ * expect. Returns null for one-time/free or anything unrecognised. Pure.
+ */
+export function cycleKeyFromLabel(label: string | null | undefined): OrderBillingCycle | null {
+  const norm = String(label ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  switch (norm) {
+    case "monthly": return "monthly";
+    case "quarterly": return "quarterly";
+    case "semiannually": return "semiannually";
+    case "annually": return "annually";
+    case "biennially": return "biennially";
+    case "triennially": return "triennially";
+    default: return null;
+  }
+}
+
+/** WHMCS keys the per-cycle setup fee with a single-letter prefix on the cycle. */
+const SETUP_FEE_KEY: Record<OrderBillingCycle, string> = {
+  monthly: "msetupfee",
+  quarterly: "qsetupfee",
+  semiannually: "ssetupfee",
+  annually: "asetupfee",
+  biennially: "bsetupfee",
+  triennially: "tsetupfee",
+};
+
+export interface OrderableProductCycle {
+  cycle: OrderBillingCycle;
+  label: string;
+  /** Recurring price for this cycle, as the raw WHMCS decimal string. */
+  price: string;
+  /** One-off setup fee for this cycle, or null when there is none. */
+  setupFee: string | null;
+}
+
+export interface OrderableProduct {
+  pid: number;
+  gid: number;
+  name: string;
+  description: string;
+  /** The currency code the prices are quoted in (e.g. "USD"), or null. */
+  currency: string | null;
+  cycles: OrderableProductCycle[];
+}
+
+/**
+ * WHMCS GetProducts nests pricing under a per-currency block. Prefer the caller's
+ * currency code when present, otherwise fall back to the first block so a
+ * single-currency install still resolves. Returns the block plus the code it came
+ * from. Pure.
+ */
+function pickPricingBlock(pricing: any, currency?: string | null): { code: string | null; block: any } {
+  if (!pricing || typeof pricing !== "object") return { code: null, block: null };
+  if (currency && pricing[currency] && typeof pricing[currency] === "object") {
+    return { code: currency, block: pricing[currency] };
+  }
+  const first = Object.keys(pricing)[0];
+  return first ? { code: first, block: pricing[first] } : { code: null, block: null };
+}
+
+/**
+ * Shape one raw WHMCS GetProducts row into an orderable product. Only cycles the
+ * product actually offers survive: WHMCS encodes a DISABLED cycle as "-1.00", so
+ * any price that parses to a negative number (or isn't a number) is dropped. A
+ * setup fee is kept only when it's a positive amount. Pure → unit-tested.
+ */
+export function parseOrderableProduct(raw: any, currency?: string | null): OrderableProduct {
+  const { code, block } = pickPricingBlock(raw?.pricing, currency);
+  const cycles: OrderableProductCycle[] = [];
+  if (block && typeof block === "object") {
+    for (const { key, label } of ORDER_BILLING_CYCLES) {
+      const priceRaw = block[key];
+      if (priceRaw === undefined || priceRaw === null) continue;
+      const price = String(priceRaw).trim();
+      const num = parseFloat(price);
+      if (!Number.isFinite(num) || num < 0) continue; // "-1.00" => cycle disabled
+      const setupRaw = block[SETUP_FEE_KEY[key]];
+      const setupStr = setupRaw === undefined || setupRaw === null ? "" : String(setupRaw).trim();
+      const setupNum = parseFloat(setupStr);
+      const setupFee = setupStr !== "" && Number.isFinite(setupNum) && setupNum > 0 ? setupStr : null;
+      cycles.push({ cycle: key, label, price, setupFee });
+    }
+  }
+  return {
+    pid: Number(raw?.pid ?? raw?.id ?? 0),
+    gid: Number(raw?.gid ?? 0),
+    name: String(raw?.name ?? "").trim() || "Product",
+    description: String(raw?.description ?? "").trim(),
+    currency: code,
+    cycles,
+  };
+}
+
+export interface OrderableProductsData {
+  products: OrderableProduct[];
+  unreachable: boolean;
+}
+
+/**
+ * Load the orderable product catalogue. `unreachable` is true when GetProducts
+ * failed (outage / missing API permission). Products with no offered cycle (every
+ * cycle disabled, or one-time/free only) are dropped so the picker only ever
+ * shows something the customer can actually buy. Injectable fetcher for tests.
+ */
+export async function loadOrderableProducts(
+  fetchProducts: () => Promise<WhmcsRawFetch> = getProducts,
+  currency?: string | null,
+): Promise<OrderableProductsData> {
+  const r = await fetchProducts();
+  if (!r.ok) return { products: [], unreachable: true };
+  const products = normalizeListField(r.data?.products, "product")
+    .map((p) => parseOrderableProduct(p, currency))
+    .filter((p) => p.pid > 0 && p.cycles.length > 0);
+  return { products, unreachable: false };
+}
+
+export interface WhmcsPaymentMethod {
+  module: string;
+  displayName: string;
+}
+
+/** Shape one raw WHMCS GetPaymentMethods row. Pure. */
+export function parsePaymentMethod(raw: any): WhmcsPaymentMethod {
+  const module = String(raw?.module ?? "").trim();
+  return { module, displayName: String(raw?.displayname ?? module).trim() };
+}
+
+export interface PaymentMethodsData {
+  methods: WhmcsPaymentMethod[];
+  unreachable: boolean;
+}
+
+/**
+ * Load the active payment gateways. `unreachable` is true when the read failed.
+ * An empty `methods` on a reachable read means WHMCS has no gateway configured —
+ * the order route turns that into a friendly "no payment gateway" message rather
+ * than letting AddOrder fail opaquely. Injectable fetcher for tests.
+ */
+export async function loadPaymentMethods(
+  fetchMethods: () => Promise<WhmcsRawFetch> = getPaymentMethods,
+): Promise<PaymentMethodsData> {
+  const r = await fetchMethods();
+  if (!r.ok) return { methods: [], unreachable: true };
+  const methods = normalizeListField(r.data?.paymentmethods, "paymentmethod")
+    .map(parsePaymentMethod)
+    .filter((m) => m.module);
+  return { methods, unreachable: false };
+}
+
+/**
+ * The prorated price WHMCS calculates for an upgrade (UpgradeProduct calconly).
+ * The field naming has varied across WHMCS versions, so the candidates are read
+ * leniently; `price` is null when nothing parseable came back (the route then
+ * falls back to showing the new recurring price). Pure.
+ */
+export function parseUpgradeCalc(data: any): { price: string | null } {
+  const candidates = [data?.price, data?.total, data?.totaldue, data?.amount];
+  for (const c of candidates) {
+    if (c === undefined || c === null) continue;
+    const s = String(c).trim();
+    if (s !== "" && Number.isFinite(parseFloat(s))) return { price: s };
+  }
+  return { price: null };
+}
+
+/** Extract a positive invoice id from an AddOrder / UpgradeProduct result, or null. */
+export function extractInvoiceId(data: any): number | null {
+  const id = Number(data?.invoiceid ?? 0);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** Extract a positive order id from an AddOrder / UpgradeProduct result, or null. */
+export function extractOrderId(data: any): number | null {
+  const id = Number(data?.orderid ?? 0);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** Resolve the invoice id WHMCS attached to an order (GetOrders result), or null. */
+export function extractInvoiceIdFromOrders(data: any): number | null {
+  for (const o of normalizeListField(data?.orders, "order")) {
+    const id = Number(o?.invoiceid ?? 0);
+    if (Number.isInteger(id) && id > 0) return id;
+  }
+  return null;
 }
 
 export interface InvoiceDetailData {

@@ -14,6 +14,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
@@ -27,8 +43,109 @@ import {
   Check,
   RefreshCw,
   Loader2,
+  Plus,
+  ArrowUpCircle,
+  ExternalLink,
 } from "lucide-react";
 import type { Service } from "@shared/schema";
+
+/**
+ * Open a blank tab SYNCHRONOUSLY inside a user click. Ordering/upgrading can't
+ * know the invoice id until the POST returns, so the tab must be opened up-front
+ * on the click (popup blockers only allow window.open in the click call stack)
+ * and redirected later once the pay URL is known. Returns null when blocked.
+ */
+function openBlankTab(): Window | null {
+  const win = window.open("about:blank", "_blank");
+  if (win) {
+    try {
+      win.opener = null;
+    } catch {
+      // ignore — some browsers disallow reassigning opener
+    }
+  }
+  return win;
+}
+
+/**
+ * Send a previously-opened tab (`win`) to WHMCS's hosted payment page for a
+ * freshly-created invoice. Mirrors billing-summary.tsx: asks the pay-link endpoint
+ * to mint a single-use auto-login URL and redirects there; on ANY failure it falls
+ * back to the direct pay URL so payment is never a dead end. Closes the tab when
+ * there's nothing to pay. The minted URL is one-time and never persisted or logged.
+ */
+async function openWhmcsPay(invoiceId: number, directUrl: string | null, win: Window | null): Promise<void> {
+  let target = directUrl ?? "";
+  try {
+    const res = await apiRequest("POST", `/api/billing/invoices/${invoiceId}/pay-link`);
+    const body = await res.json().catch(() => null);
+    if (body?.url) target = body.url as string;
+  } catch {
+    // SSO unavailable / not linked / unreachable — fall back to the direct link.
+  }
+  if (!target) {
+    if (win) win.close();
+    return;
+  }
+  if (win) {
+    win.location.href = target;
+  } else {
+    window.open(target, "_blank", "noopener,noreferrer");
+  }
+}
+
+interface OrderableProductCycle {
+  cycle: string;
+  label: string;
+  price: string;
+  setupFee: string | null;
+}
+
+interface OrderableProduct {
+  pid: number;
+  gid: number;
+  name: string;
+  description: string;
+  currency: string | null;
+  cycles: OrderableProductCycle[];
+}
+
+interface OrderableProductsPayload {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  unreachable: boolean;
+  hasGateway: boolean;
+  products: OrderableProduct[];
+}
+
+interface UpgradeOption {
+  pid: number;
+  name: string;
+  billingCycle: string;
+  billingCycleLabel: string;
+  price: string;
+  setupFee: string | null;
+  proratedPrice: string | null;
+}
+
+interface UpgradeOptionsPayload {
+  ok: boolean;
+  message?: string;
+  currentProductId?: number;
+  currentName?: string;
+  currentAmount?: string;
+  currentBillingCycle?: string;
+  currency?: string | null;
+  options?: UpgradeOption[];
+}
+
+interface PayResult {
+  ok: boolean;
+  message?: string;
+  invoiceId?: number | null;
+  payUrl?: string | null;
+}
 
 interface DerivedServicesPayload {
   configured: boolean;
@@ -302,10 +419,313 @@ function ActiveServiceCard({ service }: { service: ActiveService }) {
             <ServiceCredentialRow label="Username" value={service.username} serviceId={service.id} field="username" />
             <ServiceCredentialRow label="Password" value={service.password} secret serviceId={service.id} field="password" />
             <ResetPasswordAction service={service} />
+            <UpgradePlanAction service={service} />
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Per-service "Upgrade / change plan" flow. Lazily loads the other products in the
+ * same group (only when the dialog opens), lets the customer pick a target plan +
+ * term, then submits the change. On success WHMCS raises an upgrade invoice and we
+ * hand straight off to the SSO pay page; the active-services list is refreshed so
+ * the new plan/price shows. Renders nothing when there are no other plans to move
+ * to (e.g. a standalone product), so the button never dead-ends.
+ */
+function UpgradePlanAction({ service }: { service: ActiveService }) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string>("");
+  const { toast } = useToast();
+
+  const { data, isLoading } = useQuery<UpgradeOptionsPayload>({
+    queryKey: ["/api/billing/services", service.id, "upgrade-options"],
+    enabled: open,
+  });
+
+  const options = data?.ok ? data.options ?? [] : [];
+  const chosen = options.find((o) => String(o.pid) === selected) ?? null;
+
+  const mutation = useMutation({
+    mutationFn: async (_win: Window | null) => {
+      if (!chosen) throw new Error("Pick a plan first.");
+      const res = await apiRequest("POST", `/api/billing/services/${service.id}/upgrade`, {
+        newProductId: chosen.pid,
+        billingCycle: chosen.billingCycle,
+      });
+      return (await res.json()) as PayResult;
+    },
+    onSuccess: (result, win) => {
+      setOpen(false);
+      setSelected("");
+      queryClient.invalidateQueries({ queryKey: ["/api/my/services"] });
+      toast({ title: "Plan change submitted", description: result.message ?? "We've started your plan change." });
+      if (result.invoiceId) {
+        void openWhmcsPay(result.invoiceId, result.payUrl ?? null, win);
+      } else if (win) {
+        win.close();
+      }
+    },
+    onError: (err: any, win) => {
+      if (win) win.close();
+      toast({
+        variant: "destructive",
+        title: "Couldn't change your plan",
+        description: err?.message || "Please try again shortly.",
+      });
+    },
+  });
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => setOpen(true)}
+        data-testid={`button-open-upgrade-${service.id}`}
+      >
+        <ArrowUpCircle className="w-3.5 h-3.5 mr-2" />
+        Upgrade / change plan
+      </Button>
+
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSelected(""); }}>
+        <DialogContent data-testid={`dialog-upgrade-${service.id}`}>
+          <DialogHeader>
+            <DialogTitle>Change plan for {service.name}</DialogTitle>
+            <DialogDescription>
+              Pick a different plan below. We'll prorate the difference and send you to a secure
+              payment page to finish.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoading ? (
+            <Skeleton className="h-24 rounded-lg" data-testid={`upgrade-options-loading-${service.id}`} />
+          ) : options.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid={`text-no-upgrade-options-${service.id}`}>
+              There are no other plans available for this service right now.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor={`upgrade-select-${service.id}`}>New plan</Label>
+                <Select value={selected} onValueChange={setSelected}>
+                  <SelectTrigger id={`upgrade-select-${service.id}`} data-testid={`select-upgrade-plan-${service.id}`}>
+                    <SelectValue placeholder="Choose a plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((o) => (
+                      <SelectItem key={o.pid} value={String(o.pid)} data-testid={`option-upgrade-plan-${o.pid}`}>
+                        {o.name} — {o.price} / {o.billingCycleLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {chosen && (
+                <div className="rounded-md border p-3 text-sm space-y-1" data-testid={`upgrade-summary-${service.id}`}>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">New recurring price</span>
+                    <span className="font-medium">{chosen.price} / {chosen.billingCycleLabel}</span>
+                  </div>
+                  {chosen.proratedPrice && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Due now (prorated)</span>
+                      <span className="font-medium" data-testid={`text-upgrade-prorated-${service.id}`}>{chosen.proratedPrice}</span>
+                    </div>
+                  )}
+                  {chosen.setupFee && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Setup fee</span>
+                      <span className="font-medium">{chosen.setupFee}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} data-testid={`button-cancel-upgrade-${service.id}`}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => mutation.mutate(openBlankTab())}
+              disabled={!chosen || mutation.isPending}
+              data-testid={`button-confirm-upgrade-${service.id}`}
+            >
+              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5 mr-2" />}
+              Continue to payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * "Order a new service" flow shown above the active-services list. Lazily loads
+ * the orderable product catalogue when opened, lets the customer pick a product +
+ * term, places the order, then hands off to the SSO pay page for the new invoice.
+ * Refreshes the active-services list on success. Degrades quietly: hidden when the
+ * catalogue is empty/unreachable, and surfaces a friendly note when no payment
+ * method is configured (so the customer never hits a broken checkout).
+ */
+function AddServiceFlow() {
+  const [open, setOpen] = useState(false);
+  const [productId, setProductId] = useState<string>("");
+  const [cycle, setCycle] = useState<string>("");
+  const { toast } = useToast();
+
+  const { data, isLoading } = useQuery<OrderableProductsPayload>({
+    queryKey: ["/api/billing/products"],
+    enabled: open,
+  });
+
+  const products = data?.products ?? [];
+  const product = products.find((p) => String(p.pid) === productId) ?? null;
+  const cycleOpt = product?.cycles.find((c) => c.cycle === cycle) ?? null;
+
+  const mutation = useMutation({
+    mutationFn: async (_win: Window | null) => {
+      if (!product || !cycleOpt) throw new Error("Pick a product and term first.");
+      const res = await apiRequest("POST", "/api/billing/order", {
+        pid: product.pid,
+        billingCycle: cycleOpt.cycle,
+      });
+      return (await res.json()) as PayResult;
+    },
+    onSuccess: (result, win) => {
+      setOpen(false);
+      setProductId("");
+      setCycle("");
+      queryClient.invalidateQueries({ queryKey: ["/api/my/services"] });
+      toast({ title: "Order placed", description: result.message ?? "We've created your order." });
+      if (result.invoiceId) {
+        void openWhmcsPay(result.invoiceId, result.payUrl ?? null, win);
+      } else if (win) {
+        win.close();
+      }
+    },
+    onError: (err: any, win) => {
+      if (win) win.close();
+      toast({
+        variant: "destructive",
+        title: "Couldn't place your order",
+        description: err?.message || "Please try again shortly.",
+      });
+    },
+  });
+
+  const noGateway = !!data && !data.unreachable && data.products.length > 0 && !data.hasGateway;
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        data-testid="button-open-add-service"
+      >
+        <Plus className="w-3.5 h-3.5 mr-2" />
+        Order a new service
+      </Button>
+
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setProductId(""); setCycle(""); } }}>
+        <DialogContent data-testid="dialog-add-service">
+          <DialogHeader>
+            <DialogTitle>Order a new service</DialogTitle>
+            <DialogDescription>
+              Choose a product and billing term. We'll create the order and send you to a secure
+              payment page to finish.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoading ? (
+            <Skeleton className="h-24 rounded-lg" data-testid="add-service-loading" />
+          ) : data?.unreachable ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid="text-add-service-unreachable">
+              We couldn't load the catalogue right now. Please try again in a few minutes.
+            </p>
+          ) : products.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid="text-add-service-empty">
+              There are no products available to order right now.
+            </p>
+          ) : noGateway ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid="text-add-service-no-gateway">
+              Online ordering isn't available right now. Please contact support to place an order.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="add-service-product">Product</Label>
+                <Select
+                  value={productId}
+                  onValueChange={(v) => { setProductId(v); setCycle(""); }}
+                >
+                  <SelectTrigger id="add-service-product" data-testid="select-order-product">
+                    <SelectValue placeholder="Choose a product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map((p) => (
+                      <SelectItem key={p.pid} value={String(p.pid)} data-testid={`option-order-product-${p.pid}`}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {product && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-service-cycle">Billing term</Label>
+                  <Select value={cycle} onValueChange={setCycle}>
+                    <SelectTrigger id="add-service-cycle" data-testid="select-order-cycle">
+                      <SelectValue placeholder="Choose a term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {product.cycles.map((c) => (
+                        <SelectItem key={c.cycle} value={c.cycle} data-testid={`option-order-cycle-${c.cycle}`}>
+                          {c.label} — {c.price}
+                          {c.setupFee ? ` (+ ${c.setupFee} setup)` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {product?.description && (
+                <p className="text-xs text-muted-foreground" data-testid="text-order-product-description">
+                  {product.description}
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} data-testid="button-cancel-add-service">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => mutation.mutate(openBlankTab())}
+              disabled={!product || !cycleOpt || mutation.isPending}
+              data-testid="button-confirm-add-service"
+            >
+              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5 mr-2" />}
+              Continue to payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -322,9 +742,12 @@ function MyActiveServices() {
 
   return (
     <div data-testid="my-active-services">
-      <div className="flex items-center gap-2 mb-2">
-        <KeyRound className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold" data-testid="heading-active-services">Active services</h2>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <KeyRound className="w-4 h-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold" data-testid="heading-active-services">Active services</h2>
+        </div>
+        <AddServiceFlow />
       </div>
       {data.unreachable ? (
         <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-active-services-unreachable">

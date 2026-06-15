@@ -858,6 +858,33 @@ export const requestServiceCancellationSchema = z.object({
 
 export type RequestServiceCancellationData = z.infer<typeof requestServiceCancellationSchema>;
 
+// Customer in-app ordering (Task #453). The billing cycle is constrained to the
+// recurring set WHMCS supports for ordering/upgrades (one-time/free are out of
+// scope). `pid` / `newProductId` are positive WHMCS product ids; ownership and
+// product/cycle validity are checked server-side against the live catalogue.
+export const orderBillingCycleEnum = z.enum([
+  "monthly",
+  "quarterly",
+  "semiannually",
+  "annually",
+  "biennially",
+  "triennially",
+]);
+
+export const placeOrderSchema = z.object({
+  pid: z.coerce.number().int().positive(),
+  billingCycle: orderBillingCycleEnum,
+});
+
+export type PlaceOrderData = z.infer<typeof placeOrderSchema>;
+
+export const submitUpgradeSchema = z.object({
+  newProductId: z.coerce.number().int().positive(),
+  billingCycle: orderBillingCycleEnum,
+});
+
+export type SubmitUpgradeData = z.infer<typeof submitUpgradeSchema>;
+
 // Maps a WHMCS product/package (keyed by its `pid`) to one or more ServiceHub
 // monitored services (Task #335). Many-to-many: a single product can cover
 // several services and a service can be covered by several products. The unique
