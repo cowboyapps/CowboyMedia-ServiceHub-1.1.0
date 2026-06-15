@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Eye, LifeBuoy, Search, ThumbsDown, ThumbsUp } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -39,7 +40,7 @@ function ArticleDetail({ slug }: { slug: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/kb/articles", slug] });
       toast({ title: "Thanks for your feedback!" });
     },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Error", description: serverActionErrorMessage(e, "Couldn't submit your feedback. Please try again."), variant: "destructive" }),
   });
 
   if (isLoading) {

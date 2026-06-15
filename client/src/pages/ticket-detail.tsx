@@ -30,6 +30,7 @@ import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
 import { type KbArticleRef } from "@/components/kb-article-picker-dialog";
@@ -935,7 +936,7 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to edit note", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to edit note", description: serverActionErrorMessage(e, "Couldn't save your changes to the note. Please try again."), variant: "destructive" });
     },
   });
 
@@ -947,7 +948,7 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to delete note", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to delete note", description: serverActionErrorMessage(e, "Couldn't delete the note. Please try again."), variant: "destructive" });
     },
   });
 
@@ -1011,7 +1012,7 @@ export default function TicketDetail() {
       toast({ title: "Ticket claimed" });
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to claim ticket", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to claim ticket", description: serverActionErrorMessage(e, "Couldn't claim this ticket. Please try again."), variant: "destructive" });
     },
   });
 
@@ -1037,7 +1038,7 @@ export default function TicketDetail() {
       setLocation("/tickets");
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to transfer ticket", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to transfer ticket", description: serverActionErrorMessage(e, "Couldn't transfer this ticket. Please try again."), variant: "destructive" });
     },
   });
 

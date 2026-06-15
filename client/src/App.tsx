@@ -6,6 +6,7 @@ import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -800,7 +801,7 @@ function TicketTransferPopup() {
       setLocation(`/tickets/${ticketId}`);
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to claim ticket", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to claim ticket", description: serverActionErrorMessage(e, "Couldn't claim this ticket. Please try again."), variant: "destructive" });
     },
   });
 

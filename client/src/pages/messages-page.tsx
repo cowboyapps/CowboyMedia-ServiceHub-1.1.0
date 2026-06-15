@@ -27,6 +27,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox, Paperclip, X, Download, BookOpen, ChevronRight, MessageSquare, Trash2, Users } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
@@ -296,7 +297,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
     },
-    onError: (e: Error) => toast({ title: "Failed to send message", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed to send message", description: serverActionErrorMessage(e, "Couldn't send your message. Please try again."), variant: "destructive" }),
   });
 
   const handleSend = useCallback(() => {
@@ -527,7 +528,7 @@ function NewConversationDialog() {
       toast({ title: "Conversation started" });
       if (data.thread?.id) navigate(`/messages/${data.thread.id}`);
     },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Error", description: serverActionErrorMessage(e, "Couldn't start the conversation. Please try again."), variant: "destructive" }),
   });
 
   const handleCreateSubmit = (d: z.infer<typeof newThreadSchema>) => {
@@ -720,7 +721,7 @@ export default function MessagesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
       toast({ title: "Conversation deleted" });
     },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Error", description: serverActionErrorMessage(e, "Couldn't delete the conversation. Please try again."), variant: "destructive" }),
   });
 
   if (params.id) {

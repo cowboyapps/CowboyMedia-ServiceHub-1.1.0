@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
@@ -69,7 +70,7 @@ function ProfileEditorCard({ user }: { user: { id: string; fullName: string; ava
       toast({ title: "Profile updated" });
     },
     onError: (e: any) => {
-      toast({ title: "Update failed", description: e.message, variant: "destructive" });
+      toast({ title: "Update failed", description: serverActionErrorMessage(e, "Couldn't update your profile. Please try again."), variant: "destructive" });
     },
   });
 
@@ -83,7 +84,7 @@ function ProfileEditorCard({ user }: { user: { id: string; fullName: string; ava
       toast({ title: "Avatar removed" });
     },
     onError: (e: any) => {
-      toast({ title: "Remove failed", description: e.message, variant: "destructive" });
+      toast({ title: "Remove failed", description: serverActionErrorMessage(e, "Couldn't remove your avatar. Please try again."), variant: "destructive" });
     },
   });
 
@@ -108,7 +109,7 @@ function ProfileEditorCard({ user }: { user: { id: string; fullName: string; ava
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: "Avatar updated" });
     } catch (e: any) {
-      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+      toast({ title: "Upload failed", description: serverActionErrorMessage(e, "Couldn't upload your avatar. Please try again."), variant: "destructive" });
     } finally {
       setUploading(false);
     }
@@ -219,7 +220,7 @@ function ActiveSessionsCard() {
       queryClient.invalidateQueries({ queryKey: ["/api/me/sessions"] });
       toast({ title: "Session signed out" });
     },
-    onError: (e: Error) => toast({ title: "Failed to sign out session", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed to sign out session", description: serverActionErrorMessage(e, "Couldn't sign out that session. Please try again."), variant: "destructive" }),
   });
 
   const signOutAll = useMutation({
@@ -232,7 +233,7 @@ function ActiveSessionsCard() {
       toast({ title: `Signed out ${result.removed} other session${result.removed === 1 ? "" : "s"}` });
       setConfirmAll(false);
     },
-    onError: (e: Error) => toast({ title: "Failed to sign out", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed to sign out", description: serverActionErrorMessage(e, "Couldn't sign out your other sessions. Please try again."), variant: "destructive" }),
   });
 
   const sessions = (data || []).slice().sort((a, b) => {
@@ -377,7 +378,7 @@ export default function SettingsPage() {
       toast({ title: "Full name updated" });
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to update name", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to update name", description: serverActionErrorMessage(e, "Couldn't update your name. Please try again."), variant: "destructive" });
     },
   });
 
@@ -476,7 +477,7 @@ export default function SettingsPage() {
       toast({ title: "Preferences saved" });
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to save", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to save", description: serverActionErrorMessage(e, "Couldn't save your preferences. Please try again."), variant: "destructive" });
     },
   });
 

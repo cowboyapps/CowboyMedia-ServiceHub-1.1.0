@@ -11,6 +11,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { serverActionErrorMessage } from "@/lib/server-error";
 import { Shield, Wifi, Bell, MessageSquare } from "lucide-react";
 import { Link } from "wouter";
 
@@ -55,7 +56,7 @@ export default function AuthPage() {
         toast({ title: "Welcome back!" });
       }
     } catch (e: any) {
-      toast({ title: "Login failed", description: e.message, variant: "destructive" });
+      toast({ title: "Login failed", description: serverActionErrorMessage(e, "Couldn't sign you in. Please check your details and try again."), variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -96,7 +97,7 @@ export default function AuthPage() {
       sessionStorage.setItem("showWelcome", "true");
       toast({ title: "Account created successfully!" });
     } catch (e: any) {
-      toast({ title: "Registration failed", description: e.message, variant: "destructive" });
+      toast({ title: "Registration failed", description: serverActionErrorMessage(e, "Couldn't create your account. Please try again."), variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
