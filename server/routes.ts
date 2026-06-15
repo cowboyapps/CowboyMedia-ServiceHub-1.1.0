@@ -6,7 +6,12 @@ import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from 
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getParam } from "./http-params";
-import { createRequirePermission } from "./require-permission";
+import {
+  createRequirePermission,
+  requireAuth,
+  createRequireAdmin,
+  createRequireMasterAdmin,
+} from "./require-permission";
 import { getCachedPublicStatus, setCachedPublicStatus } from "./public-status-cache";
 import type { MonitorIncident } from "@shared/schema";
 import { WebSocketServer, WebSocket } from "ws";
@@ -467,35 +472,8 @@ declare module "express-session" {
   }
 }
 
-function requireAuth<P>(req: Request<P>, res: Response, next: NextFunction) {
-  if (!req.session.userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-  next();
-}
-
-async function requireAdmin<P>(req: Request<P>, res: Response, next: NextFunction) {
-  if (!req.session.userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-  const user = await storage.getUser(req.session.userId);
-  if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
-    return res.status(403).json({ message: "Forbidden" });
-  }
-  next();
-}
-
-async function requireMasterAdmin<P>(req: Request<P>, res: Response, next: NextFunction) {
-  if (!req.session.userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-  const user = await storage.getUser(req.session.userId);
-  if (!user || user.role !== "master_admin") {
-    return res.status(403).json({ message: "Forbidden" });
-  }
-  next();
-}
-
+const requireAdmin = createRequireAdmin(storage);
+const requireMasterAdmin = createRequireMasterAdmin(storage);
 const requirePermission = createRequirePermission(storage);
 
 async function getAdminCategoryAccess(userId: string): Promise<string[]> {

@@ -16,6 +16,59 @@ export interface RequirePermissionDeps {
 
 const WRITE_METHODS = ["POST", "PATCH", "PUT", "DELETE"];
 
+export interface AccessGuardUser {
+  role: string;
+}
+
+export interface AccessGuardDeps {
+  getUser(id: string): Promise<AccessGuardUser | undefined>;
+}
+
+export function requireAuth<P>(
+  req: Request<P>,
+  res: Response,
+  next: NextFunction,
+) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  next();
+}
+
+export function createRequireAdmin(deps: AccessGuardDeps) {
+  return async function requireAdmin<P>(
+    req: Request<P>,
+    res: Response,
+    next: NextFunction,
+  ) {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const user = await deps.getUser(req.session.userId);
+    if (!user || (user.role !== "admin" && user.role !== "master_admin")) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    next();
+  };
+}
+
+export function createRequireMasterAdmin(deps: AccessGuardDeps) {
+  return async function requireMasterAdmin<P>(
+    req: Request<P>,
+    res: Response,
+    next: NextFunction,
+  ) {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const user = await deps.getUser(req.session.userId);
+    if (!user || user.role !== "master_admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    next();
+  };
+}
+
 export function createRequirePermission(deps: RequirePermissionDeps) {
   return function requirePermission(viewPerm: string, managePerm?: string) {
     return async <P>(req: Request<P>, res: Response, next: NextFunction) => {
