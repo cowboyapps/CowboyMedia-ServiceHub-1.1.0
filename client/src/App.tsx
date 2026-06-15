@@ -50,6 +50,7 @@ import TicketDetail from "@/pages/ticket-detail";
 import WhmcsTicketDetail from "@/pages/whmcs-ticket-detail";
 import SettingsPage from "@/pages/settings-page";
 import BillingPage from "@/pages/billing-page";
+import MyServicesPage from "@/pages/my-services-page";
 const AdminPortal = lazy(() => import("@/pages/admin-portal"));
 import MessagesPage from "@/pages/messages-page";
 import ReportRequestPage from "@/pages/report-request-page";
@@ -115,6 +116,7 @@ function AppRouter() {
         <Route path="/tickets/:id" component={TicketDetail} />
         <Route path="/whmcs-tickets/:id" component={WhmcsTicketDetail} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/my-services" component={MyServicesPage} />
         <Route path="/billing" component={BillingPage} />
         <Route path="/messages" component={MessagesPage} />
         <Route path="/messages/:id" component={MessagesPage} />

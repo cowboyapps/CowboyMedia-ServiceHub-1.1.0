@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink, CreditCard } from "lucide-react";
+import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink, CreditCard, Server } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 import { APP_VERSION } from "@shared/version";
 
@@ -106,6 +106,7 @@ export function AppSidebar() {
     { title: "Report/Request", url: "/report-request", icon: FileText },
     { title: "Downloads", url: "/downloads", icon: Download },
     { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
+    { title: "My Services", url: "/my-services", icon: Server },
     { title: "Billing", url: "/billing", icon: CreditCard },
     { title: "Settings", url: "/settings", icon: SettingsIcon },
   ];
