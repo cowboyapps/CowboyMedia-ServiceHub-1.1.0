@@ -485,8 +485,6 @@ export default function TicketDetail() {
   const lastTypingSentRef = useRef<number>(0);
 
   const [keyboardInset, setKeyboardInset] = useState(0);
-  const keyboardOpenRef = useRef(false);
-  const keyboardToastShownRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -496,15 +494,6 @@ export default function TicketDetail() {
       const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       const inset = offset > 80 ? offset : 0;
       setKeyboardInset(inset);
-      const isOpen = inset > 0;
-      if (isOpen && !keyboardOpenRef.current && !keyboardToastShownRef.current) {
-        keyboardToastShownRef.current = true;
-        toast({
-          description: "Composer moved up so the keyboard doesn't cover it.",
-          duration: 2000,
-        });
-      }
-      keyboardOpenRef.current = isOpen;
     };
     vv.addEventListener("resize", onResize);
     vv.addEventListener("scroll", onResize);
@@ -513,7 +502,7 @@ export default function TicketDetail() {
       vv.removeEventListener("resize", onResize);
       vv.removeEventListener("scroll", onResize);
     };
-  }, [toast]);
+  }, []);
 
   const { data: ticket, isLoading } = useQuery<Ticket>({
     queryKey: ["/api/tickets", params.id],
