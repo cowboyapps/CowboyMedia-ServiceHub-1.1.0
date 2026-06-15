@@ -289,6 +289,34 @@ export function summarizeOutstanding(d: BillingSummary | undefined): Outstanding
 }
 
 /**
+ * "Amount due at this time": everything the customer still owes right now,
+ * summed from their unpaid + overdue invoices (each invoice's remaining balance,
+ * falling back to its total). Derived from the invoice list — NOT `payAll`, which
+ * is null unless 2+ invoices are owed — so it's correct even for a single
+ * outstanding invoice and always matches the invoices the customer sees below.
+ * Currency is taken from the first outstanding invoice, falling back to the
+ * account-balance currency.
+ */
+export function amountDueAtThisTime(d: BillingSummary): {
+  total: string;
+  currencyCode: string | null;
+  count: number;
+} {
+  const outstanding = d.invoices.filter(
+    (inv) => inv.status === "unpaid" || inv.status === "overdue",
+  );
+  const total = outstanding.reduce(
+    (sum, inv) => sum + (parseAmount(inv.balance ?? inv.total) ?? 0),
+    0,
+  );
+  const currencyCode =
+    outstanding.find((inv) => inv.currencyCode)?.currencyCode ??
+    d.balance?.currencyCode ??
+    null;
+  return { total: total.toFixed(2), currencyCode, count: outstanding.length };
+}
+
+/**
  * Richer outcome of comparing the outstanding state before and after a forced
  * billing refresh. `settled` is the headline (did any money land); the extra
  * fields let the UI tailor the confirmation copy for the three flows the task
@@ -1583,31 +1611,55 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
       )}
 
       {/* Account balance */}
-      {data.balance && (
-        <Card data-testid="card-billing-balance">
-          <CardContent className="p-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Wallet className="w-5 h-5 text-primary" />
+      {data.balance && (() => {
+        const due = amountDueAtThisTime(data);
+        const dueNum = parseAmount(due.total) ?? 0;
+        return (
+          <Card data-testid="card-billing-balance">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Wallet className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Account credit balance</p>
+                    <p className="text-lg font-semibold truncate" data-testid="text-billing-balance">
+                      {formatMoney(data.balance.creditBalance, data.balance.currencyCode)}
+                    </p>
+                  </div>
+                </div>
+                {data.portalUrl && (
+                  <a href={data.portalUrl} target="_blank" rel="noopener noreferrer" data-testid="link-billing-portal">
+                    <Button variant="outline" size="sm" className="gap-1.5 shrink-0">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Billing portal
+                    </Button>
+                  </a>
+                )}
               </div>
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Account credit balance</p>
-                <p className="text-lg font-semibold truncate" data-testid="text-billing-balance">
-                  {formatMoney(data.balance.creditBalance, data.balance.currencyCode)}
-                </p>
+              <div className="flex items-center gap-3 min-w-0 border-t pt-3">
+                <div
+                  className={`w-10 h-10 rounded-md flex items-center justify-center flex-shrink-0 ${
+                    dueNum > 0 ? "bg-destructive/10" : "bg-primary/10"
+                  }`}
+                >
+                  <CreditCard className={`w-5 h-5 ${dueNum > 0 ? "text-destructive" : "text-primary"}`} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Amount due at this time</p>
+                  <p
+                    className={`text-lg font-semibold truncate ${dueNum > 0 ? "text-destructive" : ""}`}
+                    data-testid="text-billing-amount-due"
+                  >
+                    {formatMoney(due.total, due.currencyCode)}
+                  </p>
+                </div>
               </div>
-            </div>
-            {data.portalUrl && (
-              <a href={data.portalUrl} target="_blank" rel="noopener noreferrer" data-testid="link-billing-portal">
-                <Button variant="outline" size="sm" className="gap-1.5 shrink-0">
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Billing portal
-                </Button>
-              </a>
-            )}
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Payment history (customer self-view only) */}
       {context === "customer" && (
