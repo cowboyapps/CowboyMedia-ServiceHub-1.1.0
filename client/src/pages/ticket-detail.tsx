@@ -693,7 +693,11 @@ export default function TicketDetail() {
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollContainerRef.current;
     if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior });
+      if (typeof el.scrollTo === "function") {
+        el.scrollTo({ top: el.scrollHeight, behavior });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
     } else {
       messagesEndRef.current?.scrollIntoView({ behavior });
     }
