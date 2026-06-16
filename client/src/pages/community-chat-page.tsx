@@ -949,7 +949,12 @@ export default function CommunityChatPage() {
   }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    }
     setShowNewMessagesPill(false);
   }, []);
 
@@ -963,13 +968,24 @@ export default function CommunityChatPage() {
 
   useEffect(() => {
     const count = messages?.length || 0;
-    if (count > prevMessageCountRef.current && prevMessageCountRef.current > 0) {
+    const prev = prevMessageCountRef.current;
+    prevMessageCountRef.current = count;
+    if (count > prev && prev > 0) {
       if (isNearBottomRef.current) scrollToBottom();
       else setShowNewMessagesPill(true);
-    } else if (count > 0 && prevMessageCountRef.current === 0) {
+    } else if (count > 0 && prev === 0) {
+      // First load: content may still be sizing, so one synchronous scroll lands
+      // short. Re-pin across the next few frames to settle at the true bottom.
       scrollToBottom("auto");
+      const raf = requestAnimationFrame(() => scrollToBottom("auto"));
+      const t1 = setTimeout(() => scrollToBottom("auto"), 120);
+      const t2 = setTimeout(() => scrollToBottom("auto"), 350);
+      return () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
-    prevMessageCountRef.current = count;
   }, [messages, scrollToBottom]);
 
   const sendTypingEvent = useCallback(() => {
