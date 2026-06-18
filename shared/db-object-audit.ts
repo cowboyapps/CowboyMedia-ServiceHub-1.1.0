@@ -46,12 +46,52 @@ export const KNOWN_UNDECLARED_COLUMNS: Record<string, Set<string>> = {
 //   - IDX_session_expire: created by connect-pg-simple on its `session` store
 //     table (which is itself allowlisted in KNOWN_UNMANAGED_TABLES). Managed by
 //     the session library, not drizzle/migrations.
+//   - The `idx_*` / `*_idx` / `*_uq` legacy indexes below exist ONLY on
+//     production. They were created by the pre-drizzle hand-written SQL in
+//     migrations/legacy/ (and/or `drizzle-kit push`) before this project moved
+//     to versioned migrations, and were never written into a committed
+//     migration, so the audit sees them as out-of-band extras on prod while
+//     dev (built purely from migrations/) never has them. Two flavours:
+//       * Redundant duplicates of a drizzle-managed index that committed
+//         migrations DO create under the modern name, e.g.
+//         idx_user_notifications_user_unread  ↔ user_notifications_user_id_unread_idx
+//         idx_user_notifications_user_created ↔ user_notifications_user_id_created_at_idx
+//         idx_thread_messages_thread_id       ⊂ thread_messages_thread_id_created_at_idx
+//         idx_monitor_incidents_monitor_id    ⊂ monitor_incidents_monitor_id_started_at_idx
+//         The managed index is what queries actually use; the legacy one is dead
+//         weight, harmless to keep.
+//       * Genuinely unmanaged (no committed-migration equivalent at all):
+//         the poll_*, polls_parent_idx, news_reactions, service_subscribers and
+//         password_reset_tokens indexes — including two UNIQUE indexes
+//         (poll_votes_single_choice_uq, uq_news_reactions_story_user_emoji) that
+//         enforce data integrity on prod but are absent from dev/schema.ts.
+//     Allowlisted (rather than dropped or adopted into a migration) to unblock
+//     the deploy without a destructive prod index drop or a cross-environment
+//     uniqueness change. Properly reconciling these — dropping the redundant
+//     duplicates and adopting the unique/needed ones into shared/schema.ts so
+//     every environment matches — is tracked as follow-up work.
 // NOTE: this allowlist only covers index NAMES that are diffed by
 // parseMigrationIndexDefs' key set; constraint-backed indexes (PRIMARY KEY /
 // UNIQUE constraints declared in shared/schema.ts) are filtered out at the SQL
 // level in audit-columns.ts before the diff, so they never need listing here.
 export const KNOWN_UNDECLARED_INDEXES = new Set<string>([
   "IDX_session_expire",
+  // Redundant duplicates of a drizzle-managed index (prod-only legacy).
+  "idx_monitor_incidents_monitor_id",
+  "idx_thread_messages_thread_id",
+  "idx_user_notifications_user_created",
+  "idx_user_notifications_user_unread",
+  // Genuinely unmanaged prod-only legacy indexes (no committed equivalent).
+  "idx_news_reactions_story_id",
+  "idx_password_reset_tokens_expires_at",
+  "idx_password_reset_tokens_user_id",
+  "idx_service_subscribers_email_service",
+  "idx_service_subscribers_service",
+  "poll_options_poll_idx",
+  "poll_votes_single_choice_uq",
+  "poll_votes_user_idx",
+  "polls_parent_idx",
+  "uq_news_reactions_story_user_emoji",
 ]);
 
 // CHECK / FOREIGN KEY / UNIQUE constraints that intentionally exist in the DB

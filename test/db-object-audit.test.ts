@@ -301,6 +301,34 @@ test("session store index is present in the index allowlist", () => {
   assert.ok(KNOWN_UNDECLARED_INDEXES.has("IDX_session_expire"));
 });
 
+test("prod-only legacy indexes are allowlisted so the deploy gate passes", () => {
+  // These pre-drizzle indexes exist only on production (created by
+  // migrations/legacy/ + db:push, never by a committed migration). Without the
+  // allowlist the constraint/index audit flags every one as out-of-band and
+  // fails the deploy gate. See KNOWN_UNDECLARED_INDEXES for the full rationale.
+  for (const name of [
+    "idx_monitor_incidents_monitor_id",
+    "idx_thread_messages_thread_id",
+    "idx_user_notifications_user_created",
+    "idx_user_notifications_user_unread",
+    "idx_news_reactions_story_id",
+    "idx_password_reset_tokens_expires_at",
+    "idx_password_reset_tokens_user_id",
+    "idx_service_subscribers_email_service",
+    "idx_service_subscribers_service",
+    "poll_options_poll_idx",
+    "poll_votes_single_choice_uq",
+    "poll_votes_user_idx",
+    "polls_parent_idx",
+    "uq_news_reactions_story_user_emoji",
+  ]) {
+    assert.ok(
+      KNOWN_UNDECLARED_INDEXES.has(name),
+      `${name} must stay allowlisted or the prod deploy gate breaks`,
+    );
+  }
+});
+
 test("index allowlist suppresses extra-in-DB findings only", () => {
   const diff = diffDbObjects(
     new Set(["users_role_idx"]),
