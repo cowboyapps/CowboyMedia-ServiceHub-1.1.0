@@ -137,6 +137,33 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+// Compact snapshot of the live service-worker state, captured at failure time.
+// iOS PWA users can't open a console but CAN screenshot the toast, so we surface
+// this (and log it server-side) to pinpoint WHY a worker never activated:
+//   reg=ok|null  did register() resolve a registration or throw?
+//   got=y|n      did we end up with any registration at all?
+//   active/inst/wait  the state of the active / installing / waiting worker
+//   ctrl=y|n     is this page currently controlled by a worker?
+function swSnapshot(
+  registered: ServiceWorkerRegistration | null,
+  reg: ServiceWorkerRegistration | null,
+): string {
+  try {
+    const controller =
+      "serviceWorker" in navigator ? navigator.serviceWorker.controller : null;
+    return [
+      `reg=${registered ? "ok" : "null"}`,
+      `got=${reg ? "y" : "n"}`,
+      `active=${reg?.active?.state || "-"}`,
+      `inst=${reg?.installing?.state || "-"}`,
+      `wait=${reg?.waiting?.state || "-"}`,
+      `ctrl=${controller ? "y" : "n"}`,
+    ].join(" ");
+  } catch {
+    return "snapshot-failed";
+  }
+}
+
 // Resolve a usable service-worker registration WITHOUT depending solely on
 // `navigator.serviceWorker.ready`, which is known to hang indefinitely inside
 // iOS standalone PWAs even when an active worker already exists. Strategy:
@@ -147,10 +174,10 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 //      timeout so we can never hang.
 //   3. As a last resort, if a worker has become active by the deadline, use it
 //      anyway rather than failing.
+// On failure the thrown error carries a `.swState` snapshot for diagnosis.
 async function getActiveRegistration(timeoutMs: number): Promise<ServiceWorkerRegistration> {
-  const reg =
-    (await registerServiceWorker()) ||
-    (await navigator.serviceWorker.getRegistration());
+  const registered = await registerServiceWorker();
+  const reg = registered || (await navigator.serviceWorker.getRegistration()) || null;
   if (reg?.active) return reg;
 
   // This promise only ever RESOLVES (on activation) — it never rejects. A
@@ -183,7 +210,9 @@ async function getActiveRegistration(timeoutMs: number): Promise<ServiceWorkerRe
   } catch (e) {
     const latest = await navigator.serviceWorker.getRegistration();
     if (latest?.active) return latest;
-    throw e;
+    const err = new Error(describeError(e)) as Error & { swState?: string };
+    err.swState = swSnapshot(registered, latest || reg);
+    throw err;
   }
 }
 
@@ -211,11 +240,14 @@ async function doSubscribe(): Promise<PushResult> {
   try {
     registration = await getActiveRegistration(15000);
   } catch (e) {
-    reportPushDiagnostic("sw-ready", describeError(e));
+    const swState = (e as { swState?: string })?.swState || "";
+    reportPushDiagnostic("sw-ready", `${describeError(e)} ${swState}`.trim());
     return {
       ok: false,
       code: "sw-ready",
-      reason: "Your device's background service didn't start in time. Fully close the app and reopen it from your Home Screen, then try again.",
+      reason:
+        "Your device's background service didn't start in time. Fully close the app and reopen it from your Home Screen, then try again." +
+        (swState ? ` (SW: ${swState})` : ""),
     };
   }
 
