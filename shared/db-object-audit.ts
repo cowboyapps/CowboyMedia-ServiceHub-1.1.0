@@ -56,12 +56,22 @@ export const KNOWN_UNDECLARED_INDEXES = new Set<string>([
 
 // CHECK / FOREIGN KEY / UNIQUE constraints that intentionally exist in the DB
 // without being created by a committed migration, so they are not flagged as
-// out-of-band extras. Mirrors KNOWN_UNDECLARED_INDEXES above. Currently empty:
-// the infra tables (session, __drizzle_migrations) carry only PRIMARY KEY
-// constraints, which this audit does not cover (see the constraint-drift block
-// below). Add a constraint name here only if it is genuinely managed outside
+// out-of-band extras. Mirrors KNOWN_UNDECLARED_INDEXES above.
+//   - hidden_service_updates_user_id_service_update_id_key: a composite UNIQUE
+//     on (user_id, service_update_id) that exists only on production (added out
+//     of band to stop a user hiding the same service update twice). It is not
+//     modelled in shared/schema.ts and not created by any migration, so it is
+//     genuinely unmanaged. Allowlisted rather than migration-managed to avoid
+//     adding a new uniqueness guarantee to every environment as a side effect of
+//     unblocking the deploy gate. (The simple legacy `<table>_<col>_key` names
+//     are NOT listed here — they ARE migration-managed and were renamed to the
+//     `_unique` form by migrations/0027, which the allowlist could not fix
+//     because allowlisting only suppresses extras, not the matching MISSING.)
+// Add a constraint name here only if it is genuinely managed outside
 // drizzle/migrations.
-export const KNOWN_UNDECLARED_CONSTRAINTS = new Set<string>([]);
+export const KNOWN_UNDECLARED_CONSTRAINTS = new Set<string>([
+  "hidden_service_updates_user_id_service_update_id_key",
+]);
 
 // Tables that intentionally exist in the DB without a corresponding
 // shared/schema.ts pgTable declaration, so they are not flagged as stray

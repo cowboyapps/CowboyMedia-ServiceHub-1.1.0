@@ -434,8 +434,14 @@ test("parseMigrationConstraintDefs: DROP + re-ADD with a new rule keeps the new 
   );
 });
 
-test("constraint allowlist is empty by default but suppresses extra-in-DB findings", () => {
-  assert.equal(KNOWN_UNDECLARED_CONSTRAINTS.size, 0);
+test("constraint allowlist holds only the unmanaged prod composite and suppresses extra-in-DB findings", () => {
+  // Exactly one intentional exception: the prod-only composite UNIQUE on
+  // hidden_service_updates, which no migration creates and schema.ts doesn't
+  // model (see KNOWN_UNDECLARED_CONSTRAINTS in shared/db-object-audit.ts).
+  assert.deepEqual(
+    [...KNOWN_UNDECLARED_CONSTRAINTS],
+    ["hidden_service_updates_user_id_service_update_id_key"],
+  );
   const diff = diffDbObjects(
     new Set(["users_username_unique"]),
     new Set(["users_username_unique", "rogue_constraint"]),

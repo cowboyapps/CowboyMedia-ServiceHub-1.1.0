@@ -146,18 +146,30 @@ test("index audit end-to-end against a migrated database", async (t) => {
       "constraint-backed index is never flagged out-of-band (pg_constraint exclusion)",
       async () => {
         // A UNIQUE constraint adds an index to pg_class, but it is created from a
-        // constraint (not CREATE INDEX in a migration) so the audit's pg_index
-        // query must filter it out — otherwise it would look like an out-of-band
-        // extra. id is the PK so its values are already unique (table is empty
-        // anyway), making the constraint valid.
+        // constraint (not CREATE INDEX in a migration) so the INDEX audit's
+        // pg_index query must filter it out — otherwise it would look like an
+        // out-of-band extra index. id is the PK so its values are already unique
+        // (table is empty anyway), making the constraint valid.
+        //
+        // The constraint itself IS out-of-band, so the separate CONSTRAINT audit
+        // legitimately flags it (overall exit 1). This test therefore asserts on
+        // the INDEX audit specifically — it must stay silent — and confirms the
+        // CONSTRAINT audit is what surfaces the out-of-band object, rather than
+        // asserting a global exit 0 (which the constraint audit correctly breaks).
         await pool.query(
           `ALTER TABLE "users" ADD CONSTRAINT "audit_test_uq" UNIQUE ("id")`,
         );
         try {
           const r = runAudit(tempUrlStr);
-          assert.equal(r.status, 0, r.output);
-          assert.doesNotMatch(r.output, /audit_test_uq/);
+          // Index audit stays clean: the constraint-backed index is excluded.
           assert.doesNotMatch(r.output, /OUT-OF-BAND INDEXES/);
+          assert.match(
+            r.output,
+            /every index in migrations exists in the DB and matches/,
+          );
+          // Sanity: the constraint audit (not a silent miss) is what flags it.
+          assert.match(r.output, /OUT-OF-BAND CONSTRAINTS/);
+          assert.match(r.output, /audit_test_uq/);
         } finally {
           await pool.query(`ALTER TABLE "users" DROP CONSTRAINT "audit_test_uq"`);
         }
