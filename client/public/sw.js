@@ -15,15 +15,26 @@ const STATIC_PRECACHE = [
 
 const NAV_TIMEOUT_MS = 2500;
 
+// Precache one URL but never let a hung/slow network fetch block installation.
+// A `cache.add` that never settles would otherwise stall the install step
+// forever, so the worker never reaches "activated" and serviceWorker.ready
+// hangs — which on iOS surfaced as "background service didn't start".
+function precacheWithTimeout(cache, url, ms) {
+  return Promise.race([
+    cache.add(url).catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, ms)),
+  ]).catch(() => {});
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) =>
-      Promise.all(
-        STATIC_PRECACHE.map((url) =>
-          cache.add(url).catch(() => {})
+    caches.open(SHELL_CACHE)
+      .then((cache) =>
+        Promise.all(
+          STATIC_PRECACHE.map((url) => precacheWithTimeout(cache, url, 3000))
         )
       )
-    )
+      .catch(() => {})
   );
   self.skipWaiting();
 });

@@ -137,6 +137,56 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+// Resolve a usable service-worker registration WITHOUT depending solely on
+// `navigator.serviceWorker.ready`, which is known to hang indefinitely inside
+// iOS standalone PWAs even when an active worker already exists. Strategy:
+//   1. Use the registration we get back from register()/getRegistration() and
+//      return it immediately if it already has an active worker.
+//   2. Otherwise wait for whichever signals first: the installing/waiting worker
+//      reaching "activated", or the platform `ready` promise — bounded by a
+//      timeout so we can never hang.
+//   3. As a last resort, if a worker has become active by the deadline, use it
+//      anyway rather than failing.
+async function getActiveRegistration(timeoutMs: number): Promise<ServiceWorkerRegistration> {
+  const reg =
+    (await registerServiceWorker()) ||
+    (await navigator.serviceWorker.getRegistration());
+  if (reg?.active) return reg;
+
+  // This promise only ever RESOLVES (on activation) — it never rejects. A
+  // missing/redundant worker simply defers to serviceWorker.ready (and
+  // ultimately the timeout), so a fast rejection can't win the race and rob us
+  // of an otherwise-working subscription in an edge timing window.
+  const activated = new Promise<ServiceWorkerRegistration>((resolve) => {
+    if (!reg) return;
+    if (reg.active) { resolve(reg); return; }
+    const worker = reg.installing || reg.waiting;
+    if (!worker) return;
+    const onState = () => {
+      if (worker.state === "activated") {
+        worker.removeEventListener("statechange", onState);
+        resolve(reg);
+      } else if (worker.state === "redundant") {
+        worker.removeEventListener("statechange", onState);
+      }
+    };
+    worker.addEventListener("statechange", onState);
+    onState();
+  });
+
+  try {
+    return await withTimeout(
+      Promise.race([activated, navigator.serviceWorker.ready]),
+      timeoutMs,
+      "serviceWorker activation",
+    );
+  } catch (e) {
+    const latest = await navigator.serviceWorker.getRegistration();
+    if (latest?.active) return latest;
+    throw e;
+  }
+}
+
 async function doSubscribe(): Promise<PushResult> {
   // Permission must already be granted by the time we get here. The prompt is
   // requested by the explicit caller (subscribeToPush) inside the user gesture
@@ -157,14 +207,9 @@ async function doSubscribe(): Promise<PushResult> {
     };
   }
 
-  // Make sure the service worker is actually registered before we wait on it —
-  // on iOS a fire-and-forget registration may not have completed yet, which
-  // would otherwise make serviceWorker.ready hang until the timeout.
-  await registerServiceWorker();
-
   let registration: ServiceWorkerRegistration;
   try {
-    registration = await withTimeout(navigator.serviceWorker.ready, 10000, "serviceWorker.ready");
+    registration = await getActiveRegistration(15000);
   } catch (e) {
     reportPushDiagnostic("sw-ready", describeError(e));
     return {
@@ -278,11 +323,7 @@ export async function subscribeToPush(): Promise<PushResult> {
 
 export async function unsubscribeFromPush(): Promise<boolean> {
   try {
-    const registration = await withTimeout(
-      navigator.serviceWorker.ready,
-      10000,
-      "serviceWorker.ready",
-    );
+    const registration = await getActiveRegistration(10000);
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) {
       const endpoint = subscription.endpoint;
@@ -299,11 +340,7 @@ export async function unsubscribeFromPush(): Promise<boolean> {
 export async function isSubscribedToPush(): Promise<boolean> {
   try {
     if (!("serviceWorker" in navigator)) return false;
-    const registration = await withTimeout(
-      navigator.serviceWorker.ready,
-      10000,
-      "serviceWorker.ready",
-    );
+    const registration = await getActiveRegistration(10000);
     const subscription = await registration.pushManager.getSubscription();
     return !!subscription;
   } catch {
@@ -328,11 +365,7 @@ export async function syncPushSubscription(): Promise<void> {
     if (!(await isPushSupported())) return;
     if (Notification.permission !== "granted") return;
 
-    const registration = await withTimeout(
-      navigator.serviceWorker.ready,
-      10000,
-      "serviceWorker.ready",
-    );
+    const registration = await getActiveRegistration(10000);
 
     if (typeof localStorage !== "undefined" && !localStorage.getItem(PUSH_RESYNC_KEY)) {
       const existing = await registration.pushManager.getSubscription();
