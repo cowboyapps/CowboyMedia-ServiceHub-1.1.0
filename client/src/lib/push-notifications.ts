@@ -86,14 +86,12 @@ function reportPushDiagnostic(stage: string, detail: string): void {
 // (e.g. SecurityError when Safari has site data / cookies blocked).
 let lastSwRegisterError = "";
 
-// Captured result of probing /sw.js over the network at failure time. The
-// SecurityError "Scope URL should start with the given script URL" is the
-// textbook symptom of the worker script being HTTP-redirected before it loads
-// (a VPN / iCloud Private Relay / content-filter / configuration profile on the
-// device can do this invisibly — Safari's address bar silently follows the
-// redirect so a human can't see it). `fetch(..., {redirect:"manual"})` does NOT
-// follow it: a redirected response surfaces as type "opaqueredirect", which is
-// the smoking gun. A clean install instead reports e.g. "200/basic".
+// Captured result of probing /sw.js over the network at failure time. Kept as a
+// belt-and-braces check: a redirect on the worker script (VPN / iCloud Private
+// Relay / content-filter / configuration profile) would surface as type
+// "opaqueredirect" under {redirect:"manual"}. On this app the probe came back
+// "200/basic" (no redirect) while register() still threw the SecurityError —
+// which is what pinned the cause on the explicit scope option, not the network.
 let lastSwFetchProbe = "";
 
 async function probeSwScript(): Promise<string> {
@@ -112,7 +110,17 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     return null;
   }
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    // Register with NO explicit scope. The script lives at the site root, so its
+    // default scope is already "/" — exactly the coverage we want. Passing an
+    // explicit { scope: "/" } makes iOS/WebKit (standalone PWA, iOS 18.x) reject
+    // a brand-new registration with
+    //   SecurityError: Scope URL should start with the given script URL
+    // even though /sw.js is served cleanly (200, no redirect) WITH a
+    // Service-Worker-Allowed: / header. The explicit-scope path compares the
+    // scope against the full script URL ("/" does not start with "/sw.js") and
+    // doesn't honour the header here; the default-scope path doesn't, so omitting
+    // scope is what actually lets registration succeed.
+    const registration = await navigator.serviceWorker.register("/sw.js");
     lastSwRegisterError = "";
     lastSwFetchProbe = "";
     return registration;
@@ -120,17 +128,14 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     lastSwRegisterError = describeError(e);
     lastSwFetchProbe = await probeSwScript();
     console.error("SW registration failed:", e, "| /sw.js probe:", lastSwFetchProbe);
-    // Self-heal: after repeated failed installs iOS can wedge its service-worker
-    // store and then reject EVERY register() with
-    //   SecurityError: Scope URL should start with the given script URL
-    // i.e. a stale/corrupt registration whose recorded script URL no longer
-    // lines up with the requested scope. Tear down all existing registrations
-    // and retry once from a clean slate.
+    // Self-heal: a stale/corrupt registration from a previous install can also
+    // reject register() (its recorded script URL no longer lines up). Tear down
+    // any existing registrations and retry once from a clean slate.
     try {
       const regs = await navigator.serviceWorker.getRegistrations();
       if (regs.length > 0) {
         await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
-        const retry = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        const retry = await navigator.serviceWorker.register("/sw.js");
         lastSwRegisterError = "";
         return retry;
       }
