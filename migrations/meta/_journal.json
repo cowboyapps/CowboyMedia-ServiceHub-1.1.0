@@ -183,6 +183,13 @@
       "when": 1781516080711,
       "tag": "0025_nervous_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1781742738540,
+      "tag": "0026_kb_search_vector",
+      "breakpoints": true
     }
   ]
 }
