@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
-import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush, getNotificationPermission } from "@/lib/push-notifications";
+import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
 import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, CreditCard, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2, CheckCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -404,16 +404,13 @@ export default function SettingsPage() {
     setPushLoading(true);
     try {
       if (checked) {
-        const success = await subscribeToPush();
-        if (success) {
+        const result = await subscribeToPush();
+        if (result.ok) {
           toast({ title: "Push notifications enabled" });
         } else {
-          const denied = (await getNotificationPermission()) === "denied";
           toast({
             title: "Could not enable notifications",
-            description: denied
-              ? "Notifications are blocked. Allow them in your device's settings for this app, then try again."
-              : "Something went wrong turning on notifications. Please try again.",
+            description: result.reason,
             variant: "destructive",
           });
         }
@@ -446,14 +443,14 @@ export default function SettingsPage() {
   const handleEnablePushAndOpen = async () => {
     setEnablingPushFromPrompt(true);
     try {
-      const success = await subscribeToPush();
-      if (success) {
+      const result = await subscribeToPush();
+      if (result.ok) {
         setPushEnabled(true);
         toast({ title: "Push notifications enabled" });
       } else {
         toast({
           title: "Could not enable notifications",
-          description: "Please allow notifications in your browser settings",
+          description: result.reason,
           variant: "destructive",
         });
       }

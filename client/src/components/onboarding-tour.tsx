@@ -256,14 +256,14 @@ export function OnboardingTour() {
     if (pushOn) return;
     setPushBusy(true);
     try {
-      const ok = await subscribeToPush();
-      setPushOn(ok);
-      if (ok) {
+      const result = await subscribeToPush();
+      setPushOn(result.ok);
+      if (result.ok) {
         toast({ title: "Push notifications enabled" });
       } else {
         toast({
           title: "Could not enable notifications",
-          description: "Please allow notifications in your browser settings",
+          description: result.reason,
           variant: "destructive",
         });
       }

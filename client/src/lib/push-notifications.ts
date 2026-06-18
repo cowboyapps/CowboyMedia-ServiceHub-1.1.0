@@ -1,5 +1,7 @@
 import { apiRequest } from "./queryClient";
 
+export type PushResult = { ok: true } | { ok: false; code: string; reason: string };
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -18,6 +20,63 @@ export async function isPushSupported(): Promise<boolean> {
 export async function getNotificationPermission(): Promise<NotificationPermission> {
   if (!("Notification" in window)) return "denied";
   return Notification.permission;
+}
+
+function isIOS(): boolean {
+  try {
+    return (
+      /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isStandalone(): boolean {
+  try {
+    return (
+      (typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(display-mode: standalone)").matches) ||
+      (navigator as unknown as { standalone?: boolean }).standalone === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function errName(e: unknown): string {
+  if (e && typeof e === "object" && "name" in e && (e as { name?: unknown }).name) {
+    return String((e as { name?: unknown }).name);
+  }
+  return "error";
+}
+
+function describeError(e: unknown): string {
+  if (e instanceof Error) return `${e.name}: ${e.message}`;
+  try {
+    return String(e);
+  } catch {
+    return "unknown error";
+  }
+}
+
+// Fire-and-forget: record the precise failure stage on the server so it shows up
+// in Admin Portal → error logs. iOS PWA users can't open a JS console, so this is
+// the only way to see why a subscription attempt failed on a real device.
+function reportPushDiagnostic(stage: string, detail: string): void {
+  try {
+    void apiRequest("POST", "/api/push/diagnostic", {
+      stage,
+      detail: (detail || "").slice(0, 500),
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+      standalone: isStandalone(),
+      permission: typeof Notification !== "undefined" ? Notification.permission : "unknown",
+    }).catch(() => {});
+  } catch {
+    /* never let diagnostics throw into the caller */
+  }
 }
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
@@ -44,10 +103,29 @@ async function getVapidKey(): Promise<string | null> {
   return null;
 }
 
+// True when `subscription` was created for the same VAPID key we're about to use.
+// A mismatch means the subscription is stale (server can't deliver to it, and iOS
+// throws InvalidStateError if we resubscribe with a different key while it still
+// exists). When we can't tell, assume it matches so we never needlessly churn it.
+function subscriptionMatchesKey(subscription: PushSubscription, vapidBytes: Uint8Array): boolean {
+  try {
+    const cur = subscription.options?.applicationServerKey;
+    if (!cur) return true;
+    const a = new Uint8Array(cur as ArrayBuffer);
+    if (a.length !== vapidBytes.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== vapidBytes[i]) return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 // In-flight lock so concurrent callers (e.g. AuthenticatedLayout's silent
 // sync running at the same time the user clicks "Enable" in Settings) share
 // one underlying pushManager.subscribe call instead of racing it.
-let subscribeInFlight: Promise<boolean> | null = null;
+let subscribeInFlight: Promise<PushResult> | null = null;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -59,43 +137,96 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
-async function doSubscribe(): Promise<boolean> {
+async function doSubscribe(): Promise<PushResult> {
+  // Permission must already be granted by the time we get here. The prompt is
+  // requested by the explicit caller (subscribeToPush) inside the user gesture
+  // so iOS actually shows it; the silent sync path only ever runs when
+  // permission is already "granted".
+  if (Notification.permission !== "granted") {
+    return { ok: false, code: "permission", reason: "Notification permission was not granted." };
+  }
+
+  // iOS only delivers web push to the app installed on the Home Screen. In a
+  // Safari tab PushManager exists but subscribe() fails, so guide the user.
+  if (isIOS() && !isStandalone()) {
+    reportPushDiagnostic("not-standalone", navigator.userAgent);
+    return {
+      ok: false,
+      code: "not-standalone",
+      reason: "Open the app from your Home Screen (not the Safari browser) to turn on notifications.",
+    };
+  }
+
+  // Make sure the service worker is actually registered before we wait on it —
+  // on iOS a fire-and-forget registration may not have completed yet, which
+  // would otherwise make serviceWorker.ready hang until the timeout.
+  await registerServiceWorker();
+
+  let registration: ServiceWorkerRegistration;
   try {
-    // Permission must already be granted by the time we get here. The prompt is
-    // requested by the explicit caller (subscribeToPush) inside the user gesture
-    // so iOS actually shows it; the silent sync path only ever runs when
-    // permission is already "granted".
-    if (Notification.permission !== "granted") return false;
+    registration = await withTimeout(navigator.serviceWorker.ready, 10000, "serviceWorker.ready");
+  } catch (e) {
+    reportPushDiagnostic("sw-ready", describeError(e));
+    return {
+      ok: false,
+      code: "sw-ready",
+      reason: "Your device's background service didn't start in time. Fully close the app and reopen it from your Home Screen, then try again.",
+    };
+  }
 
-    const registration = await withTimeout(
-      navigator.serviceWorker.ready,
-      10000,
-      "serviceWorker.ready",
-    );
+  const vapidKey = await getVapidKey();
+  if (!vapidKey) {
+    reportPushDiagnostic("no-vapid", "vapid key empty");
+    return {
+      ok: false,
+      code: "no-vapid",
+      reason: "Notifications aren't configured on the server yet. Please contact support.",
+    };
+  }
+  const vapidBytes = urlBase64ToUint8Array(vapidKey);
 
-    let subscription = await registration.pushManager.getSubscription();
+  let subscription = await registration.pushManager.getSubscription();
 
-    if (!subscription) {
-      const vapidKey = await getVapidKey();
-      if (!vapidKey) {
-        console.error("No VAPID key available");
-        return false;
-      }
+  // Drop a subscription tied to an old VAPID key so we can mint a fresh, usable one.
+  if (subscription && !subscriptionMatchesKey(subscription, vapidBytes)) {
+    try {
+      const old = subscription.endpoint;
+      await subscription.unsubscribe();
+      try { await apiRequest("POST", "/api/push/unsubscribe", { endpoint: old }); } catch {}
+    } catch {}
+    subscription = null;
+  }
+
+  if (!subscription) {
+    try {
       subscription = await withTimeout(
         registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          applicationServerKey: vapidBytes,
         }),
         15000,
         "pushManager.subscribe",
       );
       console.log("New push subscription created");
-    } else {
-      console.log("Existing push subscription found, re-registering with server");
+    } catch (e) {
+      reportPushDiagnostic("subscribe", describeError(e));
+      return {
+        ok: false,
+        code: "subscribe",
+        reason: `Your device refused the notification subscription (${errName(e)}). Please try again. If it keeps failing, remove the app from your Home Screen and re-add it.`,
+      };
     }
+  } else {
+    console.log("Existing push subscription found, re-registering with server");
+  }
 
-    const subJson = subscription.toJSON();
-    if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return false;
+  const subJson = subscription.toJSON();
+  if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) {
+    reportPushDiagnostic("invalid-sub", "missing endpoint/keys");
+    return { ok: false, code: "invalid-sub", reason: "The subscription came back incomplete. Please try again." };
+  }
+
+  try {
     await withTimeout(
       apiRequest("POST", "/api/push/subscribe", {
         endpoint: subJson.endpoint,
@@ -104,14 +235,19 @@ async function doSubscribe(): Promise<boolean> {
       10000,
       "POST /api/push/subscribe",
     );
-    return true;
   } catch (e) {
-    console.error("Push subscription failed:", e);
-    return false;
+    reportPushDiagnostic("server-register", describeError(e));
+    return {
+      ok: false,
+      code: "server-register",
+      reason: "Couldn't save your subscription on the server. Please check your connection and try again.",
+    };
   }
+
+  return { ok: true };
 }
 
-export async function subscribeToPush(): Promise<boolean> {
+export async function subscribeToPush(): Promise<PushResult> {
   // Request permission here — synchronously inside the caller's user gesture —
   // so iOS Safari actually presents the prompt. Doing it here (rather than
   // inside the shared in-flight promise) also guarantees a concurrent silent
@@ -120,13 +256,19 @@ export async function subscribeToPush(): Promise<boolean> {
     if (Notification.permission !== "granted") {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        console.warn("Notification permission not granted");
-        return false;
+        const denied = permission === "denied";
+        return {
+          ok: false,
+          code: denied ? "denied" : "dismissed",
+          reason: denied
+            ? "Notifications are blocked for this app. Allow them in your device Settings, then try again."
+            : "The permission prompt was dismissed. Tap to try again and choose Allow.",
+        };
       }
     }
   } catch (e) {
-    console.error("Notification.requestPermission failed:", e);
-    return false;
+    reportPushDiagnostic("request-permission", describeError(e));
+    return { ok: false, code: "request-permission", reason: "Couldn't request notification permission on this device." };
   }
 
   if (subscribeInFlight) return subscribeInFlight;

@@ -1,4 +1,5 @@
 - [Replit firewall lockfile leak](replit-firewall-lockfile-leak.md) — `package-firewall.replit.local` URLs in package-lock.json kill off-Replit `npm ci` with "Exit handler never called!"; sed them back to registry.npmjs.org.
+- [iOS PWA push diagnostics](ios-pwa-push-diagnostics.md) — iOS has no console; push-enable failures must return a specific reason AND report the stage to the server error log, never swallow into a bare false.
 - [Alert service-status recompute](alert-status-recompute.md) — every alert lifecycle route that changes coverage must recompute + broadcast each affected service or status goes stale.
 - [WHMCS notifier marker gating](whmcs-notifier-marker-gating.md) — poll notifiers skip the dedup marker on unreachable lists + quiet-hours-suppressed sends so missing perms / quiet hours replay correctly.
 - [OTP attempt-cap must consume in-request](otp-attempt-cap-consume.md) — invalidate the code on the Nth wrong attempt in the same request (not lazily next call); retire prior active codes on resend.

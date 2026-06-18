@@ -4566,6 +4566,30 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || "" });
   });
 
+  // Records why a client-side push-enable attempt failed. iOS PWA users can't
+  // open a browser console, so the client posts the precise failure stage here
+  // and it lands in Admin Portal → error logs for diagnosis.
+  app.post("/api/push/diagnostic", requireAuth, (req, res) => {
+    try {
+      const { stage, detail, userAgent, standalone, permission } = req.body || {};
+      logError("push", `client push enable failed: ${String(stage || "unknown")}`, {
+        severity: "warn",
+        userId: req.session.userId,
+        summary: `Push enable failed (${String(stage || "unknown")})`.slice(0, 200),
+        extra: {
+          stage: String(stage ?? "").slice(0, 100),
+          detail: String(detail ?? "").slice(0, 500),
+          userAgent: String(userAgent ?? "").slice(0, 300),
+          standalone: !!standalone,
+          permission: String(permission ?? "").slice(0, 20),
+        },
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   const dashboardHandler = createDashboardHandler({
     storage,
     getOnlineUsersCount: () => new Set(wsSessionUserMap.values()).size,

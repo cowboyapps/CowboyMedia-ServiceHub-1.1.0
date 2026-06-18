@@ -629,8 +629,8 @@ function WelcomeDialog() {
   const handleEnablePush = async () => {
     setPushLoading(true);
     try {
-      const success = await subscribeToPush();
-      setPushEnabled(success);
+      const result = await subscribeToPush();
+      setPushEnabled(result.ok);
     } finally {
       setPushLoading(false);
     }
