@@ -163,7 +163,12 @@ function swSnapshot(
   try {
     const controller =
       "serviceWorker" in navigator ? navigator.serviceWorker.controller : null;
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+    const osMatch = ua.match(/OS (\d+)[_.](\d+)/);
+    const iosVer = osMatch ? `${osMatch[1]}.${osMatch[2]}` : "?";
     const parts = [
+      `ios=${iosVer}`,
+      `std=${isStandalone() ? "y" : "n"}`,
       `reg=${registered ? "ok" : "null"}`,
       `got=${reg ? "y" : "n"}`,
       `active=${reg?.active?.state || "-"}`,
