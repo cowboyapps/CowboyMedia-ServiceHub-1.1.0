@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { APP_VERSION } from "@shared/version";
+import { APP_VERSION, versionAnchor } from "@shared/version";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme-provider";
@@ -849,7 +849,7 @@ export default function SettingsPage() {
         Version {APP_VERSION}
       </p>
       <p className="text-center text-xs mb-1">
-        <Link href="/whats-new" className="text-primary hover:underline" data-testid="link-whats-new">
+        <Link href={`/whats-new#${versionAnchor(APP_VERSION)}`} className="text-primary hover:underline" data-testid="link-whats-new">
           What&apos;s new in this version
         </Link>
       </p>

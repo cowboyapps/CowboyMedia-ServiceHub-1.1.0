@@ -4186,6 +4186,31 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Send a test push to the requesting admin's OWN devices, so they can verify
+  // push is working end-to-end without bothering other users. Self-scoped and
+  // harmless, so it's open to any admin (not just master_admin).
+  app.post("/api/admin/test-push", requireAdmin, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const subs = await storage.getPushSubscriptionsByUser(userId);
+      if (subs.length === 0) {
+        return res.json({
+          success: false,
+          total: 0,
+          message: "No devices are registered for push on your account. Turn on push notifications first, then try again.",
+        });
+      }
+      await sendPushToUser(userId, {
+        title: "Test notification",
+        body: "Your push notifications are working correctly.",
+        url: "/",
+      });
+      res.json({ success: true, total: subs.length });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   app.get("/api/broadcasts/unread", requireAuth, async (req, res) => {
     try {
       const broadcasts = await storage.getUnreadBroadcasts(req.session.userId!);
