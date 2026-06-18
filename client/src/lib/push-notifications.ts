@@ -92,12 +92,30 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     return null;
   }
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js");
+    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
     lastSwRegisterError = "";
     return registration;
   } catch (e) {
     lastSwRegisterError = describeError(e);
     console.error("SW registration failed:", e);
+    // Self-heal: after repeated failed installs iOS can wedge its service-worker
+    // store and then reject EVERY register() with
+    //   SecurityError: Scope URL should start with the given script URL
+    // i.e. a stale/corrupt registration whose recorded script URL no longer
+    // lines up with the requested scope. Tear down all existing registrations
+    // and retry once from a clean slate.
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      if (regs.length > 0) {
+        await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+        const retry = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        lastSwRegisterError = "";
+        return retry;
+      }
+    } catch (e2) {
+      lastSwRegisterError = `${describeError(e)} | retry: ${describeError(e2)}`;
+      console.error("SW registration retry failed:", e2);
+    }
     return null;
   }
 }
