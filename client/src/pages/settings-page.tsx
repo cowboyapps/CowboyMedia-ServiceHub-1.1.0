@@ -467,6 +467,34 @@ export default function SettingsPage() {
     setPrefsDialogOpen(true);
   };
 
+  const testPushMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/test-push");
+      return (await res.json()) as { success: boolean; total: number; message?: string };
+    },
+    onSuccess: (res) => {
+      if (res.success) {
+        toast({
+          title: "Test notification sent",
+          description: `Sent to ${res.total} device(s) on your account. Check your device.`,
+        });
+      } else {
+        toast({
+          title: "No devices registered",
+          description: res.message || "Turn on push notifications above, then try again.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Could not send test",
+        description: e?.message || "Something went wrong.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleInstallApp = async () => {
     if (installPrompt) {
       await installPrompt.prompt();
@@ -695,6 +723,24 @@ export default function SettingsPage() {
                 disabled={pushLoading}
                 data-testid="switch-push-notifications"
               />
+            </div>
+          )}
+          {pushSupported && pushEnabled && (user?.role === "admin" || user?.role === "master_admin") && (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">Send a test notification</p>
+                <p className="text-xs text-muted-foreground">Send a sample push to this device to confirm it's working</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => testPushMutation.mutate()}
+                disabled={testPushMutation.isPending}
+                data-testid="button-send-test-push"
+              >
+                <Bell className="w-4 h-4 mr-1.5" />
+                {testPushMutation.isPending ? "Sending..." : "Send test"}
+              </Button>
             </div>
           )}
           {(() => {

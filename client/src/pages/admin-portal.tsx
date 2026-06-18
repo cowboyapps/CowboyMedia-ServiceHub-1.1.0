@@ -4995,34 +4995,6 @@ function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | nu
     },
   });
 
-  const testPushMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/admin/test-push");
-      return (await res.json()) as { success: boolean; total: number; message?: string };
-    },
-    onSuccess: (res) => {
-      if (res.success) {
-        toast({
-          title: "Test notification sent",
-          description: `Sent to ${res.total} device(s) on your account. Check your device.`,
-        });
-      } else {
-        toast({
-          title: "No devices registered",
-          description: res.message || "Turn on push notifications first, then try again.",
-          variant: "destructive",
-        });
-      }
-    },
-    onError: (e: any) => {
-      toast({
-        title: "Could not send test",
-        description: e?.message || "Something went wrong.",
-        variant: "destructive",
-      });
-    },
-  });
-
   const updateUserRoleMutation = useMutation({
     mutationFn: async ({ id, role, adminRoleId }: { id: string; role?: string; adminRoleId?: string | null }) => {
       await apiRequest("PATCH", `/api/admin/users/${id}/role`, { role, adminRoleId });
@@ -5303,21 +5275,6 @@ function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | nu
       </TabsContent>
 
       <TabsContent value="broadcast" className="space-y-4">
-        <div className="rounded-md border p-4 space-y-2">
-          <h3 className="text-lg font-semibold">Test your device</h3>
-          <p className="text-sm text-muted-foreground">
-            Send a sample push notification to your own devices to confirm push is working.
-          </p>
-          <Button
-            variant="outline"
-            disabled={testPushMutation.isPending}
-            onClick={() => testPushMutation.mutate()}
-            data-testid="button-send-test-push"
-          >
-            <Bell className="w-4 h-4 mr-2" />
-            {testPushMutation.isPending ? "Sending..." : "Send test notification to my device"}
-          </Button>
-        </div>
         <h3 className="text-lg font-semibold">Broadcast Push Notification</h3>
         <div className="space-y-4">
           <div>
