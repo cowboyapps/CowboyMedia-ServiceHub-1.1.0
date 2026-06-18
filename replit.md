@@ -90,10 +90,10 @@ sudo -u servicehub pm2 save
 **Audit DB schema drift against `shared/schema.ts`**:
 
 ```bash
-sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx script/audit-schema.ts'
+sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx script/audit-columns.ts'
 ```
 
-Reports tables defined in `shared/schema.ts` missing from the DB, or extra tables in the DB not declared in schema.ts. Exit code 1 on drift, safe to wire into CI later.
+This is the same tool the `db:check:columns` prebuild gate runs. Reports tables defined in `shared/schema.ts` missing from the DB, stray tables in the DB not declared in schema.ts (minus the `KNOWN_UNMANAGED_TABLES` allowlist), missing/extra columns per table, and out-of-band triggers/functions. Exit code 1 on drift. (The old standalone `script/audit-schema.ts` was a near-duplicate of the table half of this report and has been retired.)
 
 **Recover deleted KB / news images from a backup** (`script/recover-kb-images.ts`):
 
