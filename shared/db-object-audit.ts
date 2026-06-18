@@ -40,6 +40,20 @@ export const KNOWN_UNDECLARED_COLUMNS: Record<string, Set<string>> = {
   kb_articles: new Set(["search_vector"]),
 };
 
+// Indexes that intentionally exist in the DB without being created by a
+// committed migration, so they are not flagged as out-of-band extras. Mirrors
+// the KNOWN_UNDECLARED_{FUNCTIONS,TRIGGERS} allowlists above.
+//   - IDX_session_expire: created by connect-pg-simple on its `session` store
+//     table (which is itself allowlisted in KNOWN_UNMANAGED_TABLES). Managed by
+//     the session library, not drizzle/migrations.
+// NOTE: this allowlist only covers index NAMES that are diffed by
+// parseMigrationIndexDefs' key set; constraint-backed indexes (PRIMARY KEY /
+// UNIQUE constraints declared in shared/schema.ts) are filtered out at the SQL
+// level in audit-columns.ts before the diff, so they never need listing here.
+export const KNOWN_UNDECLARED_INDEXES = new Set<string>([
+  "IDX_session_expire",
+]);
+
 // Tables that intentionally exist in the DB without a corresponding
 // shared/schema.ts pgTable declaration, so they are not flagged as stray
 // orphans. These are infrastructure tables managed outside drizzle:
@@ -201,6 +215,97 @@ export function parseMigrationTriggerDefs(
     events.sort((a, b) => a.index - b.index);
     for (const e of events) {
       if (e.def !== undefined) defs.set(e.name, normalizeTriggerDef(e.def));
+      else defs.delete(e.name);
+    }
+  }
+
+  return defs;
+}
+
+// ---------------------------------------------------------------------------
+// Index drift
+// ---------------------------------------------------------------------------
+// Raw-SQL indexes created in migrations (e.g. the GIN index
+// `kb_articles_search_vector_idx` in 0026, or every `CREATE INDEX` drizzle emits
+// for `index()`/`uniqueIndex()` schema declarations) are not modelled by
+// drizzle's column/trigger/function audits. An index a migration creates but
+// that is missing on an environment silently degrades query performance, and an
+// index redefined out of band with different columns/opclass/predicate is the
+// same "works in dev, slow/wrong on a fresh migrate" drift one level deeper.
+//
+// The committed migrations are the source of truth. We parse every
+// CREATE INDEX (net of later DROP INDEX, textually ordered like the
+// trigger/function parsers) and compare both NAMES (missing/extra via
+// diffDbObjects) and NORMALISED definitions (drift via diffObjectDefinitions)
+// against the live DB's `pg_get_indexdef`.
+//
+// Constraint-backed indexes (PRIMARY KEY / UNIQUE constraints declared in
+// shared/schema.ts) are NOT created via `CREATE INDEX` in migrations, so the DB
+// side filters them out before diffing (see audit-columns.ts) — they are
+// covered by the column audit instead.
+
+// Canonicalises a CREATE INDEX statement so a hand/drizzle-written migration
+// and Postgres' `pg_get_indexdef` form compare equal when they describe the
+// same index. pg_get_indexdef emits no `IF NOT EXISTS`, schema-qualifies the
+// table (`public.foo`), drops quotes, parenthesises WHERE predicates and bare
+// column references, and never table-qualifies predicate columns; the migration
+// text does the opposite of several of those. We therefore:
+//   - drop `IF NOT EXISTS` / `CONCURRENTLY` (never present in pg_get_indexdef)
+//   - drop double quotes
+//   - strip every `<identifier>.` qualifier — covers the `public.` table prefix
+//     AND the `"tbl"."col"` predicate qualifiers drizzle emits in partial-index
+//     WHERE clauses, which pg renders as bare `(col ...)`
+//   - drop all parentheses so pg's `WHERE ((a) AND (b))` folds to the migration's
+//     `WHERE a AND b`, and the column-list parens fold equally on both sides
+//   - collapse comma spacing, drop trailing semicolons, collapse whitespace
+//   - uppercase (identifiers here are lowercase snake_case, so uppercasing both
+//     sides equally keeps identifier comparison intact while absorbing keyword
+//     case). A genuine change (different column, order, opclass, predicate)
+//     still differs after normalisation.
+export function normalizeIndexDef(def: string): string {
+  return def
+    .replace(/\bIF\s+NOT\s+EXISTS\b/gi, " ")
+    .replace(/\bCONCURRENTLY\b/gi, " ")
+    .replace(/"/g, "")
+    .replace(/\b[a-zA-Z_][a-zA-Z0-9_]*\./g, "")
+    .replace(/[()]/g, " ")
+    .replace(/\s*,\s*/g, ",")
+    .replace(/;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+// Walks the migration SQL IN ORDER and returns the NORMALISED CREATE INDEX
+// definition for each index still defined at the end. A `DROP INDEX` removes it
+// (0010 drops + recreates tickets indexes, 0012 drops one and creates another);
+// a later `CREATE INDEX` after a drop wins. Mirrors parseMigrationTriggerDefs.
+// The key set of the returned map is the authoritative list of index NAMES the
+// migrations expect, used directly by the name-level diff.
+//
+// Captures `CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] <name>` up to
+// the statement-terminating `;`. Index statements never contain an inner
+// semicolon, so the non-greedy match to the first `;` is safe.
+export function parseMigrationIndexDefs(
+  sqlTexts: string[],
+): Map<string, string> {
+  const defs = new Map<string, string>();
+  const createRe =
+    /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?([a-zA-Z0-9_]+)"?[\s\S]*?;/gi;
+  const dropRe =
+    /\bDROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?(?:"?[a-zA-Z0-9_]+"?\.)?"?([a-zA-Z0-9_]+)"?/gi;
+
+  for (const sql of sqlTexts) {
+    const events: Array<{ index: number; name: string; def?: string }> = [];
+    for (const m of sql.matchAll(createRe)) {
+      events.push({ index: m.index ?? 0, name: m[1], def: m[0] });
+    }
+    for (const m of sql.matchAll(dropRe)) {
+      events.push({ index: m.index ?? 0, name: m[1] });
+    }
+    events.sort((a, b) => a.index - b.index);
+    for (const e of events) {
+      if (e.def !== undefined) defs.set(e.name, normalizeIndexDef(e.def));
       else defs.delete(e.name);
     }
   }

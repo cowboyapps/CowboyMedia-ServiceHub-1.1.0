@@ -6,14 +6,17 @@ import * as schema from "../shared/schema";
 import {
   KNOWN_UNDECLARED_COLUMNS,
   KNOWN_UNDECLARED_FUNCTIONS,
+  KNOWN_UNDECLARED_INDEXES,
   KNOWN_UNDECLARED_TRIGGERS,
   KNOWN_UNMANAGED_TABLES,
   diffDbObjects,
   diffObjectDefinitions,
   normalizeFunctionBody,
+  normalizeIndexDef,
   normalizeTriggerDef,
   parseMigrationDbObjects,
   parseMigrationFunctionBodies,
+  parseMigrationIndexDefs,
   parseMigrationTriggerDefs,
 } from "../shared/db-object-audit";
 
@@ -79,6 +82,32 @@ async function main() {
            SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e'
          )
        ORDER BY p.proname`,
+  );
+
+  // User-defined indexes in the public schema, with their canonical definition
+  // (pg_get_indexdef) so we can detect a raw-SQL index that a migration creates
+  // but that is missing here, or one redefined out of band with different
+  // columns / opclass / predicate. PRIMARY KEY and UNIQUE/EXCLUSION constraint
+  // indexes are excluded: they are created from constraints declared in
+  // shared/schema.ts (CREATE TABLE / ALTER TABLE), NOT via CREATE INDEX in a
+  // migration, and are already covered by the column audit. What remains is the
+  // set of indexes migrations create with explicit CREATE [UNIQUE] INDEX.
+  const { rows: indexRows } = await pool.query<{
+    index_name: string;
+    index_def: string;
+  }>(
+    `SELECT c.relname AS index_name,
+            pg_get_indexdef(i.indexrelid) AS index_def
+       FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indexrelid
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND NOT i.indisprimary
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid
+         )
+       ORDER BY c.relname`,
   );
   await pool.end();
 
@@ -248,6 +277,74 @@ async function main() {
     console.log("");
   }
 
+  // ---- Index drift --------------------------------------------------------
+  // Raw-SQL indexes created in migrations (CREATE [UNIQUE] INDEX) aren't modelled
+  // by drizzle's column audit. Diff their names and normalised definitions
+  // against the live DB so a missing index (migration never applied here →
+  // silent performance regression) or one redefined out of band (different
+  // columns/opclass/predicate) fails the gate the same way triggers/functions do.
+  const expectedIndexDefs = parseMigrationIndexDefs(migrationSql);
+  const actualIndexDefs = new Map(
+    indexRows.map((r) => [r.index_name, normalizeIndexDef(r.index_def ?? "")]),
+  );
+
+  const indexDiff = diffDbObjects(
+    new Set(expectedIndexDefs.keys()),
+    new Set(actualIndexDefs.keys()),
+    KNOWN_UNDECLARED_INDEXES,
+  );
+  const indexDefMismatches = diffObjectDefinitions(
+    expectedIndexDefs,
+    actualIndexDefs,
+  );
+
+  console.log(
+    `Index audit: ${expectedIndexDefs.size} indexes in migrations, ${actualIndexDefs.size} non-constraint indexes in DB.`,
+  );
+  console.log("");
+
+  const indexesOk =
+    indexDiff.missing.length === 0 &&
+    indexDiff.extra.length === 0 &&
+    indexDefMismatches.length === 0;
+  if (indexesOk) {
+    console.log("OK: every index in migrations exists in the DB and matches.");
+  }
+
+  if (indexDiff.missing.length > 0) {
+    console.log(`MISSING INDEXES (defined in a migration but not in the DB):`);
+    console.log(
+      `  A migration that creates these never applied here. Queries that rely on`,
+    );
+    console.log(`  them silently fall back to sequential scans. Run db:migrate.`);
+    for (const i of indexDiff.missing) console.log(`    - ${i}`);
+    console.log("");
+  }
+
+  if (indexDiff.extra.length > 0) {
+    console.log(`OUT-OF-BAND INDEXES (in DB but created by no committed migration):`);
+    console.log(
+      `  Move the DDL into a migration, or allowlist it in KNOWN_UNDECLARED_INDEXES`,
+    );
+    console.log(`  in shared/db-object-audit.ts if it is intentionally unmanaged.`);
+    for (const i of indexDiff.extra) console.log(`    - ${i}`);
+    console.log("");
+  }
+
+  if (indexDefMismatches.length > 0) {
+    console.log(`REDEFINED INDEXES (definition in DB differs from its migration):`);
+    console.log(
+      `  These were changed out of band (different columns/opclass/predicate). A`,
+    );
+    console.log(`  fresh db:migrate would build a different index. Reconcile via a migration.`);
+    for (const m of indexDefMismatches) {
+      console.log(`    - ${m.name}`);
+      console.log(`        migration: ${truncate(m.expected)}`);
+      console.log(`        live DB:   ${truncate(m.actual)}`);
+    }
+    console.log("");
+  }
+
   // ---- Body / definition drift --------------------------------------------
   // Name matches above only prove an object EXISTS. Here we compare the live
   // body/definition against what the committed migrations would produce, so a
@@ -319,7 +416,9 @@ async function main() {
 
   const hasColumnFailure =
     missingTables.length > 0 || missingCols.length > 0 || extraTables.length > 0;
-  process.exit(hasColumnFailure || !objectsOk || !definitionsOk ? 1 : 0);
+  process.exit(
+    hasColumnFailure || !objectsOk || !definitionsOk || !indexesOk ? 1 : 0,
+  );
 }
 
 main().catch((e) => {
