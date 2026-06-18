@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
-import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
+import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush, getNotificationPermission } from "@/lib/push-notifications";
 import { Input } from "@/components/ui/input";
 import { User, Mail, Moon, Sun, Bell, BellOff, Download, Smartphone, CreditCard, SlidersHorizontal, HelpCircle, PlayCircle, Monitor, LogOut, ImagePlus, Trash2, CheckCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -406,20 +406,33 @@ export default function SettingsPage() {
       if (checked) {
         const success = await subscribeToPush();
         if (success) {
-          setPushEnabled(true);
           toast({ title: "Push notifications enabled" });
         } else {
-          toast({ title: "Could not enable notifications", description: "Please allow notifications in your browser settings", variant: "destructive" });
+          const denied = (await getNotificationPermission()) === "denied";
+          toast({
+            title: "Could not enable notifications",
+            description: denied
+              ? "Notifications are blocked. Allow them in your device's settings for this app, then try again."
+              : "Something went wrong turning on notifications. Please try again.",
+            variant: "destructive",
+          });
         }
       } else {
-        await unsubscribeFromPush();
-        setPushEnabled(false);
-        toast({ title: "Push notifications disabled" });
+        const success = await unsubscribeFromPush();
+        if (success) {
+          toast({ title: "Push notifications disabled" });
+        } else {
+          toast({ title: "Could not disable notifications", description: "Please try again.", variant: "destructive" });
+        }
       }
     } catch {
       toast({ title: "Error toggling notifications", variant: "destructive" });
+    } finally {
+      // Always reconcile the switch with the browser's real subscription state
+      // and clear the loading flag, so the toggle can never get stuck disabled.
+      setPushEnabled(await isSubscribedToPush());
+      setPushLoading(false);
     }
-    setPushLoading(false);
   };
 
   const handleOpenPrefs = () => {

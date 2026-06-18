@@ -59,19 +59,19 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
-async function doSubscribe(promptPermission: boolean): Promise<boolean> {
+async function doSubscribe(): Promise<boolean> {
   try {
-    if (promptPermission) {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        console.warn("Notification permission not granted");
-        return false;
-      }
-    } else if (Notification.permission !== "granted") {
-      return false;
-    }
+    // Permission must already be granted by the time we get here. The prompt is
+    // requested by the explicit caller (subscribeToPush) inside the user gesture
+    // so iOS actually shows it; the silent sync path only ever runs when
+    // permission is already "granted".
+    if (Notification.permission !== "granted") return false;
 
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      10000,
+      "serviceWorker.ready",
+    );
 
     let subscription = await registration.pushManager.getSubscription();
 
@@ -112,14 +112,35 @@ async function doSubscribe(promptPermission: boolean): Promise<boolean> {
 }
 
 export async function subscribeToPush(): Promise<boolean> {
+  // Request permission here — synchronously inside the caller's user gesture —
+  // so iOS Safari actually presents the prompt. Doing it here (rather than
+  // inside the shared in-flight promise) also guarantees a concurrent silent
+  // sync can't hand us back a promise that skipped the prompt.
+  try {
+    if (Notification.permission !== "granted") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        console.warn("Notification permission not granted");
+        return false;
+      }
+    }
+  } catch (e) {
+    console.error("Notification.requestPermission failed:", e);
+    return false;
+  }
+
   if (subscribeInFlight) return subscribeInFlight;
-  subscribeInFlight = doSubscribe(true).finally(() => { subscribeInFlight = null; });
+  subscribeInFlight = doSubscribe().finally(() => { subscribeInFlight = null; });
   return subscribeInFlight;
 }
 
 export async function unsubscribeFromPush(): Promise<boolean> {
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      10000,
+      "serviceWorker.ready",
+    );
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) {
       const endpoint = subscription.endpoint;
@@ -136,7 +157,11 @@ export async function unsubscribeFromPush(): Promise<boolean> {
 export async function isSubscribedToPush(): Promise<boolean> {
   try {
     if (!("serviceWorker" in navigator)) return false;
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      10000,
+      "serviceWorker.ready",
+    );
     const subscription = await registration.pushManager.getSubscription();
     return !!subscription;
   } catch {
@@ -161,7 +186,11 @@ export async function syncPushSubscription(): Promise<void> {
     if (!(await isPushSupported())) return;
     if (Notification.permission !== "granted") return;
 
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      10000,
+      "serviceWorker.ready",
+    );
 
     if (typeof localStorage !== "undefined" && !localStorage.getItem(PUSH_RESYNC_KEY)) {
       const existing = await registration.pushManager.getSubscription();
@@ -176,7 +205,7 @@ export async function syncPushSubscription(): Promise<void> {
     // Share the single in-flight subscribe promise with any concurrent caller
     // (e.g. user clicking "Enable" in Settings at the same time).
     if (subscribeInFlight) { await subscribeInFlight; return; }
-    subscribeInFlight = doSubscribe(false).finally(() => { subscribeInFlight = null; });
+    subscribeInFlight = doSubscribe().finally(() => { subscribeInFlight = null; });
     await subscribeInFlight;
   } catch (e) {
     console.warn("[Push sync] failed:", e);
