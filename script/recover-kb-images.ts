@@ -1,5 +1,42 @@
+import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { extractUploadFilenamesFromHtml } from "../server/uploaded-file-cleanup";
+
+/**
+ * Pure set-difference at the heart of the recovery: given the filenames articles
+ * still reference, the ones already present in the LIVE table, and the ones a
+ * backup can supply, decide what to do. This is the logic that decides which
+ * blobs get written to a production DB during a sensitive recovery, so it is
+ * extracted and unit-tested separately from the two `pg.Pool`s it normally
+ * reads from.
+ *
+ * - `missing`      = referenced − present-in-live   (candidates for recovery)
+ * - `recoverable`  = missing ∩ present-in-backup    (we can re-insert these)
+ * - `stillMissing` = missing − present-in-backup    (backup predates them too)
+ *
+ * `referenced` is de-duplicated while preserving first-seen order; the three
+ * output lists inherit that order so logs/inserts are deterministic.
+ */
+export interface RecoverySelection {
+  referenced: string[];
+  missing: string[];
+  recoverable: string[];
+  stillMissing: string[];
+}
+
+export function computeRecoverySelection(
+  referenced: Iterable<string>,
+  presentInLive: Iterable<string>,
+  presentInBackup: Iterable<string>,
+): RecoverySelection {
+  const referencedList = [...new Set(referenced)];
+  const liveSet = new Set(presentInLive);
+  const backupSet = new Set(presentInBackup);
+  const missing = referencedList.filter((f) => !liveSet.has(f));
+  const recoverable = missing.filter((f) => backupSet.has(f));
+  const stillMissing = missing.filter((f) => !backupSet.has(f));
+  return { referenced: referencedList, missing, recoverable, stillMissing };
+}
 
 /*
  * Recover knowledge-base / news images that the orphan sweep deleted before the
@@ -75,37 +112,42 @@ async function main() {
       "SELECT filename FROM uploaded_files WHERE filename = ANY($1::text[])",
       [refList],
     );
-    const presentSet = new Set(present.rows.map((r) => r.filename));
-    const missing = refList.filter((f) => !presentSet.has(f));
+
+    // 3. Pull whatever the backup can supply for the references, then let the
+    //    pure selector compute the set differences (missing / recoverable /
+    //    stillMissing) so the logic that decides what gets written is testable.
+    const backupRows = await backup.query<BlobRow>(
+      "SELECT filename, mimetype, data, created_at FROM uploaded_files WHERE filename = ANY($1::text[])",
+      [refList],
+    );
+    const selection = computeRecoverySelection(
+      refList,
+      present.rows.map((r) => r.filename),
+      backupRows.rows.map((r) => r.filename),
+    );
+    const recoverableSet = new Set(selection.recoverable);
+    const recoverableRows = backupRows.rows.filter((r) => recoverableSet.has(r.filename));
 
     console.log(`Referenced upload files: ${refList.length}`);
-    console.log(`Already present in live uploaded_files: ${presentSet.size}`);
-    console.log(`Missing (candidates for recovery): ${missing.length}`);
+    console.log(`Already present in live uploaded_files: ${refList.length - selection.missing.length}`);
+    console.log(`Missing (candidates for recovery): ${selection.missing.length}`);
     console.log("");
 
-    if (missing.length === 0) {
+    if (selection.missing.length === 0) {
       console.log("Every referenced image is already present. Nothing to recover.");
       return;
     }
 
-    // 3. Pull exactly those blobs from the backup.
-    const recoverable = await backup.query<BlobRow>(
-      "SELECT filename, mimetype, data, created_at FROM uploaded_files WHERE filename = ANY($1::text[])",
-      [missing],
-    );
-    const recoverableSet = new Set(recoverable.rows.map((r) => r.filename));
-    const stillMissing = missing.filter((f) => !recoverableSet.has(f));
-
-    console.log(`Found in backup (recoverable): ${recoverable.rows.length}`);
-    for (const r of recoverable.rows) console.log(`  + ${r.filename} (${r.mimetype})`);
-    if (stillMissing.length > 0) {
+    console.log(`Found in backup (recoverable): ${recoverableRows.length}`);
+    for (const r of recoverableRows) console.log(`  + ${r.filename} (${r.mimetype})`);
+    if (selection.stillMissing.length > 0) {
       console.log("");
-      console.log(`NOT in backup either (${stillMissing.length}) — this backup predates them or they were never stored:`);
-      for (const f of stillMissing) console.log(`  ? ${f}`);
+      console.log(`NOT in backup either (${selection.stillMissing.length}) — this backup predates them or they were never stored:`);
+      for (const f of selection.stillMissing) console.log(`  ? ${f}`);
     }
     console.log("");
 
-    if (recoverable.rows.length === 0) {
+    if (recoverableRows.length === 0) {
       console.log("Nothing in the backup matches the missing files. Try an earlier backup.");
       return;
     }
@@ -117,7 +159,7 @@ async function main() {
 
     // 4. Re-insert ONLY those rows into live. Never overwrite (idempotent).
     let inserted = 0;
-    for (const r of recoverable.rows) {
+    for (const r of recoverableRows) {
       const res = await live.query(
         `INSERT INTO uploaded_files (filename, mimetype, data, created_at)
          VALUES ($1, $2, $3, COALESCE($4, now()))
@@ -126,7 +168,7 @@ async function main() {
       );
       inserted += res.rowCount ?? 0;
     }
-    console.log(`APPLIED — inserted ${inserted} uploaded_files row(s). Skipped ${recoverable.rows.length - inserted} already-present.`);
+    console.log(`APPLIED — inserted ${inserted} uploaded_files row(s). Skipped ${recoverableRows.length - inserted} already-present.`);
     console.log("Reload an affected KB article to confirm its images render again.");
   } finally {
     await live.end();
@@ -134,7 +176,12 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error("recover-kb-images failed:", e);
-  process.exit(1);
-});
+// Only run the DB-touching orchestration when invoked as the entrypoint, so the
+// pure `computeRecoverySelection` above can be imported by tests without opening
+// any pool or calling process.exit.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((e) => {
+    console.error("recover-kb-images failed:", e);
+    process.exit(1);
+  });
+}
