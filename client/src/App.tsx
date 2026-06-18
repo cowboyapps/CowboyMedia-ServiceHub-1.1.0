@@ -218,7 +218,13 @@ function AuthenticatedLayout() {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-dvh w-full overflow-hidden">
+      <div
+        className="flex w-full overflow-hidden"
+        style={{
+          height:
+            "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <OfflineBanner />
