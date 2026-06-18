@@ -141,10 +141,19 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Serve /sw.js with the correct Content-Type only. Do NOT set
+// Service-Worker-Allowed or Cache-Control here: on production the nginx
+// `location = /sw.js` block already sets both (deploy/nginx.conf.template). When
+// Express ALSO sets them the response carries each header TWICE, and iOS/WebKit
+// hard-fails service-worker registration on a duplicated Service-Worker-Allowed
+// (folded to "/, /") with:
+//   SecurityError: Scope URL should start with the given script URL
+// even though /sw.js itself is served cleanly. Chrome tolerates the duplicate,
+// so this only ever broke iPhones — and only in production (no nginx in dev). The
+// worker lives at the site root, so its default scope is already "/" and no
+// allow-header is strictly required; nginx remains the single source of it.
 app.get("/sw.js", (_req, res, next) => {
-  res.setHeader("Service-Worker-Allowed", "/");
   res.setHeader("Content-Type", "application/javascript");
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   next();
 });
 

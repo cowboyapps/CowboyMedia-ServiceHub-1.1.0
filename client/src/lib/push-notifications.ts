@@ -111,15 +111,12 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   }
   try {
     // Register with NO explicit scope. The script lives at the site root, so its
-    // default scope is already "/" — exactly the coverage we want. Passing an
-    // explicit { scope: "/" } makes iOS/WebKit (standalone PWA, iOS 18.x) reject
-    // a brand-new registration with
-    //   SecurityError: Scope URL should start with the given script URL
-    // even though /sw.js is served cleanly (200, no redirect) WITH a
-    // Service-Worker-Allowed: / header. The explicit-scope path compares the
-    // scope against the full script URL ("/" does not start with "/sw.js") and
-    // doesn't honour the header here; the default-scope path doesn't, so omitting
-    // scope is what actually lets registration succeed.
+    // default scope is already "/" — exactly the coverage we want, and no
+    // Service-Worker-Allowed header is even required. (Note: the iOS failure that
+    // produced "SecurityError: Scope URL should start with the given script URL"
+    // was NOT caused by this call — it was a DUPLICATED Service-Worker-Allowed
+    // header on the /sw.js response, set by both nginx and Express in production;
+    // see server/index.ts and .agents/memory/ios-pwa-push-diagnostics.md.)
     const registration = await navigator.serviceWorker.register("/sw.js");
     lastSwRegisterError = "";
     lastSwFetchProbe = "";
