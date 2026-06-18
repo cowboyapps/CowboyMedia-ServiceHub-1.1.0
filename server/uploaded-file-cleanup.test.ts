@@ -3,7 +3,22 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, pool } from "./db";
-import { kbArticles, newsStories, announcements, changelogEntries } from "@shared/schema";
+import {
+  kbArticles,
+  newsStories,
+  announcements,
+  changelogEntries,
+  users,
+  serviceAlerts,
+  alertUpdates,
+  tickets,
+  ticketMessages,
+  reportRequests,
+  adminChatMessages,
+  downloads,
+  threadMessages,
+  communityMessages,
+} from "@shared/schema";
 import {
   extractUploadFilename,
   extractUploadFilenamesFromHtml,
@@ -319,5 +334,193 @@ test("isUploadReferenced detects /uploads URLs embedded in real rich-text bodies
     await isUploadReferenced(absentUrl),
     false,
     "a URL that was never seeded is reported unreferenced",
+  );
+});
+
+// ---------- isUploadReferenced single-image columns (real database) ----------
+// The rich-text test above only exercises the substring `LIKE` branches. But
+// `isUploadReferenced` ALSO guards ~11 single-image columns via exact `eq`
+// matches (avatars, alert/news/ticket/report images, admin-chat & community
+// attachments, downloads, thread messages). A typo in any of those column
+// names would silently delete an in-use image and never trip a test. This
+// integration test seeds one row in each single-image table carrying a distinct
+// `/uploads/<uuid>` URL and asserts every one is reported referenced, plus a
+// never-seeded URL is reported unreferenced — against an actual (test) database.
+
+test("isUploadReferenced detects /uploads URLs in real single-image columns", async () => {
+  const u = () => `/uploads/${randomUUID()}.png`;
+  const avatarUrl = u();
+  const alertUrl = u();
+  const alertUpdateUrl = u();
+  const newsUrl = u();
+  const ticketUrl = u();
+  const ticketMsgUrl = u();
+  const reportUrl = u();
+  const adminChatUrl = u();
+  const downloadUrl = u();
+  const threadMsgUrl = u();
+  const communityUrl = u();
+
+  const [user] = await db
+    .insert(users)
+    .values({
+      username: `cleanup-int-${randomUUID()}`,
+      password: "x",
+      email: `cleanup-int-${randomUUID()}@example.com`,
+      fullName: "Cleanup Integration User",
+      avatarUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(users).where(eq(users.id, user.id));
+  });
+
+  const [alert] = await db
+    .insert(serviceAlerts)
+    .values({
+      title: "Cleanup integration alert",
+      description: "desc",
+      imageUrl: alertUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(serviceAlerts).where(eq(serviceAlerts.id, alert.id));
+  });
+
+  const [alertUpdate] = await db
+    .insert(alertUpdates)
+    .values({
+      alertId: alert.id,
+      message: "update",
+      status: "investigating",
+      imageUrl: alertUpdateUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(alertUpdates).where(eq(alertUpdates.id, alertUpdate.id));
+  });
+
+  const [news] = await db
+    .insert(newsStories)
+    .values({
+      title: "Cleanup integration news image",
+      content: "<p>body</p>",
+      authorId: randomUUID(),
+      imageUrl: newsUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(newsStories).where(eq(newsStories.id, news.id));
+  });
+
+  const [ticket] = await db
+    .insert(tickets)
+    .values({
+      subject: "Cleanup integration ticket",
+      description: "desc",
+      customerId: randomUUID(),
+      imageUrl: ticketUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(tickets).where(eq(tickets.id, ticket.id));
+  });
+
+  const [ticketMsg] = await db
+    .insert(ticketMessages)
+    .values({
+      ticketId: ticket.id,
+      senderId: randomUUID(),
+      message: "msg",
+      imageUrl: ticketMsgUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(ticketMessages).where(eq(ticketMessages.id, ticketMsg.id));
+  });
+
+  const [report] = await db
+    .insert(reportRequests)
+    .values({
+      customerId: randomUUID(),
+      type: "bug",
+      title: "Cleanup integration report",
+      imageUrl: reportUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(reportRequests).where(eq(reportRequests.id, report.id));
+  });
+
+  const [adminChat] = await db
+    .insert(adminChatMessages)
+    .values({
+      threadId: randomUUID(),
+      senderId: randomUUID(),
+      message: "msg",
+      fileUrl: adminChatUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(adminChatMessages).where(eq(adminChatMessages.id, adminChat.id));
+  });
+
+  const [download] = await db
+    .insert(downloads)
+    .values({
+      title: "Cleanup integration download",
+      description: "desc",
+      downloaderCode: randomUUID(),
+      downloadUrl: "https://example.com/file.zip",
+      imageUrl: downloadUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(downloads).where(eq(downloads.id, download.id));
+  });
+
+  const [threadMsg] = await db
+    .insert(threadMessages)
+    .values({
+      threadId: randomUUID(),
+      senderId: randomUUID(),
+      body: "body",
+      imageUrl: threadMsgUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(threadMessages).where(eq(threadMessages.id, threadMsg.id));
+  });
+
+  const [community] = await db
+    .insert(communityMessages)
+    .values({
+      userId: randomUUID(),
+      chatUsername: "cleanup-int",
+      content: "hi",
+      imageUrl: communityUrl,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(communityMessages).where(eq(communityMessages.id, community.id));
+  });
+
+  assert.equal(await isUploadReferenced(avatarUrl), true, "user avatar reference is detected");
+  assert.equal(await isUploadReferenced(alertUrl), true, "service alert image reference is detected");
+  assert.equal(await isUploadReferenced(alertUpdateUrl), true, "alert update image reference is detected");
+  assert.equal(await isUploadReferenced(newsUrl), true, "news story image reference is detected");
+  assert.equal(await isUploadReferenced(ticketUrl), true, "ticket image reference is detected");
+  assert.equal(await isUploadReferenced(ticketMsgUrl), true, "ticket message image reference is detected");
+  assert.equal(await isUploadReferenced(reportUrl), true, "report request image reference is detected");
+  assert.equal(await isUploadReferenced(adminChatUrl), true, "admin chat file reference is detected");
+  assert.equal(await isUploadReferenced(downloadUrl), true, "download image reference is detected");
+  assert.equal(await isUploadReferenced(threadMsgUrl), true, "thread message image reference is detected");
+  assert.equal(await isUploadReferenced(communityUrl), true, "community message image reference is detected");
+
+  const absentUrl = u();
+  assert.equal(
+    await isUploadReferenced(absentUrl),
+    false,
+    "a single-image URL that was never seeded is reported unreferenced",
   );
 });
