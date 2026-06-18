@@ -20,7 +20,7 @@ import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { db } from "./db";
 import { uploadedFiles, newsStories, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
-import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles } from "./uploaded-file-cleanup";
+import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles, findMissingUploadReferences } from "./uploaded-file-cleanup";
 import { getErrorMessage, getErrorStatusCode, getErrorName, getErrorCode } from "./error-utils";
 import { queryString, queryInt } from "./request-utils";
 import { createBusinessHoursHandlers } from "./business-hours";
@@ -4929,6 +4929,24 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           createdAt: l.createdAt,
           resolvedAt: l.resolvedAt,
         })),
+      });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // Read-only diagnostic: lists every KB article / news story that embeds an
+  // inline `/uploads/<uuid>` image whose backing blob is missing from
+  // `uploaded_files` (e.g. lost to a historical orphan sweep). Lets an admin
+  // spot a silently-broken image and re-upload it before a customer complains.
+  // Never deletes or mutates. Master-admin only, in line with the other
+  // health diagnostics on this surface.
+  app.get("/api/admin/health/missing-images", requireMasterAdmin, async (_req, res) => {
+    try {
+      const items = await findMissingUploadReferences();
+      res.json({
+        count: items.length,
+        items,
       });
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });

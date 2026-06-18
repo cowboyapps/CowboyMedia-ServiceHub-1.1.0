@@ -524,3 +524,71 @@ test("isUploadReferenced detects /uploads URLs in real single-image columns", as
     "a single-image URL that was never seeded is reported unreferenced",
   );
 });
+
+// ---------- findMissingUploadReferences ----------
+// Read-only health scan: reports KB articles / news stories whose inline
+// /uploads/<uuid> images have no backing uploaded_files row. Driven entirely
+// through injected seams so it runs without a live DB.
+
+import { findMissingUploadReferences } from "./uploaded-file-cleanup";
+
+test("findMissingUploadReferences: flags only references missing from uploaded_files", async () => {
+  const result = await findMissingUploadReferences({
+    listUploadedFilenames: async () => new Set(["present.png"]),
+    listKbArticles: async () => [
+      {
+        id: "kb-1",
+        title: "Has a broken image",
+        bodyHtml: '<p>Hi</p><img src="/uploads/present.png"><img src="/uploads/gone.png">',
+      },
+      {
+        id: "kb-2",
+        title: "All good",
+        bodyHtml: '<img src="/uploads/present.png">',
+      },
+    ],
+    listNewsStories: async () => [],
+  });
+  assert.deepEqual(result, [
+    { type: "kb_article", id: "kb-1", title: "Has a broken image", missingFilenames: ["gone.png"] },
+  ]);
+});
+
+test("findMissingUploadReferences: scans news stories too and de-dupes filenames", async () => {
+  const result = await findMissingUploadReferences({
+    listUploadedFilenames: async () => new Set<string>(),
+    listKbArticles: async () => [],
+    listNewsStories: async () => [
+      {
+        id: "news-1",
+        title: "Broken news",
+        content: '<img src="/uploads/x.png"><img src="/uploads/x.png"><img src="/uploads/y.jpg">',
+      },
+    ],
+  });
+  assert.deepEqual(result, [
+    { type: "news_story", id: "news-1", title: "Broken news", missingFilenames: ["x.png", "y.jpg"] },
+  ]);
+});
+
+test("findMissingUploadReferences: returns empty when every reference resolves", async () => {
+  const result = await findMissingUploadReferences({
+    listUploadedFilenames: async () => new Set(["a.png", "b.png"]),
+    listKbArticles: async () => [{ id: "kb-1", title: "Fine", bodyHtml: '<img src="/uploads/a.png">' }],
+    listNewsStories: async () => [{ id: "news-1", title: "Fine", content: '<img src="/uploads/b.png">' }],
+  });
+  assert.deepEqual(result, []);
+});
+
+test("findMissingUploadReferences: bodies with no uploads are ignored", async () => {
+  const result = await findMissingUploadReferences({
+    listUploadedFilenames: async () => new Set<string>(),
+    listKbArticles: async () => [
+      { id: "kb-1", title: "Plain", bodyHtml: "<p>No images here</p>" },
+      { id: "kb-2", title: "External", bodyHtml: '<img src="https://cdn.example.com/x.png">' },
+      { id: "kb-3", title: "Empty", bodyHtml: null },
+    ],
+    listNewsStories: async () => [],
+  });
+  assert.deepEqual(result, []);
+});

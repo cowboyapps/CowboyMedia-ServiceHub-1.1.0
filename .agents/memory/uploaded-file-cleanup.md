@@ -54,3 +54,13 @@ Community-chat is the last of the known per-delete leaks to be closed.
 **No known remaining gaps:** the boot-time sweep now calls
 `sweepOrphanedUploadedFiles()`, which deletes every zero-reference blob across all
 tables in `isUploadReferenced` (not just `newsStories.imageUrl`).
+
+**Reverse direction — broken-image health scan:** the cleanup module also exposes
+`findMissingUploadReferences()` (read-only), the inverse of the sweep: it walks
+`kb_articles.body_html` + `news_stories.content`, extracts embedded
+`/uploads/<uuid>` paths via `extractUploadFilenamesFromHtml`, and reports the ones
+with NO matching `uploaded_files` row (a silently-broken inline image). Loads all
+present filenames once into a Set, tests in memory. Surfaced master-admin-only via
+`GET /api/admin/health/missing-images` and a badge on the admin-dashboard System
+Health tile. Never mutates. If you add another rich-text body column, add it here
+too (mirror of the reference-check list).

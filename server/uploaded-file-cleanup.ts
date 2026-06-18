@@ -103,6 +103,75 @@ export async function isUploadReferenced(url: string): Promise<boolean> {
   return results.some(Boolean);
 }
 
+// A KB article / news story that embeds at least one `/uploads/<uuid>` image
+// whose backing blob is gone from `uploaded_files`. Surfaced to admins so a
+// silently-broken inline image can be re-uploaded before a customer notices.
+export interface MissingImageReference {
+  type: "kb_article" | "news_story";
+  id: string;
+  title: string;
+  // Bare filenames (no `/uploads/` prefix) the body references but that have no
+  // matching `uploaded_files` row, first-seen order, de-duplicated.
+  missingFilenames: string[];
+}
+
+// Injectable seams so the scan can be tested without a live DB.
+export interface MissingImageDeps {
+  listUploadedFilenames?: () => Promise<Set<string>>;
+  listKbArticles?: () => Promise<Array<{ id: string; title: string; bodyHtml: string | null }>>;
+  listNewsStories?: () => Promise<Array<{ id: string; title: string; content: string | null }>>;
+}
+
+// Read-only health check: walks every KB article and news story, extracts the
+// `/uploads/<filename>` paths embedded in its rich-text body, and reports the
+// ones with no matching row in `uploaded_files`. Loads the full set of present
+// filenames once (a single SELECT) and tests each reference against it in
+// memory, so the whole scan is two table reads + the uploaded-files read, never
+// a per-reference query. Never deletes or mutates anything.
+export async function findMissingUploadReferences(
+  deps: MissingImageDeps = {},
+): Promise<MissingImageReference[]> {
+  const listUploadedFilenames =
+    deps.listUploadedFilenames ??
+    (async () => {
+      const rows = await db.select({ filename: uploadedFiles.filename }).from(uploadedFiles);
+      return new Set(rows.map((r) => r.filename));
+    });
+  const listKbArticles =
+    deps.listKbArticles ??
+    (async () =>
+      db
+        .select({ id: kbArticles.id, title: kbArticles.title, bodyHtml: kbArticles.bodyHtml })
+        .from(kbArticles));
+  const listNewsStories =
+    deps.listNewsStories ??
+    (async () =>
+      db
+        .select({ id: newsStories.id, title: newsStories.title, content: newsStories.content })
+        .from(newsStories));
+
+  const present = await listUploadedFilenames();
+  const out: MissingImageReference[] = [];
+
+  const articles = await listKbArticles();
+  for (const a of articles) {
+    const missing = extractUploadFilenamesFromHtml(a.bodyHtml).filter((f) => !present.has(f));
+    if (missing.length > 0) {
+      out.push({ type: "kb_article", id: a.id, title: a.title, missingFilenames: missing });
+    }
+  }
+
+  const stories = await listNewsStories();
+  for (const s of stories) {
+    const missing = extractUploadFilenamesFromHtml(s.content).filter((f) => !present.has(f));
+    if (missing.length > 0) {
+      out.push({ type: "news_story", id: s.id, title: s.title, missingFilenames: missing });
+    }
+  }
+
+  return out;
+}
+
 // Injectable seams so the deletion decision can be tested without a live DB.
 export interface CleanupDeps {
   isReferenced?: (url: string) => Promise<boolean>;

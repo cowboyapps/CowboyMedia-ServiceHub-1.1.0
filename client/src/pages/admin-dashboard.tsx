@@ -103,6 +103,11 @@ type SystemHealth = {
 
 type AppHealth = { ok: boolean; db: string; version: string; gitSha: string | null; uptime: number };
 
+type MissingImagesReport = {
+  count: number;
+  items: { type: "kb_article" | "news_story"; id: string; title: string; missingFilenames: string[] }[];
+};
+
 export default function AdminDashboard({ onNavigateSection }: { onNavigateSection?: (key: string) => void }) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
@@ -123,6 +128,16 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
   const { data: appHealth } = useQuery<AppHealth>({
     queryKey: ["/api/health"],
     refetchInterval: 60_000,
+    enabled: !!isMasterAdmin,
+  });
+
+  // Missing inline-image scan (master_admin only). Surfaces KB articles / news
+  // stories that embed an /uploads/<uuid> image whose blob is gone, so a
+  // silently-broken image gets noticed and re-uploaded before a customer hits
+  // it. Polls less aggressively than the error tile — this drifts slowly.
+  const { data: missingImages } = useQuery<MissingImagesReport>({
+    queryKey: ["/api/admin/health/missing-images"],
+    refetchInterval: 300_000,
     enabled: !!isMasterAdmin,
   });
 
@@ -401,6 +416,15 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                 {sysHealth && sysHealth.count5xxLast5Min > 0 && (
                   <Badge variant="destructive" className="ml-auto" data-testid="badge-system-health-alert">
                     {sysHealth.count5xxLast5Min} error{sysHealth.count5xxLast5Min === 1 ? "" : "s"}
+                  </Badge>
+                )}
+                {missingImages && missingImages.count > 0 && (
+                  <Badge
+                    variant="destructive"
+                    className={sysHealth && sysHealth.count5xxLast5Min > 0 ? "" : "ml-auto"}
+                    data-testid="badge-missing-images-alert"
+                  >
+                    {missingImages.count} missing image{missingImages.count === 1 ? "" : "s"}
                   </Badge>
                 )}
               </CardTitle>
