@@ -1,4 +1,5 @@
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { db } from "./db";
 import {
   uploadedFiles,
@@ -71,31 +72,73 @@ function uploadLikePattern(url: string): string {
   return `%${escaped}%`;
 }
 
-// Every table/column that can persist an `/uploads/...` URL. Keep this in sync
-// whenever a new column starts storing uploaded-file references, otherwise the
-// safety check could delete a file that's still in use. Two flavours:
-//   - single-URL columns (avatars, cover images, attachments) → exact `eq`.
-//   - rich-text HTML bodies that can embed inline editor images → substring
-//     `like`, because the `/uploads/...` path lives inside the HTML, not in its
-//     own column. Missing these is exactly what wiped in-article KB images.
-const referenceChecks: Array<(url: string) => Promise<boolean>> = [
-  async (url) => (await db.select({ id: users.id }).from(users).where(eq(users.avatarUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: serviceAlerts.id }).from(serviceAlerts).where(eq(serviceAlerts.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: alertUpdates.id }).from(alertUpdates).where(eq(alertUpdates.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: newsStories.id }).from(newsStories).where(eq(newsStories.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: ticketMessages.id }).from(ticketMessages).where(eq(ticketMessages.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: reportRequests.id }).from(reportRequests).where(eq(reportRequests.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: adminChatMessages.id }).from(adminChatMessages).where(eq(adminChatMessages.fileUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: downloads.id }).from(downloads).where(eq(downloads.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: threadMessages.id }).from(threadMessages).where(eq(threadMessages.imageUrl, url)).limit(1)).length > 0,
-  async (url) => (await db.select({ id: communityMessages.id }).from(communityMessages).where(eq(communityMessages.imageUrl, url)).limit(1)).length > 0,
+// How a column stores its `/uploads/...` reference:
+//   - "exact": a single-URL column (avatars, cover images, attachments). The
+//     whole cell IS the URL → match with `eq`.
+//   - "substring": a rich-text HTML body that can embed inline editor images.
+//     The `/uploads/...` path lives INSIDE the HTML, not in its own column →
+//     match with `like`. Missing these is exactly what wiped in-article KB images.
+export type UploadReferenceMatch = "exact" | "substring";
+
+// Every table/column that can persist an `/uploads/...` URL. This is the single
+// source of truth for the reference check — and `uploaded-file-cleanup.test.ts`
+// walks `shared/schema.ts` and fails if a new `*_url` / `content` / `body_html`
+// column appears that isn't either listed here OR explicitly excluded in
+// `uploadColumnsIntentionallyUnchecked` below. That guard is what gives us a
+// heads-up before the cleanup could ever delete a file that's still in use.
+export interface UploadReferenceColumn {
+  table: PgTable;
+  column: PgColumn;
+  match: UploadReferenceMatch;
+}
+
+export const uploadReferenceColumns: UploadReferenceColumn[] = [
+  // Single-URL columns (exact match):
+  { table: users, column: users.avatarUrl, match: "exact" },
+  { table: serviceAlerts, column: serviceAlerts.imageUrl, match: "exact" },
+  { table: alertUpdates, column: alertUpdates.imageUrl, match: "exact" },
+  { table: newsStories, column: newsStories.imageUrl, match: "exact" },
+  { table: tickets, column: tickets.imageUrl, match: "exact" },
+  { table: ticketMessages, column: ticketMessages.imageUrl, match: "exact" },
+  { table: reportRequests, column: reportRequests.imageUrl, match: "exact" },
+  { table: adminChatMessages, column: adminChatMessages.fileUrl, match: "exact" },
+  { table: downloads, column: downloads.imageUrl, match: "exact" },
+  { table: threadMessages, column: threadMessages.imageUrl, match: "exact" },
+  { table: communityMessages, column: communityMessages.imageUrl, match: "exact" },
   // Rich-text HTML bodies with inline editor images (substring match):
-  async (url) => (await db.select({ id: newsStories.id }).from(newsStories).where(like(newsStories.content, uploadLikePattern(url))).limit(1)).length > 0,
-  async (url) => (await db.select({ id: kbArticles.id }).from(kbArticles).where(like(kbArticles.bodyHtml, uploadLikePattern(url))).limit(1)).length > 0,
-  async (url) => (await db.select({ id: announcements.id }).from(announcements).where(like(announcements.bodyHtml, uploadLikePattern(url))).limit(1)).length > 0,
-  async (url) => (await db.select({ version: changelogEntries.version }).from(changelogEntries).where(like(changelogEntries.bodyHtml, uploadLikePattern(url))).limit(1)).length > 0,
+  { table: newsStories, column: newsStories.content, match: "substring" },
+  { table: kbArticles, column: kbArticles.bodyHtml, match: "substring" },
+  { table: announcements, column: announcements.bodyHtml, match: "substring" },
+  { table: changelogEntries, column: changelogEntries.bodyHtml, match: "substring" },
 ];
+
+// `*_url` / `content` / `body_html` columns that LOOK upload-bearing by name but
+// deliberately never store an `/uploads/...` reference (external links, plain
+// text, webhook URLs). The guard test requires every such column in the schema
+// to be either covered by `uploadReferenceColumns` above OR listed here with a
+// reason — so a genuinely new upload column can't slip in unnoticed. Keyed by
+// `"<table>.<db_column>"`.
+export const uploadColumnsIntentionallyUnchecked: Record<string, string> = {
+  "services.discord_webhook_url": "external Discord webhook URL, never an upload",
+  "discord_settings.webhook_url": "external Discord webhook URL, never an upload",
+  "downloads.download_url": "external download link, never an upload",
+  "whmcs_settings.base_url": "external WHMCS base URL, never an upload",
+  "url_monitors.url": "external endpoint being monitored, never an upload",
+  "user_notifications.url": "in-app deep-link route, never an upload",
+  "community_messages.content": "plain-text chat message, no embedded editor images",
+};
+
+// Builds the actual DB reference check for one declared column.
+function buildReferenceCheck({ table, column, match }: UploadReferenceColumn) {
+  return async (url: string): Promise<boolean> => {
+    const condition = match === "exact" ? eq(column, url) : like(column, uploadLikePattern(url));
+    const rows = await db.select({ one: sql`1` }).from(table).where(condition).limit(1);
+    return rows.length > 0;
+  };
+}
+
+const referenceChecks: Array<(url: string) => Promise<boolean>> =
+  uploadReferenceColumns.map(buildReferenceCheck);
 
 // True when any record still points at `url`.
 export async function isUploadReferenced(url: string): Promise<boolean> {

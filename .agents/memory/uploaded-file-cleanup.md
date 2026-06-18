@@ -64,3 +64,16 @@ present filenames once into a Set, tests in memory. Surfaced master-admin-only v
 `GET /api/admin/health/missing-images` and a badge on the admin-dashboard System
 Health tile. Never mutates. If you add another rich-text body column, add it here
 too (mirror of the reference-check list).
+
+**Schema-coverage guard:** the reference list is now declarative
+(`uploadReferenceColumns` = `{table, column, match}` entries, exact vs substring)
+plus an explicit `uploadColumnsIntentionallyUnchecked` allowlist (external/webhook
+URLs, plain-text `community_messages.content`, monitored/deep-link `url` columns).
+A pure (no-DB) guard test in `uploaded-file-cleanup.test.ts` walks every pgTable in
+`shared/schema.ts` and **fails** if any column whose name is `url`/`*_url` or is a
+rich-text `content`/`body_html` body isn't either covered or allowlisted. **Why:**
+adding a new image column without a matching check is the exact silent-delete bug
+that wiped KB images — the guard forces a conscious decision. **How to apply:** when
+that test fails, add the column to `uploadReferenceColumns` (if it stores
+`/uploads/...`) or to the allowlist with a reason (if it never does). It also fails
+if a listed column is renamed/dropped, so keep both lists in sync with the schema.

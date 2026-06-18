@@ -1,8 +1,10 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, getTableColumns, getTableName, is } from "drizzle-orm";
+import { PgTable } from "drizzle-orm/pg-core";
 import { db, pool } from "./db";
+import * as schema from "@shared/schema";
 import {
   kbArticles,
   newsStories,
@@ -26,6 +28,8 @@ import {
   sweepOrphanedUploadedFiles,
   bodyHtmlReferencesUpload,
   isUploadReferenced,
+  uploadReferenceColumns,
+  uploadColumnsIntentionallyUnchecked,
 } from "./uploaded-file-cleanup";
 
 // ---------- extractUploadFilename ----------
@@ -591,4 +595,81 @@ test("findMissingUploadReferences: bodies with no uploads are ignored", async ()
     listNewsStories: async () => [],
   });
   assert.deepEqual(result, []);
+});
+
+// ---------- schema-coverage guard (no database) ----------
+// The integration tests above prove the EXISTING reference checks work. This
+// guard catches the OTHER failure mode: a NEW column that stores an
+// `/uploads/...` URL gets added to shared/schema.ts but nobody adds a matching
+// reference check — so the cleanup sweep silently deletes a file that's still
+// in use (exactly what wiped in-article KB images before). We walk every table
+// in the schema and require every column that LOOKS upload-bearing (any `*url`
+// column, or a rich-text `content` / `body_html` body) to be EITHER covered by
+// `uploadReferenceColumns` OR explicitly listed in
+// `uploadColumnsIntentionallyUnchecked` with a reason. Adding such a column
+// without doing one of those two things fails this test.
+
+// Matches a DB column name that could plausibly hold an `/uploads/...` reference:
+// any column whose name is `url` or ends in `_url`, plus the rich-text body
+// columns the shared editor can embed inline images into.
+const URL_COLUMN_RE = /(^|_)url$/;
+const RICH_TEXT_COLUMN_NAMES = new Set(["content", "body_html"]);
+
+function looksUploadBearing(dbColumnName: string): boolean {
+  return URL_COLUMN_RE.test(dbColumnName) || RICH_TEXT_COLUMN_NAMES.has(dbColumnName);
+}
+
+test("every upload-bearing schema column is covered (or explicitly excluded)", () => {
+  const covered = new Set(
+    uploadReferenceColumns.map(({ table, column }) => `${getTableName(table)}.${column.name}`),
+  );
+  const allowed = new Set(Object.keys(uploadColumnsIntentionallyUnchecked));
+
+  // A column must not be both checked and allow-listed — that's contradictory.
+  for (const key of covered) {
+    assert.ok(
+      !allowed.has(key),
+      `${key} is both in uploadReferenceColumns and uploadColumnsIntentionallyUnchecked — remove it from one`,
+    );
+  }
+
+  // Walk the live schema and classify every column.
+  const schemaKeys = new Set<string>();
+  const uncovered: string[] = [];
+  for (const value of Object.values(schema)) {
+    if (!is(value, PgTable)) continue;
+    const tableName = getTableName(value);
+    for (const column of Object.values(getTableColumns(value)) as Array<{ name: string }>) {
+      const key = `${tableName}.${column.name}`;
+      schemaKeys.add(key);
+      if (!looksUploadBearing(column.name)) continue;
+      if (covered.has(key) || allowed.has(key)) continue;
+      uncovered.push(key);
+    }
+  }
+
+  assert.deepEqual(
+    uncovered.sort(),
+    [],
+    `New upload-bearing column(s) found in shared/schema.ts that the image-cleanup safety check ` +
+      `doesn't account for: ${uncovered.join(", ")}. If a column stores an /uploads/... URL, add a ` +
+      `matching entry to uploadReferenceColumns in server/uploaded-file-cleanup.ts. If it never does ` +
+      `(external link, plain text, webhook URL), add it to uploadColumnsIntentionallyUnchecked with a reason.`,
+  );
+
+  // Guard the other direction: every covered / allow-listed column must still
+  // exist in the schema, so a rename or drop trips this test instead of leaving
+  // a dead entry that quietly stops protecting anything.
+  for (const key of covered) {
+    assert.ok(
+      schemaKeys.has(key),
+      `uploadReferenceColumns references ${key}, but no such column exists in shared/schema.ts (renamed or dropped?)`,
+    );
+  }
+  for (const key of allowed) {
+    assert.ok(
+      schemaKeys.has(key),
+      `uploadColumnsIntentionallyUnchecked lists ${key}, but no such column exists in shared/schema.ts (renamed or dropped?)`,
+    );
+  }
 });
