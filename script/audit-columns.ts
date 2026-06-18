@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "../shared/schema";
 import {
+  KNOWN_UNDECLARED_COLUMNS,
   KNOWN_UNDECLARED_FUNCTIONS,
   KNOWN_UNDECLARED_TRIGGERS,
   KNOWN_UNMANAGED_TABLES,
@@ -27,14 +28,6 @@ async function main() {
     console.error("DATABASE_URL is required. Run: source /opt/servicehub/.env");
     process.exit(1);
   }
-
-  // Columns that intentionally exist in the DB without a corresponding
-  // shared/schema.ts declaration. Drizzle's type system doesn't model these
-  // well (e.g. Postgres tsvector for full-text search), so we manage them via
-  // raw SQL in storage.ts and exclude them from the drift check.
-  const KNOWN_UNDECLARED_COLUMNS: Record<string, Set<string>> = {
-    kb_articles: new Set(["search_vector"]),
-  };
 
   const expected = new Map<string, Set<string>>();
   for (const value of Object.values(schema)) {

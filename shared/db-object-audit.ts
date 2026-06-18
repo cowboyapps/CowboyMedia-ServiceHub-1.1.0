@@ -12,9 +12,14 @@
 // creates (minus any it later drops) and exposes a pure diff against whatever
 // the live DB actually has, so the prebuild gate can fail closed on drift.
 
+// This module is the single home for every schema-audit "known exception"
+// allowlist (unmanaged tables, undeclared columns, out-of-band functions and
+// triggers), so they live together and can't quietly drift apart. script/audit-columns.ts
+// imports all of them rather than defining any inline.
+
 // Known intentional objects that may exist in the DB without being flagged as
-// out-of-band extras. Mirrors the KNOWN_UNDECLARED_COLUMNS allowlist in
-// script/audit-columns.ts. These two objects are also defined by
+// out-of-band extras. Mirrors the KNOWN_UNDECLARED_COLUMNS allowlist below.
+// These two objects are also defined by
 // migrations/0026_kb_search_vector.sql (so a fresh `db:migrate` recreates them);
 // they are listed here as the documented known-good objects and as a safety net
 // in case migration parsing ever fails to capture them.
@@ -26,13 +31,21 @@ export const KNOWN_UNDECLARED_TRIGGERS = new Set<string>([
   "kb_articles_search_vector_trigger",
 ]);
 
+// Columns that intentionally exist in the DB without a corresponding
+// shared/schema.ts declaration. Drizzle's type system doesn't model these
+// well (e.g. Postgres tsvector for full-text search), so we manage them via
+// raw SQL in storage.ts and exclude them from the drift check. Mirrors the
+// KNOWN_UNDECLARED_{FUNCTIONS,TRIGGERS} allowlists above.
+export const KNOWN_UNDECLARED_COLUMNS: Record<string, Set<string>> = {
+  kb_articles: new Set(["search_vector"]),
+};
+
 // Tables that intentionally exist in the DB without a corresponding
 // shared/schema.ts pgTable declaration, so they are not flagged as stray
 // orphans. These are infrastructure tables managed outside drizzle:
 //   - __drizzle_migrations: drizzle's own migration journal table.
 //   - session:              connect-pg-simple's session store.
-// Mirrors the KNOWN_UNDECLARED_{FUNCTIONS,TRIGGERS} allowlists above and the
-// KNOWN_UNDECLARED_COLUMNS allowlist in script/audit-columns.ts.
+// Mirrors the KNOWN_UNDECLARED_{FUNCTIONS,TRIGGERS,COLUMNS} allowlists above.
 export const KNOWN_UNMANAGED_TABLES = new Set<string>([
   "__drizzle_migrations",
   "session",
