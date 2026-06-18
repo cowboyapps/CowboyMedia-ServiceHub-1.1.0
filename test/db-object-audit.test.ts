@@ -321,6 +321,15 @@ test("prod-only legacy indexes are allowlisted so the deploy gate passes", () =>
     "poll_votes_user_idx",
     "polls_parent_idx",
     "uq_news_reactions_story_user_emoji",
+    "error_logs_created_at_idx",
+    "error_logs_resolved_idx",
+    "idx_announcement_dismissals_user",
+    "idx_announcements_active_created_at",
+    "idx_kb_articles_category",
+    "idx_kb_articles_published",
+    "idx_kb_articles_search",
+    "idx_message_threads_admin_id",
+    "idx_message_threads_customer_id",
   ]) {
     assert.ok(
       KNOWN_UNDECLARED_INDEXES.has(name),

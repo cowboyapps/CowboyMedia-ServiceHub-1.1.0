@@ -92,6 +92,23 @@ export const KNOWN_UNDECLARED_INDEXES = new Set<string>([
   "poll_votes_user_idx",
   "polls_parent_idx",
   "uq_news_reactions_story_user_emoji",
+  // More genuinely unmanaged prod-only indexes (no committed equivalent):
+  //   - error_logs_{created_at,resolved}_idx: created by drizzle-kit push /
+  //     manual SQL when the error_logs table was added on prod; never written
+  //     into a migration.
+  //   - the idx_announcement* / idx_kb_articles* / idx_message_threads* indexes:
+  //     pre-drizzle hand-written SQL from migrations/legacy/ (announcements, KB,
+  //     message threads) that prod still carries but no committed migration
+  //     creates under these legacy names.
+  "error_logs_created_at_idx",
+  "error_logs_resolved_idx",
+  "idx_announcement_dismissals_user",
+  "idx_announcements_active_created_at",
+  "idx_kb_articles_category",
+  "idx_kb_articles_published",
+  "idx_kb_articles_search",
+  "idx_message_threads_admin_id",
+  "idx_message_threads_customer_id",
 ]);
 
 // CHECK / FOREIGN KEY / UNIQUE constraints that intentionally exist in the DB

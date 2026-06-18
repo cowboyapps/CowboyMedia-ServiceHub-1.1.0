@@ -197,6 +197,13 @@
       "when": 1781767720441,
       "tag": "0027_reconcile_prod_unique_constraint_names",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781771508504,
+      "tag": "0028_reconcile_prod_hot_path_indexes",
+      "breakpoints": true
     }
   ]
 }

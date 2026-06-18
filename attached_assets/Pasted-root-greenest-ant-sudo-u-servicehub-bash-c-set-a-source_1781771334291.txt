@@ -1,0 +1,82 @@
+root@greenest-ant:~# sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx script/audit-columns.ts'
+Need to install the following packages:
+tsx@4.22.4
+Ok to proceed? (y) y
+
+npm error code EACCES
+npm error syscall spawn sh
+npm error path /root
+npm error errno -13
+npm error Error: spawn sh EACCES
+npm error     at ChildProcess._handle.onexit (node:internal/child_process:285:19)
+npm error     at onErrorNT (node:internal/child_process:483:16)
+npm error     at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+npm error   errno: -13,
+npm error   code: 'EACCES',
+npm error   syscall: 'spawn sh',
+npm error   path: '/root',
+npm error   spawnargs: [ '-c', 'tsx script/audit-columns.ts' ],
+npm error   cmd: 'sh',
+npm error   args: [ '-c', 'tsx script/audit-columns.ts' ],
+npm error   stdout: null,
+npm error   stderr: null,
+npm error   event: 'npx',
+npm error   script: 'tsx',
+npm error   pkgid: undefined
+npm error }
+npm error
+npm error The operation was rejected by your operating system.
+npm error It is likely you do not have the permissions to access this file as the current user
+npm error
+npm error If you believe this might be a permissions issue, please double-check the
+npm error permissions of the file and its containing directories, or try running
+npm error the command again as root/Administrator.
+npm error A complete log of this run can be found in: /home/servicehub/.npm/_logs/2026-06-18T08_26_48_471Z-debug-0.log
+root@greenest-ant:~# sudo -u servicehub bash -c 'cd /opt/servicehub && set -a; source .env; set +a; ./node_modules/.bin/tsx script/audit-columns.ts'
+Column audit: 67 tables in shared/schema.ts, 68 tables in DB.
+
+EXTRA COLUMNS (in DB but not declared in schema.ts; usually safe orphans):
+  ticket_categories:
+    - first_response_target_minutes
+    - resolution_target_minutes
+  tickets:
+    - first_response_at
+  users:
+    - totp_enabled
+    - totp_pending_secret
+
+Object audit: 1 functions / 1 triggers in migrations, 1 functions / 1 triggers in DB.
+
+OK: every trigger/function in migrations exists in the DB and vice versa.
+Index audit: 28 indexes in migrations, 43 non-constraint indexes in DB.
+
+MISSING INDEXES (defined in a migration but not in the DB):
+  A migration that creates these never applied here. Queries that rely on
+  them silently fall back to sequential scans. Run db:migrate.
+    - admin_chat_messages_thread_id_created_at_idx
+    - content_notifications_user_category_read_idx
+    - push_subscriptions_user_id_idx
+    - report_notifications_user_id_unread_idx
+    - thread_messages_thread_id_created_at_idx
+    - ticket_messages_ticket_id_created_at_idx
+    - ticket_notifications_user_id_unread_idx
+    - user_notifications_user_id_created_at_idx
+    - user_notifications_user_id_unread_idx
+
+OUT-OF-BAND INDEXES (in DB but created by no committed migration):
+  Move the DDL into a migration, or allowlist it in KNOWN_UNDECLARED_INDEXES
+  in shared/db-object-audit.ts if it is intentionally unmanaged.
+    - error_logs_created_at_idx
+    - error_logs_resolved_idx
+    - idx_announcement_dismissals_user
+    - idx_announcements_active_created_at
+    - idx_kb_articles_category
+    - idx_kb_articles_published
+    - idx_kb_articles_search
+    - idx_message_threads_admin_id
+    - idx_message_threads_customer_id
+
+OK: every shared trigger/function body matches its committed migration.
+Constraint audit: 16 CHECK/FK/UNIQUE constraints in migrations, 17 in DB.
+
+OK: every CHECK/FK/UNIQUE constraint in migrations exists in the DB and matches.

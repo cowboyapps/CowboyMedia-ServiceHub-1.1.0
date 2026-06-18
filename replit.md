@@ -81,7 +81,7 @@ sudo -u servicehub pm2 save
 **Audit schema drift** (same tool as the `db:check:columns` gate — reports missing/stray tables vs the `KNOWN_UNMANAGED_TABLES` allowlist, per-table column diffs, and out-of-band triggers/functions/indexes; exit 1 on drift):
 
 ```bash
-sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx script/audit-columns.ts'
+sudo -u servicehub bash -c 'cd /opt/servicehub && set -a; source .env; set +a; ./node_modules/.bin/tsx script/audit-columns.ts'
 ```
 
 **Recover deleted KB/news images from a backup** (`script/recover-kb-images.ts`): a pre-fix orphan sweep deleted `uploaded_files` blobs still embedded in KB articles / news. Articles keep their `/uploads/<uuid>` paths, so the missing blobs can be re-inserted from a pre-deletion backup — scoped to ONLY those rows, never a full restore. It finds `/uploads/<uuid>` paths in live `kb_articles.body_html` / `news_stories.content`, keeps only those missing from live `uploaded_files`, pulls exactly those from `BACKUP_DATABASE_URL`, inserts with `ON CONFLICT (filename) DO NOTHING` (idempotent, no overwrites). Reports any path absent from the backup too (use an earlier one).
