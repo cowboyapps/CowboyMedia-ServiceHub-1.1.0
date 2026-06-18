@@ -26,6 +26,18 @@ export const KNOWN_UNDECLARED_TRIGGERS = new Set<string>([
   "kb_articles_search_vector_trigger",
 ]);
 
+// Tables that intentionally exist in the DB without a corresponding
+// shared/schema.ts pgTable declaration, so they are not flagged as stray
+// orphans. These are infrastructure tables managed outside drizzle:
+//   - __drizzle_migrations: drizzle's own migration journal table.
+//   - session:              connect-pg-simple's session store.
+// Mirrors the KNOWN_UNDECLARED_{FUNCTIONS,TRIGGERS} allowlists above and the
+// KNOWN_UNDECLARED_COLUMNS allowlist in script/audit-columns.ts.
+export const KNOWN_UNMANAGED_TABLES = new Set<string>([
+  "__drizzle_migrations",
+  "session",
+]);
+
 export interface MigrationDbObjects {
   functions: Set<string>;
   triggers: Set<string>;

@@ -6,6 +6,7 @@ import * as schema from "../shared/schema";
 import {
   KNOWN_UNDECLARED_FUNCTIONS,
   KNOWN_UNDECLARED_TRIGGERS,
+  KNOWN_UNMANAGED_TABLES,
   diffDbObjects,
   parseMigrationDbObjects,
 } from "../shared/db-object-audit";
@@ -71,6 +72,18 @@ async function main() {
     actual.get(r.table_name)!.add(r.column_name);
   }
 
+  // Stray tables: present in the DB but not declared in shared/schema.ts and
+  // not allowlisted as intentionally unmanaged infra (drizzle's journal, the
+  // session store). These are orphans left behind by removed features or
+  // out-of-band CREATE TABLEs; treated as a build failure just like out-of-band
+  // triggers/functions, so they can't drift into a deploy unnoticed.
+  const tableDiff = diffDbObjects(
+    new Set(expected.keys()),
+    new Set(actual.keys()),
+    KNOWN_UNMANAGED_TABLES,
+  );
+  const extraTables = tableDiff.extra;
+
   const missingTables: string[] = [];
   const missingCols: Array<{ table: string; columns: string[] }> = [];
   const extraCols: Array<{ table: string; columns: string[] }> = [];
@@ -94,7 +107,10 @@ async function main() {
   console.log("");
 
   const columnsOk =
-    missingTables.length === 0 && missingCols.length === 0 && extraCols.length === 0;
+    missingTables.length === 0 &&
+    missingCols.length === 0 &&
+    extraCols.length === 0 &&
+    extraTables.length === 0;
   if (columnsOk) {
     console.log("OK: every column in shared/schema.ts exists in the DB and vice versa.");
   }
@@ -102,6 +118,16 @@ async function main() {
   if (missingTables.length > 0) {
     console.log(`MISSING TABLES (${missingTables.length}):`);
     for (const t of missingTables) console.log(`  - ${t}`);
+    console.log("");
+  }
+
+  if (extraTables.length > 0) {
+    console.log(`STRAY TABLES (${extraTables.length}): present in the DB but not declared in shared/schema.ts.`);
+    console.log(`  Orphans from a removed feature or an out-of-band CREATE TABLE. Either add a`);
+    console.log(`  pgTable for them in shared/schema.ts (+ a migration), drop them with a`);
+    console.log(`  migration, or allowlist them in KNOWN_UNMANAGED_TABLES in shared/db-object-audit.ts`);
+    console.log(`  if they are intentionally unmanaged infrastructure.`);
+    for (const t of extraTables) console.log(`  - ${t}`);
     console.log("");
   }
 
@@ -206,7 +232,8 @@ async function main() {
     console.log("");
   }
 
-  const hasColumnFailure = missingTables.length > 0 || missingCols.length > 0;
+  const hasColumnFailure =
+    missingTables.length > 0 || missingCols.length > 0 || extraTables.length > 0;
   process.exit(hasColumnFailure || !objectsOk ? 1 : 0);
 }
 

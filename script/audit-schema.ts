@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { Pool } from "pg";
+import { KNOWN_UNMANAGED_TABLES } from "../shared/db-object-audit";
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -23,8 +24,9 @@ async function main() {
   const actual = new Set(rows.map((r) => r.table_name));
 
   const missing = [...expected].filter((t) => !actual.has(t)).sort();
-  const KNOWN_UNMANAGED = new Set(["__drizzle_migrations", "session"]);
-  const extra = [...actual].filter((t) => !expected.has(t) && !KNOWN_UNMANAGED.has(t)).sort();
+  const extra = [...actual]
+    .filter((t) => !expected.has(t) && !KNOWN_UNMANAGED_TABLES.has(t))
+    .sort();
 
   console.log(`Schema audit: ${expected.size} tables in shared/schema.ts, ${actual.size} tables in DB.`);
   console.log("");

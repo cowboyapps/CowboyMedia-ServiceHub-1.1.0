@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   KNOWN_UNDECLARED_FUNCTIONS,
   KNOWN_UNDECLARED_TRIGGERS,
+  KNOWN_UNMANAGED_TABLES,
   diffDbObjects,
   parseMigrationDbObjects,
 } from "../shared/db-object-audit";
@@ -68,4 +69,28 @@ test("allowlist suppresses extra-in-DB findings only", () => {
 test("kb objects are present in the allowlists", () => {
   assert.ok(KNOWN_UNDECLARED_FUNCTIONS.has("kb_articles_update_search_vector"));
   assert.ok(KNOWN_UNDECLARED_TRIGGERS.has("kb_articles_search_vector_trigger"));
+});
+
+test("diff reports stray tables (in DB, not in schema)", () => {
+  const diff = diffDbObjects(
+    new Set(["users", "tickets"]),
+    new Set(["users", "tickets", "old_orphan_table"]),
+    new Set(),
+  );
+  assert.deepEqual(diff.missing, []);
+  assert.deepEqual(diff.extra, ["old_orphan_table"]);
+});
+
+test("unmanaged-table allowlist suppresses infra tables", () => {
+  const diff = diffDbObjects(
+    new Set(["users"]),
+    new Set(["users", "__drizzle_migrations", "session"]),
+    KNOWN_UNMANAGED_TABLES,
+  );
+  assert.deepEqual(diff.extra, []);
+});
+
+test("infra tables are present in the unmanaged-table allowlist", () => {
+  assert.ok(KNOWN_UNMANAGED_TABLES.has("__drizzle_migrations"));
+  assert.ok(KNOWN_UNMANAGED_TABLES.has("session"));
 });
