@@ -11,12 +11,28 @@ that the `GET /uploads/:filename` route serves. Deleting a record that holds suc
 a URL does NOT remove the blob unless code explicitly does so.
 
 **Rule:** before deleting an uploaded blob, confirm NO other record references it.
-Many columns can hold an `/uploads/...` URL: `users.avatarUrl`, service alerts,
-alert updates, news stories, tickets, ticket messages, report requests,
-`admin_chat_messages.fileUrl`, downloads, thread messages, community messages.
-`server/uploaded-file-cleanup.ts` centralizes this — keep its reference-check
-list in sync whenever a new column starts storing upload URLs, or cleanup could
-delete a file that's still in use.
+Two kinds of columns can hold an `/uploads/...` URL and BOTH must be in the
+reference list, or cleanup deletes a file that's still in use:
+1. **Single-URL columns** (exact `eq` match): `users.avatarUrl`, service alerts,
+   alert updates, `news_stories.image_url`, tickets, ticket messages, report
+   requests, `admin_chat_messages.fileUrl`, downloads, thread messages,
+   community messages.
+2. **Rich-text HTML body columns** (substring `like` match) — the shared
+   rich-text editor (`POST /api/admin/upload-inline-image`) embeds inline images
+   as `<img src="/uploads/<uuid>">` INSIDE the HTML, so the URL lives in the body
+   text, not its own column: `kb_articles.body_html`, `news_stories.content`,
+   `announcements.body_html`, `changelog_entries.body_html`. A pure substring
+   helper `bodyHtmlReferencesUpload(body, url)` mirrors the SQL `LIKE` semantics
+   for tests.
+
+**Why this matters:** the boot sweep once wiped customer KB-article images
+because only single-URL columns were checked — an image embedded only inside a KB
+body had zero detected references and got swept. Any NEW rich-text/HTML column
+that can carry inline editor images MUST get a substring reference check too.
+`server/uploaded-file-cleanup.ts` centralizes both kinds — keep its
+reference-check list in sync whenever a new column starts storing upload URLs
+(single-URL OR embedded-in-HTML), or cleanup could delete a file that's still in
+use.
 
 **Why:** filenames are unique UUIDs so collisions are unlikely, but the full
 reference check is the safety net. Run cleanup AFTER deleting the owning row so

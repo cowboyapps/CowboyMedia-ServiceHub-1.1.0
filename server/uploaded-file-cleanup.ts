@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import { db } from "./db";
 import {
   uploadedFiles,
@@ -13,6 +13,9 @@ import {
   downloads,
   threadMessages,
   communityMessages,
+  kbArticles,
+  announcements,
+  changelogEntries,
 } from "@shared/schema";
 
 // Pulls the bare filename out of a `/uploads/<filename>` URL. Returns null for
@@ -25,9 +28,32 @@ export function extractUploadFilename(url: string | null | undefined): string | 
   return match ? match[1] : null;
 }
 
+// True when `url` (an `/uploads/<filename>` path) appears anywhere inside a
+// rich-text HTML body. The shared rich-text editor (news, KB, announcements,
+// changelog) embeds inline images as `<img src="/uploads/<uuid>...">`, so the
+// exact `/uploads/<uuid>` path is present as a substring of the stored HTML.
+// A plain substring test is the correct (and cheapest) reference check for
+// these columns — single-URL `eq` checks would miss them entirely.
+export function bodyHtmlReferencesUpload(body: string | null | undefined, url: string): boolean {
+  if (!body) return false;
+  return body.includes(url);
+}
+
+// Builds a Postgres LIKE pattern that matches rows whose body contains `url` as
+// a substring. Escapes LIKE wildcards (`%`, `_`, `\`) so a filename can never be
+// interpreted as a pattern (Postgres uses `\` as the default LIKE escape char).
+function uploadLikePattern(url: string): string {
+  const escaped = url.replace(/([\\%_])/g, "\\$1");
+  return `%${escaped}%`;
+}
+
 // Every table/column that can persist an `/uploads/...` URL. Keep this in sync
 // whenever a new column starts storing uploaded-file references, otherwise the
-// safety check could delete a file that's still in use.
+// safety check could delete a file that's still in use. Two flavours:
+//   - single-URL columns (avatars, cover images, attachments) → exact `eq`.
+//   - rich-text HTML bodies that can embed inline editor images → substring
+//     `like`, because the `/uploads/...` path lives inside the HTML, not in its
+//     own column. Missing these is exactly what wiped in-article KB images.
 const referenceChecks: Array<(url: string) => Promise<boolean>> = [
   async (url) => (await db.select({ id: users.id }).from(users).where(eq(users.avatarUrl, url)).limit(1)).length > 0,
   async (url) => (await db.select({ id: serviceAlerts.id }).from(serviceAlerts).where(eq(serviceAlerts.imageUrl, url)).limit(1)).length > 0,
@@ -40,6 +66,11 @@ const referenceChecks: Array<(url: string) => Promise<boolean>> = [
   async (url) => (await db.select({ id: downloads.id }).from(downloads).where(eq(downloads.imageUrl, url)).limit(1)).length > 0,
   async (url) => (await db.select({ id: threadMessages.id }).from(threadMessages).where(eq(threadMessages.imageUrl, url)).limit(1)).length > 0,
   async (url) => (await db.select({ id: communityMessages.id }).from(communityMessages).where(eq(communityMessages.imageUrl, url)).limit(1)).length > 0,
+  // Rich-text HTML bodies with inline editor images (substring match):
+  async (url) => (await db.select({ id: newsStories.id }).from(newsStories).where(like(newsStories.content, uploadLikePattern(url))).limit(1)).length > 0,
+  async (url) => (await db.select({ id: kbArticles.id }).from(kbArticles).where(like(kbArticles.bodyHtml, uploadLikePattern(url))).limit(1)).length > 0,
+  async (url) => (await db.select({ id: announcements.id }).from(announcements).where(like(announcements.bodyHtml, uploadLikePattern(url))).limit(1)).length > 0,
+  async (url) => (await db.select({ version: changelogEntries.version }).from(changelogEntries).where(like(changelogEntries.bodyHtml, uploadLikePattern(url))).limit(1)).length > 0,
 ];
 
 // True when any record still points at `url`.

@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractUploadFilename, deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles } from "./uploaded-file-cleanup";
+import {
+  extractUploadFilename,
+  deleteUploadedFileIfUnreferenced,
+  sweepOrphanedUploadedFiles,
+  bodyHtmlReferencesUpload,
+} from "./uploaded-file-cleanup";
 
 // ---------- extractUploadFilename ----------
 // Guards the "only ever act on a file we own" property: anything that isn't a
@@ -29,6 +34,53 @@ test("extractUploadFilename: nested paths and traversal attempts are ignored", (
 test("extractUploadFilename: query strings / fragments are not treated as the filename", () => {
   assert.equal(extractUploadFilename("/uploads/x.png?raw=1"), null);
   assert.equal(extractUploadFilename("/uploads/x.png#frag"), null);
+});
+
+// ---------- bodyHtmlReferencesUpload ----------
+// Closes the in-article-image gap: a `/uploads/...` URL embedded inside a
+// rich-text HTML body (KB article, news story, announcement, changelog) must be
+// reported referenced so the boot sweep never deletes the blob behind it. A
+// truly absent URL must still report unreferenced so genuine orphans are reaped.
+
+test("reports referenced when the URL is embedded inside a KB article body", () => {
+  const body = '<p>See this</p><img src="/uploads/kb-img.png"><p>screenshot.</p>';
+  assert.equal(bodyHtmlReferencesUpload(body, "/uploads/kb-img.png"), true);
+});
+
+test("reports referenced when the URL is embedded inside a news story body", () => {
+  const body = '<h2>Update</h2><figure><img src="/uploads/news-img.png" alt=""></figure>';
+  assert.equal(bodyHtmlReferencesUpload(body, "/uploads/news-img.png"), true);
+});
+
+test("reports NOT referenced when the URL is absent from the body", () => {
+  const body = '<p>No images here, just <a href="/help">a link</a>.</p>';
+  assert.equal(bodyHtmlReferencesUpload(body, "/uploads/orphan.png"), false);
+});
+
+test("null/undefined/empty bodies are never a reference", () => {
+  assert.equal(bodyHtmlReferencesUpload(null, "/uploads/x.png"), false);
+  assert.equal(bodyHtmlReferencesUpload(undefined, "/uploads/x.png"), false);
+  assert.equal(bodyHtmlReferencesUpload("", "/uploads/x.png"), false);
+});
+
+// End-to-end through the sweep: a blob whose ONLY reference is inside a rich-text
+// body survives, while a genuinely unreferenced blob is still removed. This is
+// the exact KB/news regression the task fixes, expressed via injectable deps.
+
+test("sweep keeps a blob referenced only inside a rich-text body, deletes the orphan", async () => {
+  const kbBody = '<p>Docs</p><img src="/uploads/in-article.png">';
+  const newsBody = '<p>News</p><img src="/uploads/in-news.png">';
+  const removed: string[] = [];
+  const count = await sweepOrphanedUploadedFiles({
+    listFilenames: async () => ["in-article.png", "in-news.png", "truly-orphan.png"],
+    isReferenced: async (url) =>
+      bodyHtmlReferencesUpload(kbBody, url) || bodyHtmlReferencesUpload(newsBody, url),
+    remove: async (filename) => {
+      removed.push(filename);
+    },
+  });
+  assert.deepEqual(removed, ["truly-orphan.png"]);
+  assert.equal(count, 1);
 });
 
 // ---------- deleteUploadedFileIfUnreferenced ----------
