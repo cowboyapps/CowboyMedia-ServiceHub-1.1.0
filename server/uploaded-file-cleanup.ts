@@ -39,6 +39,30 @@ export function bodyHtmlReferencesUpload(body: string | null | undefined, url: s
   return body.includes(url);
 }
 
+// Extracts every distinct `/uploads/<filename>` path embedded in a rich-text
+// HTML body, returning the bare filenames (no `/uploads/` prefix) in first-seen
+// order, de-duplicated. The shared editor stores inline images as
+// `<img src="/uploads/<uuid>...">`, so we scan for the `/uploads/` prefix and
+// capture up to the first character that can't belong to a filename (quote,
+// whitespace, query/fragment marker, angle bracket, closing paren, backslash).
+// Used by the KB-image recovery script to discover which blobs an article still
+// expects so it can re-insert exactly those (and nothing else) from a backup.
+export function extractUploadFilenamesFromHtml(body: string | null | undefined): string[] {
+  if (!body) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /\/uploads\/([^"'\s?#)<>\\]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    const filename = m[1];
+    if (filename && !seen.has(filename)) {
+      seen.add(filename);
+      out.push(filename);
+    }
+  }
+  return out;
+}
+
 // Builds a Postgres LIKE pattern that matches rows whose body contains `url` as
 // a substring. Escapes LIKE wildcards (`%`, `_`, `\`) so a filename can never be
 // interpreted as a pattern (Postgres uses `\` as the default LIKE escape char).

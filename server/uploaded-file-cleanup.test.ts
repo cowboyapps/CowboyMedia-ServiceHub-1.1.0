@@ -6,6 +6,7 @@ import { db, pool } from "./db";
 import { kbArticles, newsStories, announcements, changelogEntries } from "@shared/schema";
 import {
   extractUploadFilename,
+  extractUploadFilenamesFromHtml,
   deleteUploadedFileIfUnreferenced,
   sweepOrphanedUploadedFiles,
   bodyHtmlReferencesUpload,
@@ -39,6 +40,34 @@ test("extractUploadFilename: nested paths and traversal attempts are ignored", (
 test("extractUploadFilename: query strings / fragments are not treated as the filename", () => {
   assert.equal(extractUploadFilename("/uploads/x.png?raw=1"), null);
   assert.equal(extractUploadFilename("/uploads/x.png#frag"), null);
+});
+
+// ---------- extractUploadFilenamesFromHtml ----------
+// Drives the KB-image recovery script: it must find EVERY blob an article still
+// expects (so missing ones can be re-inserted from a backup) and nothing it
+// doesn't own.
+
+test("extractUploadFilenamesFromHtml: pulls every embedded upload filename", () => {
+  const body =
+    '<p>One</p><img src="/uploads/a-1.png"><figure><img src="/uploads/b-2.jpg" alt="x"></figure>';
+  assert.deepEqual(extractUploadFilenamesFromHtml(body), ["a-1.png", "b-2.jpg"]);
+});
+
+test("extractUploadFilenamesFromHtml: de-duplicates repeated references, first-seen order", () => {
+  const body = '<img src="/uploads/z.png"><img src="/uploads/a.png"><img src="/uploads/z.png">';
+  assert.deepEqual(extractUploadFilenamesFromHtml(body), ["z.png", "a.png"]);
+});
+
+test("extractUploadFilenamesFromHtml: stops at quotes, query strings and fragments", () => {
+  const body = '<img src="/uploads/x.png?raw=1"><img src=\'/uploads/y.png#frag\'>';
+  assert.deepEqual(extractUploadFilenamesFromHtml(body), ["x.png", "y.png"]);
+});
+
+test("extractUploadFilenamesFromHtml: null/undefined/empty and image-free bodies yield []", () => {
+  assert.deepEqual(extractUploadFilenamesFromHtml(null), []);
+  assert.deepEqual(extractUploadFilenamesFromHtml(undefined), []);
+  assert.deepEqual(extractUploadFilenamesFromHtml(""), []);
+  assert.deepEqual(extractUploadFilenamesFromHtml("<p>Just text, <a href=\"/help\">link</a></p>"), []);
 });
 
 // ---------- bodyHtmlReferencesUpload ----------

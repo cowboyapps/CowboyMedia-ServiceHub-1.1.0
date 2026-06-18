@@ -95,6 +95,24 @@ sudo -u servicehub bash -c 'set -a; source /opt/servicehub/.env; set +a; npx tsx
 
 Reports tables defined in `shared/schema.ts` missing from the DB, or extra tables in the DB not declared in schema.ts. Exit code 1 on drift, safe to wire into CI later.
 
+**Recover deleted KB / news images from a backup** (`script/recover-kb-images.ts`):
+
+A pre-fix orphan sweep deleted `uploaded_files` blobs that were still embedded inside KB articles and news stories. The articles keep their `/uploads/<uuid>` paths, so the missing blobs can be re-inserted from a pre-deletion backup — scoped to ONLY those rows, never a full-database restore.
+
+```bash
+# 1. Restore a pre-deletion backup into a scratch DB
+createdb servicehub_backup
+pg_restore -d servicehub_backup pre-deletion.dump     # or: psql -d servicehub_backup -f backup.sql
+# 2. Dry-run (reports what it WOULD recover, writes nothing):
+sudo -u servicehub bash -c "set -a; source /opt/servicehub/.env; set +a; \
+  BACKUP_DATABASE_URL='postgres://.../servicehub_backup' npx tsx script/recover-kb-images.ts"
+# 3. Apply once the report looks right:
+sudo -u servicehub bash -c "set -a; source /opt/servicehub/.env; set +a; \
+  BACKUP_DATABASE_URL='postgres://.../servicehub_backup' npx tsx script/recover-kb-images.ts --apply"
+```
+
+Finds `/uploads/<uuid>` paths referenced in live `kb_articles.body_html` / `news_stories.content`, keeps only those missing from live `uploaded_files`, pulls exactly those rows from `BACKUP_DATABASE_URL`, and inserts them with `ON CONFLICT (filename) DO NOTHING`. Touches no other table, never overwrites, idempotent (safe to re-run). Reports any referenced file that isn't in the backup either (use an earlier backup). After applying, reload an affected article to confirm its images render.
+
 ## Stack
 
 - **Frontend**: React, Vite, TailwindCSS, Shadcn UI, Wouter
