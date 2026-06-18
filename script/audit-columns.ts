@@ -1,6 +1,14 @@
+import { readdirSync, readFileSync } from "fs";
+import { join } from "path";
 import { Pool } from "pg";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "../shared/schema";
+import {
+  KNOWN_UNDECLARED_FUNCTIONS,
+  KNOWN_UNDECLARED_TRIGGERS,
+  diffDbObjects,
+  parseMigrationDbObjects,
+} from "../shared/db-object-audit";
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -29,6 +37,31 @@ async function main() {
     `SELECT table_name, column_name FROM information_schema.columns
        WHERE table_schema = 'public'
        ORDER BY table_name, ordinal_position`,
+  );
+
+  // User-defined (non-internal) triggers in the public schema.
+  const { rows: triggerRows } = await pool.query<{ trigger_name: string }>(
+    `SELECT t.tgname AS trigger_name
+       FROM pg_trigger t
+       JOIN pg_class c ON c.oid = t.tgrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND NOT t.tgisinternal
+       ORDER BY t.tgname`,
+  );
+
+  // User-defined (non-aggregate, non-window, non-extension) functions in the
+  // public schema. Extension-owned functions are excluded via pg_depend so a
+  // future `CREATE EXTENSION` does not trip the audit.
+  const { rows: functionRows } = await pool.query<{ function_name: string }>(
+    `SELECT p.proname AS function_name
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public'
+         AND p.prokind = 'f'
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e'
+         )
+       ORDER BY p.proname`,
   );
   await pool.end();
 
@@ -60,9 +93,10 @@ async function main() {
   );
   console.log("");
 
-  if (missingTables.length === 0 && missingCols.length === 0 && extraCols.length === 0) {
+  const columnsOk =
+    missingTables.length === 0 && missingCols.length === 0 && extraCols.length === 0;
+  if (columnsOk) {
     console.log("OK: every column in shared/schema.ts exists in the DB and vice versa.");
-    process.exit(0);
   }
 
   if (missingTables.length > 0) {
@@ -89,7 +123,91 @@ async function main() {
     console.log("");
   }
 
-  process.exit(missingTables.length > 0 || missingCols.length > 0 ? 1 : 0);
+  // ---- Trigger / function drift -------------------------------------------
+  // The committed migrations are the source of truth (drizzle's schema.ts does
+  // not model triggers or functions). Parse what they create, diff against the
+  // live DB, and fail closed on anything out of band — the exact class of drift
+  // that broke every kb_articles save when the search_vector trigger lived
+  // outside migrations.
+  const migrationsDir = join(process.cwd(), "migrations");
+  const migrationSql = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .map((f) => readFileSync(join(migrationsDir, f), "utf-8"));
+  const expectedObjects = parseMigrationDbObjects(migrationSql);
+
+  const actualFunctions = new Set(functionRows.map((r) => r.function_name));
+  const actualTriggers = new Set(triggerRows.map((r) => r.trigger_name));
+
+  const functionDiff = diffDbObjects(
+    expectedObjects.functions,
+    actualFunctions,
+    KNOWN_UNDECLARED_FUNCTIONS,
+  );
+  const triggerDiff = diffDbObjects(
+    expectedObjects.triggers,
+    actualTriggers,
+    KNOWN_UNDECLARED_TRIGGERS,
+  );
+
+  console.log(
+    `Object audit: ${expectedObjects.functions.size} functions / ${expectedObjects.triggers.size} triggers in migrations, ${actualFunctions.size} functions / ${actualTriggers.size} triggers in DB.`,
+  );
+  console.log("");
+
+  const objectsOk =
+    functionDiff.missing.length === 0 &&
+    functionDiff.extra.length === 0 &&
+    triggerDiff.missing.length === 0 &&
+    triggerDiff.extra.length === 0;
+  if (objectsOk) {
+    console.log(
+      "OK: every trigger/function in migrations exists in the DB and vice versa.",
+    );
+  }
+
+  if (functionDiff.missing.length > 0) {
+    console.log(`MISSING FUNCTIONS (defined in a migration but not in the DB):`);
+    console.log(
+      `  A migration that creates these never applied here. KB search and any other`,
+    );
+    console.log(`  trigger-backed feature will break. Run db:migrate.`);
+    for (const f of functionDiff.missing) console.log(`    - ${f}`);
+    console.log("");
+  }
+
+  if (triggerDiff.missing.length > 0) {
+    console.log(`MISSING TRIGGERS (defined in a migration but not in the DB):`);
+    for (const t of triggerDiff.missing) console.log(`    - ${t}`);
+    console.log("");
+  }
+
+  if (functionDiff.extra.length > 0) {
+    console.log(`OUT-OF-BAND FUNCTIONS (in DB but created by no committed migration):`);
+    console.log(
+      `  Move the DDL into a migration (idempotent, like 0026_kb_search_vector.sql)`,
+    );
+    console.log(
+      `  or allowlist it in shared/db-object-audit.ts if it is intentionally unmanaged.`,
+    );
+    for (const f of functionDiff.extra) console.log(`    - ${f}`);
+    console.log("");
+  }
+
+  if (triggerDiff.extra.length > 0) {
+    console.log(`OUT-OF-BAND TRIGGERS (in DB but created by no committed migration):`);
+    console.log(
+      `  Move the DDL into a migration (idempotent, like 0026_kb_search_vector.sql)`,
+    );
+    console.log(
+      `  or allowlist it in shared/db-object-audit.ts if it is intentionally unmanaged.`,
+    );
+    for (const t of triggerDiff.extra) console.log(`    - ${t}`);
+    console.log("");
+  }
+
+  const hasColumnFailure = missingTables.length > 0 || missingCols.length > 0;
+  process.exit(hasColumnFailure || !objectsOk ? 1 : 0);
 }
 
 main().catch((e) => {
