@@ -63,11 +63,40 @@ export function computeRecoverySelection(
  * whatever is still missing.
  */
 
-interface BlobRow {
+export interface BlobRow {
   filename: string;
   mimetype: string;
   data: string;
   created_at: Date | string | null;
+}
+
+export interface ApplyResult {
+  inserted: number;
+  skipped: number;
+}
+
+/**
+ * The `--apply` write loop, extracted behind an injected `insertBlob` so its
+ * idempotency guarantee can be unit-tested without a live DB (mirroring how
+ * `sweepOrphanedUploadedFiles` takes injectable deps in
+ * `server/uploaded-file-cleanup.ts`).
+ *
+ * `insertBlob` must perform the `INSERT ... ON CONFLICT (filename) DO NOTHING`
+ * and return how many rows it actually wrote: `1` for a fresh insert, `0` when
+ * the row already existed and the conflict clause skipped it. We sum those into
+ * `inserted` and derive `skipped` as the remainder, so re-running the recovery
+ * (every row already present → every `insertBlob` returns 0) reports everything
+ * as skipped and writes nothing new.
+ */
+export async function applyRecovery(
+  recoverableRows: BlobRow[],
+  insertBlob: (row: BlobRow) => Promise<number>,
+): Promise<ApplyResult> {
+  let inserted = 0;
+  for (const r of recoverableRows) {
+    inserted += await insertBlob(r);
+  }
+  return { inserted, skipped: recoverableRows.length - inserted };
 }
 
 async function main() {
@@ -158,17 +187,16 @@ async function main() {
     }
 
     // 4. Re-insert ONLY those rows into live. Never overwrite (idempotent).
-    let inserted = 0;
-    for (const r of recoverableRows) {
+    const { inserted, skipped } = await applyRecovery(recoverableRows, async (r) => {
       const res = await live.query(
         `INSERT INTO uploaded_files (filename, mimetype, data, created_at)
          VALUES ($1, $2, $3, COALESCE($4, now()))
          ON CONFLICT (filename) DO NOTHING`,
         [r.filename, r.mimetype, r.data, r.created_at],
       );
-      inserted += res.rowCount ?? 0;
-    }
-    console.log(`APPLIED — inserted ${inserted} uploaded_files row(s). Skipped ${recoverableRows.length - inserted} already-present.`);
+      return res.rowCount ?? 0;
+    });
+    console.log(`APPLIED — inserted ${inserted} uploaded_files row(s). Skipped ${skipped} already-present.`);
     console.log("Reload an affected KB article to confirm its images render again.");
   } finally {
     await live.end();

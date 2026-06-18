@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeRecoverySelection } from "../script/recover-kb-images";
+import {
+  computeRecoverySelection,
+  applyRecovery,
+  type BlobRow,
+} from "../script/recover-kb-images";
+
+function blob(filename: string): BlobRow {
+  return { filename, mimetype: "image/png", data: "ZGF0YQ==", created_at: null };
+}
 
 // ---------- computeRecoverySelection ----------
 // The set-difference at the heart of the KB-image recovery script. It decides
@@ -87,4 +95,70 @@ test("a backup blob that nothing references is ignored (never invents recoveries
   );
   assert.deepEqual(sel.recoverable, ["wanted.png"]);
   assert.deepEqual(sel.stillMissing, []);
+});
+
+// ---------- applyRecovery ----------
+// The `--apply` write loop, exercised against an injected `insertBlob` that
+// stands in for the real `INSERT ... ON CONFLICT (filename) DO NOTHING`. The
+// injected fn returns the row count the DB would report: 1 for a fresh insert,
+// 0 when the row already existed and the conflict clause skipped it. This proves
+// the idempotency promise (re-running never overwrites or duplicates) without a
+// live DB.
+
+test("every recoverable blob is inserted exactly once on a fresh run", async () => {
+  const calls: string[] = [];
+  const result = await applyRecovery(
+    [blob("a.png"), blob("b.png"), blob("c.png")],
+    async (r) => {
+      calls.push(r.filename);
+      return 1; // fresh insert
+    },
+  );
+  assert.deepEqual(calls, ["a.png", "b.png", "c.png"]);
+  assert.equal(result.inserted, 3);
+  assert.equal(result.skipped, 0);
+});
+
+test("an already-present blob (ON CONFLICT) is counted as skipped, not re-inserted", async () => {
+  // Simulate a re-run where every row already exists: ON CONFLICT DO NOTHING
+  // returns rowCount 0 for each, so nothing is written.
+  const result = await applyRecovery(
+    [blob("a.png"), blob("b.png")],
+    async () => 0,
+  );
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 2);
+});
+
+test("mixed run: fresh inserts counted as inserted, conflicts counted as skipped", async () => {
+  // a.png is new (rowCount 1), b.png already present (rowCount 0), c.png new.
+  const present = new Set(["b.png"]);
+  const result = await applyRecovery(
+    [blob("a.png"), blob("b.png"), blob("c.png")],
+    async (r) => (present.has(r.filename) ? 0 : 1),
+  );
+  assert.equal(result.inserted, 2);
+  assert.equal(result.skipped, 1);
+});
+
+test("inserted + skipped always equals the number of recoverable rows", async () => {
+  const rows = [blob("a.png"), blob("b.png"), blob("c.png"), blob("d.png")];
+  const present = new Set(["a.png", "d.png"]);
+  const result = await applyRecovery(rows, async (r) =>
+    present.has(r.filename) ? 0 : 1,
+  );
+  assert.equal(result.inserted + result.skipped, rows.length);
+  assert.equal(result.inserted, 2);
+  assert.equal(result.skipped, 2);
+});
+
+test("no recoverable rows → nothing inserted, nothing skipped, no DB calls", async () => {
+  let called = false;
+  const result = await applyRecovery([], async () => {
+    called = true;
+    return 1;
+  });
+  assert.equal(called, false);
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 0);
 });
