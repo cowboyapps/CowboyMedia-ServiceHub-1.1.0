@@ -8,8 +8,18 @@ import {
   KNOWN_UNDECLARED_TRIGGERS,
   KNOWN_UNMANAGED_TABLES,
   diffDbObjects,
+  diffObjectDefinitions,
+  normalizeFunctionBody,
+  normalizeTriggerDef,
   parseMigrationDbObjects,
+  parseMigrationFunctionBodies,
+  parseMigrationTriggerDefs,
 } from "../shared/db-object-audit";
+
+// Keeps mismatch output readable when a normalised body/definition is long.
+function truncate(s: string, max = 160): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -40,9 +50,16 @@ async function main() {
        ORDER BY table_name, ordinal_position`,
   );
 
-  // User-defined (non-internal) triggers in the public schema.
-  const { rows: triggerRows } = await pool.query<{ trigger_name: string }>(
-    `SELECT t.tgname AS trigger_name
+  // User-defined (non-internal) triggers in the public schema, with their
+  // canonical definition (pg_get_triggerdef) so we can detect a trigger that
+  // was silently redefined out of band with the same name but a different
+  // table / timing / event / function.
+  const { rows: triggerRows } = await pool.query<{
+    trigger_name: string;
+    trigger_def: string;
+  }>(
+    `SELECT t.tgname AS trigger_name,
+            pg_get_triggerdef(t.oid) AS trigger_def
        FROM pg_trigger t
        JOIN pg_class c ON c.oid = t.tgrelid
        JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -51,10 +68,16 @@ async function main() {
   );
 
   // User-defined (non-aggregate, non-window, non-extension) functions in the
-  // public schema. Extension-owned functions are excluded via pg_depend so a
-  // future `CREATE EXTENSION` does not trip the audit.
-  const { rows: functionRows } = await pool.query<{ function_name: string }>(
-    `SELECT p.proname AS function_name
+  // public schema, with their body (pg_proc.prosrc) so we can detect a function
+  // that was silently redefined out of band with the same name but changed
+  // logic. Extension-owned functions are excluded via pg_depend so a future
+  // `CREATE EXTENSION` does not trip the audit.
+  const { rows: functionRows } = await pool.query<{
+    function_name: string;
+    function_body: string;
+  }>(
+    `SELECT p.proname AS function_name,
+            p.prosrc AS function_body
        FROM pg_proc p
        JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'public'
@@ -232,9 +255,78 @@ async function main() {
     console.log("");
   }
 
+  // ---- Body / definition drift --------------------------------------------
+  // Name matches above only prove an object EXISTS. Here we compare the live
+  // body/definition against what the committed migrations would produce, so a
+  // function or trigger that was silently REDEFINED out of band (same name,
+  // changed logic) is caught — the same "works in dev, breaks on a fresh
+  // migrate" failure mode, one level deeper.
+  const expectedFunctionBodies = parseMigrationFunctionBodies(migrationSql);
+  const expectedTriggerDefs = parseMigrationTriggerDefs(migrationSql);
+
+  const actualFunctionBodies = new Map(
+    functionRows.map((r) => [
+      r.function_name,
+      normalizeFunctionBody(r.function_body ?? ""),
+    ]),
+  );
+  const actualTriggerDefs = new Map(
+    triggerRows.map((r) => [
+      r.trigger_name,
+      normalizeTriggerDef(r.trigger_def ?? ""),
+    ]),
+  );
+
+  const functionBodyMismatches = diffObjectDefinitions(
+    expectedFunctionBodies,
+    actualFunctionBodies,
+  );
+  const triggerDefMismatches = diffObjectDefinitions(
+    expectedTriggerDefs,
+    actualTriggerDefs,
+  );
+
+  const definitionsOk =
+    functionBodyMismatches.length === 0 && triggerDefMismatches.length === 0;
+  if (objectsOk && definitionsOk) {
+    console.log(
+      "OK: every shared trigger/function body matches its committed migration.",
+    );
+  }
+
+  if (functionBodyMismatches.length > 0) {
+    console.log(`REDEFINED FUNCTIONS (body in DB differs from its migration):`);
+    console.log(
+      `  These were changed out of band. A fresh db:migrate would produce different`,
+    );
+    console.log(
+      `  logic. Reconcile by moving the change into a new migration (CREATE OR REPLACE).`,
+    );
+    for (const m of functionBodyMismatches) {
+      console.log(`    - ${m.name}`);
+      console.log(`        migration: ${truncate(m.expected)}`);
+      console.log(`        live DB:   ${truncate(m.actual)}`);
+    }
+    console.log("");
+  }
+
+  if (triggerDefMismatches.length > 0) {
+    console.log(`REDEFINED TRIGGERS (definition in DB differs from its migration):`);
+    console.log(
+      `  These were changed out of band. A fresh db:migrate would produce a different`,
+    );
+    console.log(`  trigger. Reconcile by moving the change into a new migration.`);
+    for (const m of triggerDefMismatches) {
+      console.log(`    - ${m.name}`);
+      console.log(`        migration: ${truncate(m.expected)}`);
+      console.log(`        live DB:   ${truncate(m.actual)}`);
+    }
+    console.log("");
+  }
+
   const hasColumnFailure =
     missingTables.length > 0 || missingCols.length > 0 || extraTables.length > 0;
-  process.exit(hasColumnFailure || !objectsOk ? 1 : 0);
+  process.exit(hasColumnFailure || !objectsOk || !definitionsOk ? 1 : 0);
 }
 
 main().catch((e) => {

@@ -76,6 +76,160 @@ export function parseMigrationDbObjects(sqlTexts: string[]): MigrationDbObjects 
   return { functions, triggers };
 }
 
+// ---------------------------------------------------------------------------
+// Body / definition drift
+// ---------------------------------------------------------------------------
+// Comparing objects by NAME only misses the case where someone redefines a
+// trigger or function out of band with the SAME name but a CHANGED body or
+// signature (e.g. `CREATE OR REPLACE FUNCTION kb_articles_update_search_vector`
+// applied manually on prod with different logic). The name matches a migration
+// so the name-level diff passes, yet a fresh `db:migrate` would produce a
+// different definition — the same "works in dev, breaks on a fresh migrate"
+// class of drift the name audit set out to prevent, one level deeper.
+//
+// To catch it we compare the live definition against what the committed
+// migrations would produce:
+//   - functions: the dollar-quoted body (== Postgres `pg_proc.prosrc`)
+//   - triggers:  the full CREATE TRIGGER statement (== `pg_get_triggerdef`)
+// Both sides are normalised first so harmless formatting differences
+// (indentation, newlines, quoting, the EXECUTE PROCEDURE/FUNCTION synonym, a
+// schema prefix, a trailing semicolon) never produce a false positive.
+
+// Collapses every run of whitespace to a single space and trims. Postgres
+// stores a function body in `prosrc` verbatim (exactly what sat between the
+// dollar quotes), so a fresh migrate yields a body that is identical to the
+// migration's once both are whitespace-normalised. Case is preserved: a
+// keyword/literal/identifier change is real out-of-band drift we want to flag.
+export function normalizeFunctionBody(src: string): string {
+  return src.replace(/\s+/g, " ").trim();
+}
+
+// Canonicalises a CREATE TRIGGER statement so the migration text and the
+// Postgres `pg_get_triggerdef` form compare equal when they describe the same
+// trigger. pg_get_triggerdef emits uppercase keywords, no trailing semicolon,
+// and may quote/qualify differently than the hand-written migration, so we:
+//   - drop trailing semicolons and double quotes
+//   - fold the `EXECUTE PROCEDURE` legacy synonym to `EXECUTE FUNCTION`
+//     (pg_get_triggerdef always emits FUNCTION on PG11+)
+//   - strip a leading `public.` schema qualifier on the table / function
+//   - collapse whitespace and uppercase the whole thing
+// Identifiers in this codebase are lowercase snake_case, so uppercasing both
+// sides equally keeps identifier comparison intact while absorbing keyword-case
+// differences. A genuine change (different table, timing, event, or function)
+// still differs after normalisation.
+export function normalizeTriggerDef(def: string): string {
+  return def
+    .replace(/;/g, " ")
+    .replace(/"/g, "")
+    .replace(/\bEXECUTE\s+PROCEDURE\b/gi, "EXECUTE FUNCTION")
+    .replace(/\bpublic\./gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+// Walks the migration SQL IN ORDER and returns the NORMALISED body for each
+// function that is still defined at the end (a later DROP removes it, a later
+// CREATE OR REPLACE wins). Mirrors parseMigrationDbObjects' net-presence logic.
+//
+// Captures: 1=name, 2=opening dollar tag ($$ or $tag$), 3=body up to the
+// matching closing tag (backreference \2). Args are matched as a single
+// non-nested `(...)` group, which is all the trigger functions here use.
+export function parseMigrationFunctionBodies(
+  sqlTexts: string[],
+): Map<string, string> {
+  const bodies = new Map<string, string>();
+  const createRe =
+    /\bCREATE(?:\s+OR\s+REPLACE)?\s+FUNCTION\s+(?:"?[a-zA-Z0-9_]+"?\.)?"?([a-zA-Z0-9_]+)"?\s*\([^)]*\)[\s\S]*?\bAS\s+(\$[a-zA-Z0-9_]*\$)([\s\S]*?)\2/gi;
+  const dropRe =
+    /\bDROP\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?(?:"?[a-zA-Z0-9_]+"?\.)?"?([a-zA-Z0-9_]+)"?/gi;
+
+  for (const sql of sqlTexts) {
+    // Process creates and drops in the order they appear in this file by
+    // scanning each independently and merging on a single ordered token list.
+    const events: Array<{ index: number; name: string; body?: string }> = [];
+    for (const m of sql.matchAll(createRe)) {
+      events.push({ index: m.index ?? 0, name: m[1], body: m[3] });
+    }
+    for (const m of sql.matchAll(dropRe)) {
+      events.push({ index: m.index ?? 0, name: m[1] });
+    }
+    events.sort((a, b) => a.index - b.index);
+    for (const e of events) {
+      if (e.body !== undefined) bodies.set(e.name, normalizeFunctionBody(e.body));
+      else bodies.delete(e.name);
+    }
+  }
+
+  return bodies;
+}
+
+// Walks the migration SQL IN ORDER and returns the NORMALISED CREATE TRIGGER
+// definition for each trigger still defined at the end. A `DROP TRIGGER`
+// removes it; a later `CREATE TRIGGER` (after the customary DROP IF EXISTS)
+// wins.
+export function parseMigrationTriggerDefs(
+  sqlTexts: string[],
+): Map<string, string> {
+  const defs = new Map<string, string>();
+  const createRe =
+    /\bCREATE\s+(?:OR\s+REPLACE\s+|CONSTRAINT\s+)?TRIGGER\s+"?([a-zA-Z0-9_]+)"?[\s\S]*?;/gi;
+  const dropRe =
+    /\bDROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?"?([a-zA-Z0-9_]+)"?/gi;
+
+  for (const sql of sqlTexts) {
+    const events: Array<{ index: number; name: string; def?: string }> = [];
+    for (const m of sql.matchAll(createRe)) {
+      events.push({ index: m.index ?? 0, name: m[1], def: m[0] });
+    }
+    for (const m of sql.matchAll(dropRe)) {
+      events.push({ index: m.index ?? 0, name: m[1] });
+    }
+    events.sort((a, b) => a.index - b.index);
+    for (const e of events) {
+      if (e.def !== undefined) defs.set(e.name, normalizeTriggerDef(e.def));
+      else defs.delete(e.name);
+    }
+  }
+
+  return defs;
+}
+
+export interface DefinitionMismatch {
+  name: string;
+  expected: string;
+  actual: string;
+}
+
+// Compares NORMALISED definitions for every object present in BOTH the
+// migrations and the DB. Missing/extra objects are handled by diffDbObjects;
+// this only flags same-name objects whose body/definition has drifted. Both
+// maps MUST already be normalised (migration side via the parsers above, DB
+// side via normalizeFunctionBody / normalizeTriggerDef).
+//
+// NOTE: the KNOWN_UNDECLARED_* allowlists are deliberately NOT consulted here.
+// They suppress *out-of-band extras* — objects that live in the DB but no
+// migration creates, which by definition never appear in `expected` and so are
+// never iterated below. A name in `expected` is, by contrast, MANAGED by a
+// committed migration (kb_articles_update_search_vector among them), so its body
+// must be checked even though it is also listed in the allowlist as a parsing
+// safety net. Skipping allowlisted names here would silently exempt the very
+// object this audit exists to protect.
+export function diffObjectDefinitions(
+  expected: Map<string, string>,
+  actual: Map<string, string>,
+): DefinitionMismatch[] {
+  const mismatched: DefinitionMismatch[] = [];
+  for (const [name, expectedDef] of expected) {
+    const actualDef = actual.get(name);
+    if (actualDef === undefined) continue; // missing — reported by name diff
+    if (actualDef !== expectedDef) {
+      mismatched.push({ name, expected: expectedDef, actual: actualDef });
+    }
+  }
+  return mismatched.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export interface ObjectDiff {
   // Defined by a committed migration but absent from the DB. The migration did
   // not apply on this environment — drizzle expects the object to exist.
