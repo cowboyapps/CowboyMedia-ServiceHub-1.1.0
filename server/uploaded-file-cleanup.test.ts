@@ -1,10 +1,15 @@
-import { test } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { db, pool } from "./db";
+import { kbArticles, newsStories, announcements, changelogEntries } from "@shared/schema";
 import {
   extractUploadFilename,
   deleteUploadedFileIfUnreferenced,
   sweepOrphanedUploadedFiles,
   bodyHtmlReferencesUpload,
+  isUploadReferenced,
 } from "./uploaded-file-cleanup";
 
 // ---------- extractUploadFilename ----------
@@ -190,4 +195,100 @@ test("sweep never throws when listing the files fails", async () => {
     });
     assert.equal(count, 0);
   });
+});
+
+// ---------- isUploadReferenced (real database) ----------
+// The unit tests above exercise the pure substring helper and the injectable
+// sweep, but they never touch the real Drizzle `LIKE` queries in
+// `referenceChecks`. A typo'd column name or a broken `LIKE` pattern would sail
+// past them yet still delete in-use images in production. This integration test
+// seeds a real row in every rich-text body table — kb_articles, news_stories,
+// announcements, changelog_entries — each carrying a distinct `/uploads/<uuid>`
+// reference, then asserts `isUploadReferenced` reports each one referenced and a
+// never-seeded URL unreferenced, against an actual (test) database.
+
+const cleanup: Array<() => Promise<void>> = [];
+
+before(async () => {
+  // Fail fast (and skip cleanly) if the DB isn't reachable.
+  await db.select().from(kbArticles).limit(1);
+});
+
+after(async () => {
+  for (const undo of cleanup.reverse()) {
+    try {
+      await undo();
+    } catch (e) {
+      console.error("cleanup failed:", e);
+    }
+  }
+  await pool.end();
+});
+
+test("isUploadReferenced detects /uploads URLs embedded in real rich-text bodies", async () => {
+  const kbUrl = `/uploads/${randomUUID()}.png`;
+  const newsUrl = `/uploads/${randomUUID()}.png`;
+  const annUrl = `/uploads/${randomUUID()}.png`;
+  const changelogUrl = `/uploads/${randomUUID()}.png`;
+
+  const [kb] = await db
+    .insert(kbArticles)
+    .values({
+      categoryId: randomUUID(),
+      slug: `cleanup-int-${randomUUID()}`,
+      title: "Cleanup integration article",
+      bodyHtml: `<p>Docs</p><img src="${kbUrl}"><p>screenshot.</p>`,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(kbArticles).where(eq(kbArticles.id, kb.id));
+  });
+
+  const [news] = await db
+    .insert(newsStories)
+    .values({
+      title: "Cleanup integration news",
+      content: `<h2>Update</h2><figure><img src="${newsUrl}" alt=""></figure>`,
+      authorId: randomUUID(),
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(newsStories).where(eq(newsStories.id, news.id));
+  });
+
+  const [ann] = await db
+    .insert(announcements)
+    .values({
+      title: "Cleanup integration announcement",
+      bodyHtml: `<p>Heads up</p><img src="${annUrl}">`,
+      createdByUserId: randomUUID(),
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(announcements).where(eq(announcements.id, ann.id));
+  });
+
+  const changelogVersion = `0.0.0-cleanup-${randomUUID()}`;
+  const [changelog] = await db
+    .insert(changelogEntries)
+    .values({
+      version: changelogVersion,
+      bodyHtml: `<ul><li>Now with <img src="${changelogUrl}"></li></ul>`,
+    })
+    .returning();
+  cleanup.push(async () => {
+    await db.delete(changelogEntries).where(eq(changelogEntries.version, changelog.version));
+  });
+
+  assert.equal(await isUploadReferenced(kbUrl), true, "KB article body reference is detected");
+  assert.equal(await isUploadReferenced(newsUrl), true, "news story body reference is detected");
+  assert.equal(await isUploadReferenced(annUrl), true, "announcement body reference is detected");
+  assert.equal(await isUploadReferenced(changelogUrl), true, "changelog entry body reference is detected");
+
+  const absentUrl = `/uploads/${randomUUID()}.png`;
+  assert.equal(
+    await isUploadReferenced(absentUrl),
+    false,
+    "a URL that was never seeded is reported unreferenced",
+  );
 });
