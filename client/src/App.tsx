@@ -222,7 +222,7 @@ function AuthenticatedLayout() {
         className="flex w-full overflow-hidden"
         style={{
           height:
-            "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+            "calc(100dvh - var(--sat, env(safe-area-inset-top, 0px)) - var(--sab, env(safe-area-inset-bottom, 0px)))",
         }}
       >
         <AppSidebar />
@@ -263,7 +263,7 @@ function AuthenticatedLayout() {
               <NotificationCenter />
             </div>
           </header>
-          <PullToRefresh ref={scrollRef} className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
+          <PullToRefresh ref={scrollRef} className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(3.5rem+var(--sab,env(safe-area-inset-bottom,0px)))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
             <main className={isFullHeightChat ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>

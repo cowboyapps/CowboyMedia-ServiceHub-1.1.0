@@ -6,6 +6,9 @@ import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { createStaleDeployReloadHandler } from "./lib/stale-deploy";
 import { pruneOldDrafts } from "./lib/tiptap-drafts";
+import { setupSafeAreaInsets } from "./lib/safe-area";
+
+setupSafeAreaInsets();
 
 try {
   pruneOldDrafts();

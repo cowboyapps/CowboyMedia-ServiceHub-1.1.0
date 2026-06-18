@@ -100,7 +100,7 @@ export function BottomNav() {
     <>
       <nav
         className="fixed bottom-0 left-0 right-0 z-50 bg-muted border-t"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        style={{ paddingBottom: "var(--sab, env(safe-area-inset-bottom, 0px))" }}
         data-testid="nav-bottom"
       >
         <div className="flex items-center justify-around h-14">
@@ -162,7 +162,7 @@ export function BottomNav() {
       </nav>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl px-4 pt-3 pb-4" overlayStyle={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }} style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}>
+        <SheetContent side="bottom" className="rounded-t-2xl px-4 pt-3 pb-4" overlayStyle={{ bottom: "calc(3.5rem + var(--sab, env(safe-area-inset-bottom, 0px)))" }} style={{ bottom: "calc(3.5rem + var(--sab, env(safe-area-inset-bottom, 0px)))" }}>
           <VisuallyHidden>
             <SheetTitle>More Options</SheetTitle>
           </VisuallyHidden>
