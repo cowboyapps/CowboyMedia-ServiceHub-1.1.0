@@ -5,15 +5,18 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "../shared/schema";
 import {
   KNOWN_UNDECLARED_COLUMNS,
+  KNOWN_UNDECLARED_CONSTRAINTS,
   KNOWN_UNDECLARED_FUNCTIONS,
   KNOWN_UNDECLARED_INDEXES,
   KNOWN_UNDECLARED_TRIGGERS,
   KNOWN_UNMANAGED_TABLES,
   diffDbObjects,
   diffObjectDefinitions,
+  normalizeConstraintDef,
   normalizeFunctionBody,
   normalizeIndexDef,
   normalizeTriggerDef,
+  parseMigrationConstraintDefs,
   parseMigrationDbObjects,
   parseMigrationFunctionBodies,
   parseMigrationIndexDefs,
@@ -108,6 +111,32 @@ async function main() {
            SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid
          )
        ORDER BY c.relname`,
+  );
+
+  // User-defined CHECK / FOREIGN KEY / UNIQUE constraints on tables in the
+  // public schema, with their canonical definition (pg_get_constraintdef) so we
+  // can detect a constraint a migration creates but that is missing here, or one
+  // redefined out of band (e.g. an FK with a different ON DELETE rule, or a
+  // relaxed CHECK). PRIMARY KEY (contype 'p') is excluded — it's declared in
+  // shared/schema.ts and already covered by the column audit. Extension-owned
+  // constraints are excluded via pg_depend so a future `CREATE EXTENSION` does
+  // not trip the audit. conrelid <> 0 restricts to table constraints (skips any
+  // domain CHECKs).
+  const { rows: constraintRows } = await pool.query<{
+    constraint_name: string;
+    constraint_def: string;
+  }>(
+    `SELECT con.conname AS constraint_name,
+            pg_get_constraintdef(con.oid) AS constraint_def
+       FROM pg_constraint con
+       JOIN pg_namespace n ON n.oid = con.connamespace
+       WHERE n.nspname = 'public'
+         AND con.contype IN ('c', 'f', 'u')
+         AND con.conrelid <> 0
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_depend d WHERE d.objid = con.oid AND d.deptype = 'e'
+         )
+       ORDER BY con.conname`,
   );
   await pool.end();
 
@@ -414,10 +443,96 @@ async function main() {
     console.log("");
   }
 
+  // ---- Constraint drift ---------------------------------------------------
+  // CHECK / FOREIGN KEY / UNIQUE constraints declared in shared/schema.ts are
+  // emitted into the migrations but not modelled by drizzle's column audit.
+  // Diff their names and normalised definitions against the live DB so a missing
+  // constraint (migration never applied here → data-integrity guarantee gone) or
+  // one redefined out of band (e.g. a relaxed ON DELETE rule or CHECK) fails the
+  // gate the same way triggers/functions/indexes do.
+  const expectedConstraintDefs = parseMigrationConstraintDefs(migrationSql);
+  const actualConstraintDefs = new Map(
+    constraintRows.map((r) => [
+      r.constraint_name,
+      normalizeConstraintDef(r.constraint_def ?? ""),
+    ]),
+  );
+
+  const constraintDiff = diffDbObjects(
+    new Set(expectedConstraintDefs.keys()),
+    new Set(actualConstraintDefs.keys()),
+    KNOWN_UNDECLARED_CONSTRAINTS,
+  );
+  const constraintDefMismatches = diffObjectDefinitions(
+    expectedConstraintDefs,
+    actualConstraintDefs,
+  );
+
+  console.log(
+    `Constraint audit: ${expectedConstraintDefs.size} CHECK/FK/UNIQUE constraints in migrations, ${actualConstraintDefs.size} in DB.`,
+  );
+  console.log("");
+
+  const constraintsOk =
+    constraintDiff.missing.length === 0 &&
+    constraintDiff.extra.length === 0 &&
+    constraintDefMismatches.length === 0;
+  if (constraintsOk) {
+    console.log(
+      "OK: every CHECK/FK/UNIQUE constraint in migrations exists in the DB and matches.",
+    );
+  }
+
+  if (constraintDiff.missing.length > 0) {
+    console.log(`MISSING CONSTRAINTS (defined in a migration but not in the DB):`);
+    console.log(
+      `  A migration that creates these never applied here. The data-integrity`,
+    );
+    console.log(
+      `  guarantee they enforce (uniqueness, referential integrity, a CHECK) is`,
+    );
+    console.log(`  gone. Run db:migrate.`);
+    for (const c of constraintDiff.missing) console.log(`    - ${c}`);
+    console.log("");
+  }
+
+  if (constraintDiff.extra.length > 0) {
+    console.log(`OUT-OF-BAND CONSTRAINTS (in DB but created by no committed migration):`);
+    console.log(
+      `  Move the DDL into a migration, or allowlist it in KNOWN_UNDECLARED_CONSTRAINTS`,
+    );
+    console.log(`  in shared/db-object-audit.ts if it is intentionally unmanaged.`);
+    for (const c of constraintDiff.extra) console.log(`    - ${c}`);
+    console.log("");
+  }
+
+  if (constraintDefMismatches.length > 0) {
+    console.log(`REDEFINED CONSTRAINTS (definition in DB differs from its migration):`);
+    console.log(
+      `  These were changed out of band (e.g. a different ON DELETE rule, changed`,
+    );
+    console.log(
+      `  columns, or a loosened CHECK). A fresh db:migrate would build a different`,
+    );
+    console.log(`  constraint. Reconcile via a migration.`);
+    for (const m of constraintDefMismatches) {
+      console.log(`    - ${m.name}`);
+      console.log(`        migration: ${truncate(m.expected)}`);
+      console.log(`        live DB:   ${truncate(m.actual)}`);
+    }
+    console.log("");
+  }
+
   const hasColumnFailure =
     missingTables.length > 0 || missingCols.length > 0 || extraTables.length > 0;
   process.exit(
-    hasColumnFailure || !objectsOk || !definitionsOk || !indexesOk ? 1 : 0,
+    hasColumnFailure ||
+      !objectsOk ||
+      !definitionsOk ||
+      !indexesOk ||
+      !constraintsOk
+      ? 1
+      : 0,
   );
 }
 

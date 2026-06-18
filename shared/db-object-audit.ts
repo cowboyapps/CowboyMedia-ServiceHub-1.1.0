@@ -54,6 +54,15 @@ export const KNOWN_UNDECLARED_INDEXES = new Set<string>([
   "IDX_session_expire",
 ]);
 
+// CHECK / FOREIGN KEY / UNIQUE constraints that intentionally exist in the DB
+// without being created by a committed migration, so they are not flagged as
+// out-of-band extras. Mirrors KNOWN_UNDECLARED_INDEXES above. Currently empty:
+// the infra tables (session, __drizzle_migrations) carry only PRIMARY KEY
+// constraints, which this audit does not cover (see the constraint-drift block
+// below). Add a constraint name here only if it is genuinely managed outside
+// drizzle/migrations.
+export const KNOWN_UNDECLARED_CONSTRAINTS = new Set<string>([]);
+
 // Tables that intentionally exist in the DB without a corresponding
 // shared/schema.ts pgTable declaration, so they are not flagged as stray
 // orphans. These are infrastructure tables managed outside drizzle:
@@ -306,6 +315,114 @@ export function parseMigrationIndexDefs(
     events.sort((a, b) => a.index - b.index);
     for (const e of events) {
       if (e.def !== undefined) defs.set(e.name, normalizeIndexDef(e.def));
+      else defs.delete(e.name);
+    }
+  }
+
+  return defs;
+}
+
+// ---------------------------------------------------------------------------
+// Constraint drift
+// ---------------------------------------------------------------------------
+// CHECK / FOREIGN KEY / UNIQUE constraints declared in shared/schema.ts are
+// emitted into the migrations (inline `CONSTRAINT "x" UNIQUE(...)` inside
+// CREATE TABLE, or `ALTER TABLE ... ADD CONSTRAINT "x" FOREIGN KEY ...` for
+// references). They encode data-integrity guarantees: a UNIQUE that's missing
+// lets duplicates in, a FOREIGN KEY redefined with a different ON DELETE rule
+// silently changes cascade behaviour, a relaxed CHECK lets bad rows through.
+// None of that is modelled by drizzle's column audit, so a constraint a
+// migration creates but that is missing on an environment — or one redefined
+// out of band — drifts undetected until data integrity is already compromised.
+//
+// The committed migrations are the source of truth. We parse every c/f/u
+// constraint they create (net of later DROP CONSTRAINT, textually ordered like
+// the index/trigger/function parsers) and compare both NAMES (missing/extra via
+// diffDbObjects) and NORMALISED definitions (drift via diffObjectDefinitions)
+// against the live DB's `pg_get_constraintdef`.
+//
+// PRIMARY KEY (contype 'p') constraints are deliberately NOT audited here: they
+// are declared via the column/`PRIMARY KEY` modifier in shared/schema.ts and
+// already covered by the column audit, and the DB query filters to contype
+// IN ('c','f','u') to match. The parser likewise skips `PRIMARY KEY` so the two
+// sides stay symmetric.
+
+// Canonicalises a constraint definition so a hand/drizzle-written migration and
+// Postgres' `pg_get_constraintdef` form compare equal when they describe the
+// same constraint. pg_get_constraintdef emits uppercase keywords, no quotes
+// (for unreserved identifiers), no schema prefix for same-schema FK targets,
+// and OMITS the defaults `ON UPDATE NO ACTION` / `ON DELETE NO ACTION` /
+// `MATCH SIMPLE`; drizzle's migration text spells several of those out. We
+// therefore:
+//   - drop trailing semicolons and double quotes
+//   - strip the default `ON UPDATE/DELETE NO ACTION` and `MATCH SIMPLE` clauses
+//     drizzle emits but pg_get_constraintdef hides (a real, non-default
+//     ON DELETE CASCADE / SET NULL is kept and still compared)
+//   - strip a leading `public.` schema qualifier on the FK's referenced table
+//   - drop all parentheses so the column-list parens fold equally on both
+//     sides (`UNIQUE("a")` vs `UNIQUE (a)`, `FOREIGN KEY ("c")` vs
+//     `FOREIGN KEY (c)`), and pg's extra `CHECK ((expr))` wrapping folds too
+//   - collapse comma spacing, drop a trailing comma left by an inline
+//     constraint that wasn't the last table element, collapse whitespace
+//   - uppercase (identifiers here are lowercase snake_case, so uppercasing both
+//     sides equally keeps identifier comparison intact while absorbing keyword
+//     case). A genuine change (different columns, referenced table, or a
+//     loosened ON DELETE rule) still differs after normalisation.
+// NOTE: CHECK expressions are inherently lossy to compare — Postgres rewrites
+// them (e.g. `x IN ('a','b')` becomes `x = ANY (ARRAY['a'::text, ...])`), so a
+// future CHECK that trips a false positive should be reconciled via a migration
+// or, if intentionally unmanaged, allowlisted in KNOWN_UNDECLARED_CONSTRAINTS.
+export function normalizeConstraintDef(def: string): string {
+  return def
+    .replace(/;/g, " ")
+    .replace(/"/g, "")
+    .replace(/\bON\s+UPDATE\s+NO\s+ACTION\b/gi, " ")
+    .replace(/\bON\s+DELETE\s+NO\s+ACTION\b/gi, " ")
+    .replace(/\bMATCH\s+SIMPLE\b/gi, " ")
+    .replace(/\bpublic\./gi, "")
+    .replace(/[()]/g, " ")
+    .replace(/\s*,\s*/g, ",")
+    .replace(/,+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+// Walks the migration SQL IN ORDER and returns the NORMALISED definition for
+// each c/f/u constraint still defined at the end. An `ALTER TABLE ... DROP
+// CONSTRAINT` removes it; a later `ADD CONSTRAINT` of the same name wins.
+// Mirrors parseMigrationIndexDefs' net-presence logic. The key set of the
+// returned map is the authoritative list of constraint NAMES the migrations
+// expect, used directly by the name-level diff.
+//
+// Captures both constraint forms drizzle emits:
+//   - inline:  `CONSTRAINT "name" UNIQUE(...)` inside CREATE TABLE
+//   - altered: `ALTER TABLE ... ADD CONSTRAINT "name" FOREIGN KEY (...) ...;`
+// The definition runs from the type keyword to the first `;` (ALTER form, one
+// statement per line) or end-of-line (inline form, one constraint per line);
+// neither a column list nor an FK clause contains an inner `;` or newline, so
+// the `[^;\n]*` capture is safe. PRIMARY KEY is intentionally excluded to match
+// the DB-side contype IN ('c','f','u') filter.
+export function parseMigrationConstraintDefs(
+  sqlTexts: string[],
+): Map<string, string> {
+  const defs = new Map<string, string>();
+  const createRe =
+    /\b(?:ADD\s+)?CONSTRAINT\s+"?([a-zA-Z0-9_]+)"?\s+((?:FOREIGN\s+KEY|UNIQUE|CHECK)[^;\n]*)/gi;
+  const dropRe =
+    /\bDROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?"?([a-zA-Z0-9_]+)"?/gi;
+
+  for (const sql of sqlTexts) {
+    const events: Array<{ index: number; name: string; def?: string }> = [];
+    for (const m of sql.matchAll(createRe)) {
+      events.push({ index: m.index ?? 0, name: m[1], def: m[2] });
+    }
+    for (const m of sql.matchAll(dropRe)) {
+      events.push({ index: m.index ?? 0, name: m[1] });
+    }
+    events.sort((a, b) => a.index - b.index);
+    for (const e of events) {
+      if (e.def !== undefined) defs.set(e.name, normalizeConstraintDef(e.def));
       else defs.delete(e.name);
     }
   }

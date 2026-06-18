@@ -3,15 +3,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  KNOWN_UNDECLARED_CONSTRAINTS,
   KNOWN_UNDECLARED_FUNCTIONS,
   KNOWN_UNDECLARED_INDEXES,
   KNOWN_UNDECLARED_TRIGGERS,
   KNOWN_UNMANAGED_TABLES,
   diffDbObjects,
   diffObjectDefinitions,
+  normalizeConstraintDef,
   normalizeFunctionBody,
   normalizeIndexDef,
   normalizeTriggerDef,
+  parseMigrationConstraintDefs,
   parseMigrationDbObjects,
   parseMigrationFunctionBodies,
   parseMigrationIndexDefs,
@@ -320,4 +323,153 @@ test("0026 GIN index parses to a def matching its pg_get_indexdef form", () => {
     "CREATE INDEX kb_articles_search_vector_idx ON public.kb_articles USING gin (search_vector)",
   );
   assert.equal(def, pgForm);
+});
+
+// ---- Constraint drift -----------------------------------------------------
+
+test("normalizeConstraintDef folds inline UNIQUE migration text and pg_get_constraintdef equal", () => {
+  const migration = `UNIQUE("name")`;
+  const pgForm = `UNIQUE (name)`;
+  assert.equal(normalizeConstraintDef(migration), normalizeConstraintDef(pgForm));
+});
+
+test("normalizeConstraintDef folds a composite UNIQUE equal across comma spacing", () => {
+  const migration = `UNIQUE("user_id","whmcs_ticket_id")`;
+  const pgForm = `UNIQUE (user_id, whmcs_ticket_id)`;
+  assert.equal(normalizeConstraintDef(migration), normalizeConstraintDef(pgForm));
+});
+
+test("normalizeConstraintDef folds an FK with ON DELETE CASCADE equal (quotes, schema, default ON UPDATE)", () => {
+  // drizzle spells out `ON UPDATE no action` (the default) and schema-qualifies
+  // the referenced table; pg_get_constraintdef hides the default and drops the
+  // public. prefix. Both must normalise equal.
+  const migration = `FOREIGN KEY ("service_id") REFERENCES "public"."services"("id") ON DELETE cascade ON UPDATE no action`;
+  const pgForm = `FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE`;
+  assert.equal(normalizeConstraintDef(migration), normalizeConstraintDef(pgForm));
+});
+
+test("normalizeConstraintDef folds an FK with ON DELETE SET NULL equal", () => {
+  const migration = `FOREIGN KEY ("published_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action`;
+  const pgForm = `FOREIGN KEY (published_by) REFERENCES users(id) ON DELETE SET NULL`;
+  assert.equal(normalizeConstraintDef(migration), normalizeConstraintDef(pgForm));
+});
+
+test("normalizeConstraintDef folds a fully-default FK equal (both ON clauses omitted by pg)", () => {
+  const migration = `FOREIGN KEY ("a") REFERENCES "public"."t"("id") ON DELETE no action ON UPDATE no action`;
+  const pgForm = `FOREIGN KEY (a) REFERENCES t(id)`;
+  assert.equal(normalizeConstraintDef(migration), normalizeConstraintDef(pgForm));
+});
+
+test("normalizeConstraintDef strips a trailing comma left by a non-last inline constraint", () => {
+  const withComma = `UNIQUE("email"),`;
+  const without = `UNIQUE("email")`;
+  assert.equal(normalizeConstraintDef(withComma), normalizeConstraintDef(without));
+});
+
+test("normalizeConstraintDef still differs for a loosened ON DELETE rule", () => {
+  const cascade = normalizeConstraintDef(
+    `FOREIGN KEY ("a") REFERENCES "public"."t"("id") ON DELETE cascade ON UPDATE no action`,
+  );
+  const setNull = normalizeConstraintDef(
+    `FOREIGN KEY (a) REFERENCES t(id) ON DELETE SET NULL`,
+  );
+  assert.notEqual(cascade, setNull);
+});
+
+test("normalizeConstraintDef still differs for a changed UNIQUE column", () => {
+  const a = normalizeConstraintDef(`UNIQUE("email")`);
+  const b = normalizeConstraintDef(`UNIQUE (username)`);
+  assert.notEqual(a, b);
+});
+
+test("parseMigrationConstraintDefs captures inline UNIQUE and ALTER ADD FOREIGN KEY", () => {
+  const createTable = `
+    CREATE TABLE "admin_roles" (
+    "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "name" text NOT NULL,
+    CONSTRAINT "admin_roles_name_unique" UNIQUE("name")
+    );
+  `;
+  const alter = `ALTER TABLE "changelog_entries" ADD CONSTRAINT "changelog_entries_published_by_users_id_fk" FOREIGN KEY ("published_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;`;
+  const defs = parseMigrationConstraintDefs([createTable, alter]);
+  assert.deepEqual(
+    [...defs.keys()].sort(),
+    [
+      "admin_roles_name_unique",
+      "changelog_entries_published_by_users_id_fk",
+    ],
+  );
+});
+
+test("parseMigrationConstraintDefs skips PRIMARY KEY constraints (covered by column audit)", () => {
+  const sql = `
+    CREATE TABLE "alert_services" (
+    "alert_id" varchar NOT NULL,
+    "service_id" varchar NOT NULL,
+    CONSTRAINT "alert_services_alert_id_service_id_pk" PRIMARY KEY("alert_id","service_id")
+    );
+  `;
+  const defs = parseMigrationConstraintDefs([sql]);
+  assert.equal(defs.has("alert_services_alert_id_service_id_pk"), false);
+  assert.equal(defs.size, 0);
+});
+
+test("parseMigrationConstraintDefs: DROP CONSTRAINT nets out the constraint (textual order)", () => {
+  const earlier = `ALTER TABLE "t" ADD CONSTRAINT "t_a_unique" UNIQUE("a");`;
+  const later = `ALTER TABLE "t" DROP CONSTRAINT "t_a_unique";`;
+  const defs = parseMigrationConstraintDefs([earlier, later]);
+  assert.equal(defs.has("t_a_unique"), false);
+});
+
+test("parseMigrationConstraintDefs: DROP + re-ADD with a new rule keeps the new def", () => {
+  const original = `ALTER TABLE "t" ADD CONSTRAINT "t_a_fk" FOREIGN KEY ("a") REFERENCES "public"."u"("id") ON DELETE cascade ON UPDATE no action;`;
+  const later = `
+    ALTER TABLE "t" DROP CONSTRAINT "t_a_fk";
+    ALTER TABLE "t" ADD CONSTRAINT "t_a_fk" FOREIGN KEY ("a") REFERENCES "public"."u"("id") ON DELETE set null ON UPDATE no action;
+  `;
+  const defs = parseMigrationConstraintDefs([original, later]);
+  assert.equal(
+    defs.get("t_a_fk"),
+    normalizeConstraintDef(`FOREIGN KEY (a) REFERENCES u(id) ON DELETE SET NULL`),
+  );
+});
+
+test("constraint allowlist is empty by default but suppresses extra-in-DB findings", () => {
+  assert.equal(KNOWN_UNDECLARED_CONSTRAINTS.size, 0);
+  const diff = diffDbObjects(
+    new Set(["users_username_unique"]),
+    new Set(["users_username_unique", "rogue_constraint"]),
+    new Set(["rogue_constraint"]),
+  );
+  assert.deepEqual(diff.extra, []);
+  assert.deepEqual(diff.missing, []);
+});
+
+test("baseline + later migrations parse to constraint defs matching their pg_get_constraintdef form", () => {
+  const migrationsDir = join(process.cwd(), "migrations");
+  const baseline = readFileSync(
+    join(migrationsDir, "0000_baseline.sql"),
+    "utf-8",
+  );
+  const fk = readFileSync(
+    join(migrationsDir, "0016_lyrical_stryfe.sql"),
+    "utf-8",
+  );
+  const defs = parseMigrationConstraintDefs([baseline, fk]);
+
+  const unique = defs.get("users_username_unique");
+  assert.ok(unique, "users_username_unique should be captured");
+  assert.equal(unique, normalizeConstraintDef("UNIQUE (username)"));
+
+  const fkDef = defs.get("whmcs_product_mappings_service_id_services_id_fk");
+  assert.ok(fkDef, "the whmcs FK should be captured");
+  assert.equal(
+    fkDef,
+    normalizeConstraintDef(
+      "FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE",
+    ),
+  );
+
+  // PRIMARY KEY constraints in the baseline are not parsed (contype excluded).
+  assert.equal(defs.has("poll_votes_poll_id_option_id_user_id_pk"), false);
 });
