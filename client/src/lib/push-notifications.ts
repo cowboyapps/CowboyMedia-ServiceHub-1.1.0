@@ -86,6 +86,26 @@ function reportPushDiagnostic(stage: string, detail: string): void {
 // (e.g. SecurityError when Safari has site data / cookies blocked).
 let lastSwRegisterError = "";
 
+// Captured result of probing /sw.js over the network at failure time. The
+// SecurityError "Scope URL should start with the given script URL" is the
+// textbook symptom of the worker script being HTTP-redirected before it loads
+// (a VPN / iCloud Private Relay / content-filter / configuration profile on the
+// device can do this invisibly — Safari's address bar silently follows the
+// redirect so a human can't see it). `fetch(..., {redirect:"manual"})` does NOT
+// follow it: a redirected response surfaces as type "opaqueredirect", which is
+// the smoking gun. A clean install instead reports e.g. "200/basic".
+let lastSwFetchProbe = "";
+
+async function probeSwScript(): Promise<string> {
+  try {
+    const res = await fetch("/sw.js", { redirect: "manual", cache: "no-store" });
+    if (res.type === "opaqueredirect") return "redirected";
+    return `${res.status}/${res.type}${res.redirected ? "+redir" : ""}`;
+  } catch (e) {
+    return `err:${describeError(e)}`;
+  }
+}
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!("serviceWorker" in navigator)) {
     lastSwRegisterError = "no serviceWorker in navigator";
@@ -94,10 +114,12 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   try {
     const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
     lastSwRegisterError = "";
+    lastSwFetchProbe = "";
     return registration;
   } catch (e) {
     lastSwRegisterError = describeError(e);
-    console.error("SW registration failed:", e);
+    lastSwFetchProbe = await probeSwScript();
+    console.error("SW registration failed:", e, "| /sw.js probe:", lastSwFetchProbe);
     // Self-heal: after repeated failed installs iOS can wedge its service-worker
     // store and then reject EVERY register() with
     //   SecurityError: Scope URL should start with the given script URL
@@ -196,6 +218,9 @@ function swSnapshot(
     ];
     if (!registered && lastSwRegisterError) {
       parts.push(`err=${lastSwRegisterError}`);
+    }
+    if (!registered && lastSwFetchProbe) {
+      parts.push(`fetch=${lastSwFetchProbe}`);
     }
     return parts.join(" ");
   } catch {
