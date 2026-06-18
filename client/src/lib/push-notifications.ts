@@ -79,12 +79,24 @@ function reportPushDiagnostic(stage: string, detail: string): void {
   }
 }
 
+// Captured reason of the most recent registerServiceWorker() failure. iOS
+// swallows the SW register() rejection (we return null), so we stash the reason
+// here to surface it in the failure snapshot — register() throwing is the
+// difference between "worker stuck activating" and "worker can't exist at all"
+// (e.g. SecurityError when Safari has site data / cookies blocked).
+let lastSwRegisterError = "";
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (!("serviceWorker" in navigator)) return null;
+  if (!("serviceWorker" in navigator)) {
+    lastSwRegisterError = "no serviceWorker in navigator";
+    return null;
+  }
   try {
     const registration = await navigator.serviceWorker.register("/sw.js");
+    lastSwRegisterError = "";
     return registration;
   } catch (e) {
+    lastSwRegisterError = describeError(e);
     console.error("SW registration failed:", e);
     return null;
   }
@@ -151,14 +163,18 @@ function swSnapshot(
   try {
     const controller =
       "serviceWorker" in navigator ? navigator.serviceWorker.controller : null;
-    return [
+    const parts = [
       `reg=${registered ? "ok" : "null"}`,
       `got=${reg ? "y" : "n"}`,
       `active=${reg?.active?.state || "-"}`,
       `inst=${reg?.installing?.state || "-"}`,
       `wait=${reg?.waiting?.state || "-"}`,
       `ctrl=${controller ? "y" : "n"}`,
-    ].join(" ");
+    ];
+    if (!registered && lastSwRegisterError) {
+      parts.push(`err=${lastSwRegisterError}`);
+    }
+    return parts.join(" ");
   } catch {
     return "snapshot-failed";
   }
