@@ -6542,14 +6542,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // the orderable catalogue is gated by the admin product→service mapping
   // allowlist: only products an admin has explicitly mapped are offerable. An
   // unmapped product (including any Hidden/Retired one) can never reach the
-  // customer order picker or be ordered. Upgrades keep the unrestricted loader.
+  // customer order picker, be ordered, OR be offered/accepted as a plan-change
+  // (upgrade/downgrade) target — both flows share this mapped loader.
+  const loadMappedOrderableProducts = async () => {
+    const mappings = await storage.listWhmcsProductMappings();
+    const allowedPids = mappings.map((m) => m.whmcsProductId);
+    return loadOrderableProductsBilling(undefined, null, allowedPids);
+  };
   const orderableDeps = {
     ...orderRouteDeps,
-    loadOrderableProducts: async () => {
-      const mappings = await storage.listWhmcsProductMappings();
-      const allowedPids = mappings.map((m) => m.whmcsProductId);
-      return loadOrderableProductsBilling(undefined, null, allowedPids);
-    },
+    loadOrderableProducts: loadMappedOrderableProducts,
+  };
+  // The change-plan (upgrade/downgrade) flow shares the same mapped allowlist so
+  // an unmapped/hidden product can't be offered or accepted as an upgrade target.
+  const upgradeRouteDeps = {
+    ...orderRouteDeps,
+    loadOrderableProducts: loadMappedOrderableProducts,
   };
   app.get("/api/billing/products", requireAuth, createListOrderableProductsHandler(orderableDeps));
   const placeOrder = createPlaceOrderHandler(orderableDeps);
@@ -6574,9 +6582,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get(
     "/api/billing/services/:serviceId/upgrade-options",
     requireAuth,
-    createUpgradeOptionsHandler(orderRouteDeps),
+    createUpgradeOptionsHandler(upgradeRouteDeps),
   );
-  const submitUpgrade = createSubmitUpgradeHandler(orderRouteDeps);
+  const submitUpgrade = createSubmitUpgradeHandler(upgradeRouteDeps);
   app.post(
     "/api/billing/services/:serviceId/upgrade",
     requireAuth,

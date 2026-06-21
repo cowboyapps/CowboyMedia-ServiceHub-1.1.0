@@ -236,6 +236,52 @@ test("options: empty set when the current product isn't in the catalogue", async
   assert.deepEqual(body.options, []);
 });
 
+test("options: excludes a same-group product the mapped allowlist drops", async () => {
+  // The route wires loadOrderableProducts to the admin product->service mapping
+  // allowlist (same as the order picker), so an unmapped/hidden product never
+  // reaches the catalogue. Here pid 12 is omitted as if it weren't mapped.
+  const mapped = (): UpgradeRouteDeps["loadOrderableProducts"] =>
+    async (): Promise<OrderableProductsData> => ({
+      products: CATALOGUE.filter((p) => p.pid !== 12),
+      unreachable: false,
+    });
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okServices([svc(100, 10)]),
+    loadOrderableProducts: mapped(),
+    calcUpgrade: noCalc(),
+  });
+  const { status, body } = await get(app, "/api/billing/services/100/upgrade-options");
+  assert.equal(status, 200);
+  const pids = body.options.map((o: any) => o.pid).sort();
+  assert.deepEqual(pids, [11]);
+  assert.ok(!pids.includes(12));
+});
+
+test("upgrade: rejects a target the mapped allowlist drops (404, no write)", async () => {
+  let called = false;
+  // pid 12 is in the current group but absent from the mapped catalogue, so it
+  // must be rejected just like an out-of-group target — no write.
+  const mapped = (): UpgradeRouteDeps["loadOrderableProducts"] =>
+    async (): Promise<OrderableProductsData> => ({
+      products: CATALOGUE.filter((p) => p.pid !== 12),
+      unreachable: false,
+    });
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadServicesList: okServices([svc(100, 10)]),
+    loadOrderableProducts: mapped(),
+    loadPaymentMethods: okMethods(),
+    submitUpgrade: async (): Promise<WhmcsRawFetch> => { called = true; return { ok: true }; },
+  });
+  const { status, body } = await post(app, "/api/billing/services/100/upgrade", { newProductId: 12, billingCycle: "monthly" });
+  assert.equal(status, 404);
+  assert.equal(body.ok, false);
+  assert.equal(called, false);
+});
+
 test("options: 502 when the services list is unreachable", async () => {
   const app = makeApp({
     sessionUserId: "u1",
