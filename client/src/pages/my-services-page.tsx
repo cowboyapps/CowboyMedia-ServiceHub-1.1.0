@@ -1175,12 +1175,12 @@ function MyActiveServices() {
 
   return (
     <div data-testid="my-active-services">
-      <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-2">
         <div className="flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold" data-testid="heading-active-services">Active services</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <AddServiceFlow />
           <AddProductFlow />
         </div>
