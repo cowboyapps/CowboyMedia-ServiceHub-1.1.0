@@ -697,6 +697,47 @@ export interface AddOrderInput {
   billingCycle: string;
   paymentMethod: string;
   domain?: string;
+  /**
+   * Configurable-option answers keyed by the WHMCS configurable-option id. The
+   * value is the chosen option id (dropdown/radio) or the quantity (quantity
+   * options). Serialized for AddOrder; omitted when empty.
+   */
+  configOptions?: Record<number, number>;
+  /**
+   * Custom-field answers keyed by the WHMCS custom-field id. Serialized for
+   * AddOrder; omitted when empty.
+   */
+  customFields?: Record<number, string>;
+}
+
+/**
+ * Minimal PHP `serialize()` for the flat `int => (int|string)` maps WHMCS's
+ * AddOrder expects for `configoptions` / `customfields` (each must be a
+ * base64-encoded serialized PHP array). Only the shapes we send are handled:
+ * integer keys, integer or string values. String lengths are BYTE lengths
+ * (PHP counts bytes, not code points). Pure → unit-tested. Exported for tests.
+ */
+export function phpSerializeIntMap(map: Record<number, number | string>): string {
+  const entries = Object.entries(map);
+  let out = `a:${entries.length}:{`;
+  for (const [k, v] of entries) {
+    out += `i:${Number(k)};`;
+    if (typeof v === "number") {
+      out += `i:${Math.trunc(v)};`;
+    } else {
+      out += `s:${Buffer.byteLength(v, "utf8")}:"${v}";`;
+    }
+  }
+  out += "}";
+  return out;
+}
+
+/** Base64-encoded PHP-serialized map, or undefined when the map is empty. */
+function encodeOrderMap(map: Record<number, number | string> | undefined): string | undefined {
+  if (!map) return undefined;
+  const entries = Object.entries(map);
+  if (entries.length === 0) return undefined;
+  return Buffer.from(phpSerializeIntMap(map), "utf8").toString("base64");
 }
 
 /**
@@ -717,6 +758,10 @@ export async function addOrder(input: AddOrderInput): Promise<WhmcsRawFetch> {
   };
   const domain = (input.domain ?? "").trim();
   if (domain) params.domain = domain;
+  const configoptions = encodeOrderMap(input.configOptions);
+  if (configoptions) params.configoptions = configoptions;
+  const customfields = encodeOrderMap(input.customFields);
+  if (customfields) params.customfields = customfields;
   return whmcsApiCall("AddOrder", params);
 }
 

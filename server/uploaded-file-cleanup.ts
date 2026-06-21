@@ -17,6 +17,7 @@ import {
   kbArticles,
   announcements,
   changelogEntries,
+  storeProducts,
 } from "@shared/schema";
 
 // Pulls the bare filename out of a `/uploads/<filename>` URL. Returns null for
@@ -105,6 +106,7 @@ export const uploadReferenceColumns: UploadReferenceColumn[] = [
   { table: downloads, column: downloads.imageUrl, match: "exact" },
   { table: threadMessages, column: threadMessages.imageUrl, match: "exact" },
   { table: communityMessages, column: communityMessages.imageUrl, match: "exact" },
+  { table: storeProducts, column: storeProducts.imageUrl, match: "exact" },
   // Rich-text HTML bodies with inline editor images (substring match):
   { table: newsStories, column: newsStories.content, match: "substring" },
   { table: kbArticles, column: kbArticles.bodyHtml, match: "substring" },

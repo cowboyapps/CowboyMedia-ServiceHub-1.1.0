@@ -1606,6 +1606,240 @@ export async function loadOrderableProducts(
   return { products, unreachable: false };
 }
 
+// --- Admin-curated storefront catalogue (Task #518) ---
+// The customer storefront shows ONLY products an admin curated (an enabled
+// `store_products` row) that still exist in the live WHMCS catalogue with at
+// least one orderable cycle. On top of the price/cycle data the order flow
+// already parses, the storefront also surfaces each product's configurable
+// options + custom fields so the customer can complete the order in-app.
+//
+// IMPORTANT: the stock WHMCS `GetProducts` API does NOT reliably return
+// `configoptions`/`customfields` for every install/version. These parsers are
+// defensive and simply yield empty arrays when the data is absent — in that
+// case the customer just picks product + term, exactly like the service flow.
+// (Verify the live shape against the production WHMCS before relying on config
+// options being present.)
+
+export interface StoreConfigOptionChoice {
+  /** WHMCS configurable-option SUB-option id (what AddOrder expects as the value). */
+  id: number;
+  name: string;
+}
+
+export type StoreConfigOptionType = "dropdown" | "radio" | "yesno" | "quantity";
+
+export interface StoreConfigOption {
+  /** WHMCS configurable-option id (the AddOrder map key). */
+  id: number;
+  name: string;
+  type: StoreConfigOptionType;
+  required: boolean;
+  /** Selectable sub-options for dropdown/radio; empty for quantity/yesno. */
+  choices: StoreConfigOptionChoice[];
+}
+
+export interface StoreCustomField {
+  /** WHMCS custom-field id (the AddOrder map key). */
+  id: number;
+  name: string;
+  description: string;
+  /** Lower-cased WHMCS field type, e.g. "text" | "textarea" | "dropdown" | "tickbox" | "password". */
+  fieldType: string;
+  required: boolean;
+  /** Selectable values for dropdown fields; empty otherwise. */
+  options: string[];
+}
+
+/** Map a raw WHMCS configurable-option type (numeric or label) to our union. */
+function normalizeConfigOptionType(raw: any): StoreConfigOptionType {
+  const s = String(raw ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  switch (s) {
+    case "1": case "dropdown": return "dropdown";
+    case "2": case "radio": return "radio";
+    case "3": case "yesno": return "yesno";
+    case "4": case "quantity": return "quantity";
+    default: return "dropdown";
+  }
+}
+
+/**
+ * Parse the configurable options off one raw WHMCS GetProducts row. Tolerant of
+ * the wrapper (`configoptions.configoption`) being absent, a single object, or an
+ * array, and of sub-options being either `{id,name}` objects or bare strings.
+ * Pure → unit-tested.
+ */
+export function parseStoreConfigOptions(raw: any): StoreConfigOption[] {
+  const rows = normalizeListField(raw?.configoptions, "configoption");
+  const out: StoreConfigOption[] = [];
+  for (const row of rows) {
+    const id = Number(row?.id ?? 0);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    const choices: StoreConfigOptionChoice[] = [];
+    for (const opt of normalizeListField(row?.options, "option")) {
+      if (opt && typeof opt === "object") {
+        const oid = Number(opt.id ?? 0);
+        const oname = String(opt.name ?? "").trim();
+        if (Number.isInteger(oid) && oid > 0) choices.push({ id: oid, name: oname || `Option ${oid}` });
+      }
+    }
+    out.push({
+      id,
+      name: String(row?.name ?? "").trim() || `Option ${id}`,
+      type: normalizeConfigOptionType(row?.type),
+      required: toBool(row?.required),
+      choices,
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse the custom fields off one raw WHMCS GetProducts row. Tolerant of the
+ * wrapper (`customfields.customfield`) shape and reads the field type/options
+ * from the several keys WHMCS has used across versions. Admin-only fields are
+ * dropped (customers never fill those). Pure → unit-tested.
+ */
+export function parseStoreCustomFields(raw: any): StoreCustomField[] {
+  const rows = normalizeListField(raw?.customfields, "customfield");
+  const out: StoreCustomField[] = [];
+  for (const row of rows) {
+    const id = Number(row?.id ?? 0);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    // WHMCS marks admin-only fields with adminonly "on"; never expose those.
+    if (toBool(row?.adminonly)) continue;
+    const fieldType = String(row?.fieldtype ?? row?.type ?? "text").trim().toLowerCase() || "text";
+    const optionsRaw = row?.fieldoptions ?? row?.options ?? "";
+    const options = String(optionsRaw)
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0);
+    out.push({
+      id,
+      name: String(row?.name ?? "").trim() || `Field ${id}`,
+      description: String(row?.description ?? "").trim(),
+      fieldType,
+      required: toBool(row?.required),
+      options,
+    });
+  }
+  return out;
+}
+
+/** Loose truthy coercion for WHMCS's "on"/"1"/true/"yes" flags. */
+function toBool(v: any): boolean {
+  if (v === true) return true;
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "on" || s === "1" || s === "yes" || s === "true";
+}
+
+/**
+ * The admin-curated metadata for ONE storefront product. Decoupled from the
+ * Drizzle row so the merge stays pure/testable. `name`/`description` are
+ * overrides (null → fall back to the live WHMCS values).
+ */
+export interface StoreCurationRow {
+  whmcsProductId: number;
+  name: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  category: string | null;
+  sortOrder: number;
+  enabled: boolean;
+}
+
+export interface StoreCatalogueProduct {
+  pid: number;
+  name: string;
+  description: string;
+  imageUrl: string | null;
+  category: string | null;
+  sortOrder: number;
+  currency: string | null;
+  cycles: OrderableProductCycle[];
+  configOptions: StoreConfigOption[];
+  customFields: StoreCustomField[];
+}
+
+export interface StoreCatalogueData {
+  products: StoreCatalogueProduct[];
+  unreachable: boolean;
+}
+
+/**
+ * Merge admin curation rows with the live WHMCS GetProducts rows into the
+ * customer storefront catalogue. A curated product is INCLUDED only when it (1)
+ * still exists in the live catalogue and (2) offers at least one orderable
+ * cycle. Display name/description fall back to the live WHMCS values when the
+ * admin left the override blank. Sorted by category (case-insensitive, blank
+ * last), then sortOrder, then name. Pure → unit-tested.
+ */
+export function assembleStoreCatalogue(
+  rawProducts: any[],
+  curation: StoreCurationRow[],
+  currency?: string | null,
+): StoreCatalogueProduct[] {
+  const byPid = new Map<number, any>();
+  for (const raw of rawProducts) {
+    const pid = Number(raw?.pid ?? raw?.id ?? 0);
+    if (Number.isInteger(pid) && pid > 0 && !byPid.has(pid)) byPid.set(pid, raw);
+  }
+  const products: StoreCatalogueProduct[] = [];
+  for (const row of curation) {
+    if (!row.enabled) continue;
+    const raw = byPid.get(row.whmcsProductId);
+    if (!raw) continue;
+    const parsed = parseOrderableProduct(raw, currency);
+    if (parsed.cycles.length === 0) continue;
+    const name = (row.name ?? "").trim() || parsed.name;
+    const description = (row.description ?? "").trim() || parsed.description;
+    const category = (row.category ?? "").trim() || null;
+    products.push({
+      pid: parsed.pid,
+      name,
+      description,
+      imageUrl: row.imageUrl ?? null,
+      category,
+      sortOrder: row.sortOrder,
+      currency: parsed.currency,
+      cycles: parsed.cycles,
+      configOptions: parseStoreConfigOptions(raw),
+      customFields: parseStoreCustomFields(raw),
+    });
+  }
+  products.sort((a, b) => {
+    const ca = (a.category ?? "").toLowerCase();
+    const cb = (b.category ?? "").toLowerCase();
+    // Blank category sorts last so named groups lead.
+    if (ca !== cb) {
+      if (ca === "") return 1;
+      if (cb === "") return -1;
+      return ca < cb ? -1 : 1;
+    }
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    return a.name.localeCompare(b.name);
+  });
+  return products;
+}
+
+/**
+ * Load the customer storefront catalogue: enabled curation rows merged with the
+ * live WHMCS catalogue. Skips the WHMCS round-trip entirely when nothing is
+ * curated. `unreachable` is true only when a needed WHMCS read failed.
+ * Injectable fetcher for tests.
+ */
+export async function loadStoreCatalogue(
+  curation: StoreCurationRow[],
+  fetchProducts: () => Promise<WhmcsRawFetch> = getProducts,
+  currency?: string | null,
+): Promise<StoreCatalogueData> {
+  const enabled = curation.filter((c) => c.enabled);
+  if (enabled.length === 0) return { products: [], unreachable: false };
+  const r = await fetchProducts();
+  if (!r.ok) return { products: [], unreachable: true };
+  const raw = normalizeListField(r.data?.products, "product");
+  return { products: assembleStoreCatalogue(raw, enabled, currency), unreachable: false };
+}
+
 export interface WhmcsPaymentMethod {
   module: string;
   displayName: string;

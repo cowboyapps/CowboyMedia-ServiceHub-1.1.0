@@ -44,7 +44,7 @@ import {
   getTicketAttachment as getWhmcsTicketAttachment,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummaryWithInvoiceServices, loadBillingDashboard, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds, loadOrderableProducts as loadOrderableProductsBilling } from "./whmcs-billing";
+import { loadBillingSummaryWithInvoiceServices, loadBillingDashboard, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds, loadOrderableProducts as loadOrderableProductsBilling, loadStoreCatalogue as loadStoreCatalogueBilling, type StoreCurationRow } from "./whmcs-billing";
 import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createListProductDnsHandler, createSetProductDnsHandler } from "./whmcs-product-dns-route";
@@ -60,6 +60,7 @@ import { createRequestCancellationHandler } from "./whmcs-cancel-route";
 import { createBillingRefreshHandler } from "./whmcs-refresh-route";
 import { createResetServicePasswordHandler } from "./whmcs-password-route";
 import { createListOrderableProductsHandler, createPlaceOrderHandler } from "./whmcs-order-route";
+import { createListStoreProductsHandler, createPlaceProductOrderHandler } from "./whmcs-store-route";
 import { createUpgradeOptionsHandler, createSubmitUpgradeHandler } from "./whmcs-upgrade-route";
 import { createAdminServiceActionHandler } from "./whmcs-admin-service-action-route";
 import { createWhmcsLinkHandler, createWhmcsUnlinkHandler, createWhmcsAutoMatchHandler } from "./whmcs-admin-link-route";
@@ -98,6 +99,7 @@ import {
   type DiscordPayload,
 } from "./discord";
 import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
+import { type InsertStoreProduct } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
 import { APP_VERSION } from "@shared/version";
 import { requireAgentToken } from "./agent-auth";
@@ -6579,6 +6581,47 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     },
   );
 
+  // Admin-curated WHMCS storefront (Task #518). The customer "Order new product"
+  // catalogue is gated by the admin `store_products` curation rows (enabled rows
+  // that still exist in the live WHMCS catalogue), independent of the service
+  // mapping allowlist. The order POST carries the product's configurable options
+  // + custom fields through to AddOrder, then reuses the same SSO pay handoff.
+  const storeDeps = {
+    ...orderRouteDeps,
+    loadStoreCatalogue: async () => {
+      const rows = await storage.listStoreProducts();
+      const curation: StoreCurationRow[] = rows.map((r) => ({
+        whmcsProductId: r.whmcsProductId,
+        name: r.name,
+        description: r.description,
+        imageUrl: r.imageUrl,
+        category: r.category,
+        sortOrder: r.sortOrder,
+        enabled: r.enabled,
+      }));
+      return loadStoreCatalogueBilling(curation);
+    },
+  };
+  app.get("/api/billing/store-products", requireAuth, createListStoreProductsHandler(storeDeps));
+  const placeProductOrder = createPlaceProductOrderHandler(storeDeps);
+  app.post(
+    "/api/billing/store-order",
+    requireAuth,
+    bypassRateLimitForAdmins,
+    createWhmcsOrderLimiter(),
+    async (req, res) => {
+      await placeProductOrder(req, res);
+      await invalidateBillingAfterSelfAction(req, res);
+      const userId = req.session.userId;
+      if (res.statusCode === 200 && userId) {
+        logActivity("user", "whmcs_product_order_placed", {
+          actorId: userId,
+          summary: "Placed a new product order",
+        });
+      }
+    },
+  );
+
   app.get(
     "/api/billing/services/:serviceId/upgrade-options",
     requireAuth,
@@ -6777,6 +6820,139 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.json({ ok: true, products: result.products ?? [] });
     } catch (e) {
       res.status(500).json({ ok: false, error: getErrorMessage(e) });
+    }
+  });
+
+  // --- Admin-curated WHMCS storefront CRUD (Task #518) ---
+  // Pure DB reads/writes (the curation metadata lives entirely in ServiceHub);
+  // works even when WHMCS is unreachable. The optional product image is stored
+  // as an `uploaded_files` blob like every other in-app upload.
+  const cleanStoreStr = (v: unknown): string | null => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s.length > 0 ? s : null;
+  };
+  const parseStoreSortOrder = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  };
+  const parseStoreBool = (v: unknown, dflt: boolean): boolean => {
+    if (v === undefined || v === null || v === "") return dflt;
+    const s = String(v).trim().toLowerCase();
+    return s === "true" || s === "1" || s === "on" || s === "yes";
+  };
+
+  app.get("/api/admin/store-products", requireAdmin, async (_req, res) => {
+    try {
+      const products = await storage.listStoreProducts();
+      res.json({ products });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.post("/api/admin/store-products", requireAdmin, withUpload("image"), async (req, res) => {
+    try {
+      const whmcsProductId = Number(req.body?.whmcsProductId);
+      if (!Number.isInteger(whmcsProductId) || whmcsProductId <= 0) {
+        return res.status(400).json({ message: "A valid WHMCS product id is required" });
+      }
+      const existing = await storage.getStoreProductByPid(whmcsProductId);
+      if (existing) {
+        return res.status(409).json({ message: "That WHMCS product is already in the store." });
+      }
+      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
+      let product;
+      try {
+        product = await storage.createStoreProduct({
+          whmcsProductId,
+          name: cleanStoreStr(req.body?.name),
+          description: cleanStoreStr(req.body?.description),
+          imageUrl,
+          category: cleanStoreStr(req.body?.category),
+          sortOrder: parseStoreSortOrder(req.body?.sortOrder),
+          enabled: parseStoreBool(req.body?.enabled, true),
+        });
+      } catch (e) {
+        // The blob was persisted before the row; a failed insert (e.g. a race on
+        // the unique pid, or a transient DB error) would otherwise orphan it.
+        if (imageUrl) await deleteUploadedFileIfUnreferenced(imageUrl);
+        throw e;
+      }
+      logActivity("setting", "store_product_created", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Added WHMCS product #${whmcsProductId} to the store`,
+      });
+      res.json({ product });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.patch("/api/admin/store-products/:id", requireAdmin, withUpload("image"), async (req, res) => {
+    try {
+      const id = getParam(req, "id");
+      const existing = await storage.getStoreProduct(id);
+      if (!existing) return res.status(404).json({ message: "Store product not found" });
+
+      const update: Partial<InsertStoreProduct> = {};
+      if (req.body?.name !== undefined) update.name = cleanStoreStr(req.body.name);
+      if (req.body?.description !== undefined) update.description = cleanStoreStr(req.body.description);
+      if (req.body?.category !== undefined) update.category = cleanStoreStr(req.body.category);
+      if (req.body?.sortOrder !== undefined) update.sortOrder = parseStoreSortOrder(req.body.sortOrder);
+      if (req.body?.enabled !== undefined) update.enabled = parseStoreBool(req.body.enabled, existing.enabled);
+
+      // Image handling: a new upload replaces the old blob; `removeImage=true`
+      // clears it. The previous blob is removed only when nothing else still
+      // references it (shared `uploaded_files` store).
+      let oldImageToCleanup: string | null = null;
+      let newImageToRollback: string | null = null;
+      if (req.file) {
+        update.imageUrl = await saveUploadedFile(req.file);
+        newImageToRollback = update.imageUrl;
+        oldImageToCleanup = existing.imageUrl;
+      } else if (parseStoreBool(req.body?.removeImage, false)) {
+        update.imageUrl = null;
+        oldImageToCleanup = existing.imageUrl;
+      }
+
+      let product;
+      try {
+        product = await storage.updateStoreProduct(id, update);
+      } catch (e) {
+        // A new blob was persisted before the row update; a failed update would
+        // otherwise orphan it (the old blob stays referenced and untouched).
+        if (newImageToRollback) await deleteUploadedFileIfUnreferenced(newImageToRollback);
+        throw e;
+      }
+      if (oldImageToCleanup && oldImageToCleanup !== product?.imageUrl) {
+        await deleteUploadedFileIfUnreferenced(oldImageToCleanup);
+      }
+      logActivity("setting", "store_product_updated", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Updated store product #${existing.whmcsProductId}`,
+      });
+      res.json({ product });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.delete("/api/admin/store-products/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = getParam(req, "id");
+      const removed = await storage.deleteStoreProduct(id);
+      if (!removed) return res.status(404).json({ message: "Store product not found" });
+      if (removed.imageUrl) await deleteUploadedFileIfUnreferenced(removed.imageUrl);
+      logActivity("setting", "store_product_deleted", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Removed store product #${removed.whmcsProductId}`,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 

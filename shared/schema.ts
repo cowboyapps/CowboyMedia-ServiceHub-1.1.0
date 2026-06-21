@@ -885,6 +885,22 @@ export const submitUpgradeSchema = z.object({
 
 export type SubmitUpgradeData = z.infer<typeof submitUpgradeSchema>;
 
+// Customer storefront order (Task #518). Like `placeOrderSchema` but also carries
+// the product's configurable options + custom field answers. Config option values
+// are WHMCS option ids (for dropdown/radio) or quantities (for quantity options),
+// keyed by the WHMCS configurable-option id. Custom field answers are free text
+// (or a chosen dropdown value), keyed by the WHMCS custom-field id. Both keys are
+// the numeric WHMCS ids as strings; the server re-validates every value against
+// the live catalogue before placing the order.
+export const placeProductOrderSchema = z.object({
+  pid: z.coerce.number().int().positive(),
+  billingCycle: orderBillingCycleEnum,
+  configOptions: z.record(z.string().regex(/^\d+$/), z.coerce.number().int().nonnegative()).optional(),
+  customFields: z.record(z.string().regex(/^\d+$/), z.string().max(2000)).optional(),
+});
+
+export type PlaceProductOrderData = z.infer<typeof placeProductOrderSchema>;
+
 // Admin service module actions (Task #454). Staff-only suspend/unsuspend/
 // terminate against a customer's live WHMCS service. The action is taken from
 // the route path; this schema validates only the optional suspend reason.
@@ -922,6 +938,38 @@ export const insertWhmcsProductMappingSchema = createInsertSchema(whmcsProductMa
 
 export type WhmcsProductMapping = typeof whmcsProductMappings.$inferSelect;
 export type InsertWhmcsProductMapping = z.infer<typeof insertWhmcsProductMappingSchema>;
+
+// Admin-curated WHMCS product storefront (Task #518). Each row enriches ONE
+// WHMCS product (keyed uniquely by its pid) with display metadata so admins can
+// present a polished "Order new product" catalogue to customers without exposing
+// the raw WHMCS product list. This is INDEPENDENT of `whmcs_product_mappings`
+// (which gates the service/upgrade picker): a product appears in the customer
+// storefront only when it has an ENABLED row here AND still exists in the live
+// WHMCS catalogue with at least one orderable cycle. `name`/`description` are
+// optional overrides (fall back to the live WHMCS name/description when null);
+// `imageUrl` points at an `uploaded_files` blob (`/uploads/<uuid>`); `category`
+// groups products in the picker; `sortOrder` orders within a category. The pid
+// is NOT FK-checked (it lives in WHMCS) — a row for a deleted WHMCS product
+// simply never matches the live catalogue and is harmless.
+export const storeProducts = pgTable("store_products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  whmcsProductId: integer("whmcs_product_id").notNull().unique(),
+  name: text("name"),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  category: text("category"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertStoreProductSchema = createInsertSchema(storeProducts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type StoreProduct = typeof storeProducts.$inferSelect;
+export type InsertStoreProduct = z.infer<typeof insertStoreProductSchema>;
 
 // Per-WHMCS-product DNS (connection address) set by admins (Task #473). Keyed
 // uniquely by the WHMCS product id (pid) — the DNS is a property of the product

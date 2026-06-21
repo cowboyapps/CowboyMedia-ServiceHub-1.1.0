@@ -7248,6 +7248,273 @@ interface WhmcsProductMappingRow {
   serviceIds: string[];
 }
 
+interface StoreProductRow {
+  id: string;
+  whmcsProductId: number;
+  name: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  category: string | null;
+  sortOrder: number;
+  enabled: boolean;
+}
+
+// Admin UI to curate the customer-facing WHMCS storefront (Task #518). Admin
+// picks a live WHMCS product and enriches it (display name, blurb, image,
+// category, sort order, enabled). Enabled rows that still exist in WHMCS become
+// the customer "Order new product" catalogue. The WHMCS product picker is live;
+// the curated rows are a pure DB read so they render even when WHMCS is down.
+function StoreProductsSection() {
+  const { toast } = useToast();
+  const emptyForm = { whmcsProductId: "", name: "", description: "", category: "", sortOrder: "0", enabled: true };
+  const [form, setForm] = useState<typeof emptyForm>({ ...emptyForm });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: productsData, isLoading: productsLoading } = useQuery<{
+    ok: boolean;
+    products?: WhmcsProductSummary[];
+    error?: string;
+    reason?: string;
+  }>({ queryKey: ["/api/admin/whmcs/products"] });
+
+  const { data: storeData } = useQuery<{ products: StoreProductRow[] }>({
+    queryKey: ["/api/admin/store-products"],
+  });
+
+  const whmcsProducts = productsData?.ok ? productsData.products ?? [] : [];
+  const storeProducts = storeData?.products ?? [];
+  const curatedPids = new Set(storeProducts.map((p) => p.whmcsProductId));
+  // When adding, hide products already in the store. When editing, keep the
+  // current product visible so its <SelectItem> can stay selected.
+  const availableProducts = whmcsProducts.filter(
+    (p) => !curatedPids.has(p.id) || String(p.id) === form.whmcsProductId,
+  );
+
+  const whmcsName = (pid: number) => {
+    const p = whmcsProducts.find((p) => p.id === pid);
+    if (!p) return `Product #${pid}`;
+    return p.groupName ? `${p.name} · ${p.groupName}` : p.name;
+  };
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/store-products"] });
+
+  const resetForm = () => {
+    setForm({ ...emptyForm });
+    setEditingId(null);
+    setImageFile(null);
+    setRemoveImage(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData();
+      if (!editingId) fd.append("whmcsProductId", form.whmcsProductId);
+      fd.append("name", form.name);
+      fd.append("description", form.description);
+      fd.append("category", form.category);
+      fd.append("sortOrder", form.sortOrder);
+      fd.append("enabled", String(form.enabled));
+      if (imageFile) fd.append("image", imageFile);
+      if (editingId && removeImage && !imageFile) fd.append("removeImage", "true");
+      const url = editingId ? `/api/admin/store-products/${editingId}` : "/api/admin/store-products";
+      const res = await fetch(url, { method: editingId ? "PATCH" : "POST", body: fd, credentials: "include" });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.message || "Failed to save product");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      const wasEditing = Boolean(editingId);
+      invalidate();
+      resetForm();
+      toast({ title: wasEditing ? "Product updated" : "Product added to store" });
+    },
+    onError: (e: Error) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/admin/store-products/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Product removed from store" });
+    },
+    onError: (e: Error) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
+  });
+
+  const startEdit = (p: StoreProductRow) => {
+    setEditingId(p.id);
+    setForm({
+      whmcsProductId: String(p.whmcsProductId),
+      name: p.name ?? "",
+      description: p.description ?? "",
+      category: p.category ?? "",
+      sortOrder: String(p.sortOrder),
+      enabled: p.enabled,
+    });
+    setImageFile(null);
+    setRemoveImage(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleSave = () => {
+    if (!editingId) {
+      const pid = Number(form.whmcsProductId);
+      if (!Number.isInteger(pid) || pid <= 0) {
+        toast({ title: "Pick a WHMCS product first", variant: "destructive" });
+        return;
+      }
+    }
+    saveMutation.mutate();
+  };
+
+  return (
+    <Card data-testid="card-store-products">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Tag className="w-5 h-5" /> Customer storefront</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Curate the products customers can self-order from the "Order new product" button on their My Services page. Pick a WHMCS product, give it a customer-friendly name, blurb, image and category, then enable it. Only enabled products that still exist in WHMCS appear to customers.
+        </p>
+
+        {/* Curated products */}
+        {storeProducts.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-no-store-products">No products in the store yet.</p>
+        ) : (
+          <div className="space-y-2" data-testid="list-store-products">
+            {storeProducts.map((p) => (
+              <div key={p.id} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-store-product-${p.id}`}>
+                <div className="flex items-start gap-3 min-w-0">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt="" className="w-12 h-12 rounded object-cover border shrink-0" data-testid={`img-store-product-${p.id}`} />
+                  ) : (
+                    <div className="w-12 h-12 rounded border bg-muted flex items-center justify-center shrink-0">
+                      <ImagePlus className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium truncate" data-testid={`text-store-product-name-${p.id}`}>{p.name || whmcsName(p.whmcsProductId)}</p>
+                      {p.enabled ? (
+                        <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-store-enabled-${p.id}`}>Enabled</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-disabled-${p.id}`}>Disabled</Badge>
+                      )}
+                      {p.category && <Badge variant="outline" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-category-${p.id}`}>{p.category}</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} (#{p.whmcsProductId}) · sort {p.sortOrder}</p>
+                    {p.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(p)} data-testid={`button-edit-store-product-${p.id}`}>
+                    <Edit className="w-3 h-3" /> Edit
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(p.id)} disabled={removeMutation.isPending} data-testid={`button-remove-store-product-${p.id}`}>
+                    <Trash2 className="w-3 h-3" /> Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add / edit form */}
+        <div className="rounded-md border p-3 space-y-3">
+          <p className="text-sm font-medium">{editingId ? "Edit product" : "Add a product"}</p>
+          {!editingId && productsLoading ? (
+            <Skeleton className="h-9 w-full" />
+          ) : !editingId && !productsData?.ok ? (
+            <p className="text-sm text-amber-600" data-testid="text-store-products-unavailable">
+              {productsData?.reason === "not_configured"
+                ? "Configure and enable WHMCS above to load the product list."
+                : `Couldn't load WHMCS products${productsData?.error ? `: ${productsData.error}` : "."}`}
+            </p>
+          ) : (
+            <>
+              <div>
+                <Label>WHMCS product</Label>
+                {editingId ? (
+                  <p className="text-sm mt-1" data-testid="text-editing-store-product">{whmcsName(Number(form.whmcsProductId))} (#{form.whmcsProductId})</p>
+                ) : (
+                  <Select value={form.whmcsProductId} onValueChange={(v) => setForm((f) => ({ ...f, whmcsProductId: v }))}>
+                    <SelectTrigger data-testid="select-store-whmcs-product"><SelectValue placeholder="Choose a product…" /></SelectTrigger>
+                    <SelectContent>
+                      {availableProducts.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">All products are already in the store.</div>
+                      ) : availableProducts.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)} data-testid={`option-store-product-${p.id}`}>
+                          {p.groupName ? `${p.name} · ${p.groupName}` : p.name} (#{p.id})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              <div>
+                <Label>Display name</Label>
+                <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Customer-friendly name (defaults to WHMCS name)" data-testid="input-store-name" />
+              </div>
+
+              <div>
+                <Label>Description</Label>
+                <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Short blurb shown to customers" rows={3} data-testid="input-store-description" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Category</Label>
+                  <Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. Hosting" data-testid="input-store-category" />
+                </div>
+                <div>
+                  <Label>Sort order</Label>
+                  <Input type="number" value={form.sortOrder} onChange={(e) => setForm((f) => ({ ...f, sortOrder: e.target.value }))} data-testid="input-store-sort" />
+                </div>
+              </div>
+
+              <div>
+                <Label>Image</Label>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { setImageFile(e.target.files?.[0] ?? null); setRemoveImage(false); }} className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm" data-testid="input-store-image" />
+                {editingId && storeProducts.find((p) => p.id === editingId)?.imageUrl && !imageFile && (
+                  <label className="flex items-center gap-2 mt-2 text-xs text-muted-foreground cursor-pointer">
+                    <Checkbox checked={removeImage} onCheckedChange={(c) => setRemoveImage(Boolean(c))} data-testid="checkbox-store-remove-image" />
+                    Remove current image
+                  </label>
+                )}
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer" data-testid="label-store-enabled">
+                <Switch checked={form.enabled} onCheckedChange={(c) => setForm((f) => ({ ...f, enabled: c }))} data-testid="switch-store-enabled" />
+                <span className="text-sm">Enabled (visible to customers)</span>
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-store-product">
+                  {saveMutation.isPending ? "Saving..." : editingId ? "Save changes" : "Add to store"}
+                </Button>
+                {(editingId || form.whmcsProductId || form.name) && (
+                  <Button type="button" variant="ghost" onClick={resetForm} data-testid="button-cancel-store-product">
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Admin UI to map WHMCS products → ServiceHub monitored services (Task #335).
 // Lives under the WHMCS Billing tab below the connection settings. The product
 // picker comes from WHMCS (live), the service picker from ServiceHub, and the
@@ -8034,6 +8301,7 @@ function WhmcsTab() {
         </CardContent>
       </Card>
 
+      <StoreProductsSection />
       <WhmcsProductMappingSection />
       <WhmcsProductDnsSection />
     </div>

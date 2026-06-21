@@ -49,6 +49,9 @@ import {
   type UpdateWhmcsSettingsData,
   whmcsProductMappings,
   type WhmcsProductMapping,
+  storeProducts,
+  type StoreProduct,
+  type InsertStoreProduct,
   whmcsProductDns,
   type WhmcsProductDns,
   whmcsPendingOrders,
@@ -390,6 +393,12 @@ export interface IStorage {
   listWhmcsProductDns(): Promise<WhmcsProductDns[]>;
   getWhmcsProductDns(whmcsProductId: number): Promise<WhmcsProductDns | undefined>;
   setWhmcsProductDns(whmcsProductId: number, dns: string): Promise<WhmcsProductDns | undefined>;
+  listStoreProducts(): Promise<StoreProduct[]>;
+  getStoreProduct(id: string): Promise<StoreProduct | undefined>;
+  getStoreProductByPid(whmcsProductId: number): Promise<StoreProduct | undefined>;
+  createStoreProduct(data: InsertStoreProduct): Promise<StoreProduct>;
+  updateStoreProduct(id: string, data: Partial<InsertStoreProduct>): Promise<StoreProduct | undefined>;
+  deleteStoreProduct(id: string): Promise<StoreProduct | undefined>;
   createWhmcsPendingOrder(userId: string, whmcsProductId: number, whmcsInvoiceId: number | null): Promise<WhmcsPendingOrder>;
   getUnfulfilledWhmcsPendingOrders(userId: string): Promise<WhmcsPendingOrder[]>;
   markWhmcsPendingOrderFulfilled(id: string): Promise<void>;
@@ -1426,6 +1435,42 @@ export class DatabaseStorage implements IStorage {
         set: { dns: trimmed, updatedAt: new Date() },
       })
       .returning();
+    return row;
+  }
+
+  // --- Admin-curated WHMCS storefront (Task #518) ---
+  // Ordered by (sortOrder, pid) for a stable, predictable admin list. The customer
+  // catalogue re-sorts (by category then sortOrder then name) after joining the
+  // live WHMCS catalogue; ordering here just keeps the admin table tidy.
+  async listStoreProducts(): Promise<StoreProduct[]> {
+    return db
+      .select()
+      .from(storeProducts)
+      .orderBy(storeProducts.sortOrder, storeProducts.whmcsProductId);
+  }
+
+  async getStoreProduct(id: string): Promise<StoreProduct | undefined> {
+    const [row] = await db.select().from(storeProducts).where(eq(storeProducts.id, id));
+    return row;
+  }
+
+  async getStoreProductByPid(whmcsProductId: number): Promise<StoreProduct | undefined> {
+    const [row] = await db.select().from(storeProducts).where(eq(storeProducts.whmcsProductId, whmcsProductId));
+    return row;
+  }
+
+  async createStoreProduct(data: InsertStoreProduct): Promise<StoreProduct> {
+    const [row] = await db.insert(storeProducts).values(data).returning();
+    return row;
+  }
+
+  async updateStoreProduct(id: string, data: Partial<InsertStoreProduct>): Promise<StoreProduct | undefined> {
+    const [row] = await db.update(storeProducts).set(data).where(eq(storeProducts.id, id)).returning();
+    return row;
+  }
+
+  async deleteStoreProduct(id: string): Promise<StoreProduct | undefined> {
+    const [row] = await db.delete(storeProducts).where(eq(storeProducts.id, id)).returning();
     return row;
   }
 

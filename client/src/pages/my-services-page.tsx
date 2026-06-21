@@ -30,6 +30,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link, useSearch } from "wouter";
@@ -763,6 +767,396 @@ function AddServiceFlow() {
   );
 }
 
+interface StoreConfigOptionChoice {
+  id: number;
+  name: string;
+}
+
+interface StoreConfigOption {
+  id: number;
+  name: string;
+  type: "dropdown" | "radio" | "yesno" | "quantity";
+  required: boolean;
+  choices: StoreConfigOptionChoice[];
+}
+
+interface StoreCustomField {
+  id: number;
+  name: string;
+  description: string;
+  fieldType: string;
+  required: boolean;
+  options: string[];
+}
+
+interface StoreCatalogueProduct {
+  pid: number;
+  name: string;
+  description: string;
+  imageUrl: string | null;
+  category: string | null;
+  sortOrder: number;
+  currency: string | null;
+  cycles: OrderableProductCycle[];
+  configOptions: StoreConfigOption[];
+  customFields: StoreCustomField[];
+}
+
+interface StoreCataloguePayload {
+  configured: boolean;
+  enabled: boolean;
+  linked: boolean;
+  unreachable: boolean;
+  hasGateway: boolean;
+  products: StoreCatalogueProduct[];
+}
+
+/**
+ * "Order a new product" flow — the admin-curated WHMCS storefront (Task #518).
+ * Mirrors AddServiceFlow but adds the configurable options + custom fields the
+ * admin enabled for each product, grouped by category. Lazily loads the
+ * catalogue when opened, validates required fields client-side, places the
+ * order, then hands off to the SSO pay page for the new invoice. Hidden unless
+ * billing is live, the customer is linked, and at least one product is curated.
+ */
+function AddProductFlow() {
+  const [open, setOpen] = useState(false);
+  const [productId, setProductId] = useState<string>("");
+  const [cycle, setCycle] = useState<string>("");
+  const [configValues, setConfigValues] = useState<Record<string, string>>({});
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const { toast } = useToast();
+
+  const { data, isLoading } = useQuery<StoreCataloguePayload>({
+    queryKey: ["/api/billing/store-products"],
+    enabled: open,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
+  const products = data?.products ?? [];
+  const product = products.find((p) => String(p.pid) === productId) ?? null;
+  const cycleOpt = product?.cycles.find((c) => c.cycle === cycle) ?? null;
+
+  const reset = () => {
+    setProductId("");
+    setCycle("");
+    setConfigValues({});
+    setCustomValues({});
+  };
+
+  const buildOrderPayload = () => {
+    if (!product || !cycleOpt) return null;
+    const configOptions: Record<string, number> = {};
+    for (const opt of product.configOptions) {
+      const v = configValues[String(opt.id)];
+      if (opt.type === "dropdown" || opt.type === "radio") {
+        if (v) configOptions[String(opt.id)] = Number(v);
+      } else if (opt.type === "quantity") {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) configOptions[String(opt.id)] = Math.trunc(n);
+      } else {
+        // yesno: only send when the customer opted in.
+        if (v === "1") configOptions[String(opt.id)] = 1;
+      }
+    }
+    const customFields: Record<string, string> = {};
+    for (const f of product.customFields) {
+      const v = (customValues[String(f.id)] ?? "").trim();
+      if (v) customFields[String(f.id)] = v;
+    }
+    return { pid: product.pid, billingCycle: cycleOpt.cycle, configOptions, customFields };
+  };
+
+  // Client-side required check for immediate feedback (the server re-validates).
+  const missingRequired = (): string | null => {
+    if (!product) return null;
+    for (const opt of product.configOptions) {
+      if (!opt.required) continue;
+      const v = configValues[String(opt.id)];
+      if (opt.type === "dropdown" || opt.type === "radio") {
+        if (!v) return `Please choose an option for "${opt.name}".`;
+      } else if (opt.type === "quantity") {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) return `Please enter a quantity for "${opt.name}".`;
+      } else if (opt.type === "yesno") {
+        if (v !== "1") return `"${opt.name}" is required.`;
+      }
+    }
+    for (const f of product.customFields) {
+      if (f.required && !(customValues[String(f.id)] ?? "").trim()) {
+        return `Please fill in "${f.name}".`;
+      }
+    }
+    return null;
+  };
+
+  const mutation = useMutation({
+    mutationFn: async (_win: Window | null) => {
+      const payload = buildOrderPayload();
+      if (!payload) throw new Error("Pick a product and term first.");
+      const res = await apiRequest("POST", "/api/billing/store-order", payload);
+      return (await res.json()) as PayResult;
+    },
+    onSuccess: (result, win) => {
+      setOpen(false);
+      reset();
+      queryClient.invalidateQueries({ queryKey: ["/api/my/services"] });
+      toast({ title: "Order placed", description: result.message ?? "We've created your order." });
+      if (result.invoiceId) {
+        void openWhmcsPay(result.invoiceId, result.payUrl ?? null, win);
+      } else if (win) {
+        win.close();
+      }
+    },
+    onError: (err: any, win) => {
+      if (win) win.close();
+      toast({
+        variant: "destructive",
+        title: "Couldn't place your order",
+        description: err?.message || "Please try again shortly.",
+      });
+    },
+  });
+
+  const handleConfirm = () => {
+    const problem = missingRequired();
+    if (problem) {
+      toast({ variant: "destructive", title: "Almost there", description: problem });
+      return;
+    }
+    mutation.mutate(openBlankTab());
+  };
+
+  const noGateway = !!data && !data.unreachable && data.products.length > 0 && !data.hasGateway;
+  const dropdownContentProps = {
+    position: "popper" as const,
+    collisionPadding: { top: 60, bottom: 24, left: 12, right: 12 },
+    className: "max-h-[min(60dvh,var(--radix-select-content-available-height))]",
+  };
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        data-testid="button-open-add-product"
+      >
+        <Plus className="w-3.5 h-3.5 mr-2" />
+        Order new product
+      </Button>
+
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+        <DialogContent data-testid="dialog-add-product" className="max-h-[85dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Order a new product</DialogTitle>
+            <DialogDescription>
+              Choose a product and billing term, fill in any options, and we'll send you to a secure
+              payment page to finish.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoading ? (
+            <Skeleton className="h-24 rounded-lg" data-testid="add-product-loading" />
+          ) : data?.unreachable ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid="text-add-product-unreachable">
+              We couldn't load the catalogue right now. Please try again in a few minutes.
+            </p>
+          ) : products.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid="text-add-product-empty">
+              There are no products available to order right now.
+            </p>
+          ) : noGateway ? (
+            <p className="text-sm text-muted-foreground py-2" data-testid="text-add-product-no-gateway">
+              Online ordering isn't available right now. Please contact support to place an order.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="add-product-product">Product</Label>
+                <Select
+                  value={productId}
+                  onValueChange={(v) => { setProductId(v); setCycle(""); setConfigValues({}); setCustomValues({}); }}
+                >
+                  <SelectTrigger id="add-product-product" data-testid="select-store-product">
+                    <SelectValue placeholder="Choose a product" />
+                  </SelectTrigger>
+                  <SelectContent {...dropdownContentProps}>
+                    {products.map((p) => {
+                      const term = p.cycles.length === 1 ? ` – ${p.cycles[0].label}` : "";
+                      const cat = p.category ? `${p.category}: ` : "";
+                      return (
+                        <SelectItem key={p.pid} value={String(p.pid)} data-testid={`option-store-product-${p.pid}`}>
+                          {cat}{p.name}{term}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {product?.description && (
+                <p className="text-xs text-muted-foreground" data-testid="text-store-product-description">
+                  {product.description}
+                </p>
+              )}
+
+              {product && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-product-cycle">Billing term</Label>
+                  <Select value={cycle} onValueChange={setCycle}>
+                    <SelectTrigger id="add-product-cycle" data-testid="select-store-cycle">
+                      <SelectValue placeholder="Choose a term" />
+                    </SelectTrigger>
+                    <SelectContent {...dropdownContentProps}>
+                      {product.cycles.map((c) => (
+                        <SelectItem key={c.cycle} value={c.cycle} data-testid={`option-store-cycle-${c.cycle}`}>
+                          {c.label} — {c.price}
+                          {c.setupFee ? ` (+ ${c.setupFee} setup)` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Configurable options */}
+              {product && product.configOptions.length > 0 && (
+                <div className="space-y-3 rounded-lg border p-3" data-testid="group-config-options">
+                  <p className="text-xs font-medium text-muted-foreground">Options</p>
+                  {product.configOptions.map((opt) => {
+                    const key = String(opt.id);
+                    const val = configValues[key] ?? "";
+                    const setVal = (v: string) => setConfigValues((prev) => ({ ...prev, [key]: v }));
+                    return (
+                      <div key={opt.id} className="space-y-1.5" data-testid={`config-option-${opt.id}`}>
+                        <Label htmlFor={`config-${opt.id}`}>
+                          {opt.name}{opt.required ? " *" : ""}
+                        </Label>
+                        {(opt.type === "dropdown" || opt.type === "radio") ? (
+                          <Select value={val} onValueChange={setVal}>
+                            <SelectTrigger id={`config-${opt.id}`} data-testid={`select-config-${opt.id}`}>
+                              <SelectValue placeholder="Choose…" />
+                            </SelectTrigger>
+                            <SelectContent {...dropdownContentProps}>
+                              {opt.choices.map((ch) => (
+                                <SelectItem key={ch.id} value={String(ch.id)} data-testid={`option-config-${opt.id}-${ch.id}`}>
+                                  {ch.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : opt.type === "quantity" ? (
+                          <Input
+                            id={`config-${opt.id}`}
+                            type="number"
+                            min={0}
+                            value={val}
+                            onChange={(e) => setVal(e.target.value)}
+                            data-testid={`input-config-${opt.id}`}
+                          />
+                        ) : (
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <Switch
+                              checked={val === "1"}
+                              onCheckedChange={(c) => setVal(c ? "1" : "0")}
+                              data-testid={`switch-config-${opt.id}`}
+                            />
+                            <span className="text-sm text-muted-foreground">Add this option</span>
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Custom fields */}
+              {product && product.customFields.length > 0 && (
+                <div className="space-y-3 rounded-lg border p-3" data-testid="group-custom-fields">
+                  <p className="text-xs font-medium text-muted-foreground">Additional details</p>
+                  {product.customFields.map((f) => {
+                    const key = String(f.id);
+                    const val = customValues[key] ?? "";
+                    const setVal = (v: string) => setCustomValues((prev) => ({ ...prev, [key]: v }));
+                    const ft = f.fieldType.toLowerCase();
+                    return (
+                      <div key={f.id} className="space-y-1.5" data-testid={`custom-field-${f.id}`}>
+                        <Label htmlFor={`custom-${f.id}`}>
+                          {f.name}{f.required ? " *" : ""}
+                        </Label>
+                        {ft === "dropdown" && f.options.length > 0 ? (
+                          <Select value={val} onValueChange={setVal}>
+                            <SelectTrigger id={`custom-${f.id}`} data-testid={`select-custom-${f.id}`}>
+                              <SelectValue placeholder="Choose…" />
+                            </SelectTrigger>
+                            <SelectContent {...dropdownContentProps}>
+                              {f.options.map((o) => (
+                                <SelectItem key={o} value={o} data-testid={`option-custom-${f.id}-${o}`}>
+                                  {o}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : ft === "textarea" ? (
+                          <Textarea
+                            id={`custom-${f.id}`}
+                            value={val}
+                            onChange={(e) => setVal(e.target.value)}
+                            rows={3}
+                            data-testid={`textarea-custom-${f.id}`}
+                          />
+                        ) : ft === "tickbox" ? (
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={val === "on"}
+                              onCheckedChange={(c) => setVal(c ? "on" : "")}
+                              data-testid={`checkbox-custom-${f.id}`}
+                            />
+                            <span className="text-sm text-muted-foreground">{f.description || "Yes"}</span>
+                          </label>
+                        ) : (
+                          <Input
+                            id={`custom-${f.id}`}
+                            type={ft === "password" ? "password" : "text"}
+                            value={val}
+                            onChange={(e) => setVal(e.target.value)}
+                            data-testid={`input-custom-${f.id}`}
+                          />
+                        )}
+                        {f.description && ft !== "tickbox" && (
+                          <p className="text-xs text-muted-foreground">{f.description}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} data-testid="button-cancel-add-product">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirm}
+              disabled={!product || !cycleOpt || mutation.isPending}
+              data-testid="button-confirm-add-product"
+            >
+              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5 mr-2" />}
+              Continue to payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function MyActiveServices() {
   const { data, isLoading } = useQuery<ActiveServicesPayload>({
     queryKey: ["/api/my/services"],
@@ -786,7 +1180,10 @@ function MyActiveServices() {
           <KeyRound className="w-4 h-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold" data-testid="heading-active-services">Active services</h2>
         </div>
-        <AddServiceFlow />
+        <div className="flex items-center gap-2">
+          <AddServiceFlow />
+          <AddProductFlow />
+        </div>
       </div>
       {data.unreachable ? (
         <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-active-services-unreachable">
