@@ -691,7 +691,7 @@ function AddServiceFlow() {
                   <SelectTrigger id="add-service-product" data-testid="select-order-product">
                     <SelectValue placeholder="Choose a product" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[min(60dvh,var(--radix-select-content-available-height))]">
                     {products.map((p) => (
                       <SelectItem key={p.pid} value={String(p.pid)} data-testid={`option-order-product-${p.pid}`}>
                         {p.name}
@@ -708,7 +708,7 @@ function AddServiceFlow() {
                     <SelectTrigger id="add-service-cycle" data-testid="select-order-cycle">
                       <SelectValue placeholder="Choose a term" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-[min(60dvh,var(--radix-select-content-available-height))]">
                       {product.cycles.map((c) => (
                         <SelectItem key={c.cycle} value={c.cycle} data-testid={`option-order-cycle-${c.cycle}`}>
                           {c.label} — {c.price}
