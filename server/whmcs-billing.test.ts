@@ -487,6 +487,24 @@ test("loadOrderableProducts: an allowed-but-unbuyable product is still dropped (
   assert.deepEqual(products, []);
 });
 
+test("loadOrderableProducts: a one-time product is dropped from the recurring service flow", async () => {
+  // The "Order a new service" flow is recurring-only; a one-time product belongs
+  // in the storefront, so it must not appear here (and must never be mislabelled
+  // as monthly).
+  const fetchProducts = async () => ({
+    ok: true as const,
+    data: {
+      products: {
+        product: [
+          { pid: 50, name: "One-time", paytype: "onetime", pricing: { USD: { monthly: "25.00" } } },
+        ],
+      },
+    },
+  });
+  const { products } = await loadOrderableProducts(fetchProducts, "USD", [50]);
+  assert.deepEqual(products, []);
+});
+
 // ---------- stripProductCredentials ----------
 
 test("stripProductCredentials: removes username/password, keeps everything else", () => {

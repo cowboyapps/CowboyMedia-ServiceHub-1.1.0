@@ -1449,6 +1449,18 @@ export const ORDER_BILLING_CYCLES = [
 
 export type OrderBillingCycle = (typeof ORDER_BILLING_CYCLES)[number]["key"];
 
+/** Recurring cycle keys, for filtering the recurring-only service/upgrade flows. */
+const RECURRING_CYCLE_KEYS = new Set<string>(ORDER_BILLING_CYCLES.map((c) => c.key));
+
+/**
+ * A product's billing cycle. Recurring products offer one or more of the
+ * recurring cycles; WHMCS one-time / free products are NON-recurring and bill as
+ * a single charge — represented as the synthetic "onetime" / "free" cycles so
+ * the storefront can show and order them correctly (a one-time product must not
+ * be charged monthly). The recurring-only service/upgrade flows filter these out.
+ */
+export type ProductBillingCycle = OrderBillingCycle | "onetime" | "free";
+
 /**
  * Map a WHMCS billing-cycle LABEL (as returned by GetClientsProducts, e.g.
  * "Monthly", "Semi-Annually") to the lowercase key UpgradeProduct/AddOrder
@@ -1478,7 +1490,7 @@ const SETUP_FEE_KEY: Record<OrderBillingCycle, string> = {
 };
 
 export interface OrderableProductCycle {
-  cycle: OrderBillingCycle;
+  cycle: ProductBillingCycle;
   label: string;
   /** Recurring price for this cycle, as the raw WHMCS decimal string. */
   price: string;
@@ -1512,6 +1524,30 @@ function pickPricingBlock(pricing: any, currency?: string | null): { code: strin
 }
 
 /**
+ * Resolve the single charge for a NON-recurring (one-time / free) product. WHMCS
+ * has no dedicated one-off price column, so the amount lands in the `monthly`
+ * pricing field; we read that first, then an explicit `onetime` key (used by some
+ * WHMCS versions). We deliberately DON'T fall back to the recurring fields
+ * (quarterly/annually/…): a one-time product shouldn't display a recurring
+ * price as its one-off cost. Returns the raw decimal string, or null when
+ * nothing parseable/non-negative is set ("-1.00" means disabled) — the caller
+ * then drops the product rather than show a wrong price (fail closed). Pure →
+ * unit-tested.
+ */
+function pickOneTimePrice(block: any): string | null {
+  if (!block || typeof block !== "object") return null;
+  const candidates = ["monthly", "onetime"];
+  for (const k of candidates) {
+    const raw = block[k];
+    if (raw === undefined || raw === null) continue;
+    const s = String(raw).trim();
+    const n = parseFloat(s);
+    if (Number.isFinite(n) && n >= 0) return s;
+  }
+  return null;
+}
+
+/**
  * Shape one raw WHMCS GetProducts row into an orderable product. Only cycles the
  * product actually offers survive: WHMCS encodes a DISABLED cycle as "-1.00", so
  * any price that parses to a negative number (or isn't a number) is dropped. A
@@ -1519,19 +1555,37 @@ function pickPricingBlock(pricing: any, currency?: string | null): { code: strin
  */
 export function parseOrderableProduct(raw: any, currency?: string | null): OrderableProduct {
   const { code, block } = pickPricingBlock(raw?.pricing, currency);
+  const paytype = String(raw?.paytype ?? "").trim().toLowerCase();
   const cycles: OrderableProductCycle[] = [];
   if (block && typeof block === "object") {
-    for (const { key, label } of ORDER_BILLING_CYCLES) {
-      const priceRaw = block[key];
-      if (priceRaw === undefined || priceRaw === null) continue;
-      const price = String(priceRaw).trim();
-      const num = parseFloat(price);
-      if (!Number.isFinite(num) || num < 0) continue; // "-1.00" => cycle disabled
-      const setupRaw = block[SETUP_FEE_KEY[key]];
-      const setupStr = setupRaw === undefined || setupRaw === null ? "" : String(setupRaw).trim();
-      const setupNum = parseFloat(setupStr);
-      const setupFee = setupStr !== "" && Number.isFinite(setupNum) && setupNum > 0 ? setupStr : null;
-      cycles.push({ cycle: key, label, price, setupFee });
+    if (paytype === "onetime" || paytype === "free") {
+      // NON-recurring product. WHMCS has no dedicated one-time price column — it
+      // stores the one-off price in the `monthly` pricing field (a long-standing
+      // quirk), so read that (see pickOneTimePrice) and present it as a single
+      // charge. A free product is just a $0 one-off.
+      const price = pickOneTimePrice(block);
+      if (paytype === "free") {
+        cycles.push({ cycle: "free", label: "Free", price: price ?? "0.00", setupFee: null });
+      } else if (price !== null) {
+        const setupRaw = block[SETUP_FEE_KEY.monthly];
+        const setupStr = setupRaw === undefined || setupRaw === null ? "" : String(setupRaw).trim();
+        const setupNum = parseFloat(setupStr);
+        const setupFee = setupStr !== "" && Number.isFinite(setupNum) && setupNum > 0 ? setupStr : null;
+        cycles.push({ cycle: "onetime", label: "One-time", price, setupFee });
+      }
+    } else {
+      for (const { key, label } of ORDER_BILLING_CYCLES) {
+        const priceRaw = block[key];
+        if (priceRaw === undefined || priceRaw === null) continue;
+        const price = String(priceRaw).trim();
+        const num = parseFloat(price);
+        if (!Number.isFinite(num) || num < 0) continue; // "-1.00" => cycle disabled
+        const setupRaw = block[SETUP_FEE_KEY[key]];
+        const setupStr = setupRaw === undefined || setupRaw === null ? "" : String(setupRaw).trim();
+        const setupNum = parseFloat(setupStr);
+        const setupFee = setupStr !== "" && Number.isFinite(setupNum) && setupNum > 0 ? setupStr : null;
+        cycles.push({ cycle: key, label, price, setupFee });
+      }
     }
   }
   return {
@@ -1601,6 +1655,11 @@ export async function loadOrderableProducts(
   const products = normalizeListField(r.data?.products, "product")
     .filter((p) => !isHiddenOrderableProduct(p))
     .map((p) => parseOrderableProduct(p, currency))
+    // The "Order a new service" flow is recurring-only (placeOrderSchema rejects
+    // one-time/free), so drop the synthetic non-recurring cycles here. A one-time/
+    // free product is then left with no cycle and dropped below — it belongs in
+    // the storefront, which keeps those cycles. Recurring products are untouched.
+    .map((p) => ({ ...p, cycles: p.cycles.filter((c) => RECURRING_CYCLE_KEYS.has(c.cycle)) }))
     .filter((p) => p.pid > 0 && p.cycles.length > 0)
     .filter((p) => allow === null || allow.has(p.pid));
   return { products, unreachable: false };

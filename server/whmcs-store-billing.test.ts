@@ -118,6 +118,58 @@ test("assembleStoreCatalogue: admin overrides win; sorts category (blank last) â
   assert.equal(products[2].category, null);
 });
 
+test("assembleStoreCatalogue: a one-time product bills as a single 'onetime' charge, not monthly", () => {
+  // WHMCS stores the one-off price in the `monthly` field; paytype marks it as
+  // one-time. The storefront must surface that as a single charge.
+  const raw = rawProduct({
+    pid: 20,
+    name: "Setup Fee",
+    paytype: "onetime",
+    pricing: { USD: { monthly: "25.00", msetupfee: "5.00", annually: "-1.00" } },
+  });
+  const curation: StoreCurationRow[] = [
+    { whmcsProductId: 20, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+  ];
+  const products = assembleStoreCatalogue([raw], curation, "USD");
+  assert.equal(products.length, 1);
+  assert.deepEqual(products[0].cycles, [
+    { cycle: "onetime", label: "One-time", price: "25.00", setupFee: "5.00" },
+  ]);
+});
+
+test("assembleStoreCatalogue: a free product bills as a single 'free' charge", () => {
+  const raw = rawProduct({
+    pid: 21,
+    name: "Free Trial",
+    paytype: "free",
+    pricing: { USD: { monthly: "0.00" } },
+  });
+  const curation: StoreCurationRow[] = [
+    { whmcsProductId: 21, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+  ];
+  const products = assembleStoreCatalogue([raw], curation, "USD");
+  assert.equal(products.length, 1);
+  assert.deepEqual(products[0].cycles, [
+    { cycle: "free", label: "Free", price: "0.00", setupFee: null },
+  ]);
+});
+
+test("assembleStoreCatalogue: a one-time product with no usable price is dropped (fail closed)", () => {
+  // monthly disabled ("-1.00"), no `onetime` key, and we deliberately do NOT fall
+  // back to recurring fields â€” so there's no one-off price and the product is
+  // dropped rather than shown with a misleading recurring price.
+  const raw = rawProduct({
+    pid: 22,
+    paytype: "onetime",
+    pricing: { USD: { monthly: "-1.00", annually: "100.00" } },
+  });
+  const curation: StoreCurationRow[] = [
+    { whmcsProductId: 22, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+  ];
+  const products = assembleStoreCatalogue([raw], curation, "USD");
+  assert.deepEqual(products, []);
+});
+
 test("loadStoreCatalogue: no enabled rows short-circuits without a WHMCS call", async () => {
   let called = false;
   const fetcher = async (): Promise<WhmcsRawFetch> => {

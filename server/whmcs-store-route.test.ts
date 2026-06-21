@@ -231,6 +231,47 @@ test("POST store-order: places the order and forwards validated config/custom ma
   assert.deepEqual(captured.customFields, { 1: "host.example.com" });
 });
 
+test("POST store-order: a one-time product order forwards billingCycle 'onetime' unchanged", async () => {
+  let captured: any = null;
+  const product = catalogueProduct({
+    pid: 20,
+    name: "Setup Fee",
+    cycles: [{ cycle: "onetime", label: "One-time", price: "25.00", setupFee: null }],
+  });
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 42 } },
+    catalogue: { products: [product], unreachable: false },
+    addOrder: async (input): Promise<WhmcsRawFetch> => {
+      captured = input;
+      return { ok: true, data: { invoiceid: 778 } };
+    },
+  });
+  const { status, body } = await post(app, "/api/billing/store-order", { pid: 20, billingCycle: "onetime" });
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(captured.billingCycle, "onetime");
+});
+
+test("POST store-order: a 'monthly' cycle on a one-time-only product is rejected 404", async () => {
+  // Defence: the widened storefront enum must not let a customer pick a cycle the
+  // product doesn't actually offer.
+  const product = catalogueProduct({
+    pid: 20,
+    cycles: [{ cycle: "onetime", label: "One-time", price: "25.00", setupFee: null }],
+  });
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 42 } },
+    catalogue: { products: [product], unreachable: false },
+    addOrder: async (): Promise<WhmcsRawFetch> => {
+      throw new Error("must not write");
+    },
+  });
+  const { status } = await post(app, "/api/billing/store-order", { pid: 20, billingCycle: "monthly" });
+  assert.equal(status, 404);
+});
+
 test("POST store-order: unknown product/cycle is 404", async () => {
   const app = makeApp({ sessionUserId: "u1", users: { u1: { whmcsClientId: 42 } } });
   const { status } = await post(app, "/api/billing/store-order", { pid: 999, billingCycle: "monthly" });

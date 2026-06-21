@@ -892,9 +892,25 @@ export type SubmitUpgradeData = z.infer<typeof submitUpgradeSchema>;
 // (or a chosen dropdown value), keyed by the WHMCS custom-field id. Both keys are
 // the numeric WHMCS ids as strings; the server re-validates every value against
 // the live catalogue before placing the order.
+// Storefront orders (Task #518) additionally allow non-recurring products:
+// WHMCS one-time and free products bill as a single charge, not a recurring
+// cycle. The service/upgrade flows stay recurring-only (orderBillingCycleEnum);
+// only the storefront accepts these extra keys, and the server still validates
+// the chosen cycle against the product's live offered cycles.
+export const storeBillingCycleEnum = z.enum([
+  "monthly",
+  "quarterly",
+  "semiannually",
+  "annually",
+  "biennially",
+  "triennially",
+  "onetime",
+  "free",
+]);
+
 export const placeProductOrderSchema = z.object({
   pid: z.coerce.number().int().positive(),
-  billingCycle: orderBillingCycleEnum,
+  billingCycle: storeBillingCycleEnum,
   configOptions: z.record(z.string().regex(/^\d+$/), z.coerce.number().int().nonnegative()).optional(),
   customFields: z.record(z.string().regex(/^\d+$/), z.string().max(2000)).optional(),
 });

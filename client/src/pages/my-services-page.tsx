@@ -978,7 +978,15 @@ function AddProductFlow() {
                 <Label htmlFor="add-product-product">Product</Label>
                 <Select
                   value={productId}
-                  onValueChange={(v) => { setProductId(v); setCycle(""); setConfigValues({}); setCustomValues({}); }}
+                  onValueChange={(v) => {
+                    setProductId(v);
+                    // Auto-select the term when the product offers only one (e.g. a
+                    // one-time or free product), so the customer needn't re-pick it.
+                    const p = products.find((pp) => String(pp.pid) === v) ?? null;
+                    setCycle(p && p.cycles.length === 1 ? p.cycles[0].cycle : "");
+                    setConfigValues({});
+                    setCustomValues({});
+                  }}
                 >
                   <SelectTrigger id="add-product-product" data-testid="select-store-product">
                     <SelectValue placeholder="Choose a product" />
