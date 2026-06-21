@@ -692,11 +692,18 @@ function AddServiceFlow() {
                     <SelectValue placeholder="Choose a product" />
                   </SelectTrigger>
                   <SelectContent className="max-h-[min(60dvh,var(--radix-select-content-available-height))]">
-                    {products.map((p) => (
-                      <SelectItem key={p.pid} value={String(p.pid)} data-testid={`option-order-product-${p.pid}`}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
+                    {products.map((p) => {
+                      // When a product offers exactly one billing cycle (common when each
+                      // term is set up as its own WHMCS product, e.g. "Web Hosting Monthly"
+                      // vs "Web Hosting Quarterly"), the bare names look identical. Append
+                      // the term so each row is distinguishable in the list itself.
+                      const term = p.cycles.length === 1 ? ` – ${p.cycles[0].label}` : "";
+                      return (
+                        <SelectItem key={p.pid} value={String(p.pid)} data-testid={`option-order-product-${p.pid}`}>
+                          {p.name}{term}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
