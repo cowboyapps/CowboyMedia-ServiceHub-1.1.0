@@ -27,3 +27,4 @@
 - [kb_articles search_vector drift](kb-articles-search-vector-drift.md) — search_vector column+trigger live outside migrations; a drifted dev DB may have the trigger but not the column, breaking every kb_articles insert (42703).
 - [DB trigger/function drift audit](db-object-audit.md) — prebuild gate now fails on any trigger/function in the DB not created by a committed migration; add the DDL to a migration or allowlist it in shared/db-object-audit.ts.
 - [WHMCS GetProducts omits Hidden/Retired](whmcs-getproducts-no-hidden-field.md) — GetProducts never returns hidden/retired; gate the orderable picker by the admin product→service mapping allowlist, not a response field.
+- [iOS Radix Select collisionPadding](ios-radix-select-collision-padding.md) — tall popper Select menus tuck under the iPhone status bar (top items unreachable); a max-height cap won't fix it — add collisionPadding so Radix clears the safe area.

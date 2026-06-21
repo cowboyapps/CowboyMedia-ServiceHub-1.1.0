@@ -691,7 +691,11 @@ function AddServiceFlow() {
                   <SelectTrigger id="add-service-product" data-testid="select-order-product">
                     <SelectValue placeholder="Choose a product" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-[min(60dvh,var(--radix-select-content-available-height))]">
+                  <SelectContent
+                    position="popper"
+                    collisionPadding={{ top: 60, bottom: 24, left: 12, right: 12 }}
+                    className="max-h-[min(60dvh,var(--radix-select-content-available-height))]"
+                  >
                     {products.map((p) => {
                       // When a product offers exactly one billing cycle (common when each
                       // term is set up as its own WHMCS product, e.g. "Web Hosting Monthly"
@@ -715,7 +719,11 @@ function AddServiceFlow() {
                     <SelectTrigger id="add-service-cycle" data-testid="select-order-cycle">
                       <SelectValue placeholder="Choose a term" />
                     </SelectTrigger>
-                    <SelectContent className="max-h-[min(60dvh,var(--radix-select-content-available-height))]">
+                    <SelectContent
+                      position="popper"
+                      collisionPadding={{ top: 60, bottom: 24, left: 12, right: 12 }}
+                      className="max-h-[min(60dvh,var(--radix-select-content-available-height))]"
+                    >
                       {product.cycles.map((c) => (
                         <SelectItem key={c.cycle} value={c.cycle} data-testid={`option-order-cycle-${c.cycle}`}>
                           {c.label} — {c.price}
