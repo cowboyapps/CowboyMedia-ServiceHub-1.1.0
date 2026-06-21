@@ -13,6 +13,8 @@ import {
   parseInvoiceDetail,
   parseInvoiceLineItem,
   parseProduct,
+  isHiddenOrderableProduct,
+  loadOrderableProducts,
   stripProductCredentials,
   selectActiveServices,
   buildBillingSummary,
@@ -377,6 +379,55 @@ test("parseProduct: parses ONLY username/password access fields — no IP/host/D
   assert.equal((p as any).ns1, undefined);
   assert.equal((p as any).customfields, undefined);
   assert.equal((p as any).configoptions, undefined);
+});
+
+// ---------- isHiddenOrderableProduct / loadOrderableProducts hidden filter ----------
+
+test("isHiddenOrderableProduct: a truthy hidden flag (across WHMCS' loose encodings) is hidden", () => {
+  for (const v of ["1", 1, true, "true", "yes", "on", " 1 ", "ON"]) {
+    assert.equal(isHiddenOrderableProduct({ hidden: v }), true, `hidden=${JSON.stringify(v)}`);
+  }
+});
+
+test("isHiddenOrderableProduct: a retired product is also kept out of the order catalogue", () => {
+  assert.equal(isHiddenOrderableProduct({ retired: "1" }), true);
+  assert.equal(isHiddenOrderableProduct({ retired: 1 }), true);
+});
+
+test("isHiddenOrderableProduct: absent/falsey flag is visible (no regression when WHMCS omits it)", () => {
+  for (const v of ["0", 0, false, "", "no", "off", null, undefined]) {
+    assert.equal(isHiddenOrderableProduct({ hidden: v }), false, `hidden=${JSON.stringify(v)}`);
+  }
+  assert.equal(isHiddenOrderableProduct({}), false);
+  assert.equal(isHiddenOrderableProduct({ pid: 5, name: "VPS" }), false);
+});
+
+test("loadOrderableProducts: drops hidden products, keeps a visible buyable one", async () => {
+  const fetchProducts = async () => ({
+    ok: true as const,
+    data: {
+      products: {
+        product: [
+          { pid: 10, name: "Visible VPS", hidden: "0", pricing: { USD: { monthly: "10.00" } } },
+          { pid: 20, name: "Hidden VPS", hidden: "1", pricing: { USD: { monthly: "15.00" } } },
+          { pid: 30, name: "Retired VPS", retired: "1", pricing: { USD: { monthly: "20.00" } } },
+        ],
+      },
+    },
+  });
+  const { products, unreachable } = await loadOrderableProducts(fetchProducts, "USD");
+  assert.equal(unreachable, false);
+  assert.deepEqual(products.map((p) => p.pid), [10]);
+  assert.equal(products[0].name, "Visible VPS");
+});
+
+test("loadOrderableProducts: a hidden product is dropped even if it has a buyable cycle", async () => {
+  const fetchProducts = async () => ({
+    ok: true as const,
+    data: { products: { product: [{ pid: 99, name: "Hidden", hidden: 1, pricing: { USD: { annually: "120.00" } } }] } },
+  });
+  const { products } = await loadOrderableProducts(fetchProducts, "USD");
+  assert.deepEqual(products, []);
 });
 
 // ---------- stripProductCredentials ----------

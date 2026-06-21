@@ -1550,10 +1550,35 @@ export interface OrderableProductsData {
 }
 
 /**
+ * Should this raw GetProducts row be kept OUT of the customer's "order a new
+ * service" catalogue? WHMCS marks a product "Hidden" (hide from order forms /
+ * client area) and lets one be "retired" (no new orders); neither should be
+ * offerable here. WHMCS serializes booleans inconsistently across versions
+ * ("1" / 1 / true / "yes" / "on"), so coerce loosely and treat an absent flag
+ * as visible (no regression when a field isn't present). Admin-facing
+ * `listProducts` deliberately does NOT use this — admins map every product.
+ * Pure → unit-tested.
+ */
+export function isHiddenOrderableProduct(raw: any): boolean {
+  const flagOn = (v: unknown): boolean => {
+    if (v === true) return true;
+    if (typeof v === "number") return v === 1;
+    if (typeof v === "string") {
+      const t = v.trim().toLowerCase();
+      return t === "1" || t === "true" || t === "yes" || t === "on";
+    }
+    return false;
+  };
+  return flagOn(raw?.hidden) || flagOn(raw?.retired);
+}
+
+/**
  * Load the orderable product catalogue. `unreachable` is true when GetProducts
- * failed (outage / missing API permission). Products with no offered cycle (every
- * cycle disabled, or one-time/free only) are dropped so the picker only ever
- * shows something the customer can actually buy. Injectable fetcher for tests.
+ * failed (outage / missing API permission). Hidden/retired products are dropped
+ * up front so the customer is never offered something an admin meant to keep off
+ * the order form, then products with no offered cycle (every cycle disabled, or
+ * one-time/free only) are dropped so the picker only ever shows something the
+ * customer can actually buy. Injectable fetcher for tests.
  */
 export async function loadOrderableProducts(
   fetchProducts: () => Promise<WhmcsRawFetch> = getProducts,
@@ -1562,6 +1587,7 @@ export async function loadOrderableProducts(
   const r = await fetchProducts();
   if (!r.ok) return { products: [], unreachable: true };
   const products = normalizeListField(r.data?.products, "product")
+    .filter((p) => !isHiddenOrderableProduct(p))
     .map((p) => parseOrderableProduct(p, currency))
     .filter((p) => p.pid > 0 && p.cycles.length > 0);
   return { products, unreachable: false };

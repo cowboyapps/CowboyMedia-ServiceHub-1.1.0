@@ -16,6 +16,7 @@
 - [notification_templates.enabled semantics](notification-template-enabled-semantics.md) — `enabled` = "use custom wording", NOT send/suppress; off → default wording, notification still fires.
 - [WHMCS customer endpoints block UNLINKED staff](whmcs-customer-endpoint-staff-block.md) — guard customer billing routes with `isUnlinkedStaff`, not `isStaffRole`; linked staff get their own session-scoped billing.
 - [WHMCS tests vs deploy-gate live API](whmcs-test-live-api-on-deploy-gate.md) — deploy gate runs on the VPS where WHMCS is reachable; billing loader tests must inject loadSummary, never rely on ambient unreachability.
+- [WHMCS order catalogue hidden filter](whmcs-order-catalogue-hidden-filter.md) — customer order list drops hidden/retired products (loose bool coercion, absent=visible); admin listProducts must NOT; dev IP can't introspect GetProducts.
 - [iOS safe-area-inset transient zero](ios-safe-area-inset-zero.md) — iOS reports env(safe-area-inset-top) as 0 on PWA cold-launch/resume → header hits the notch; cache max inset per orientation into --sat/--sab, consume via var(--sat,env(...)).
 - [Audit parser scans raw SQL comments](audit-parser-scans-comments.md) — never put DDL token sequences (CREATE INDEX, etc.) in migration comments; the drift audit regex captures them as phantom objects and swallows real statements.
 - [iOS PWA safe-area height](ios-pwa-safe-area-height.md) — `body` safe-area padding + a `100dvh`/`h-dvh` root double-counts → whole document scrolls on iPhone PWA, sliding the header away; subtract the insets in the height calc.

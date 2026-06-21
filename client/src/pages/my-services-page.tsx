@@ -596,9 +596,14 @@ function AddServiceFlow() {
   const [cycle, setCycle] = useState<string>("");
   const { toast } = useToast();
 
+  // Always pull a fresh catalogue each time the dialog opens so WHMCS changes
+  // (newly hidden/added products, price edits) show instantly — the global
+  // staleTime is Infinity, which would otherwise reuse a session-old copy.
   const { data, isLoading } = useQuery<OrderableProductsPayload>({
     queryKey: ["/api/billing/products"],
     enabled: open,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const products = data?.products ?? [];
