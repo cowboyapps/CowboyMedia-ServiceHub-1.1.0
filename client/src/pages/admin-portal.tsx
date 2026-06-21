@@ -7276,6 +7276,8 @@ function WhmcsProductMappingSection() {
 
   const products = productsData?.ok ? productsData.products ?? [] : [];
   const mappings = mappingsData?.mappings ?? [];
+  const mappedProductIds = new Set(mappings.map((m) => m.whmcsProductId));
+  const unmappedProducts = products.filter((p) => !mappedProductIds.has(p.id));
 
   const serviceName = (id: string) => services?.find((s) => s.id === id)?.name ?? id;
   const productName = (pid: number) => {
@@ -7347,6 +7349,12 @@ function WhmcsProductMappingSection() {
         <p className="text-sm text-muted-foreground">
           Link a WHMCS product to the monitored services it includes. Customers linked to a WHMCS client will automatically see the matching services for their active products.
         </p>
+        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200" data-testid="notice-orderable-gate">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <p className="text-xs">
+            <span className="font-medium">Only mapped products can be ordered by customers.</span> A product without a mapping is hidden from the "order a new service" picker. This is the only reliable way to hide a product from ordering, because WHMCS doesn't tell us which products are Hidden or Retired. Map every product you want customers to be able to order — and leave a product unmapped to keep it un-orderable.
+          </p>
+        </div>
 
         {/* Existing mappings */}
         {mappings.length === 0 ? (
@@ -7356,7 +7364,10 @@ function WhmcsProductMappingSection() {
             {mappings.map((m) => (
               <div key={m.whmcsProductId} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-mapping-${m.whmcsProductId}`}>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{productName(m.whmcsProductId)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{productName(m.whmcsProductId)}</p>
+                    <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
+                  </div>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {m.serviceIds.map((sid) => (
                       <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
@@ -7375,6 +7386,24 @@ function WhmcsProductMappingSection() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Unmapped products — not orderable */}
+        {productsData?.ok && unmappedProducts.length > 0 && (
+          <div className="rounded-md border border-dashed p-3 space-y-2" data-testid="list-unmapped-products">
+            <p className="text-sm font-medium flex items-center gap-2">
+              Unmapped products
+              <Badge variant="outline" className="h-5 px-1.5 text-xs text-muted-foreground" data-testid="badge-unmapped-count">Not orderable · {unmappedProducts.length}</Badge>
+            </p>
+            <p className="text-xs text-muted-foreground">These WHMCS products have no service mapping, so customers can't order them. Map one below to make it orderable.</p>
+            <div className="flex flex-wrap gap-1">
+              {unmappedProducts.map((p) => (
+                <Badge key={p.id} variant="secondary" className="h-5 px-1.5 text-xs font-normal" data-testid={`badge-unmapped-${p.id}`}>
+                  {p.groupName ? `${p.name} · ${p.groupName}` : p.name}
+                </Badge>
+              ))}
+            </div>
           </div>
         )}
 
