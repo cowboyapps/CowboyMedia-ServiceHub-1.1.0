@@ -7,7 +7,12 @@ import {
   type OrderRouteDeps,
 } from "./whmcs-order-route";
 import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
-import type { OrderableProduct, OrderableProductsData, PaymentMethodsData } from "./whmcs-billing";
+import {
+  loadOrderableProducts,
+  type OrderableProduct,
+  type OrderableProductsData,
+  type PaymentMethodsData,
+} from "./whmcs-billing";
 import type { WhmcsRawFetch } from "./whmcs";
 
 // Route-level tests for the customer in-app ordering endpoints:
@@ -173,6 +178,36 @@ test("catalogue: hasGateway is false when no payment method exists", async () =>
   });
   const { body } = await get(app, "/api/billing/products");
   assert.equal(body.hasGateway, false);
+});
+
+test("catalogue: handler response omits hidden/retired products (end-to-end through the real filter)", async () => {
+  // Drive the handler through the REAL loadOrderableProducts so the hidden/
+  // retired filter actually runs on the way out — the contract the frontend
+  // relies on. The raw GetProducts payload mixes visible + hidden + retired
+  // rows (WHMCS serializes booleans loosely: "1" / true).
+  const rawProducts: WhmcsRawFetch = {
+    ok: true,
+    data: {
+      products: {
+        product: [
+          { pid: 10, gid: 1, name: "Visible VPS", pricing: { USD: { monthly: "10.00" } } },
+          { pid: 11, gid: 1, name: "Hidden VPS", hidden: "1", pricing: { USD: { monthly: "20.00" } } },
+          { pid: 12, gid: 1, name: "Retired VPS", retired: true, pricing: { USD: { monthly: "30.00" } } },
+          { pid: 13, gid: 1, name: "Another Visible VPS", pricing: { USD: { monthly: "40.00" } } },
+        ],
+      },
+    },
+  };
+  const app = makeApp({
+    sessionUserId: "u1",
+    users: { u1: { whmcsClientId: 5 } },
+    loadOrderableProducts: () => loadOrderableProducts(async () => rawProducts, "USD"),
+    loadPaymentMethods: okMethods(),
+  });
+  const { status, body } = await get(app, "/api/billing/products");
+  assert.equal(status, 200);
+  const pids = (body.products as OrderableProduct[]).map((p) => p.pid).sort((a, b) => a - b);
+  assert.deepEqual(pids, [10, 13]);
 });
 
 test("catalogue: unreachable catalogue degrades to the empty shape (no 500)", async () => {
