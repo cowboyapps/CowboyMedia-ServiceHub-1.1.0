@@ -430,6 +430,63 @@ test("loadOrderableProducts: a hidden product is dropped even if it has a buyabl
   assert.deepEqual(products, []);
 });
 
+// ---------- loadOrderableProducts admin-mapping allowlist ----------
+// WHMCS' GetProducts never reports Hidden/Retired status, so the REAL gate is
+// the admin product->service mapping allowlist: only mapped pids are offerable.
+
+const catalogueFetch = () =>
+  Promise.resolve({
+    ok: true as const,
+    data: {
+      products: {
+        product: [
+          { pid: 10, name: "Mapped VPS", pricing: { USD: { monthly: "10.00" } } },
+          { pid: 20, name: "Unmapped (e.g. Hidden) VPS", pricing: { USD: { monthly: "15.00" } } },
+          { pid: 30, name: "Mapped Cloud", pricing: { USD: { monthly: "20.00" } } },
+        ],
+      },
+    },
+  });
+
+test("loadOrderableProducts: allowedPids keeps only admin-mapped products", async () => {
+  const { products } = await loadOrderableProducts(catalogueFetch, "USD", [10, 30]);
+  assert.deepEqual(products.map((p) => p.pid), [10, 30]);
+});
+
+test("loadOrderableProducts: an unmapped product (the Hidden-on-live case) is dropped", async () => {
+  const { products } = await loadOrderableProducts(catalogueFetch, "USD", [10]);
+  assert.deepEqual(products.map((p) => p.pid), [10]);
+  assert.ok(!products.some((p) => p.pid === 20));
+});
+
+test("loadOrderableProducts: an empty allowlist offers nothing (admin mapped no products)", async () => {
+  const { products, unreachable } = await loadOrderableProducts(catalogueFetch, "USD", []);
+  assert.equal(unreachable, false);
+  assert.deepEqual(products, []);
+});
+
+test("loadOrderableProducts: a null/omitted allowlist skips filtering (backwards compatible)", async () => {
+  const withNull = await loadOrderableProducts(catalogueFetch, "USD", null);
+  assert.deepEqual(withNull.products.map((p) => p.pid), [10, 20, 30]);
+  const omitted = await loadOrderableProducts(catalogueFetch, "USD");
+  assert.deepEqual(omitted.products.map((p) => p.pid), [10, 20, 30]);
+});
+
+test("loadOrderableProducts: an allowed-but-unbuyable product is still dropped (cycle gate wins)", async () => {
+  const fetchProducts = async () => ({
+    ok: true as const,
+    data: {
+      products: {
+        product: [
+          { pid: 40, name: "Free only", paytype: "free", pricing: { USD: { monthly: "-1.00" } } },
+        ],
+      },
+    },
+  });
+  const { products } = await loadOrderableProducts(fetchProducts, "USD", [40]);
+  assert.deepEqual(products, []);
+});
+
 // ---------- stripProductCredentials ----------
 
 test("stripProductCredentials: removes username/password, keeps everything else", () => {

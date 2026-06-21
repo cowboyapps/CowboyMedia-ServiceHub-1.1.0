@@ -1550,14 +1550,17 @@ export interface OrderableProductsData {
 }
 
 /**
- * Should this raw GetProducts row be kept OUT of the customer's "order a new
- * service" catalogue? WHMCS marks a product "Hidden" (hide from order forms /
- * client area) and lets one be "retired" (no new orders); neither should be
- * offerable here. WHMCS serializes booleans inconsistently across versions
+ * Defence-in-depth flag check for a raw GetProducts row. NOTE: the standard
+ * WHMCS `GetProducts` API does NOT return a product's Hidden/Retired status —
+ * those columns live in `tblproducts` but are silently omitted from the API
+ * response (confirmed against the official docs + developer-docs issue #121).
+ * So on a stock WHMCS this never matches and the REAL gate keeping hidden
+ * products out of the customer catalogue is the admin product→service mapping
+ * allowlist applied in `loadOrderableProducts` (see `allowedPids`). This check
+ * is kept only as a belt-and-suspenders for a customised WHMCS that DOES inject
+ * a `hidden`/`retired` field; WHMCS serializes booleans inconsistently
  * ("1" / 1 / true / "yes" / "on"), so coerce loosely and treat an absent flag
- * as visible (no regression when a field isn't present). Admin-facing
- * `listProducts` deliberately does NOT use this — admins map every product.
- * Pure → unit-tested.
+ * as visible. Pure → unit-tested.
  */
 export function isHiddenOrderableProduct(raw: any): boolean {
   const flagOn = (v: unknown): boolean => {
@@ -1574,22 +1577,32 @@ export function isHiddenOrderableProduct(raw: any): boolean {
 
 /**
  * Load the orderable product catalogue. `unreachable` is true when GetProducts
- * failed (outage / missing API permission). Hidden/retired products are dropped
- * up front so the customer is never offered something an admin meant to keep off
- * the order form, then products with no offered cycle (every cycle disabled, or
- * one-time/free only) are dropped so the picker only ever shows something the
- * customer can actually buy. Injectable fetcher for tests.
+ * failed (outage / missing API permission).
+ *
+ * Visibility: WHMCS's `GetProducts` API does NOT expose a product's Hidden/
+ * Retired status (see `isHiddenOrderableProduct`), so the catalogue is gated by
+ * the admin product→service mapping allowlist instead — when `allowedPids` is
+ * provided ONLY those product ids are offerable, so an admin who hasn't mapped a
+ * product (e.g. a Hidden/Retired one) can never expose it to customers. Pass
+ * `null`/omit to skip the allowlist (no filtering). The defensive flag check
+ * still drops any product a customised WHMCS marks hidden. Then products with no
+ * offered cycle (every cycle disabled, or one-time/free only) are dropped so the
+ * picker only ever shows something the customer can actually buy. Injectable
+ * fetcher for tests.
  */
 export async function loadOrderableProducts(
   fetchProducts: () => Promise<WhmcsRawFetch> = getProducts,
   currency?: string | null,
+  allowedPids?: Iterable<number> | null,
 ): Promise<OrderableProductsData> {
   const r = await fetchProducts();
   if (!r.ok) return { products: [], unreachable: true };
+  const allow = allowedPids != null ? new Set<number>(allowedPids) : null;
   const products = normalizeListField(r.data?.products, "product")
     .filter((p) => !isHiddenOrderableProduct(p))
     .map((p) => parseOrderableProduct(p, currency))
-    .filter((p) => p.pid > 0 && p.cycles.length > 0);
+    .filter((p) => p.pid > 0 && p.cycles.length > 0)
+    .filter((p) => allow === null || allow.has(p.pid));
   return { products, unreachable: false };
 }
 

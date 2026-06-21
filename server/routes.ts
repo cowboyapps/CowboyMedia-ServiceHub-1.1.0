@@ -44,7 +44,7 @@ import {
   getTicketAttachment as getWhmcsTicketAttachment,
   type TicketAttachmentUpload as WhmcsTicketAttachmentUpload,
 } from "./whmcs";
-import { loadBillingSummaryWithInvoiceServices, loadBillingDashboard, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds } from "./whmcs-billing";
+import { loadBillingSummaryWithInvoiceServices, loadBillingDashboard, invalidateBillingCaches, parseProduct as parseWhmcsProduct, deriveMappedServiceIds, loadOrderableProducts as loadOrderableProductsBilling } from "./whmcs-billing";
 import { createBillingCacheInvalidator } from "./billing-cache-invalidation";
 import { createMyServicesHandler } from "./whmcs-services-route";
 import { createListProductDnsHandler, createSetProductDnsHandler } from "./whmcs-product-dns-route";
@@ -6538,8 +6538,21 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     recordPendingOrder: (userId: string, pid: number, invoiceId: number | null) =>
       storage.createWhmcsPendingOrder(userId, pid, invoiceId).then(() => undefined),
   };
-  app.get("/api/billing/products", requireAuth, createListOrderableProductsHandler(orderRouteDeps));
-  const placeOrder = createPlaceOrderHandler(orderRouteDeps);
+  // WHMCS's GetProducts API never reports a product's Hidden/Retired status, so
+  // the orderable catalogue is gated by the admin product→service mapping
+  // allowlist: only products an admin has explicitly mapped are offerable. An
+  // unmapped product (including any Hidden/Retired one) can never reach the
+  // customer order picker or be ordered. Upgrades keep the unrestricted loader.
+  const orderableDeps = {
+    ...orderRouteDeps,
+    loadOrderableProducts: async () => {
+      const mappings = await storage.listWhmcsProductMappings();
+      const allowedPids = mappings.map((m) => m.whmcsProductId);
+      return loadOrderableProductsBilling(undefined, null, allowedPids);
+    },
+  };
+  app.get("/api/billing/products", requireAuth, createListOrderableProductsHandler(orderableDeps));
+  const placeOrder = createPlaceOrderHandler(orderableDeps);
   app.post(
     "/api/billing/order",
     requireAuth,

@@ -26,3 +26,4 @@
 - [WHMCS has no invoice-PDF-bytes API](whmcs-no-pdf-bytes-api.md) — `GetInvoicePDF` isn't a real action; serve the PDF via an SSO redirect to `dl.php?type=i&id=<id>`, not a byte fetch.
 - [kb_articles search_vector drift](kb-articles-search-vector-drift.md) — search_vector column+trigger live outside migrations; a drifted dev DB may have the trigger but not the column, breaking every kb_articles insert (42703).
 - [DB trigger/function drift audit](db-object-audit.md) — prebuild gate now fails on any trigger/function in the DB not created by a committed migration; add the DDL to a migration or allowlist it in shared/db-object-audit.ts.
+- [WHMCS GetProducts omits Hidden/Retired](whmcs-getproducts-no-hidden-field.md) — GetProducts never returns hidden/retired; gate the orderable picker by the admin product→service mapping allowlist, not a response field.
