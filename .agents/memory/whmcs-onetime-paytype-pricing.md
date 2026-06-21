@@ -31,3 +31,14 @@ customer storefront — a real billing-correctness bug.
   directly, so the writer passes them through unchanged.
 - Dev can't introspect live WHMCS (unreachable), so validate the live shape on
   the VPS and keep the parser defensive + unit-tested.
+
+## Configurable-option (sub-option) pricing
+
+Each config-option sub-option in `GetProducts` carries its own `pricing` block
+keyed the same way as a product (`pricing.{CUR}.{cycle}`). Parse it with the
+same currency-block resolution; keep non-negative cycles only (`-1.00` =
+disabled). For a one-time/free product the option price follows the SAME quirk —
+it lives in `monthly`, so the UI maps the synthetic `onetime`/`free` cycle to
+`onetime ?? monthly`. Show `Free` for a `0.00` option, `+ <amt>` otherwise, and
+nothing when the option has no pricing (older installs omit it entirely).
+

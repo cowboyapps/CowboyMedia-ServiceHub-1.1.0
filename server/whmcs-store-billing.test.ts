@@ -57,6 +57,39 @@ test("parseStoreConfigOptions: parses a dropdown with sub-options", () => {
   assert.deepEqual(opts[0].choices, [{ id: 51, name: "50 GB" }, { id: 52, name: "100 GB" }]);
 });
 
+test("parseStoreConfigOptions: parses per-cycle sub-option pricing, drops disabled (-1.00)", () => {
+  const opts = parseStoreConfigOptions(
+    {
+      configoptions: {
+        configoption: {
+          id: 9,
+          name: "Shipping Options",
+          type: "dropdown",
+          options: {
+            option: [
+              {
+                id: 91,
+                name: "USPS Flat Rate",
+                pricing: { USD: { monthly: "5.00", quarterly: "-1.00", annually: "55.00" } },
+              },
+              { id: 92, name: "Free pickup", pricing: { USD: { monthly: "0.00" } } },
+              { id: 93, name: "No pricing" },
+            ],
+          },
+        },
+      },
+    },
+    "USD",
+  );
+  assert.equal(opts.length, 1);
+  // monthly + annually kept; disabled quarterly dropped.
+  assert.deepEqual(opts[0].choices[0].prices, { monthly: "5.00", annually: "55.00" });
+  // $0 option keeps its price (UI shows "Free").
+  assert.deepEqual(opts[0].choices[1].prices, { monthly: "0.00" });
+  // No pricing block → no prices key at all.
+  assert.equal(opts[0].choices[2].prices, undefined);
+});
+
 test("parseStoreConfigOptions: maps numeric type codes + quantity has no choices", () => {
   const opts = parseStoreConfigOptions({
     configoptions: { configoption: [{ id: 7, name: "Extra IPs", type: "4" }] },

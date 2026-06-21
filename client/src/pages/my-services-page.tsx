@@ -770,6 +770,26 @@ function AddServiceFlow() {
 interface StoreConfigOptionChoice {
   id: number;
   name: string;
+  prices?: Record<string, string>;
+}
+
+/**
+ * The extra price label to show next to a configurable-option choice for the
+ * currently-selected billing cycle. WHMCS stores a one-time product's option
+ * price under the recurring "monthly" key (same quirk as the product itself),
+ * so the synthetic onetime/free cycles fall back to monthly. Returns "" when no
+ * usable price is known (older WHMCS installs omit option pricing), "Free" for a
+ * $0 option, or "+ <amount>" otherwise.
+ */
+function choicePriceLabel(prices: Record<string, string> | undefined, cycle: string): string {
+  if (!prices) return "";
+  const raw = cycle === "onetime" || cycle === "free"
+    ? (prices.onetime ?? prices.monthly)
+    : prices[cycle];
+  if (raw == null) return "";
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return "";
+  return n === 0 ? "Free" : `+ ${raw}`;
 }
 
 interface StoreConfigOption {
@@ -932,7 +952,10 @@ function AddProductFlow() {
   const dropdownContentProps = {
     position: "popper" as const,
     collisionPadding: { top: 60, bottom: 24, left: 12, right: 12 },
-    className: "max-h-[min(60dvh,var(--radix-select-content-available-height))]",
+    // Cap the menu width to the viewport so long option labels wrap (see the
+    // wrapping SelectItems) instead of overflowing off-screen and getting clipped.
+    className:
+      "max-h-[min(60dvh,var(--radix-select-content-available-height))] max-w-[calc(100vw-1.5rem)]",
   };
 
   return (
@@ -996,7 +1019,7 @@ function AddProductFlow() {
                       const term = p.cycles.length === 1 ? ` – ${p.cycles[0].label}` : "";
                       const cat = p.category ? `${p.category}: ` : "";
                       return (
-                        <SelectItem key={p.pid} value={String(p.pid)} data-testid={`option-store-product-${p.pid}`}>
+                        <SelectItem key={p.pid} value={String(p.pid)} className="whitespace-normal break-words" data-testid={`option-store-product-${p.pid}`}>
                           {cat}{p.name}{term}
                         </SelectItem>
                       );
@@ -1020,7 +1043,7 @@ function AddProductFlow() {
                     </SelectTrigger>
                     <SelectContent {...dropdownContentProps}>
                       {product.cycles.map((c) => (
-                        <SelectItem key={c.cycle} value={c.cycle} data-testid={`option-store-cycle-${c.cycle}`}>
+                        <SelectItem key={c.cycle} value={c.cycle} className="whitespace-normal break-words" data-testid={`option-store-cycle-${c.cycle}`}>
                           {c.label} — {c.price}
                           {c.setupFee ? ` (+ ${c.setupFee} setup)` : ""}
                         </SelectItem>
@@ -1049,11 +1072,19 @@ function AddProductFlow() {
                               <SelectValue placeholder="Choose…" />
                             </SelectTrigger>
                             <SelectContent {...dropdownContentProps}>
-                              {opt.choices.map((ch) => (
-                                <SelectItem key={ch.id} value={String(ch.id)} data-testid={`option-config-${opt.id}-${ch.id}`}>
-                                  {ch.name}
-                                </SelectItem>
-                              ))}
+                              {opt.choices.map((ch) => {
+                                const priceLabel = choicePriceLabel(ch.prices, cycle);
+                                return (
+                                  <SelectItem
+                                    key={ch.id}
+                                    value={String(ch.id)}
+                                    className="whitespace-normal break-words"
+                                    data-testid={`option-config-${opt.id}-${ch.id}`}
+                                  >
+                                    {ch.name}{priceLabel ? ` (${priceLabel})` : ""}
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         ) : opt.type === "quantity" ? (
@@ -1102,7 +1133,7 @@ function AddProductFlow() {
                             </SelectTrigger>
                             <SelectContent {...dropdownContentProps}>
                               {f.options.map((o) => (
-                                <SelectItem key={o} value={o} data-testid={`option-custom-${f.id}-${o}`}>
+                                <SelectItem key={o} value={o} className="whitespace-normal break-words" data-testid={`option-custom-${f.id}-${o}`}>
                                   {o}
                                 </SelectItem>
                               ))}

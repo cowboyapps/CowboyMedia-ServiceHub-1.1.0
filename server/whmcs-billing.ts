@@ -1683,6 +1683,13 @@ export interface StoreConfigOptionChoice {
   /** WHMCS configurable-option SUB-option id (what AddOrder expects as the value). */
   id: number;
   name: string;
+  /**
+   * Per-cycle price for this sub-option, keyed by billing-cycle key (recurring
+   * keys + "onetime"), as the raw WHMCS decimal string. Disabled cycles
+   * ("-1.00") are omitted. Absent when WHMCS returned no pricing for the option
+   * (older installs / GetProducts omits it) — the UI then shows no price.
+   */
+  prices?: Record<string, string>;
 }
 
 export type StoreConfigOptionType = "dropdown" | "radio" | "yesno" | "quantity";
@@ -1709,6 +1716,28 @@ export interface StoreCustomField {
   options: string[];
 }
 
+/**
+ * Parse a configurable-option SUB-option's per-cycle pricing into a {cycleKey ->
+ * decimal string} map. Reuses the product currency block resolution. Keeps only
+ * non-negative numeric prices (WHMCS encodes a disabled cycle as "-1.00"), across
+ * the recurring cycle keys plus the explicit "onetime" key. Returns undefined
+ * when WHMCS gave no usable pricing (so the choice carries no `prices`). Pure.
+ */
+function parseChoicePrices(pricing: any, currency?: string | null): Record<string, string> | undefined {
+  const { block } = pickPricingBlock(pricing, currency);
+  if (!block || typeof block !== "object") return undefined;
+  const out: Record<string, string> = {};
+  const keys = new Set<string>([...ORDER_BILLING_CYCLES.map((c) => c.key), "onetime"]);
+  for (const k of keys) {
+    const raw = block[k];
+    if (raw === undefined || raw === null) continue;
+    const s = String(raw).trim();
+    const n = parseFloat(s);
+    if (Number.isFinite(n) && n >= 0) out[k] = s;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Map a raw WHMCS configurable-option type (numeric or label) to our union. */
 function normalizeConfigOptionType(raw: any): StoreConfigOptionType {
   const s = String(raw ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
@@ -1727,7 +1756,7 @@ function normalizeConfigOptionType(raw: any): StoreConfigOptionType {
  * array, and of sub-options being either `{id,name}` objects or bare strings.
  * Pure → unit-tested.
  */
-export function parseStoreConfigOptions(raw: any): StoreConfigOption[] {
+export function parseStoreConfigOptions(raw: any, currency?: string | null): StoreConfigOption[] {
   const rows = normalizeListField(raw?.configoptions, "configoption");
   const out: StoreConfigOption[] = [];
   for (const row of rows) {
@@ -1738,7 +1767,10 @@ export function parseStoreConfigOptions(raw: any): StoreConfigOption[] {
       if (opt && typeof opt === "object") {
         const oid = Number(opt.id ?? 0);
         const oname = String(opt.name ?? "").trim();
-        if (Number.isInteger(oid) && oid > 0) choices.push({ id: oid, name: oname || `Option ${oid}` });
+        if (Number.isInteger(oid) && oid > 0) {
+          const prices = parseChoicePrices(opt.pricing, currency);
+          choices.push({ id: oid, name: oname || `Option ${oid}`, ...(prices ? { prices } : {}) });
+        }
       }
     }
     out.push({
@@ -1861,7 +1893,7 @@ export function assembleStoreCatalogue(
       sortOrder: row.sortOrder,
       currency: parsed.currency,
       cycles: parsed.cycles,
-      configOptions: parseStoreConfigOptions(raw),
+      configOptions: parseStoreConfigOptions(raw, parsed.currency ?? currency),
       customFields: parseStoreCustomFields(raw),
     });
   }
