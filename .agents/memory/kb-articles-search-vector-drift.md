@@ -23,5 +23,13 @@ remove the audit exclusion (the audit would then flag it as an extra column).
 
 **Historical bite (pre-migration):** a drifted dev DB could end up with the
 *trigger but not the column*. Then ANY insert into `kb_articles` failed with
-`record "new" has no field "search_vector"` (Postgres 42703). The committed
-migration now closes this gap; no manual repair needed.
+`record "new" has no field "search_vector"` (Postgres 42703).
+
+**If the drift recurs even though 0026 exists:** `npm run db:migrate` will report
+"migrations up to date" and NOT fix it — the journal already records 0026 as
+applied, so the drizzle migrator skips it while the column is still missing (the
+journal-vs-actual drift class). Apply the idempotent repair by hand instead:
+`psql "$DATABASE_URL" -f <(sed 's/--> statement-breakpoint//g' migrations/0026_kb_search_vector.sql)`.
+It only `ADD COLUMN IF NOT EXISTS` / `CREATE OR REPLACE` / recreates the trigger,
+so it is safe to re-run. Symptom in the test suite: every `kb_articles` insert
+(kb-search.test.ts, uploaded-file-cleanup.test.ts) fails with the 42703 message.
