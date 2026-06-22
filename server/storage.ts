@@ -388,7 +388,7 @@ export interface IStorage {
   getWhmcsServiceNotifyState(userId: string): Promise<ServiceMarkerMap>;
   recordWhmcsServiceNotified(userId: string, whmcsServiceId: number, marker: ServiceMarker): Promise<void>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
-  setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
+  setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[], productName?: string | null): Promise<WhmcsProductMapping[]>;
   reorderWhmcsProductMappings(orderedProductIds: number[]): Promise<void>;
   deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
   listWhmcsProductDns(): Promise<WhmcsProductDns[]>;
@@ -1404,10 +1404,10 @@ export class DatabaseStorage implements IStorage {
   // Passing an empty array clears the mapping entirely. Mirrors setAlertServices.
   // The product's display position (sortOrder) is preserved across edits; a
   // brand-new product is appended to the end of the list.
-  async setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]> {
+  async setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[], productName?: string | null): Promise<WhmcsProductMapping[]> {
     const unique = Array.from(new Set(serviceIds));
     const [existing] = await db
-      .select({ sortOrder: whmcsProductMappings.sortOrder })
+      .select({ sortOrder: whmcsProductMappings.sortOrder, whmcsProductName: whmcsProductMappings.whmcsProductName })
       .from(whmcsProductMappings)
       .where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId))
       .limit(1);
@@ -1418,9 +1418,14 @@ export class DatabaseStorage implements IStorage {
         .from(whmcsProductMappings);
       sortOrder = max === null || max === undefined ? 0 : max + 1;
     }
+    // Capture the freshly-resolved name when the caller supplies one; otherwise
+    // keep whatever we last stored so an edit (which may happen when the product
+    // is no longer resolvable live) never wipes a previously-captured name.
+    const trimmed = typeof productName === "string" ? productName.trim() : "";
+    const nameToStore = trimmed.length > 0 ? trimmed : (existing?.whmcsProductName ?? null);
     await db.delete(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
     if (unique.length > 0) {
-      await db.insert(whmcsProductMappings).values(unique.map(serviceId => ({ whmcsProductId, serviceId, sortOrder })));
+      await db.insert(whmcsProductMappings).values(unique.map(serviceId => ({ whmcsProductId, serviceId, sortOrder, whmcsProductName: nameToStore })));
     }
     return db.select().from(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
   }

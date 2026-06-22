@@ -7247,6 +7247,10 @@ interface WhmcsProductSummary {
 interface WhmcsProductMappingRow {
   whmcsProductId: number;
   serviceIds: string[];
+  // Name captured from WHMCS when the mapping was saved. Survives the product
+  // later becoming Hidden/Retired (GetProducts then omits it). Null for rows
+  // created before this was stored — those fall back to the live lookup.
+  whmcsProductName: string | null;
 }
 
 interface StoreProductRow {
@@ -8024,17 +8028,29 @@ function WhmcsProductMappingSection() {
   const unmappedProducts = products.filter((p) => !mappedProductIds.has(p.id));
 
   const serviceName = (id: string) => services?.find((s) => s.id === id)?.name ?? id;
-  const productName = (pid: number) => {
+  // Live name from the WHMCS picker. Null when GetProducts can't resolve the
+  // product (it's Hidden/Retired, or WHMCS is unreachable).
+  const liveProductName = (pid: number): string | null => {
     const p = products.find((p) => p.id === pid);
-    if (!p) return `Product #${pid}`;
+    if (!p) return null;
     return p.groupName ? `${p.name} (${p.groupName})` : p.name;
   };
+  const productName = (pid: number) => liveProductName(pid) ?? `Product #${pid}`;
+  // Name to show on a mapped row: prefer the snapshot captured at save time
+  // (survives the product being hidden), then the live lookup, then the id.
+  const mappingName = (m: WhmcsProductMappingRow) =>
+    m.whmcsProductName?.trim() || liveProductName(m.whmcsProductId) || `Product #${m.whmcsProductId}`;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/whmcs/product-mappings"] });
 
   const saveMutation = useMutation({
     mutationFn: async (vars: { whmcsProductId: number; serviceIds: string[] }) => {
-      const res = await apiRequest("PUT", "/api/admin/whmcs/product-mappings", vars);
+      // Snapshot the live name so the row stays identifiable after the product
+      // is hidden. Null when unresolvable — the server then keeps the prior name.
+      const res = await apiRequest("PUT", "/api/admin/whmcs/product-mappings", {
+        ...vars,
+        productName: liveProductName(vars.whmcsProductId),
+      });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         throw new Error(b.message || "Failed to save mapping");
@@ -8169,7 +8185,8 @@ function WhmcsProductMappingSection() {
                   )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{productName(m.whmcsProductId)}</p>
+                      <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{mappingName(m)}</p>
+                      <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-mapping-pid-${m.whmcsProductId}`}>#{m.whmcsProductId}</span>
                       <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1">

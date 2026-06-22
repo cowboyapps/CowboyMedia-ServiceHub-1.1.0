@@ -1,0 +1,1 @@
+ALTER TABLE "whmcs_product_mappings" ADD COLUMN "whmcs_product_name" text;

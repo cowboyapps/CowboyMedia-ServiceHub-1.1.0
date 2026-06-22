@@ -24,3 +24,14 @@ an admin has explicitly mapped are offerable. `loadOrderableProducts` takes an
 `allowedPids` arg; the order routes pass the mapped pids. An empty allowlist =>
 nothing orderable (intentional). The field-based `isHiddenOrderableProduct` check
 is kept only as defense-in-depth for a customised WHMCS that injects such a field.
+
+**Corollary — snapshot names, don't resolve them live.** Hidden/Retired
+products ARE still omitted from GetProducts on real installs (the "returns ALL"
+claim above is about the missing status field, not visibility — a genuinely
+hidden product can drop out of the list entirely). So any admin UI that must
+keep showing a *mapped or curated* product's name cannot rely on a live
+GetProducts lookup — it will fall back to a useless `Product #<id>`. Capture the
+product name (and any other needed display fields) at the moment the admin
+selects it from the live picker and persist it on the row; prefer the stored
+snapshot at render time, falling back to live → id. `whmcs_product_mappings`
+carries a denormalised `whmcs_product_name` for exactly this reason.

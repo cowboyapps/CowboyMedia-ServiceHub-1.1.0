@@ -941,6 +941,13 @@ export const whmcsProductMappings = pgTable("whmcs_product_mappings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   whmcsProductId: integer("whmcs_product_id").notNull(),
   serviceId: varchar("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  // Snapshot of the WHMCS product's display name, captured when the mapping is
+  // created/edited (while the product is still in the live picker). WHMCS's
+  // GetProducts omits Hidden/Retired products, so once a product is mapped we
+  // often can't resolve its name live anymore — storing it here keeps the row
+  // identifiable in the admin list. Denormalised (same value on every row for a
+  // product, like sortOrder); nullable for pre-existing rows that predate it.
+  whmcsProductName: text("whmcs_product_name"),
   // Admin-controlled display order of the mapping list (drag-to-reorder). All
   // rows sharing a whmcsProductId carry the SAME sortOrder so the grouped list
   // (one entry per product) orders deterministically.

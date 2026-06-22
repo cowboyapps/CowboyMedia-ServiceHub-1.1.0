@@ -6902,13 +6902,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get("/api/admin/whmcs/product-mappings", requireAdmin, async (_req, res) => {
     try {
       const rows = await storage.listWhmcsProductMappings();
-      const grouped = new Map<number, string[]>();
+      const grouped = new Map<number, { serviceIds: string[]; whmcsProductName: string | null }>();
       for (const row of rows) {
-        const list = grouped.get(row.whmcsProductId) ?? [];
-        list.push(row.serviceId);
-        grouped.set(row.whmcsProductId, list);
+        const entry = grouped.get(row.whmcsProductId) ?? { serviceIds: [], whmcsProductName: null };
+        entry.serviceIds.push(row.serviceId);
+        // All rows for a product share the same snapshot name, but tolerate
+        // legacy rows where only some carry it by keeping the first non-empty.
+        if (!entry.whmcsProductName && row.whmcsProductName) entry.whmcsProductName = row.whmcsProductName;
+        grouped.set(row.whmcsProductId, entry);
       }
-      const mappings = Array.from(grouped.entries()).map(([whmcsProductId, serviceIds]) => ({ whmcsProductId, serviceIds }));
+      const mappings = Array.from(grouped.entries()).map(([whmcsProductId, entry]) => ({
+        whmcsProductId,
+        serviceIds: entry.serviceIds,
+        whmcsProductName: entry.whmcsProductName,
+      }));
       res.json({ mappings });
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
@@ -6925,6 +6932,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const rawIds: unknown[] = Array.isArray(req.body?.serviceIds) ? req.body.serviceIds : [];
       const serviceIds: string[] = Array.from(new Set(rawIds.map((s) => String(s)).filter((s) => s.length > 0)));
+      // Optional snapshot of the WHMCS product's display name, supplied by the
+      // admin UI from the live picker so the row stays identifiable even after
+      // the product becomes Hidden/Retired (GetProducts then omits it).
+      const productNameRaw = req.body?.productName;
+      const productName = typeof productNameRaw === "string" && productNameRaw.trim().length > 0 ? productNameRaw.trim().slice(0, 255) : null;
       if (serviceIds.length > 0) {
         const all = await storage.getAllServices();
         const known = new Set(all.map((s) => s.id));
@@ -6933,7 +6945,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           return res.status(400).json({ message: `Unknown service id(s): ${unknown.join(", ")}` });
         }
       }
-      const rows = await storage.setWhmcsProductMappingServices(whmcsProductId, serviceIds);
+      const rows = await storage.setWhmcsProductMappingServices(whmcsProductId, serviceIds, productName);
       logActivity("setting", "whmcs_product_mapping_set", {
         actorId: req.session.userId,
         targetType: "setting",
