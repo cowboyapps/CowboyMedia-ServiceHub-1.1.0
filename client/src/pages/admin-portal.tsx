@@ -36,7 +36,7 @@ import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
-import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical, Star } from "lucide-react";
+import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical, Star, Package } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
@@ -7341,6 +7341,26 @@ function StoreProductsSection() {
   const galleryPreviewUrls = useMemo(() => galleryFiles.map((f) => URL.createObjectURL(f)), [galleryFiles]);
   useEffect(() => () => { galleryPreviewUrls.forEach((u) => URL.revokeObjectURL(u)); }, [galleryPreviewUrls]);
 
+  // Object URLs for the not-yet-uploaded files so the live preview can show the
+  // admin's pending primary/gallery choices. Revoked when the selection changes
+  // or the section unmounts to avoid leaking blob URLs.
+  const [primaryFileUrl, setPrimaryFileUrl] = useState<string | null>(null);
+  const [galleryFileUrls, setGalleryFileUrls] = useState<string[]>([]);
+  useEffect(() => {
+    if (!imageFile) {
+      setPrimaryFileUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setPrimaryFileUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+  useEffect(() => {
+    const urls = galleryFiles.map((f) => URL.createObjectURL(f));
+    setGalleryFileUrls(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [galleryFiles]);
+
   const handleGalleryDrop = (targetIdx: number) => {
     setGalleryOrder((prev) => {
       if (galleryDragIdx === null || galleryDragIdx === targetIdx) return prev;
@@ -7363,7 +7383,10 @@ function StoreProductsSection() {
     queryKey: ["/api/admin/store-products"],
   });
 
-  const whmcsProducts = productsData?.ok ? productsData.products ?? [] : [];
+  const whmcsProducts = useMemo(
+    () => (productsData?.ok ? productsData.products ?? [] : []),
+    [productsData],
+  );
   const storeProducts = storeData?.products ?? [];
   const currentPrimaryUrl = editingId ? storeProducts.find((p) => p.id === editingId)?.imageUrl ?? null : null;
   const curatedPids = new Set(storeProducts.map((p) => p.whmcsProductId));
@@ -7378,6 +7401,80 @@ function StoreProductsSection() {
     if (!p) return `Product #${pid}`;
     return p.groupName ? `${p.name} · ${p.groupName}` : p.name;
   };
+
+  // Live customer-facing preview of the catalogue card + order gallery. Mirrors
+  // the server's save logic (server/whmcs-store-route.ts) for how pending edits
+  // resolve the primary image + gallery order, then the primary-first dedupe in
+  // assembleStoreCatalogue (server/whmcs-billing.ts). Recomputes as the admin
+  // edits text, uploads, removes, reorders, or promotes images.
+  const preview = useMemo(() => {
+    // Resolve the primary slot. A fresh upload always wins, then an explicit
+    // removal, otherwise keep the existing primary. (undefined = keep existing.)
+    let primaryCandidate: string | null | undefined;
+    if (primaryFileUrl) primaryCandidate = primaryFileUrl;
+    else if (editingId && removeImage) primaryCandidate = null;
+    else primaryCandidate = undefined;
+
+    // Build the gallery: drop removed URLs (admin order already applied to
+    // galleryOrder), append new uploads.
+    let kept = galleryOrder.filter((u) => !removeGalleryUrls.includes(u));
+    kept = [...kept, ...galleryFileUrls];
+
+    // Promotion (only when no fresh upload): pull the promoted image into the
+    // primary slot and demote whatever primary would otherwise stay to the head
+    // of the gallery.
+    const promoteUrl =
+      !primaryFileUrl && promotePrimaryUrl && kept.includes(promotePrimaryUrl)
+        ? promotePrimaryUrl
+        : null;
+    let finalPrimary: string | null;
+    if (promoteUrl) {
+      kept = kept.filter((u) => u !== promoteUrl);
+      const demote = primaryCandidate !== undefined ? primaryCandidate : currentPrimaryUrl;
+      finalPrimary = promoteUrl;
+      if (demote && demote !== promoteUrl && !kept.includes(demote)) {
+        kept = [demote, ...kept];
+      }
+    } else {
+      finalPrimary = primaryCandidate !== undefined ? primaryCandidate : currentPrimaryUrl;
+    }
+
+    // Primary-first, deduped, empties dropped — same as assembleStoreCatalogue.
+    const images: string[] = [];
+    for (const candidate of [finalPrimary, ...kept]) {
+      const url = (candidate ?? "").trim();
+      if (url && !images.includes(url)) images.push(url);
+    }
+
+    const fallbackName = form.whmcsProductId
+      ? whmcsProducts.find((p) => p.id === Number(form.whmcsProductId))?.name ?? ""
+      : "";
+    const name = form.name.trim() || fallbackName;
+    const description = form.description.trim();
+    const category = form.category.trim();
+
+    return { primaryUrl: finalPrimary, images, name, description, category };
+  }, [
+    primaryFileUrl,
+    galleryFileUrls,
+    galleryOrder,
+    removeGalleryUrls,
+    promotePrimaryUrl,
+    removeImage,
+    currentPrimaryUrl,
+    editingId,
+    form.name,
+    form.description,
+    form.category,
+    form.whmcsProductId,
+    whmcsProducts,
+  ]);
+
+  // Keep the gallery preview's active thumbnail valid as images change.
+  const [previewGalleryIdx, setPreviewGalleryIdx] = useState(0);
+  useEffect(() => {
+    if (previewGalleryIdx > preview.images.length - 1) setPreviewGalleryIdx(0);
+  }, [preview.images.length, previewGalleryIdx]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/store-products"] });
 
@@ -7778,6 +7875,84 @@ function StoreProductsSection() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Live customer preview — catalogue card + order-screen gallery,
+                  reflecting the current name, blurb, primary image and gallery
+                  order (primary first) exactly as a customer would see them. */}
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-3" data-testid="preview-customer-store">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5" /> Customer preview
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {/* Catalogue card (step 1) */}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Catalogue card</p>
+                    <div className="text-left rounded-lg border bg-card overflow-hidden flex flex-col max-w-[220px]" data-testid="preview-store-card">
+                      <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
+                        {preview.primaryUrl ? (
+                          <img src={preview.primaryUrl} alt={preview.name} className="w-full h-full object-contain" data-testid="img-preview-card" />
+                        ) : (
+                          <Package className="w-8 h-8 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="p-3 flex flex-col gap-1 flex-1">
+                        {preview.category && (
+                          <Badge variant="secondary" className="self-start text-[10px] font-normal" data-testid="text-preview-card-category">{preview.category}</Badge>
+                        )}
+                        <p className="font-medium text-sm leading-snug" data-testid="text-preview-card-name">
+                          {preview.name || <span className="text-muted-foreground italic">Product name</span>}
+                        </p>
+                        {preview.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2" data-testid="text-preview-card-description">{preview.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Order-screen gallery (step 2) */}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Order screen</p>
+                    {preview.name && (
+                      <p className="font-medium text-sm mb-2" data-testid="text-preview-gallery-name">{preview.name}</p>
+                    )}
+                    {preview.images.length > 0 ? (
+                      <div className="space-y-2" data-testid="preview-store-gallery">
+                        {(() => {
+                          const idx = Math.min(previewGalleryIdx, preview.images.length - 1);
+                          return (
+                            <>
+                              <img src={preview.images[idx]} alt={preview.name} className="w-full max-h-40 rounded-lg border bg-muted object-contain" data-testid="img-preview-gallery" />
+                              {preview.images.length > 1 && (
+                                <div className="flex flex-wrap gap-2" data-testid="preview-store-thumbnails">
+                                  {preview.images.map((src, i) => (
+                                    <button
+                                      key={src}
+                                      type="button"
+                                      onClick={() => setPreviewGalleryIdx(i)}
+                                      className={`h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-muted hover-elevate ${i === idx ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : ""}`}
+                                      aria-label={`View image ${i + 1} of ${preview.images.length}`}
+                                      data-testid={`button-preview-thumbnail-${i}`}
+                                    >
+                                      <img src={src} alt="" className="h-full w-full object-cover" />
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                        {preview.description && (
+                          <p className="text-xs text-muted-foreground" data-testid="text-preview-gallery-description">{preview.description}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed bg-muted/40 px-3 py-6 text-center text-xs text-muted-foreground" data-testid="preview-store-gallery-empty">
+                        No images yet — customers will see a placeholder icon.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer" data-testid="label-store-enabled">
