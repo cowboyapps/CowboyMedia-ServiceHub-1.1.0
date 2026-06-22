@@ -329,6 +329,20 @@ export function parseRemoveImageUrls(v: unknown): string[] {
   }
 }
 
+// Explicit ordered list of existing gallery URLs (admin drag-to-reorder).
+// Returns null when the field is absent so callers can tell "no reorder
+// requested" apart from "reorder to empty".
+export function parseImageUrlsOrder(v: unknown): string[] | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  try {
+    const parsed = JSON.parse(v);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((u): u is string => typeof u === "string");
+  } catch {
+    return null;
+  }
+}
+
 export interface AdminStoreRouteDeps {
   listStoreProducts: () => Promise<StoreProduct[]>;
   getStoreProductByPid: (whmcsProductId: number) => Promise<StoreProduct | undefined>;
@@ -448,13 +462,29 @@ export function createUpdateStoreProductHandler(deps: AdminStoreRouteDeps) {
         if (existing.imageUrl) oldImagesToCleanup.push(existing.imageUrl);
       }
 
-      // Gallery handling: drop any URLs the admin removed, then append new uploads.
-      // Only recompute when something actually changed (removals or new uploads).
+      // Gallery handling: drop any URLs the admin removed, optionally reorder the
+      // kept ones (drag-to-reorder), then append new uploads. Only recompute when
+      // something actually changed (removals, reorder, or new uploads).
       const removeUrls = parseRemoveImageUrls(req.body?.removeImageUrls);
-      if (removeUrls.length > 0 || gallery.length > 0) {
-        const kept = (existing.imageUrls ?? []).filter((u) => !removeUrls.includes(u));
+      const orderUrls = parseImageUrlsOrder(req.body?.imageUrlsOrder);
+      if (removeUrls.length > 0 || gallery.length > 0 || orderUrls) {
+        let kept = (existing.imageUrls ?? []).filter((u) => !removeUrls.includes(u));
         for (const url of removeUrls) {
           if ((existing.imageUrls ?? []).includes(url)) oldImagesToCleanup.push(url);
+        }
+        // Reorder the surviving existing images per the admin's explicit order.
+        // Only URLs still kept are honoured; any kept URL the client omitted is
+        // appended afterwards so nothing is silently dropped.
+        if (orderUrls) {
+          const keptSet = new Set(kept);
+          const ordered: string[] = [];
+          for (const url of orderUrls) {
+            if (keptSet.has(url) && !ordered.includes(url)) ordered.push(url);
+          }
+          for (const url of kept) {
+            if (!ordered.includes(url)) ordered.push(url);
+          }
+          kept = ordered;
         }
         for (const file of gallery) {
           const url = await deps.saveUploadedFile(file);

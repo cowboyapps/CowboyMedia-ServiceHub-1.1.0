@@ -35,7 +35,7 @@ import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
-import { Download, ImagePlus, X as XIcon, Paperclip } from "lucide-react";
+import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
@@ -7273,10 +7273,24 @@ function StoreProductsSection() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [removeImage, setRemoveImage] = useState(false);
   // Additional gallery images: new files to upload + existing URLs to remove.
+  // `galleryOrder` is the admin's drag-reordered list of the existing URLs.
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [removeGalleryUrls, setRemoveGalleryUrls] = useState<string[]>([]);
+  const [galleryOrder, setGalleryOrder] = useState<string[]>([]);
+  const [galleryDragIdx, setGalleryDragIdx] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  const handleGalleryDrop = (targetIdx: number) => {
+    setGalleryOrder((prev) => {
+      if (galleryDragIdx === null || galleryDragIdx === targetIdx) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(galleryDragIdx, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+    setGalleryDragIdx(null);
+  };
 
   const { data: productsData, isLoading: productsLoading } = useQuery<{
     ok: boolean;
@@ -7313,6 +7327,8 @@ function StoreProductsSection() {
     setRemoveImage(false);
     setGalleryFiles([]);
     setRemoveGalleryUrls([]);
+    setGalleryOrder([]);
+    setGalleryDragIdx(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
@@ -7330,6 +7346,7 @@ function StoreProductsSection() {
       if (editingId && removeImage && !imageFile) fd.append("removeImage", "true");
       for (const file of galleryFiles) fd.append("images", file);
       if (editingId && removeGalleryUrls.length > 0) fd.append("removeImageUrls", JSON.stringify(removeGalleryUrls));
+      if (editingId && galleryOrder.length > 0) fd.append("imageUrlsOrder", JSON.stringify(galleryOrder));
       const url = editingId ? `/api/admin/store-products/${editingId}` : "/api/admin/store-products";
       const res = await fetch(url, { method: editingId ? "PATCH" : "POST", body: fd, credentials: "include" });
       if (!res.ok) {
@@ -7373,6 +7390,8 @@ function StoreProductsSection() {
     setRemoveImage(false);
     setGalleryFiles([]);
     setRemoveGalleryUrls([]);
+    setGalleryOrder(p.imageUrls ?? []);
+    setGalleryDragIdx(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
@@ -7509,17 +7528,33 @@ function StoreProductsSection() {
               <div>
                 <Label>Additional images</Label>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-1">Extra photos shown in a gallery on the order screen (up to 8).</p>
-                {/* Existing additional images (edit mode) — toggle removal each. */}
-                {editingId && (() => {
-                  const current = storeProducts.find((p) => p.id === editingId)?.imageUrls ?? [];
-                  if (current.length === 0) return null;
-                  return (
+                {/* Existing additional images (edit mode) — drag to reorder,
+                    toggle removal each. Order is persisted as the imageUrls array. */}
+                {editingId && galleryOrder.length > 0 && (
+                  <>
+                    {galleryOrder.length > 1 && (
+                      <p className="text-xs text-muted-foreground mb-1">Drag to reorder how photos appear in the customer gallery.</p>
+                    )}
                     <div className="flex flex-wrap gap-2 mb-2" data-testid="list-store-gallery-existing">
-                      {current.map((url) => {
+                      {galleryOrder.map((url, idx) => {
                         const marked = removeGalleryUrls.includes(url);
                         return (
-                          <div key={url} className="relative" data-testid={`gallery-existing-${url}`}>
+                          <div
+                            key={url}
+                            draggable={!marked}
+                            onDragStart={() => setGalleryDragIdx(idx)}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={() => handleGalleryDrop(idx)}
+                            onDragEnd={() => setGalleryDragIdx(null)}
+                            className={`relative ${marked ? "" : "cursor-move"} ${galleryDragIdx === idx ? "opacity-50" : ""}`}
+                            data-testid={`gallery-existing-${url}`}
+                          >
                             <img src={url} alt="" className={`w-14 h-14 rounded border object-cover ${marked ? "opacity-30" : ""}`} />
+                            {!marked && galleryOrder.length > 1 && (
+                              <span className="absolute bottom-0.5 left-0.5 rounded bg-background/80 border p-0.5 pointer-events-none" aria-hidden="true">
+                                <GripVertical className="w-3 h-3 text-muted-foreground" />
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={() => setRemoveGalleryUrls((prev) => marked ? prev.filter((u) => u !== url) : [...prev, url])}
@@ -7533,8 +7568,8 @@ function StoreProductsSection() {
                         );
                       })}
                     </div>
-                  );
-                })()}
+                  </>
+                )}
                 <input
                   ref={galleryInputRef}
                   type="file"
