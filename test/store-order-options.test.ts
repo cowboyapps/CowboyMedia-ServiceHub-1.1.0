@@ -127,6 +127,7 @@ const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
 const { QueryClientProvider } = await import("@tanstack/react-query");
 const { queryClient } = await import("../client/src/lib/queryClient");
+const { AuthProvider } = await import("../client/src/lib/auth");
 const { useToast } = await import("../client/src/hooks/use-toast");
 const MyServicesPage = (await import("../client/src/pages/my-services-page")).default;
 
@@ -232,6 +233,7 @@ function makeCatalogue(products: FixtureProduct[]) {
       name: p.name,
       description: "",
       imageUrl: null,
+      images: [],
       category: null,
       sortOrder: i + 1,
       currency: p.currency ?? "USD",
@@ -281,7 +283,7 @@ async function mountFlow(products: FixtureProduct[]): Promise<MountResult> {
       QueryClientProvider,
       { client: queryClient },
       React.createElement(ToastProbe),
-      React.createElement(MyServicesPage),
+      React.createElement(AuthProvider, null, React.createElement(MyServicesPage)),
     );
 
   const root = createRoot(container);

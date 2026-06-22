@@ -117,6 +117,7 @@ const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
 const { QueryClientProvider } = await import("@tanstack/react-query");
 const { queryClient } = await import("../client/src/lib/queryClient");
+const { AuthProvider } = await import("../client/src/lib/auth");
 const MyServicesPage = (await import("../client/src/pages/my-services-page")).default;
 
 after(() => {
@@ -185,6 +186,7 @@ function makeCatalogue(products: CatalogueProduct[]) {
       name: p.name,
       description: `${p.name} description`,
       imageUrl: null,
+      images: [],
       category: p.category,
       sortOrder: i + 1,
       currency: "USD",
@@ -216,7 +218,7 @@ async function mountCatalogue(products: CatalogueProduct[]): Promise<MountResult
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(MyServicesPage),
+      React.createElement(AuthProvider, null, React.createElement(MyServicesPage)),
     );
 
   const root = createRoot(container);
@@ -388,7 +390,7 @@ test("a category filter + price sort compose: only that group, flattened by pric
   }
 });
 
-test("the sort resets to Featured when the dialog closes and reopens", async () => {
+test("the chosen sort is remembered when the dialog closes and reopens", async () => {
   const c = await mountCatalogue(PRODUCTS);
   try {
     const doc = window.document.body;
@@ -408,21 +410,21 @@ test("the sort resets to Featured when the dialog closes and reopens", async () 
       "the catalogue grid is gone once the dialog closes",
     );
 
-    // Reopen: the grouped Featured layout is back, no lingering price sort.
+    // Reopen: the previously-chosen price sort survives (it no longer resets to
+    // Featured), so the flattened price-ordered grid comes straight back and the
+    // grouped category layout stays hidden.
     await openDialog(c.container);
+    const grid = findByTestId(window.document.body, "store-catalogue-sorted");
+    assert.ok(grid, "the remembered price sort is still active on reopen");
     assert.equal(
-      findByTestId(window.document.body, "store-catalogue-sorted"),
-      null,
-      "sort fell back to Featured on reopen",
-    );
-    assert.ok(
       findByTestId(window.document.body, "heading-store-category-Hosting"),
-      "the grouped layout returns",
+      null,
+      "the grouped layout does NOT return while the remembered sort is active",
     );
     assert.deepEqual(
-      cardOrder(window.document.body),
-      [1, 4, 2, 5, 3, 6],
-      "back to the admin-curated grouped order",
+      cardOrder(grid!),
+      [2, 1, 5, 3, 6, 4],
+      "the price-ascending order is preserved across reopen",
     );
   } finally {
     c.cleanup();

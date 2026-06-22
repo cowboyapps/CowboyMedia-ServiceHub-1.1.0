@@ -98,6 +98,7 @@ const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
 const { QueryClientProvider } = await import("@tanstack/react-query");
 const { queryClient } = await import("../client/src/lib/queryClient");
+const { AuthProvider } = await import("../client/src/lib/auth");
 const MyServicesPage = (await import("../client/src/pages/my-services-page")).default;
 
 after(() => {
@@ -189,7 +190,7 @@ async function mountCatalogue(products: CatalogueProduct[]): Promise<MountResult
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(MyServicesPage),
+      React.createElement(AuthProvider, null, React.createElement(MyServicesPage)),
     );
 
   const root = createRoot(container);
