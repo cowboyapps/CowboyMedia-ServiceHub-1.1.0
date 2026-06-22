@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +52,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import type { Service } from "@shared/schema";
+import { computeOrderEstimate, priceForCycle } from "@shared/store-estimate";
 
 /**
  * Open a blank tab SYNCHRONOUSLY inside a user click. Ordering/upgrading can't
@@ -782,10 +783,7 @@ interface StoreConfigOptionChoice {
  * $0 option, or "+ <amount>" otherwise.
  */
 function choicePriceLabel(prices: Record<string, string> | undefined, cycle: string): string {
-  if (!prices) return "";
-  const raw = cycle === "onetime" || cycle === "free"
-    ? (prices.onetime ?? prices.monthly)
-    : prices[cycle];
+  const raw = priceForCycle(prices, cycle);
   if (raw == null) return "";
   const n = parseFloat(raw);
   if (!Number.isFinite(n)) return "";
@@ -857,6 +855,13 @@ function AddProductFlow() {
   const products = data?.products ?? [];
   const product = products.find((p) => String(p.pid) === productId) ?? null;
   const cycleOpt = product?.cycles.find((c) => c.cycle === cycle) ?? null;
+
+  // Running estimate shown above the pay button so the customer sees the total
+  // before the WHMCS handoff. Pure helper lives in @shared/store-estimate.
+  const estimate = useMemo(
+    () => (product && cycleOpt ? computeOrderEstimate(product, cycle, configValues) : null),
+    [product, cycleOpt, cycle, configValues],
+  );
 
   const reset = () => {
     setProductId("");
@@ -1181,6 +1186,28 @@ function AddProductFlow() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {estimate && estimate.complete && cycleOpt && (
+                <div className="rounded-lg border p-3 space-y-1" data-testid="group-order-estimate">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">Estimated total</span>
+                    <span className="text-sm font-semibold" data-testid="text-order-estimate-total">
+                      {estimate.recurringTotal.toFixed(2)}
+                      {estimate.currency ? ` ${estimate.currency}` : ""}
+                      {cycle !== "onetime" && cycle !== "free" ? ` / ${cycleOpt.label.toLowerCase()}` : ""}
+                    </span>
+                  </div>
+                  {estimate.setupTotal > 0 && (
+                    <p className="text-xs text-muted-foreground" data-testid="text-order-estimate-setup">
+                      + {estimate.setupTotal.toFixed(2)}
+                      {estimate.currency ? ` ${estimate.currency}` : ""} one-time setup
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Estimated — final taxes, fees, or promo codes are applied at checkout.
+                  </p>
                 </div>
               )}
             </div>
