@@ -14,7 +14,13 @@ import {
   type PaymentMethodsData,
 } from "./whmcs-billing";
 import { isUnlinkedStaff } from "./roles";
-import { placeProductOrderSchema } from "@shared/schema";
+import { placeProductOrderSchema, type InsertStoreProduct, type StoreProduct } from "@shared/schema";
+
+// Cap additional gallery images per storefront product (beyond the primary
+// `imageUrl`). Multer enforces this as the `images` field's maxCount on the admin
+// create/update routes; exported so the cap lives next to the handler logic it
+// guards and so tests can assert the same value the routes wire in.
+export const STORE_PRODUCT_MAX_GALLERY_IMAGES = 8;
 
 // Handler factories for the customer storefront endpoints (Task #518):
 //   GET  /api/billing/store-products  — the admin-curated product catalogue
@@ -261,6 +267,250 @@ export function createPlaceProductOrderHandler(deps: StoreRouteDeps) {
       });
     } catch {
       return res.status(502).json({ ok: false, message: "Couldn't place your order right now. Please try again shortly." });
+    }
+  };
+}
+
+// ---- Admin-curated storefront product CRUD (Task #518 / gallery in #534) ----
+//
+// Handler factories for the ADMIN store-product management endpoints:
+//   POST   /api/admin/store-products       — add a WHMCS product to the store
+//   PATCH  /api/admin/store-products/:id    — edit metadata + gallery images
+//   DELETE /api/admin/store-products/:id    — remove a product + its blobs
+//
+// These mirror the storefront factories above so the production handlers wired
+// into routes.ts can be exercised with the storage layer, the upload writer, and
+// the orphan-cleanup helper injected — no live DB, WHMCS, or multer needed. The
+// gallery contract they enforce:
+//   1. Persist — new `images` uploads are saved as `uploaded_files` blobs and
+//      their `/uploads/<uuid>` paths land in `image_urls` (POST appends to an
+//      empty list; PATCH appends to whatever survives the removal step).
+//   2. Remove — `removeImageUrls` drops exactly the matching entries from
+//      `image_urls`, and only blobs that genuinely leave the row are cleaned up.
+//   3. Don't orphan — a failed insert/update rolls back the just-saved blobs, and
+//      DELETE cleans up the primary + every gallery blob the row owned.
+
+// Pulls the bare filename out of a `/uploads/<filename>` URL — null for empty.
+const cleanStoreStr = (v: unknown): string | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s.length > 0 ? s : null;
+};
+
+const parseStoreSortOrder = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+};
+
+const parseStoreBool = (v: unknown, dflt: boolean): boolean => {
+  if (v === undefined || v === null || v === "") return dflt;
+  const s = String(v).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "on" || s === "yes";
+};
+
+// Split the multi-field upload (primary `image` + additional `images`) coming
+// from withUploadFields, where req.files is keyed by field name.
+export function storeProductUploads(req: Request): {
+  primary?: Express.Multer.File;
+  gallery: Express.Multer.File[];
+} {
+  const files = (req.files ?? {}) as Record<string, Express.Multer.File[]>;
+  return { primary: files.image?.[0], gallery: files.images ?? [] };
+}
+
+// Parse the JSON array of gallery image URLs the admin asked to remove. Anything
+// that isn't a JSON array of strings degrades to an empty list (remove nothing).
+export function parseRemoveImageUrls(v: unknown): string[] {
+  if (typeof v !== "string" || !v.trim()) return [];
+  try {
+    const parsed = JSON.parse(v);
+    return Array.isArray(parsed) ? parsed.filter((u): u is string => typeof u === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export interface AdminStoreRouteDeps {
+  listStoreProducts: () => Promise<StoreProduct[]>;
+  getStoreProductByPid: (whmcsProductId: number) => Promise<StoreProduct | undefined>;
+  getStoreProduct: (id: string) => Promise<StoreProduct | undefined>;
+  createStoreProduct: (data: InsertStoreProduct) => Promise<StoreProduct>;
+  updateStoreProduct: (id: string, data: Partial<InsertStoreProduct>) => Promise<StoreProduct | undefined>;
+  deleteStoreProduct: (id: string) => Promise<StoreProduct | undefined>;
+  saveUploadedFile: (file: Express.Multer.File) => Promise<string>;
+  deleteUploadedFileIfUnreferenced: (url: string | null | undefined) => Promise<void>;
+  logActivity?: (category: string, action: string, opts: { actorId?: string; targetType?: string; summary: string }) => void;
+  getErrorMessage?: (e: unknown) => string;
+}
+
+const defaultErrorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** Admin self-view: every curated store product (pure DB read). */
+export function createListAdminStoreProductsHandler(deps: AdminStoreRouteDeps) {
+  const getErrorMessage = deps.getErrorMessage ?? defaultErrorMessage;
+  return async (_req: Request, res: Response) => {
+    try {
+      const products = await deps.listStoreProducts();
+      res.json({ products });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  };
+}
+
+/**
+ * Add a WHMCS product to the store. Saves the primary image + every gallery
+ * upload as `uploaded_files` blobs first, then inserts the row; a failed insert
+ * (e.g. the unique-pid race) rolls back exactly those just-saved blobs so they
+ * can't be orphaned.
+ */
+export function createCreateStoreProductHandler(deps: AdminStoreRouteDeps) {
+  const getErrorMessage = deps.getErrorMessage ?? defaultErrorMessage;
+  return async (req: Request, res: Response) => {
+    try {
+      const whmcsProductId = Number(req.body?.whmcsProductId);
+      if (!Number.isInteger(whmcsProductId) || whmcsProductId <= 0) {
+        return res.status(400).json({ message: "A valid WHMCS product id is required" });
+      }
+      const existing = await deps.getStoreProductByPid(whmcsProductId);
+      if (existing) {
+        return res.status(409).json({ message: "That WHMCS product is already in the store." });
+      }
+      const { primary, gallery } = storeProductUploads(req);
+      const imageUrl = primary ? await deps.saveUploadedFile(primary) : null;
+      const imageUrls: string[] = [];
+      for (const file of gallery) imageUrls.push(await deps.saveUploadedFile(file));
+      const savedBlobs = [imageUrl, ...imageUrls].filter((u): u is string => !!u);
+      let product;
+      try {
+        product = await deps.createStoreProduct({
+          whmcsProductId,
+          name: cleanStoreStr(req.body?.name),
+          description: cleanStoreStr(req.body?.description),
+          imageUrl,
+          imageUrls,
+          category: cleanStoreStr(req.body?.category),
+          sortOrder: parseStoreSortOrder(req.body?.sortOrder),
+          enabled: parseStoreBool(req.body?.enabled, true),
+        });
+      } catch (e) {
+        // The blobs were persisted before the row; a failed insert (e.g. a race
+        // on the unique pid, or a transient DB error) would otherwise orphan them.
+        for (const url of savedBlobs) await deps.deleteUploadedFileIfUnreferenced(url);
+        throw e;
+      }
+      deps.logActivity?.("setting", "store_product_created", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Added WHMCS product #${whmcsProductId} to the store`,
+      });
+      res.json({ product });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  };
+}
+
+/**
+ * Edit a store product's metadata + gallery. Gallery edits drop the URLs in
+ * `removeImageUrls` from `image_urls`, then append any new uploads. New blobs are
+ * rolled back if the update throws; blobs that genuinely leave the row (removed
+ * gallery entries / replaced primary) are cleaned up only once the row no longer
+ * references them.
+ */
+export function createUpdateStoreProductHandler(deps: AdminStoreRouteDeps) {
+  const getErrorMessage = deps.getErrorMessage ?? defaultErrorMessage;
+  return async (req: Request, res: Response) => {
+    try {
+      const id = String((req.params as Record<string, string>).id ?? "");
+      const existing = await deps.getStoreProduct(id);
+      if (!existing) return res.status(404).json({ message: "Store product not found" });
+
+      const update: Partial<InsertStoreProduct> = {};
+      if (req.body?.name !== undefined) update.name = cleanStoreStr(req.body.name);
+      if (req.body?.description !== undefined) update.description = cleanStoreStr(req.body.description);
+      if (req.body?.category !== undefined) update.category = cleanStoreStr(req.body.category);
+      if (req.body?.sortOrder !== undefined) update.sortOrder = parseStoreSortOrder(req.body.sortOrder);
+      if (req.body?.enabled !== undefined) update.enabled = parseStoreBool(req.body.enabled, existing.enabled);
+
+      const { primary, gallery } = storeProductUploads(req);
+
+      // Primary image handling: a new upload replaces the old blob; `removeImage=true`
+      // clears it. The previous blob is removed only when nothing else still
+      // references it (shared `uploaded_files` store).
+      const oldImagesToCleanup: string[] = [];
+      const newBlobsToRollback: string[] = [];
+      if (primary) {
+        update.imageUrl = await deps.saveUploadedFile(primary);
+        newBlobsToRollback.push(update.imageUrl);
+        if (existing.imageUrl) oldImagesToCleanup.push(existing.imageUrl);
+      } else if (parseStoreBool(req.body?.removeImage, false)) {
+        update.imageUrl = null;
+        if (existing.imageUrl) oldImagesToCleanup.push(existing.imageUrl);
+      }
+
+      // Gallery handling: drop any URLs the admin removed, then append new uploads.
+      // Only recompute when something actually changed (removals or new uploads).
+      const removeUrls = parseRemoveImageUrls(req.body?.removeImageUrls);
+      if (removeUrls.length > 0 || gallery.length > 0) {
+        const kept = (existing.imageUrls ?? []).filter((u) => !removeUrls.includes(u));
+        for (const url of removeUrls) {
+          if ((existing.imageUrls ?? []).includes(url)) oldImagesToCleanup.push(url);
+        }
+        for (const file of gallery) {
+          const url = await deps.saveUploadedFile(file);
+          newBlobsToRollback.push(url);
+          kept.push(url);
+        }
+        update.imageUrls = kept;
+      }
+
+      let product;
+      try {
+        product = await deps.updateStoreProduct(id, update);
+      } catch (e) {
+        // New blobs were persisted before the row update; a failed update would
+        // otherwise orphan them (the old blobs stay referenced and untouched).
+        for (const url of newBlobsToRollback) await deps.deleteUploadedFileIfUnreferenced(url);
+        throw e;
+      }
+      const stillReferenced = new Set<string>([
+        ...(product?.imageUrl ? [product.imageUrl] : []),
+        ...(product?.imageUrls ?? []),
+      ]);
+      for (const url of oldImagesToCleanup) {
+        if (!stillReferenced.has(url)) await deps.deleteUploadedFileIfUnreferenced(url);
+      }
+      deps.logActivity?.("setting", "store_product_updated", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Updated store product #${existing.whmcsProductId}`,
+      });
+      res.json({ product });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  };
+}
+
+/** Remove a store product and clean up its primary + every gallery blob. */
+export function createDeleteStoreProductHandler(deps: AdminStoreRouteDeps) {
+  const getErrorMessage = deps.getErrorMessage ?? defaultErrorMessage;
+  return async (req: Request, res: Response) => {
+    try {
+      const id = String((req.params as Record<string, string>).id ?? "");
+      const removed = await deps.deleteStoreProduct(id);
+      if (!removed) return res.status(404).json({ message: "Store product not found" });
+      for (const url of [removed.imageUrl, ...(removed.imageUrls ?? [])]) {
+        if (url) await deps.deleteUploadedFileIfUnreferenced(url);
+      }
+      deps.logActivity?.("setting", "store_product_deleted", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Removed store product #${removed.whmcsProductId}`,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
     }
   };
 }
