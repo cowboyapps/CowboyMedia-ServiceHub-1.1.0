@@ -399,6 +399,7 @@ export interface IStorage {
   createStoreProduct(data: InsertStoreProduct): Promise<StoreProduct>;
   updateStoreProduct(id: string, data: Partial<InsertStoreProduct>): Promise<StoreProduct | undefined>;
   deleteStoreProduct(id: string): Promise<StoreProduct | undefined>;
+  reorderStoreProducts(orderedIds: string[]): Promise<void>;
   createWhmcsPendingOrder(userId: string, whmcsProductId: number, whmcsInvoiceId: number | null): Promise<WhmcsPendingOrder>;
   getUnfulfilledWhmcsPendingOrders(userId: string): Promise<WhmcsPendingOrder[]>;
   markWhmcsPendingOrderFulfilled(id: string): Promise<void>;
@@ -1467,6 +1468,15 @@ export class DatabaseStorage implements IStorage {
   async updateStoreProduct(id: string, data: Partial<InsertStoreProduct>): Promise<StoreProduct | undefined> {
     const [row] = await db.update(storeProducts).set(data).where(eq(storeProducts.id, id)).returning();
     return row;
+  }
+
+  async reorderStoreProducts(orderedIds: string[]): Promise<void> {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db
+        .update(storeProducts)
+        .set({ sortOrder: i })
+        .where(eq(storeProducts.id, orderedIds[i]));
+    }
   }
 
   async deleteStoreProduct(id: string): Promise<StoreProduct | undefined> {

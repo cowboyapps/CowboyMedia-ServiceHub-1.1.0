@@ -350,6 +350,7 @@ export interface AdminStoreRouteDeps {
   createStoreProduct: (data: InsertStoreProduct) => Promise<StoreProduct>;
   updateStoreProduct: (id: string, data: Partial<InsertStoreProduct>) => Promise<StoreProduct | undefined>;
   deleteStoreProduct: (id: string) => Promise<StoreProduct | undefined>;
+  reorderStoreProducts: (orderedIds: string[]) => Promise<void>;
   saveUploadedFile: (file: Express.Multer.File) => Promise<string>;
   deleteUploadedFileIfUnreferenced: (url: string | null | undefined) => Promise<void>;
   logActivity?: (category: string, action: string, opts: { actorId?: string; targetType?: string; summary: string }) => void;
@@ -561,6 +562,32 @@ export function createDeleteStoreProductHandler(deps: AdminStoreRouteDeps) {
         actorId: req.session.userId,
         targetType: "setting",
         summary: `Removed store product #${removed.whmcsProductId}`,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  };
+}
+
+/**
+ * Persist the admin's drag-reordered curated product list. The body carries the
+ * full ordered list of store-product ids; their `sortOrder` is rewritten to the
+ * new index so the customer catalogue (sorted by sortOrder) follows suit.
+ */
+export function createReorderStoreProductsHandler(deps: AdminStoreRouteDeps) {
+  const getErrorMessage = deps.getErrorMessage ?? defaultErrorMessage;
+  return async (req: Request, res: Response) => {
+    try {
+      const { orderedIds } = (req.body ?? {}) as Record<string, unknown>;
+      if (!Array.isArray(orderedIds) || !orderedIds.every((x) => typeof x === "string")) {
+        return res.status(400).json({ message: "orderedIds must be an array of strings" });
+      }
+      await deps.reorderStoreProducts(orderedIds as string[]);
+      deps.logActivity?.("setting", "store_products_reordered", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Reordered the storefront product list (${orderedIds.length} products)`,
       });
       res.json({ ok: true });
     } catch (e) {

@@ -9,6 +9,7 @@ import {
   createCreateStoreProductHandler,
   createUpdateStoreProductHandler,
   createDeleteStoreProductHandler,
+  createReorderStoreProductsHandler,
   parseRemoveImageUrls,
   STORE_PRODUCT_MAX_GALLERY_IMAGES,
   type StoreRouteDeps,
@@ -367,6 +368,7 @@ interface AdminHarness {
   referenced: Set<string>;
   lastCreate?: any;
   lastUpdate?: { id: string; data: any };
+  lastReorder?: string[];
 }
 
 function makeAdminDeps(over: Partial<AdminStoreRouteDeps> & { existing?: StoreProduct } = {}): AdminHarness {
@@ -388,6 +390,9 @@ function makeAdminDeps(over: Partial<AdminStoreRouteDeps> & { existing?: StorePr
       return storeProduct({ ...base, ...data, id });
     },
     deleteStoreProduct: async (id) => (over.existing && over.existing.id === id ? over.existing : undefined),
+    reorderStoreProducts: async (orderedIds) => {
+      harness.lastReorder = orderedIds;
+    },
     saveUploadedFile: async (file) => {
       const url = `/uploads/${file.originalname}`;
       saved.push(url);
@@ -665,6 +670,28 @@ test("DELETE admin store-product: missing product is 404 and removes nothing", a
   });
   assert.equal(status, 404);
   assert.equal(h.removed.length, 0);
+});
+
+test("POST admin store-products reorder: persists the ordered id list", async () => {
+  const h = makeAdminDeps();
+  const { status, body } = await callAdmin(createReorderStoreProductsHandler(h.deps), {
+    body: { orderedIds: ["c", "a", "b"] },
+  });
+  assert.equal(status, 200);
+  assert.equal(body.ok, true);
+  assert.deepEqual(h.lastReorder, ["c", "a", "b"]);
+});
+
+test("POST admin store-products reorder: 400 on a non-array / non-string payload, persists nothing", async () => {
+  const h1 = makeAdminDeps();
+  const r1 = await callAdmin(createReorderStoreProductsHandler(h1.deps), { body: { orderedIds: "nope" } });
+  assert.equal(r1.status, 400);
+  assert.equal(h1.lastReorder, undefined);
+
+  const h2 = makeAdminDeps();
+  const r2 = await callAdmin(createReorderStoreProductsHandler(h2.deps), { body: { orderedIds: [1, 2] } });
+  assert.equal(r2.status, 400);
+  assert.equal(h2.lastReorder, undefined);
 });
 
 // ---- Gallery cap (STORE_PRODUCT_MAX_GALLERY_IMAGES) enforced by multer ----

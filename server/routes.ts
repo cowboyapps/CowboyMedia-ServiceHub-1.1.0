@@ -67,6 +67,7 @@ import {
   createCreateStoreProductHandler,
   createUpdateStoreProductHandler,
   createDeleteStoreProductHandler,
+  createReorderStoreProductsHandler,
   STORE_PRODUCT_MAX_GALLERY_IMAGES,
   type AdminStoreRouteDeps,
 } from "./whmcs-store-route";
@@ -6865,6 +6866,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     createStoreProduct: (data) => storage.createStoreProduct(data),
     updateStoreProduct: (id, data) => storage.updateStoreProduct(id, data),
     deleteStoreProduct: (id) => storage.deleteStoreProduct(id),
+    reorderStoreProducts: (orderedIds) => storage.reorderStoreProducts(orderedIds),
     saveUploadedFile: (file) => saveUploadedFile(file),
     deleteUploadedFileIfUnreferenced: (url) => deleteUploadedFileIfUnreferenced(url),
     logActivity: (category, action, opts) => logActivity(category, action, opts),
@@ -6890,6 +6892,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     storeProductUploadFields,
     createUpdateStoreProductHandler(adminStoreDeps),
   );
+
+  app.post("/api/admin/store-products/reorder", requireAdmin, createReorderStoreProductsHandler(adminStoreDeps));
 
   app.delete("/api/admin/store-products/:id", requireAdmin, createDeleteStoreProductHandler(adminStoreDeps));
 

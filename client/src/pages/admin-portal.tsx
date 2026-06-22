@@ -7281,6 +7281,11 @@ function StoreProductsSection() {
   // An existing gallery image the admin wants to promote to be the primary image
   // (the old primary moves into the gallery). null = no promotion requested.
   const [promotePrimaryUrl, setPromotePrimaryUrl] = useState<string | null>(null);
+  // Drag-to-reorder of the curated product rows themselves. `rowOrder` mirrors
+  // the server's product list locally so the drag preview updates instantly;
+  // dropping persists the new order via the reorder mutation.
+  const [rowOrder, setRowOrder] = useState<StoreProductRow[]>([]);
+  const [rowDragId, setRowDragId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -7323,6 +7328,44 @@ function StoreProductsSection() {
   };
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/store-products"] });
+
+  // Mirror the server's product list into local drag state. Skip while a drag is
+  // in flight so an incoming refetch can't yank rows out from under the cursor.
+  useEffect(() => {
+    if (rowDragId !== null) return;
+    setRowOrder(storeProducts);
+  }, [storeData, rowDragId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      const res = await apiRequest("POST", "/api/admin/store-products/reorder", { orderedIds });
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Product order saved" });
+    },
+    onError: (e: Error) => {
+      invalidate();
+      toast({ title: "Reorder failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const handleRowDrop = (targetId: string) => {
+    if (rowDragId === null || rowDragId === targetId) {
+      setRowDragId(null);
+      return;
+    }
+    const from = rowOrder.findIndex((p) => p.id === rowDragId);
+    const to = rowOrder.findIndex((p) => p.id === targetId);
+    setRowDragId(null);
+    if (from === -1 || to === -1) return;
+    const next = [...rowOrder];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setRowOrder(next);
+    reorderMutation.mutate(next.map((p) => p.id));
+  };
 
   const resetForm = () => {
     setForm({ ...emptyForm });
@@ -7425,13 +7468,30 @@ function StoreProductsSection() {
         </p>
 
         {/* Curated products */}
-        {storeProducts.length === 0 ? (
+        {rowOrder.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-no-store-products">No products in the store yet.</p>
         ) : (
           <div className="space-y-2" data-testid="list-store-products">
-            {storeProducts.map((p) => (
-              <div key={p.id} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-store-product-${p.id}`}>
+            {rowOrder.length > 1 && (
+              <p className="text-xs text-muted-foreground">Drag the handle to reorder how products appear in the customer catalogue.</p>
+            )}
+            {rowOrder.map((p) => (
+              <div
+                key={p.id}
+                draggable
+                onDragStart={() => setRowDragId(p.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleRowDrop(p.id)}
+                onDragEnd={() => setRowDragId(null)}
+                className={`flex items-start justify-between gap-2 rounded-md border p-3 ${rowDragId === p.id ? "opacity-50" : ""}`}
+                data-testid={`row-store-product-${p.id}`}
+              >
                 <div className="flex items-start gap-3 min-w-0">
+                  {rowOrder.length > 1 && (
+                    <span className="cursor-move text-muted-foreground mt-1 shrink-0" aria-label="Drag to reorder" data-testid={`drag-store-product-${p.id}`}>
+                      <GripVertical className="w-4 h-4" />
+                    </span>
+                  )}
                   {p.imageUrl ? (
                     <img src={p.imageUrl} alt="" className="w-12 h-12 rounded object-cover border shrink-0" data-testid={`img-store-product-${p.id}`} />
                   ) : (
@@ -7449,7 +7509,7 @@ function StoreProductsSection() {
                       )}
                       {p.category && <Badge variant="outline" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-category-${p.id}`}>{p.category}</Badge>}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} (#{p.whmcsProductId}) · sort {p.sortOrder}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} (#{p.whmcsProductId})</p>
                     {p.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
                   </div>
                 </div>
