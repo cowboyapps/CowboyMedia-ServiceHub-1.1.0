@@ -52,6 +52,8 @@ import {
   ExternalLink,
   ChevronLeft,
   Package,
+  Search,
+  X,
 } from "lucide-react";
 import type { Service } from "@shared/schema";
 import { computeOrderEstimate, priceForCycle, startingPriceLabel } from "@shared/store-estimate";
@@ -888,6 +890,45 @@ function AddProductFlow() {
     }));
   }, [products]);
 
+  // Catalogue search + category filter (step 1). `search` matches product name +
+  // description (case-insensitive); `categoryKey` narrows to one category ("" =
+  // all). Filters live outside `reset()` so they persist when stepping back from
+  // a product, but are cleared when the dialog closes.
+  const ALL_CATEGORIES = "";
+  const UNCAT_KEY = "\u0000uncat";
+  const [search, setSearch] = useState("");
+  const [categoryKey, setCategoryKey] = useState<string>(ALL_CATEGORIES);
+
+  // Chips offered above the grid — one per category in catalogue order. Only
+  // worth showing when there's more than one category to jump between.
+  const categoryChips = useMemo(
+    () =>
+      grouped.map((g) => ({
+        key: g.category ?? UNCAT_KEY,
+        label: g.category ?? "Other products",
+      })),
+    [grouped],
+  );
+
+  // grouped, narrowed by the active category, with each group's items filtered
+  // by the search query; empty groups are dropped so headings don't linger.
+  const filteredGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return grouped
+      .filter((g) => categoryKey === ALL_CATEGORIES || (g.category ?? UNCAT_KEY) === categoryKey)
+      .map((g) => ({
+        ...g,
+        items: q
+          ? g.items.filter(
+              (p) =>
+                p.name.toLowerCase().includes(q) ||
+                (p.description ?? "").toLowerCase().includes(q),
+            )
+          : g.items,
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [grouped, search, categoryKey]);
+
   // Card tap (step 1 → step 2): select the product and, when it offers only one
   // billing term (e.g. a one-time or free product), auto-pick it — same rule the
   // old dropdown used — so the customer needn't re-choose.
@@ -1011,7 +1052,7 @@ function AddProductFlow() {
         Order new product
       </Button>
 
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); setSearch(""); setCategoryKey(ALL_CATEGORIES); } }}>
         <DialogContent data-testid="dialog-add-product" className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Order a new product</DialogTitle>
@@ -1041,7 +1082,68 @@ function AddProductFlow() {
               {/* Step 1 — catalogue grid. Tapping a card advances to step 2. */}
               {!product && (
                 <div className="space-y-4" data-testid="store-catalogue">
-                  {grouped.map((group) => (
+                  {/* Search box — filters cards live by name + description. */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search products…"
+                      className="pl-9 pr-9"
+                      data-testid="input-search-products"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover-elevate active-elevate-2"
+                        aria-label="Clear search"
+                        data-testid="button-clear-search"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Category filter chips — only when there's more than one. */}
+                  {categoryChips.length > 1 && (
+                    <div className="flex flex-wrap gap-2" data-testid="store-category-chips">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={categoryKey === ALL_CATEGORIES ? "default" : "outline"}
+                        className="h-7 rounded-full px-3 text-xs"
+                        onClick={() => setCategoryKey(ALL_CATEGORIES)}
+                        data-testid="chip-category-all"
+                      >
+                        All
+                      </Button>
+                      {categoryChips.map((chip) => (
+                        <Button
+                          key={chip.key}
+                          type="button"
+                          size="sm"
+                          variant={categoryKey === chip.key ? "default" : "outline"}
+                          className="h-7 rounded-full px-3 text-xs"
+                          onClick={() => setCategoryKey(chip.key)}
+                          data-testid={`chip-category-${chip.label}`}
+                        >
+                          {chip.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+
+                  {filteredGroups.length === 0 ? (
+                    <p
+                      className="text-sm text-muted-foreground py-6 text-center"
+                      data-testid="text-no-products-match"
+                    >
+                      No products match your search.
+                    </p>
+                  ) : (
+                    filteredGroups.map((group) => (
                     <div key={group.category ?? "__uncat"} className="space-y-2">
                       <p
                         className="text-xs font-medium text-muted-foreground"
@@ -1101,7 +1203,8 @@ function AddProductFlow() {
                         })}
                       </div>
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               )}
 
