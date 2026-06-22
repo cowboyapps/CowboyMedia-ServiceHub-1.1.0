@@ -1,6 +1,7 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { setupComponentTestTeardown } from "./helpers/component-test-teardown";
 
 // React component coverage for the admin Suspend / Unsuspend / Terminate controls
 // in client/src/components/billing-summary.tsx (AdminServiceActionDialog + the
@@ -167,20 +168,13 @@ const { useToast } = await import("../client/src/hooks/use-toast");
 const { BillingSummaryView } = await import("../client/src/components/billing-summary");
 
 // The admin action buttons drive react-query mutations. A settled mutation
-// schedules a 5-minute garbage-collection timer that queryClient.clear() does
-// NOT cancel, which keeps the node:test process alive long past the suite's
-// per-file watchdog. Collapse mutation gcTime to 0 (test process only — each
-// file runs in its own subprocess) so the runner sees a clean exit-0.
-queryClient.setDefaultOptions({ mutations: { gcTime: 0 } });
+// schedules a 5-minute gc timer that queryClient.clear() can't cancel, hanging
+// the file until the watchdog SIGKILLs it. The shared teardown collapses gcTime
+// to 0 on this client, clears + closes on `after`, and fails loudly if a
+// long-lived ref'd timer ever survives teardown again.
+setupComponentTestTeardown({ queryClient, window });
 type BillingSummary = import("../client/src/components/billing-summary").BillingSummary;
 type BillingProduct = import("../client/src/components/billing-summary").BillingProduct;
-
-after(() => {
-  try {
-    queryClient.clear();
-    window.close();
-  } catch {}
-});
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));

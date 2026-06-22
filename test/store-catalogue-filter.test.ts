@@ -1,6 +1,7 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { setupComponentTestTeardown } from "./helpers/component-test-teardown";
 
 // React component coverage for the "Order a new product" catalogue filtering
 // (AddProductFlow in client/src/pages/my-services-page.tsx). Task #524 added a
@@ -101,12 +102,10 @@ const { queryClient } = await import("../client/src/lib/queryClient");
 const { AuthProvider } = await import("../client/src/lib/auth");
 const MyServicesPage = (await import("../client/src/pages/my-services-page")).default;
 
-after(() => {
-  try {
-    queryClient.clear();
-    window.close();
-  } catch {}
-});
+// Read-only today, but shares the singleton client; the helper collapses gcTime
+// to 0, clears + closes on `after`, and fails loudly if a future mutation here
+// leaves a long-lived timer instead of letting it hang the file.
+setupComponentTestTeardown({ queryClient, window });
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));

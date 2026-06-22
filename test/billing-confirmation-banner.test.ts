@@ -148,6 +148,13 @@ type BillingSummary = import("../client/src/components/billing-summary").Billing
 type BillingInvoice = import("../client/src/components/billing-summary").BillingInvoice;
 type InvoiceStatus = import("../client/src/components/billing-summary").InvoiceStatus;
 
+// NOTE: this file deliberately does NOT use setupComponentTestTeardown. That
+// helper collapses queries gcTime to 0, but this test seeds + reads the billing
+// payload through queryClient.setQueryData/getQueryData WITHOUT an active
+// observer (the focus-refresh path), so gcTime:0 would garbage-collect the
+// seeded cache out from under the assertions. It is read-only with no mutation,
+// so it never schedules a lingering mutation gc timer and a plain clear()/close()
+// teardown is safe.
 after(() => {
   try {
     queryClient.clear();

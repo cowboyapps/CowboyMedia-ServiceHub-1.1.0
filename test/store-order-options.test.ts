@@ -1,6 +1,7 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { setupComponentTestTeardown } from "./helpers/component-test-teardown";
 
 // React component coverage for STEP 2 of the "Order a new product" flow
 // (AddProductFlow in client/src/pages/my-services-page.tsx). Task #528 locked in
@@ -136,26 +137,12 @@ const { useToast } = await import("../client/src/hooks/use-toast");
 const MyServicesPage = (await import("../client/src/pages/my-services-page")).default;
 
 // This file drives the real (singleton) queryClient — the page seeds + invalidates
-// against that exact instance — so we can't swap in a throwaway client with a short
-// gcTime the way the other jsdom tests do. React Query's mutation cache schedules a
-// 5-minute gc timer when the order-POST mutation's observer unsubscribes on unmount,
-// and queryClient.clear() does NOT clear it (MutationCache.remove never destroys the
-// mutation). That ref'd timer would keep the node:test process alive long past the
-// assertions, so collapse gcTime to 0 on the shared client for this run, matching the
-// repo's "gcTime:0 teardown" convention for client-component tests.
-const __defaults = queryClient.getDefaultOptions();
-queryClient.setDefaultOptions({
-  ...__defaults,
-  queries: { ...__defaults.queries, gcTime: 0 },
-  mutations: { ...__defaults.mutations, gcTime: 0 },
-});
-
-after(() => {
-  try {
-    queryClient.clear();
-    window.close();
-  } catch {}
-});
+// against that exact instance — so we can't swap in a throwaway client. The order
+// POST mutation would otherwise leave a 5-minute gc timer that queryClient.clear()
+// can't cancel and that hangs the file. The shared teardown collapses gcTime to 0
+// on this client, clears + closes on `after`, and fails loudly if a long-lived
+// ref'd timer ever survives teardown again.
+setupComponentTestTeardown({ queryClient, window });
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));

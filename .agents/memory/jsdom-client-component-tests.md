@@ -54,9 +54,22 @@ gc timer (`Mutation.scheduleGc` via observer unsubscribe). `clear()` clears quer
 gc but `MutationCache.remove()` never calls `mutation.destroy()`, so that timer
 survives and pins the loop. When the test must drive the **singleton** `queryClient`
 (the page seeds/invalidates against that exact instance, so a throwaway client with
-`gcTime:0` would desync), collapse gcTime on the singleton for that run instead:
-`queryClient.setDefaultOptions({ ...defaults, queries:{...,gcTime:0}, mutations:{...,gcTime:0} })`.
-Per-file subprocess isolation makes this safe. Precedent: `test/admin-service-actions.test.ts`.
+`gcTime:0` would desync), collapse gcTime on the singleton for that run instead.
+Per-file subprocess isolation makes this safe.
+
+**Use the shared helper, not an inline override.** `test/helpers/component-test-teardown.ts`
+exports `setupComponentTestTeardown({ queryClient, window })` — call it once at module
+scope after the QueryClient is imported/created. It collapses queries+mutations
+`gcTime` to 0, registers an `after` that `clear()`s + `window.close()`s, and (default
+on) installs a long-timer guard that **fails the teardown loudly** if any long-lived
+ref'd timer survives — turning a silent watchdog SIGKILL into an actionable assertion.
+Precedent: `test/store-order-options.test.ts`, `test/admin-service-actions.test.ts`.
+**Caveat — observer-less cache:** collapsing *queries* `gcTime` to 0 means any cache
+entry with no active observer is GC'd immediately. A test that `setQueryData`s a
+payload and reads it back via `getQueryData` WITHOUT a mounted observer (e.g. the
+billing focus-refresh path in `test/billing-confirmation-banner.test.ts`) breaks under
+`gcTime:0`. For those, pass `collapseQueryGcTime: false` (mutations still collapse) or
+keep the plain `clear()/close()` teardown.
 
 ## Toasts block process exit (looks like an OOM/hang, isn't memory)
 shadcn's toast store (`client/src/hooks/use-toast.ts`) schedules a removal
