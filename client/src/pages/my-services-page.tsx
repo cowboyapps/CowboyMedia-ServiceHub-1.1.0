@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -848,6 +849,7 @@ function AddProductFlow() {
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data, isLoading } = useQuery<StoreCataloguePayload>({
     queryKey: ["/api/billing/store-products"],
@@ -903,8 +905,37 @@ function AddProductFlow() {
   // grouped-by-category layout; the price options flatten the matches into a
   // single list ordered by starting price so customers can compare across
   // categories. Products with no parseable price sort last either way.
+  //
+  // The choice is remembered per signed-in user (keyed by user id) in
+  // localStorage so repeat orderers don't have to re-pick it every visit. The
+  // key is scoped to the user id so the preference never leaks between people
+  // sharing a device. First-time users (and signed-out visitors) default to
+  // "featured".
   type SortKey = "featured" | "price-asc" | "price-desc";
-  const [sortKey, setSortKey] = useState<SortKey>("featured");
+  const sortStorageKey = user?.id ? `my-services:catalogue-sort:${user.id}` : null;
+  const isSortKey = (v: unknown): v is SortKey =>
+    v === "featured" || v === "price-asc" || v === "price-desc";
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    if (typeof window === "undefined" || !sortStorageKey) return "featured";
+    const stored = window.localStorage.getItem(sortStorageKey);
+    return isSortKey(stored) ? stored : "featured";
+  });
+
+  // Persist the chosen sort whenever it changes (and once the user id is known,
+  // e.g. after auth loads). Keeps the remembered value in sync across sessions.
+  useEffect(() => {
+    if (typeof window === "undefined" || !sortStorageKey) return;
+    window.localStorage.setItem(sortStorageKey, sortKey);
+  }, [sortStorageKey, sortKey]);
+
+  // When auth resolves after first render (user id arrives late), adopt that
+  // user's remembered sort so the persisted choice wins over the default.
+  useEffect(() => {
+    if (typeof window === "undefined" || !sortStorageKey) return;
+    const stored = window.localStorage.getItem(sortStorageKey);
+    if (isSortKey(stored)) setSortKey(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortStorageKey]);
 
   // Chips offered above the grid — one per category in catalogue order. Only
   // worth showing when there's more than one category to jump between.
@@ -1130,7 +1161,7 @@ function AddProductFlow() {
         Order new product
       </Button>
 
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); setSearch(""); setCategoryKey(ALL_CATEGORIES); setSortKey("featured"); } }}>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); setSearch(""); setCategoryKey(ALL_CATEGORIES); } }}>
         <DialogContent data-testid="dialog-add-product" className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Order a new product</DialogTitle>
