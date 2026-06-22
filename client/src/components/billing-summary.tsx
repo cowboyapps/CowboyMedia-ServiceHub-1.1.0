@@ -1661,6 +1661,121 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
         );
       })()}
 
+      {/* Invoices — kept directly under the balance so the thing you pay sits
+          next to the amount you owe. */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Receipt className="w-4 h-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold" data-testid="heading-billing-invoices">Invoices</h2>
+        </div>
+        {data.payAll && data.payAll.url && (
+          <Card className="border-destructive/40 mb-2" data-testid="card-pay-all-outstanding">
+            <CardContent className="p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold" data-testid="text-pay-all-count">
+                  {data.payAll.count} outstanding invoices
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Total owed{" "}
+                  <span className="font-medium text-foreground" data-testid="text-pay-all-total">
+                    {formatMoney(data.payAll.total, data.payAll.currencyCode)}
+                  </span>
+                </p>
+              </div>
+              <a
+                href={data.payAll.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  markPayClicked();
+                  if (!isAdmin) {
+                    e.preventDefault();
+                    void openWhmcsPay("/api/billing/pay-all-link", data.payAll!.url!);
+                  }
+                }}
+                data-testid="link-pay-all-outstanding"
+              >
+                <Button size="sm" className="gap-1.5 shrink-0">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Pay all outstanding
+                </Button>
+              </a>
+            </CardContent>
+          </Card>
+        )}
+        {!hasInvoices ? (
+          <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-invoices">
+            No invoices yet.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {data.invoices.map((inv) => {
+              const needsPay = inv.status === "unpaid" || inv.status === "overdue";
+              return (
+                <Card
+                  key={inv.id}
+                  className={needsPay ? "border-destructive/40" : undefined}
+                  data-testid={`card-billing-invoice-${inv.id}`}
+                >
+                  <CardContent className="p-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedInvoiceId(inv.id)}
+                      className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -m-3 p-3 rounded-md"
+                      data-testid={`button-invoice-detail-${inv.id}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate" data-testid={`text-invoice-num-${inv.id}`}>
+                          #{inv.invoiceNum}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDate(inv.date)}
+                          {inv.dueDate ? ` · Due ${formatDate(inv.dueDate)}` : ""}
+                        </p>
+                        <InvoiceServiceLabel invoice={inv} context={context} userId={userId} />
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="font-semibold text-sm" data-testid={`text-invoice-total-${inv.id}`}>
+                            {formatMoney(inv.total, inv.currencyCode)}
+                          </span>
+                          <Badge variant="outline" className={invoiceBadgeClass(inv.status)} data-testid={`badge-invoice-status-${inv.id}`}>
+                            {INVOICE_STATUS_LABEL[inv.status]}
+                          </Badge>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    </button>
+                    {needsPay && inv.payUrl && (
+                      <div className="mt-2.5 flex justify-end">
+                        <a
+                          href={inv.payUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => {
+                            markPayClicked();
+                            if (!isAdmin) {
+                              e.preventDefault();
+                              void openWhmcsPay(`/api/billing/invoices/${inv.id}/pay-link`, inv.payUrl!);
+                            }
+                          }}
+                          data-testid={`link-invoice-pay-${inv.id}`}
+                        >
+                          <Button size="sm" className="gap-1.5 h-8">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            Pay in billing portal
+                          </Button>
+                        </a>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Payment history (customer self-view only) */}
       {context === "customer" && (
         <PaymentHistory
@@ -1767,120 +1882,6 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                             Terminate
                           </Button>
                         )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Invoices */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Receipt className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold" data-testid="heading-billing-invoices">Invoices</h2>
-        </div>
-        {data.payAll && data.payAll.url && (
-          <Card className="border-destructive/40 mb-2" data-testid="card-pay-all-outstanding">
-            <CardContent className="p-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold" data-testid="text-pay-all-count">
-                  {data.payAll.count} outstanding invoices
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Total owed{" "}
-                  <span className="font-medium text-foreground" data-testid="text-pay-all-total">
-                    {formatMoney(data.payAll.total, data.payAll.currencyCode)}
-                  </span>
-                </p>
-              </div>
-              <a
-                href={data.payAll.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  markPayClicked();
-                  if (!isAdmin) {
-                    e.preventDefault();
-                    void openWhmcsPay("/api/billing/pay-all-link", data.payAll!.url!);
-                  }
-                }}
-                data-testid="link-pay-all-outstanding"
-              >
-                <Button size="sm" className="gap-1.5 shrink-0">
-                  <CreditCard className="w-3.5 h-3.5" />
-                  Pay all outstanding
-                </Button>
-              </a>
-            </CardContent>
-          </Card>
-        )}
-        {!hasInvoices ? (
-          <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-billing-no-invoices">
-            No invoices yet.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {data.invoices.map((inv) => {
-              const needsPay = inv.status === "unpaid" || inv.status === "overdue";
-              return (
-                <Card
-                  key={inv.id}
-                  className={needsPay ? "border-destructive/40" : undefined}
-                  data-testid={`card-billing-invoice-${inv.id}`}
-                >
-                  <CardContent className="p-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedInvoiceId(inv.id)}
-                      className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -m-3 p-3 rounded-md"
-                      data-testid={`button-invoice-detail-${inv.id}`}
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate" data-testid={`text-invoice-num-${inv.id}`}>
-                          #{inv.invoiceNum}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(inv.date)}
-                          {inv.dueDate ? ` · Due ${formatDate(inv.dueDate)}` : ""}
-                        </p>
-                        <InvoiceServiceLabel invoice={inv} context={context} userId={userId} />
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="font-semibold text-sm" data-testid={`text-invoice-total-${inv.id}`}>
-                            {formatMoney(inv.total, inv.currencyCode)}
-                          </span>
-                          <Badge variant="outline" className={invoiceBadgeClass(inv.status)} data-testid={`badge-invoice-status-${inv.id}`}>
-                            {INVOICE_STATUS_LABEL[inv.status]}
-                          </Badge>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    </button>
-                    {needsPay && inv.payUrl && (
-                      <div className="mt-2.5 flex justify-end">
-                        <a
-                          href={inv.payUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => {
-                            markPayClicked();
-                            if (!isAdmin) {
-                              e.preventDefault();
-                              void openWhmcsPay(`/api/billing/invoices/${inv.id}/pay-link`, inv.payUrl!);
-                            }
-                          }}
-                          data-testid={`link-invoice-pay-${inv.id}`}
-                        >
-                          <Button size="sm" className="gap-1.5 h-8">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            Pay in billing portal
-                          </Button>
-                        </a>
                       </div>
                     )}
                   </CardContent>

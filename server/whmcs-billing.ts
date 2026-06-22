@@ -912,23 +912,25 @@ export function buildBillingSummary(
     balance = { creditBalance: creditRaw, currencyCode };
   }
 
-  // Pin the rows that need action to the top: overdue, then unpaid, then the
-  // rest — each group most-recent-first (date desc, nulls last). Deterministic
-  // regardless of WHMCS's incoming order.
-  const attentionRank = (status: ParsedInvoice["status"]): number =>
-    status === "overdue" ? 0 : status === "unpaid" ? 1 : 2;
+  // Newest invoice first: strict date-descending (nulls last), tie-broken by id
+  // descending. Deterministic regardless of WHMCS's incoming order. Urgency stays
+  // visible via the per-invoice status badges rather than list position.
+  const idRank = (id: ParsedInvoice["id"]): number => {
+    const n = Number(id);
+    return Number.isFinite(n) ? n : -Infinity;
+  };
   const invoices = invoicesResult.ok
     ? normalizeListField(invoicesResult.data?.invoices, "invoice")
         .map((raw) => parseInvoice(raw, baseUrl, today))
         .sort((a, b) => {
-          const r = attentionRank(a.status) - attentionRank(b.status);
-          if (r !== 0) return r;
           const da = a.date ?? "";
           const db = b.date ?? "";
-          if (da === db) return 0;
-          if (!da) return 1;
-          if (!db) return -1;
-          return db.localeCompare(da);
+          if (da !== db) {
+            if (!da) return 1;
+            if (!db) return -1;
+            return db.localeCompare(da);
+          }
+          return idRank(b.id) - idRank(a.id);
         })
     : [];
 

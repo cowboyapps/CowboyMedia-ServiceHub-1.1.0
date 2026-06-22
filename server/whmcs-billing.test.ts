@@ -637,7 +637,7 @@ test("buildBillingSummary: partial failure degrades only the failed section", ()
   assert.equal(summary.balance?.creditBalance, null);
 });
 
-test("buildBillingSummary: pins overdue then unpaid to top, rest by date desc", () => {
+test("buildBillingSummary: sorts invoices strictly newest-first by date, regardless of status", () => {
   const summary = buildBillingSummary(
     "https://billing.example.com",
     fail(), // client details unreachable, but invoices/products ok -> not a full outage
@@ -654,14 +654,52 @@ test("buildBillingSummary: pins overdue then unpaid to top, rest by date desc", 
     okBilling({ products: {} }),
     TODAY,
   );
-  // overdue (#3) first, then unpaid (#2), then the two paid most-recent-first (#4 before #1).
-  assert.deepEqual(summary.invoices.map((i) => i.id), [3, 2, 4, 1]);
-  assert.equal(summary.invoices[0].status, "overdue");
-  assert.equal(summary.invoices[1].status, "unpaid");
-  // Two outstanding (overdue #3 + unpaid #2) -> "pay all" action present.
+  // Pure newest -> oldest by date: #4 (May), #2 (Mar), #3 (Feb), #1 (Jan).
+  // Status no longer affects position; the overdue #3 sits below newer paid #4/#2.
+  assert.deepEqual(summary.invoices.map((i) => i.id), [4, 2, 3, 1]);
+  // Outstanding invoices (overdue #3 + unpaid #2) still drive the "pay all" action,
+  // and the badges keep urgency visible even though they're not pinned to the top.
   assert.notEqual(summary.payAll, null);
   assert.equal(summary.payAll!.count, 2);
-  assert.equal(summary.payAll!.url, "https://billing.example.com/viewinvoice.php?id=3,2");
+});
+
+test("buildBillingSummary: same-date invoices tie-break by id descending", () => {
+  const summary = buildBillingSummary(
+    "https://billing.example.com",
+    fail(),
+    okBilling({
+      invoices: {
+        invoice: [
+          { id: 10, date: "2026-04-01", total: "10.00", status: "Paid", datepaid: "2026-04-02" },
+          { id: 12, date: "2026-04-01", total: "12.00", status: "Paid", datepaid: "2026-04-02" },
+          { id: 11, date: "2026-04-01", total: "11.00", status: "Paid", datepaid: "2026-04-02" },
+        ],
+      },
+    }),
+    okBilling({ products: {} }),
+    TODAY,
+  );
+  assert.deepEqual(summary.invoices.map((i) => i.id), [12, 11, 10]);
+});
+
+test("buildBillingSummary: invoices with no date sort last", () => {
+  const summary = buildBillingSummary(
+    "https://billing.example.com",
+    fail(),
+    okBilling({
+      invoices: {
+        invoice: [
+          { id: 1, date: "", total: "10.00", status: "Paid" },
+          { id: 2, date: "2026-03-01", total: "20.00", status: "Paid", datepaid: "2026-03-02" },
+          { id: 3, date: "2026-01-01", total: "30.00", status: "Paid", datepaid: "2026-01-02" },
+        ],
+      },
+    }),
+    okBilling({ products: {} }),
+    TODAY,
+  );
+  // Dated rows newest-first (#2, #3); the date-less #1 sinks to the bottom.
+  assert.deepEqual(summary.invoices.map((i) => i.id), [2, 3, 1]);
 });
 
 test("buildBillingSummary: credit fallback when stats.creditbalance absent", () => {
