@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeOrderEstimate, priceForCycle, type EstimateProduct } from "./store-estimate.js";
+import {
+  computeOrderEstimate,
+  priceForCycle,
+  startingPriceLabel,
+  type EstimateProduct,
+} from "./store-estimate.js";
 
 function product(overrides: Partial<EstimateProduct> = {}): EstimateProduct {
   return {
@@ -116,4 +121,46 @@ test("an unparseable present price marks the estimate incomplete", () => {
 test("unknown cycle is incomplete", () => {
   const est = computeOrderEstimate(product(), "weekly", {});
   assert.equal(est.complete, false);
+});
+
+test("startingPriceLabel: multi-cycle picks the cheapest positive price", () => {
+  const label = startingPriceLabel({
+    currency: "USD",
+    cycles: [
+      { price: "100.00" },
+      { price: "10.00" },
+      { price: "50.00" },
+    ],
+  });
+  assert.equal(label, "From 10.00 USD");
+});
+
+test("startingPriceLabel: ignores a 0 cycle when a positive one exists", () => {
+  const label = startingPriceLabel({
+    currency: "GBP",
+    cycles: [{ price: "0.00" }, { price: "5.00" }],
+  });
+  assert.equal(label, "From 5.00 GBP");
+});
+
+test("startingPriceLabel: one-time/free single zero cycle reads Free", () => {
+  assert.equal(
+    startingPriceLabel({ currency: "USD", cycles: [{ price: "0.00" }] }),
+    "Free",
+  );
+});
+
+test("startingPriceLabel: no parseable price returns null", () => {
+  assert.equal(
+    startingPriceLabel({ currency: "USD", cycles: [{ price: "" }, { price: "n/a" }] }),
+    null,
+  );
+  assert.equal(startingPriceLabel({ currency: "USD", cycles: [] }), null);
+});
+
+test("startingPriceLabel: omits currency when unknown", () => {
+  assert.equal(
+    startingPriceLabel({ currency: null, cycles: [{ price: "7.50" }] }),
+    "From 7.50",
+  );
 });

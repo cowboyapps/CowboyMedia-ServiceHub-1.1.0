@@ -36,6 +36,30 @@ export interface OrderEstimate {
 }
 
 /**
+ * The "From <price>" label shown on a catalogue card. The starting price is the
+ * lowest *positive* recurring price across the product's billing cycles (so a
+ * customer sees the cheapest entry point, e.g. monthly rather than annual). When
+ * a product has no positive price — a free product, or one whose only cycle is
+ * priced at 0 — it reads "Free". Returns null when no cycle price can be parsed
+ * at all (older WHMCS installs / unpriced products), so the card can omit the
+ * line rather than show a wrong figure.
+ */
+export function startingPriceLabel(product: {
+  currency: string | null;
+  cycles: { price: string }[];
+}): string | null {
+  const parsed = product.cycles
+    .map((c) => parseFloat(c.price))
+    .filter((n) => Number.isFinite(n));
+  if (parsed.length === 0) return null;
+  const positive = parsed.filter((n) => n > 0);
+  const amount = positive.length > 0 ? Math.min(...positive) : Math.min(...parsed);
+  if (amount <= 0) return "Free";
+  const cur = product.currency ? ` ${product.currency}` : "";
+  return `From ${amount.toFixed(2)}${cur}`;
+}
+
+/**
  * The price string to use for the selected billing cycle. WHMCS stores a
  * one-time product's option price under the recurring "monthly" key (the same
  * quirk as the product itself), so the synthetic onetime/free cycles fall back

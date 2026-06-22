@@ -50,9 +50,11 @@ import {
   Plus,
   ArrowUpCircle,
   ExternalLink,
+  ChevronLeft,
+  Package,
 } from "lucide-react";
 import type { Service } from "@shared/schema";
-import { computeOrderEstimate, priceForCycle } from "@shared/store-estimate";
+import { computeOrderEstimate, priceForCycle, startingPriceLabel } from "@shared/store-estimate";
 
 /**
  * Open a blank tab SYNCHRONOUSLY inside a user click. Ordering/upgrading can't
@@ -863,6 +865,39 @@ function AddProductFlow() {
     [product, cycleOpt, cycle, configValues],
   );
 
+  // Catalogue grid (step 1): products grouped by category, each group's items
+  // ordered by sortOrder then name. Categories appear in the order their first
+  // (lowest-sortOrder) product does; uncategorised products come last.
+  const grouped = useMemo(() => {
+    const UNCAT = "\u0000uncat";
+    const sorted = [...products].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+    );
+    const groups = new Map<string, StoreCatalogueProduct[]>();
+    for (const p of sorted) {
+      const key = p.category && p.category.trim() ? p.category : UNCAT;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(p);
+    }
+    const entries = Array.from(groups.entries());
+    const cats = entries.filter(([k]) => k !== UNCAT);
+    const uncat = entries.filter(([k]) => k === UNCAT);
+    return [...cats, ...uncat].map(([k, items]) => ({
+      category: k === UNCAT ? null : k,
+      items,
+    }));
+  }, [products]);
+
+  // Card tap (step 1 → step 2): select the product and, when it offers only one
+  // billing term (e.g. a one-time or free product), auto-pick it — same rule the
+  // old dropdown used — so the customer needn't re-choose.
+  const selectProduct = (p: StoreCatalogueProduct) => {
+    setProductId(String(p.pid));
+    setCycle(p.cycles.length === 1 ? p.cycles[0].cycle : "");
+    setConfigValues({});
+    setCustomValues({});
+  };
+
   const reset = () => {
     setProductId("");
     setCycle("");
@@ -981,8 +1016,9 @@ function AddProductFlow() {
           <DialogHeader>
             <DialogTitle>Order a new product</DialogTitle>
             <DialogDescription>
-              Choose a product and billing term, fill in any options, and we'll send you to a secure
-              payment page to finish.
+              {product
+                ? "Pick a billing term, fill in any options, and we'll send you to a secure payment page to finish."
+                : "Browse our products and tap one to see options and pricing."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1002,36 +1038,93 @@ function AddProductFlow() {
             </p>
           ) : (
             <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="add-product-product">Product</Label>
-                <Select
-                  value={productId}
-                  onValueChange={(v) => {
-                    setProductId(v);
-                    // Auto-select the term when the product offers only one (e.g. a
-                    // one-time or free product), so the customer needn't re-pick it.
-                    const p = products.find((pp) => String(pp.pid) === v) ?? null;
-                    setCycle(p && p.cycles.length === 1 ? p.cycles[0].cycle : "");
-                    setConfigValues({});
-                    setCustomValues({});
-                  }}
+              {/* Step 1 — catalogue grid. Tapping a card advances to step 2. */}
+              {!product && (
+                <div className="space-y-4" data-testid="store-catalogue">
+                  {grouped.map((group) => (
+                    <div key={group.category ?? "__uncat"} className="space-y-2">
+                      <p
+                        className="text-xs font-medium text-muted-foreground"
+                        data-testid={`heading-store-category-${group.category ?? "uncategorised"}`}
+                      >
+                        {group.category ?? "Other products"}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {group.items.map((p) => {
+                          const price = startingPriceLabel(p);
+                          return (
+                            <button
+                              key={p.pid}
+                              type="button"
+                              onClick={() => selectProduct(p)}
+                              className="text-left rounded-lg border bg-card overflow-hidden flex flex-col hover-elevate active-elevate-2"
+                              data-testid={`card-store-product-${p.pid}`}
+                            >
+                              <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
+                                {p.imageUrl ? (
+                                  <img
+                                    src={p.imageUrl}
+                                    alt={p.name}
+                                    loading="lazy"
+                                    className="w-full h-full object-contain"
+                                  />
+                                ) : (
+                                  <Package className="w-8 h-8 text-muted-foreground" />
+                                )}
+                              </div>
+                              <div className="p-3 flex flex-col gap-1 flex-1">
+                                {p.category && (
+                                  <Badge variant="secondary" className="self-start text-[10px] font-normal">
+                                    {p.category}
+                                  </Badge>
+                                )}
+                                <p
+                                  className="font-medium text-sm leading-snug"
+                                  data-testid={`text-store-product-name-${p.pid}`}
+                                >
+                                  {p.name}
+                                </p>
+                                {p.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2">
+                                    {p.description}
+                                  </p>
+                                )}
+                                <p
+                                  className="text-sm font-semibold mt-auto pt-1"
+                                  data-testid={`text-store-product-price-${p.pid}`}
+                                >
+                                  {price ?? "Contact us for pricing"}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Step 2 — configure the chosen product. */}
+              {product && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 h-8 self-start"
+                  onClick={reset}
+                  data-testid="button-back-to-catalogue"
                 >
-                  <SelectTrigger id="add-product-product" data-testid="select-store-product">
-                    <SelectValue placeholder="Choose a product" />
-                  </SelectTrigger>
-                  <SelectContent {...dropdownContentProps}>
-                    {products.map((p) => {
-                      const term = p.cycles.length === 1 ? ` – ${p.cycles[0].label}` : "";
-                      const cat = p.category ? `${p.category}: ` : "";
-                      return (
-                        <SelectItem key={p.pid} value={String(p.pid)} className="whitespace-normal break-words" data-testid={`option-store-product-${p.pid}`}>
-                          {cat}{p.name}{term}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  Back to products
+                </Button>
+              )}
+
+              {product && (
+                <p className="font-medium text-sm" data-testid="text-selected-product-name">
+                  {product.name}
+                </p>
+              )}
 
               {product?.imageUrl && (
                 <img
@@ -1215,17 +1308,19 @@ function AddProductFlow() {
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)} data-testid="button-cancel-add-product">
-              Cancel
+              {product ? "Cancel" : "Close"}
             </Button>
-            <Button
-              type="button"
-              onClick={handleConfirm}
-              disabled={!product || !cycleOpt || mutation.isPending}
-              data-testid="button-confirm-add-product"
-            >
-              {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5 mr-2" />}
-              Continue to payment
-            </Button>
+            {product && (
+              <Button
+                type="button"
+                onClick={handleConfirm}
+                disabled={!cycleOpt || mutation.isPending}
+                data-testid="button-confirm-add-product"
+              >
+                {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5 mr-2" />}
+                Continue to payment
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
