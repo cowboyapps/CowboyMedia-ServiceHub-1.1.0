@@ -8174,7 +8174,7 @@ function WhmcsProductMappingSection() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleRowDrop(m.whmcsProductId)}
                 onDragEnd={() => setRowDragId(null)}
-                className={`flex items-start justify-between gap-2 rounded-md border p-3 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
+                className={`flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 rounded-md border p-3 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
                 data-testid={`row-mapping-${m.whmcsProductId}`}
               >
                 <div className="flex items-start gap-2 min-w-0">
@@ -8184,8 +8184,8 @@ function WhmcsProductMappingSection() {
                     </span>
                   )}
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{mappingName(m)}</p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="text-sm font-medium break-words" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{mappingName(m)}</p>
                       <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-mapping-pid-${m.whmcsProductId}`}>#{m.whmcsProductId}</span>
                       <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
                     </div>
@@ -8198,7 +8198,7 @@ function WhmcsProductMappingSection() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
                   <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(m)} data-testid={`button-edit-mapping-${m.whmcsProductId}`}>
                     <Edit className="w-3 h-3" /> Edit
                   </Button>
