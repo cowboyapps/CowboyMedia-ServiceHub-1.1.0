@@ -462,12 +462,23 @@ export function createUpdateStoreProductHandler(deps: AdminStoreRouteDeps) {
         if (existing.imageUrl) oldImagesToCleanup.push(existing.imageUrl);
       }
 
-      // Gallery handling: drop any URLs the admin removed, optionally reorder the
-      // kept ones (drag-to-reorder), then append new uploads. Only recompute when
-      // something actually changed (removals, reorder, or new uploads).
+      // Promotion: swap an existing gallery image into the primary slot WITHOUT a
+      // re-upload, demoting the current primary into the gallery. Only honoured
+      // when no new primary was uploaded (a fresh upload always wins) and the
+      // target is a current gallery image that survives the removal step.
       const removeUrls = parseRemoveImageUrls(req.body?.removeImageUrls);
       const orderUrls = parseImageUrlsOrder(req.body?.imageUrlsOrder);
-      if (removeUrls.length > 0 || gallery.length > 0 || orderUrls) {
+      const promoteUrl = !primary ? cleanStoreStr(req.body?.promotePrimaryImageUrl) : null;
+      const promoteValid =
+        promoteUrl != null &&
+        (existing.imageUrls ?? []).includes(promoteUrl) &&
+        !removeUrls.includes(promoteUrl);
+
+      // Gallery handling: drop any URLs the admin removed, optionally reorder the
+      // kept ones (drag-to-reorder), append new uploads, and apply any promotion.
+      // Only recompute when something actually changed (removals, reorder, new
+      // uploads, or a promotion).
+      if (removeUrls.length > 0 || gallery.length > 0 || orderUrls || promoteValid) {
         let kept = (existing.imageUrls ?? []).filter((u) => !removeUrls.includes(u));
         for (const url of removeUrls) {
           if ((existing.imageUrls ?? []).includes(url)) oldImagesToCleanup.push(url);
@@ -490,6 +501,19 @@ export function createUpdateStoreProductHandler(deps: AdminStoreRouteDeps) {
           const url = await deps.saveUploadedFile(file);
           newBlobsToRollback.push(url);
           kept.push(url);
+        }
+        // Apply the promotion last so it sees the reordered/appended gallery: pull
+        // the promoted image out of the gallery into the primary slot, and demote
+        // whatever primary the row would otherwise keep to the head of the gallery
+        // (unless it was just cleared via removeImage). Neither side is cleaned up
+        // — both stay referenced by the row, just in swapped slots.
+        if (promoteValid) {
+          kept = kept.filter((u) => u !== promoteUrl);
+          const demote = update.imageUrl !== undefined ? update.imageUrl : existing.imageUrl;
+          update.imageUrl = promoteUrl;
+          if (demote && demote !== promoteUrl && !kept.includes(demote)) {
+            kept = [demote, ...kept];
+          }
         }
         update.imageUrls = kept;
       }

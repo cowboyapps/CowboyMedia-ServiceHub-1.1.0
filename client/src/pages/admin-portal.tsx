@@ -35,7 +35,7 @@ import { PollEditor, emptyPollDraft, isPollDraftValid, submitPollDraft } from "@
 import { TemplateMessageEditor } from "@/components/template-message-editor";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
-import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical } from "lucide-react";
+import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical, Star } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
@@ -7278,6 +7278,9 @@ function StoreProductsSection() {
   const [removeGalleryUrls, setRemoveGalleryUrls] = useState<string[]>([]);
   const [galleryOrder, setGalleryOrder] = useState<string[]>([]);
   const [galleryDragIdx, setGalleryDragIdx] = useState<number | null>(null);
+  // An existing gallery image the admin wants to promote to be the primary image
+  // (the old primary moves into the gallery). null = no promotion requested.
+  const [promotePrimaryUrl, setPromotePrimaryUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -7305,6 +7308,7 @@ function StoreProductsSection() {
 
   const whmcsProducts = productsData?.ok ? productsData.products ?? [] : [];
   const storeProducts = storeData?.products ?? [];
+  const currentPrimaryUrl = editingId ? storeProducts.find((p) => p.id === editingId)?.imageUrl ?? null : null;
   const curatedPids = new Set(storeProducts.map((p) => p.whmcsProductId));
   // When adding, hide products already in the store. When editing, keep the
   // current product visible so its <SelectItem> can stay selected.
@@ -7329,6 +7333,7 @@ function StoreProductsSection() {
     setRemoveGalleryUrls([]);
     setGalleryOrder([]);
     setGalleryDragIdx(null);
+    setPromotePrimaryUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
@@ -7347,6 +7352,7 @@ function StoreProductsSection() {
       for (const file of galleryFiles) fd.append("images", file);
       if (editingId && removeGalleryUrls.length > 0) fd.append("removeImageUrls", JSON.stringify(removeGalleryUrls));
       if (editingId && galleryOrder.length > 0) fd.append("imageUrlsOrder", JSON.stringify(galleryOrder));
+      if (editingId && promotePrimaryUrl && !imageFile) fd.append("promotePrimaryImageUrl", promotePrimaryUrl);
       const url = editingId ? `/api/admin/store-products/${editingId}` : "/api/admin/store-products";
       const res = await fetch(url, { method: editingId ? "PATCH" : "POST", body: fd, credentials: "include" });
       if (!res.ok) {
@@ -7392,6 +7398,7 @@ function StoreProductsSection() {
     setRemoveGalleryUrls([]);
     setGalleryOrder(p.imageUrls ?? []);
     setGalleryDragIdx(null);
+    setPromotePrimaryUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
@@ -7515,9 +7522,35 @@ function StoreProductsSection() {
 
               <div>
                 <Label>Primary image</Label>
-                <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { setImageFile(e.target.files?.[0] ?? null); setRemoveImage(false); }} className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm" data-testid="input-store-image" />
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { setImageFile(e.target.files?.[0] ?? null); setRemoveImage(false); setPromotePrimaryUrl(null); }} className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm" data-testid="input-store-image" />
                 <p className="text-xs text-muted-foreground mt-1">Shown on the catalogue card and as the first gallery image.</p>
-                {editingId && storeProducts.find((p) => p.id === editingId)?.imageUrl && !imageFile && (
+                {/* Current primary preview (edit mode). When a gallery image is
+                    pending promotion, show THAT image here instead so the admin
+                    sees the result, and flag where the old primary will land. */}
+                {editingId && !imageFile && (currentPrimaryUrl || promotePrimaryUrl) && (
+                  <div className="flex items-center gap-2 mt-2" data-testid="preview-store-primary">
+                    <img
+                      src={promotePrimaryUrl ?? currentPrimaryUrl ?? ""}
+                      alt=""
+                      className="w-14 h-14 rounded border object-cover"
+                      data-testid="img-store-primary-current"
+                    />
+                    {promotePrimaryUrl && (
+                      <p className="text-xs text-muted-foreground" data-testid="text-store-promote-note">
+                        This photo will become the main image{currentPrimaryUrl ? "; the current main image moves into the gallery" : ""}.{" "}
+                        <button
+                          type="button"
+                          className="underline hover:text-foreground"
+                          onClick={() => setPromotePrimaryUrl(null)}
+                          data-testid="button-store-promote-undo"
+                        >
+                          Undo
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                )}
+                {editingId && currentPrimaryUrl && !imageFile && !promotePrimaryUrl && (
                   <label className="flex items-center gap-2 mt-2 text-xs text-muted-foreground cursor-pointer">
                     <Checkbox checked={removeImage} onCheckedChange={(c) => setRemoveImage(Boolean(c))} data-testid="checkbox-store-remove-image" />
                     Remove current image
@@ -7538,6 +7571,7 @@ function StoreProductsSection() {
                     <div className="flex flex-wrap gap-2 mb-2" data-testid="list-store-gallery-existing">
                       {galleryOrder.map((url, idx) => {
                         const marked = removeGalleryUrls.includes(url);
+                        const isPromoted = promotePrimaryUrl === url;
                         return (
                           <div
                             key={url}
@@ -7549,15 +7583,27 @@ function StoreProductsSection() {
                             className={`relative ${marked ? "" : "cursor-move"} ${galleryDragIdx === idx ? "opacity-50" : ""}`}
                             data-testid={`gallery-existing-${url}`}
                           >
-                            <img src={url} alt="" className={`w-14 h-14 rounded border object-cover ${marked ? "opacity-30" : ""}`} />
+                            <img src={url} alt="" className={`w-14 h-14 rounded border object-cover ${marked ? "opacity-30" : ""} ${isPromoted ? "ring-2 ring-primary ring-offset-1" : ""}`} />
                             {!marked && galleryOrder.length > 1 && (
                               <span className="absolute bottom-0.5 left-0.5 rounded bg-background/80 border p-0.5 pointer-events-none" aria-hidden="true">
                                 <GripVertical className="w-3 h-3 text-muted-foreground" />
                               </span>
                             )}
+                            {!marked && (
+                              <button
+                                type="button"
+                                onClick={() => { setPromotePrimaryUrl(isPromoted ? null : url); setImageFile(null); setRemoveImage(false); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                                className={`absolute -top-1.5 -left-1.5 rounded-full border shadow-sm p-0.5 hover-elevate ${isPromoted ? "bg-primary text-primary-foreground" : "bg-background"}`}
+                                aria-label={isPromoted ? "Cancel make primary" : "Make this the main image"}
+                                title={isPromoted ? "This will become the main image" : "Make this the main image"}
+                                data-testid="button-gallery-make-primary"
+                              >
+                                <Star className={`w-3 h-3 ${isPromoted ? "fill-current" : ""}`} />
+                              </button>
+                            )}
                             <button
                               type="button"
-                              onClick={() => setRemoveGalleryUrls((prev) => marked ? prev.filter((u) => u !== url) : [...prev, url])}
+                              onClick={() => { setRemoveGalleryUrls((prev) => marked ? prev.filter((u) => u !== url) : [...prev, url]); if (!marked && isPromoted) setPromotePrimaryUrl(null); }}
                               className="absolute -top-1.5 -right-1.5 rounded-full bg-background border shadow-sm p-0.5 hover-elevate"
                               aria-label={marked ? "Keep image" : "Remove image"}
                               data-testid={`button-gallery-toggle-remove`}

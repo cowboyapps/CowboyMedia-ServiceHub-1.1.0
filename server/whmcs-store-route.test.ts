@@ -411,7 +411,7 @@ function makeAdminDeps(over: Partial<AdminStoreRouteDeps> & { existing?: StorePr
 // res status + JSON body. No HTTP / multipart needed — the factory reads exactly
 // these two seams.
 async function callAdmin(
-  handler: (req: any, res: any) => Promise<void>,
+  handler: (req: any, res: any) => Promise<unknown>,
   opts: { body?: any; params?: any; gallery?: string[]; primary?: string },
 ): Promise<{ status: number; body: any }> {
   const files: Record<string, any[]> = {};
@@ -534,6 +534,102 @@ test("PATCH admin store-product: a failed update rolls back ONLY the new blobs, 
   // The just-saved gallery blob is rolled back; the old blob is untouched (the
   // row update never landed, so it's still referenced).
   assert.deepEqual(h.removed, ["/uploads/fresh.png"]);
+});
+
+test("PATCH admin store-product: promotePrimaryImageUrl swaps a gallery image into primary and demotes the old primary", async () => {
+  const existing = storeProduct({
+    id: "sp1",
+    imageUrl: "/uploads/old-primary.png",
+    imageUrls: ["/uploads/g1.png", "/uploads/g2.png"],
+  });
+  const h = makeAdminDeps({ existing });
+  const { status, body } = await callAdmin(createUpdateStoreProductHandler(h.deps), {
+    params: { id: "sp1" },
+    body: { promotePrimaryImageUrl: "/uploads/g2.png" },
+  });
+  assert.equal(status, 200);
+  // Promoted gallery image becomes primary; old primary moves to the head of
+  // the gallery; the promoted url leaves the gallery.
+  assert.equal(body.product.imageUrl, "/uploads/g2.png");
+  assert.deepEqual(body.product.imageUrls, ["/uploads/old-primary.png", "/uploads/g1.png"]);
+  // No blob leaves the row — nothing is cleaned up.
+  assert.equal(h.removed.length, 0);
+});
+
+test("PATCH admin store-product: promotion with no current primary just pulls the image up", async () => {
+  const existing = storeProduct({
+    id: "sp1",
+    imageUrl: null,
+    imageUrls: ["/uploads/g1.png", "/uploads/g2.png"],
+  });
+  const h = makeAdminDeps({ existing });
+  const { status, body } = await callAdmin(createUpdateStoreProductHandler(h.deps), {
+    params: { id: "sp1" },
+    body: { promotePrimaryImageUrl: "/uploads/g1.png" },
+  });
+  assert.equal(status, 200);
+  assert.equal(body.product.imageUrl, "/uploads/g1.png");
+  assert.deepEqual(body.product.imageUrls, ["/uploads/g2.png"]);
+  assert.equal(h.removed.length, 0);
+});
+
+test("PATCH admin store-product: a new primary upload wins over a promotion request", async () => {
+  const existing = storeProduct({
+    id: "sp1",
+    imageUrl: "/uploads/old-primary.png",
+    imageUrls: ["/uploads/g1.png"],
+  });
+  const h = makeAdminDeps({ existing });
+  const { status, body } = await callAdmin(createUpdateStoreProductHandler(h.deps), {
+    params: { id: "sp1" },
+    body: { promotePrimaryImageUrl: "/uploads/g1.png" },
+    primary: "fresh.png",
+  });
+  assert.equal(status, 200);
+  // The uploaded file becomes primary; the gallery is untouched; the old primary
+  // blob is cleaned up (replaced, not demoted).
+  assert.equal(body.product.imageUrl, "/uploads/fresh.png");
+  assert.deepEqual(body.product.imageUrls, ["/uploads/g1.png"]);
+  assert.deepEqual(h.removed, ["/uploads/old-primary.png"]);
+});
+
+test("PATCH admin store-product: promoting an image not in the gallery is a no-op", async () => {
+  const existing = storeProduct({
+    id: "sp1",
+    imageUrl: "/uploads/old-primary.png",
+    imageUrls: ["/uploads/g1.png"],
+  });
+  const h = makeAdminDeps({ existing });
+  const { status, body } = await callAdmin(createUpdateStoreProductHandler(h.deps), {
+    params: { id: "sp1" },
+    body: { promotePrimaryImageUrl: "/uploads/not-here.png" },
+  });
+  assert.equal(status, 200);
+  assert.equal(body.product.imageUrl, "/uploads/old-primary.png");
+  assert.deepEqual(body.product.imageUrls, ["/uploads/g1.png"]);
+  assert.equal(h.removed.length, 0);
+});
+
+test("PATCH admin store-product: promotion respects a concurrent reorder of the kept gallery", async () => {
+  const existing = storeProduct({
+    id: "sp1",
+    imageUrl: "/uploads/old-primary.png",
+    imageUrls: ["/uploads/g1.png", "/uploads/g2.png", "/uploads/g3.png"],
+  });
+  const h = makeAdminDeps({ existing });
+  const { status, body } = await callAdmin(createUpdateStoreProductHandler(h.deps), {
+    params: { id: "sp1" },
+    body: {
+      promotePrimaryImageUrl: "/uploads/g2.png",
+      imageUrlsOrder: JSON.stringify(["/uploads/g3.png", "/uploads/g1.png", "/uploads/g2.png"]),
+    },
+  });
+  assert.equal(status, 200);
+  assert.equal(body.product.imageUrl, "/uploads/g2.png");
+  // Reorder applies first (g3, g1, g2 minus the promoted g2), then the old
+  // primary lands at the head.
+  assert.deepEqual(body.product.imageUrls, ["/uploads/old-primary.png", "/uploads/g3.png", "/uploads/g1.png"]);
+  assert.equal(h.removed.length, 0);
 });
 
 test("PATCH admin store-product: missing product is 404", async () => {
