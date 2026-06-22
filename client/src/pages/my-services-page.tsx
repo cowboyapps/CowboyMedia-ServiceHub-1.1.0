@@ -1028,6 +1028,16 @@ function AddProductFlow() {
                 </Select>
               </div>
 
+              {product?.imageUrl && (
+                <img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  loading="lazy"
+                  className="w-full max-h-48 rounded-lg border bg-muted object-contain"
+                  data-testid="img-store-product"
+                />
+              )}
+
               {product?.description && (
                 <p className="text-xs text-muted-foreground" data-testid="text-store-product-description">
                   {product.description}
