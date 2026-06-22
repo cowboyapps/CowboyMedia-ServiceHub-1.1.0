@@ -7254,6 +7254,7 @@ interface StoreProductRow {
   name: string | null;
   description: string | null;
   imageUrl: string | null;
+  imageUrls: string[];
   category: string | null;
   sortOrder: number;
   enabled: boolean;
@@ -7271,7 +7272,11 @@ function StoreProductsSection() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [removeImage, setRemoveImage] = useState(false);
+  // Additional gallery images: new files to upload + existing URLs to remove.
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [removeGalleryUrls, setRemoveGalleryUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const { data: productsData, isLoading: productsLoading } = useQuery<{
     ok: boolean;
@@ -7306,7 +7311,10 @@ function StoreProductsSection() {
     setEditingId(null);
     setImageFile(null);
     setRemoveImage(false);
+    setGalleryFiles([]);
+    setRemoveGalleryUrls([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
 
   const saveMutation = useMutation({
@@ -7320,6 +7328,8 @@ function StoreProductsSection() {
       fd.append("enabled", String(form.enabled));
       if (imageFile) fd.append("image", imageFile);
       if (editingId && removeImage && !imageFile) fd.append("removeImage", "true");
+      for (const file of galleryFiles) fd.append("images", file);
+      if (editingId && removeGalleryUrls.length > 0) fd.append("removeImageUrls", JSON.stringify(removeGalleryUrls));
       const url = editingId ? `/api/admin/store-products/${editingId}` : "/api/admin/store-products";
       const res = await fetch(url, { method: editingId ? "PATCH" : "POST", body: fd, credentials: "include" });
       if (!res.ok) {
@@ -7361,7 +7371,10 @@ function StoreProductsSection() {
     });
     setImageFile(null);
     setRemoveImage(false);
+    setGalleryFiles([]);
+    setRemoveGalleryUrls([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
 
   const handleSave = () => {
@@ -7482,13 +7495,59 @@ function StoreProductsSection() {
               </div>
 
               <div>
-                <Label>Image</Label>
+                <Label>Primary image</Label>
                 <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { setImageFile(e.target.files?.[0] ?? null); setRemoveImage(false); }} className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm" data-testid="input-store-image" />
+                <p className="text-xs text-muted-foreground mt-1">Shown on the catalogue card and as the first gallery image.</p>
                 {editingId && storeProducts.find((p) => p.id === editingId)?.imageUrl && !imageFile && (
                   <label className="flex items-center gap-2 mt-2 text-xs text-muted-foreground cursor-pointer">
                     <Checkbox checked={removeImage} onCheckedChange={(c) => setRemoveImage(Boolean(c))} data-testid="checkbox-store-remove-image" />
                     Remove current image
                   </label>
+                )}
+              </div>
+
+              <div>
+                <Label>Additional images</Label>
+                <p className="text-xs text-muted-foreground mt-0.5 mb-1">Extra photos shown in a gallery on the order screen (up to 8).</p>
+                {/* Existing additional images (edit mode) — toggle removal each. */}
+                {editingId && (() => {
+                  const current = storeProducts.find((p) => p.id === editingId)?.imageUrls ?? [];
+                  if (current.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-2 mb-2" data-testid="list-store-gallery-existing">
+                      {current.map((url) => {
+                        const marked = removeGalleryUrls.includes(url);
+                        return (
+                          <div key={url} className="relative" data-testid={`gallery-existing-${url}`}>
+                            <img src={url} alt="" className={`w-14 h-14 rounded border object-cover ${marked ? "opacity-30" : ""}`} />
+                            <button
+                              type="button"
+                              onClick={() => setRemoveGalleryUrls((prev) => marked ? prev.filter((u) => u !== url) : [...prev, url])}
+                              className="absolute -top-1.5 -right-1.5 rounded-full bg-background border shadow-sm p-0.5 hover-elevate"
+                              aria-label={marked ? "Keep image" : "Remove image"}
+                              data-testid={`button-gallery-toggle-remove`}
+                            >
+                              {marked ? <Plus className="w-3 h-3" /> : <XIcon className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                <input
+                  ref={galleryInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setGalleryFiles(Array.from(e.target.files ?? []))}
+                  className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm"
+                  data-testid="input-store-gallery"
+                />
+                {galleryFiles.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-store-gallery-count">
+                    {galleryFiles.length} new image{galleryFiles.length === 1 ? "" : "s"} selected
+                  </p>
                 )}
               </div>
 

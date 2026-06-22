@@ -79,7 +79,9 @@ function uploadLikePattern(url: string): string {
 //   - "substring": a rich-text HTML body that can embed inline editor images.
 //     The `/uploads/...` path lives INSIDE the HTML, not in its own column →
 //     match with `like`. Missing these is exactly what wiped in-article KB images.
-export type UploadReferenceMatch = "exact" | "substring";
+//   - "array": the column is a text[] of `/uploads/...` paths (e.g. a product
+//     gallery). The URL is referenced when it's an element of the array.
+export type UploadReferenceMatch = "exact" | "substring" | "array";
 
 // Every table/column that can persist an `/uploads/...` URL. This is the single
 // source of truth for the reference check — and `uploaded-file-cleanup.test.ts`
@@ -107,6 +109,7 @@ export const uploadReferenceColumns: UploadReferenceColumn[] = [
   { table: threadMessages, column: threadMessages.imageUrl, match: "exact" },
   { table: communityMessages, column: communityMessages.imageUrl, match: "exact" },
   { table: storeProducts, column: storeProducts.imageUrl, match: "exact" },
+  { table: storeProducts, column: storeProducts.imageUrls, match: "array" },
   // Rich-text HTML bodies with inline editor images (substring match):
   { table: newsStories, column: newsStories.content, match: "substring" },
   { table: kbArticles, column: kbArticles.bodyHtml, match: "substring" },
@@ -133,7 +136,12 @@ export const uploadColumnsIntentionallyUnchecked: Record<string, string> = {
 // Builds the actual DB reference check for one declared column.
 function buildReferenceCheck({ table, column, match }: UploadReferenceColumn) {
   return async (url: string): Promise<boolean> => {
-    const condition = match === "exact" ? eq(column, url) : like(column, uploadLikePattern(url));
+    const condition =
+      match === "exact"
+        ? eq(column, url)
+        : match === "array"
+          ? sql`${url} = ANY(${column})`
+          : like(column, uploadLikePattern(url));
     const rows = await db.select({ one: sql`1` }).from(table).where(condition).limit(1);
     return rows.length > 0;
   };

@@ -817,6 +817,7 @@ interface StoreCatalogueProduct {
   name: string;
   description: string;
   imageUrl: string | null;
+  images: string[];
   category: string | null;
   sortOrder: number;
   currency: string | null;
@@ -848,6 +849,7 @@ function AddProductFlow() {
   const [cycle, setCycle] = useState<string>("");
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -858,7 +860,7 @@ function AddProductFlow() {
     refetchOnMount: "always",
   });
 
-  const products = data?.products ?? [];
+  const products = useMemo(() => data?.products ?? [], [data]);
   const product = products.find((p) => String(p.pid) === productId) ?? null;
   const cycleOpt = product?.cycles.find((c) => c.cycle === cycle) ?? null;
 
@@ -994,6 +996,7 @@ function AddProductFlow() {
     setCycle(p.cycles.length === 1 ? p.cycles[0].cycle : "");
     setConfigValues({});
     setCustomValues({});
+    setGalleryIndex(0);
   };
 
   const reset = () => {
@@ -1001,6 +1004,7 @@ function AddProductFlow() {
     setCycle("");
     setConfigValues({});
     setCustomValues({});
+    setGalleryIndex(0);
   };
 
   // A single catalogue card (step 1). Shared by the grouped "Featured" layout
@@ -1321,15 +1325,39 @@ function AddProductFlow() {
                 </p>
               )}
 
-              {product?.imageUrl && (
-                <img
-                  src={product.imageUrl}
-                  alt={product.name}
-                  loading="lazy"
-                  className="w-full max-h-48 rounded-lg border bg-muted object-contain"
-                  data-testid="img-store-product"
-                />
-              )}
+              {product && product.images.length > 0 && (() => {
+                const idx = Math.min(galleryIndex, product.images.length - 1);
+                return (
+                  <div className="space-y-2" data-testid="gallery-store-product">
+                    <img
+                      src={product.images[idx]}
+                      alt={product.name}
+                      loading="lazy"
+                      className="w-full max-h-48 rounded-lg border bg-muted object-contain"
+                      data-testid="img-store-product"
+                    />
+                    {product.images.length > 1 && (
+                      <div className="flex flex-wrap gap-2" data-testid="gallery-store-thumbnails">
+                        {product.images.map((src, i) => (
+                          <button
+                            key={src}
+                            type="button"
+                            onClick={() => setGalleryIndex(i)}
+                            className={`h-12 w-12 shrink-0 overflow-hidden rounded-md border bg-muted hover-elevate ${
+                              i === idx ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : ""
+                            }`}
+                            aria-label={`View image ${i + 1} of ${product.images.length}`}
+                            aria-current={i === idx}
+                            data-testid={`button-store-thumbnail-${i}`}
+                          >
+                            <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {product?.description && (
                 <p className="text-xs text-muted-foreground" data-testid="text-store-product-description">

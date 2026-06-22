@@ -1835,6 +1835,7 @@ export interface StoreCurationRow {
   name: string | null;
   description: string | null;
   imageUrl: string | null;
+  imageUrls: string[];
   category: string | null;
   sortOrder: number;
   enabled: boolean;
@@ -1845,6 +1846,10 @@ export interface StoreCatalogueProduct {
   name: string;
   description: string;
   imageUrl: string | null;
+  // Full gallery for the configure step: the primary `imageUrl` first, then any
+  // additional curated images, de-duped and with empties dropped. The catalogue
+  // card keeps using `imageUrl`; the configure step renders `images`.
+  images: string[];
   category: string | null;
   sortOrder: number;
   currency: string | null;
@@ -1886,11 +1891,18 @@ export function assembleStoreCatalogue(
     const name = (row.name ?? "").trim() || parsed.name;
     const description = (row.description ?? "").trim() || parsed.description;
     const category = (row.category ?? "").trim() || null;
+    // Gallery = primary image first, then additional images; drop empties + dupes.
+    const images: string[] = [];
+    for (const candidate of [row.imageUrl, ...(row.imageUrls ?? [])]) {
+      const url = (candidate ?? "").trim();
+      if (url && !images.includes(url)) images.push(url);
+    }
     products.push({
       pid: parsed.pid,
       name,
       description,
       imageUrl: row.imageUrl ?? null,
+      images,
       category,
       sortOrder: row.sortOrder,
       currency: parsed.currency,

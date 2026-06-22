@@ -31,6 +31,7 @@ function catalogueProduct(over: Partial<StoreCatalogueProduct> = {}): StoreCatal
     name: "Starter VPS",
     description: "",
     imageUrl: null,
+    images: [],
     category: "Hosting",
     sortOrder: 0,
     currency: "USD",

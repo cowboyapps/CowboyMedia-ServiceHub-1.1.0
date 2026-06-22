@@ -119,9 +119,9 @@ test("parseStoreCustomFields: drops admin-only fields and parses dropdown option
 
 test("assembleStoreCatalogue: includes only enabled + present + orderable products", () => {
   const curation: StoreCurationRow[] = [
-    { whmcsProductId: 10, name: "", description: "", imageUrl: null, category: "Hosting", sortOrder: 0, enabled: true },
-    { whmcsProductId: 11, name: "Disabled", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: false },
-    { whmcsProductId: 99, name: "Gone", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+    { whmcsProductId: 10, name: "", description: "", imageUrls: [], imageUrl: null, category: "Hosting", sortOrder: 0, enabled: true },
+    { whmcsProductId: 11, name: "Disabled", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: false },
+    { whmcsProductId: 99, name: "Gone", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: true },
   ];
   const products = assembleStoreCatalogue([rawProduct()], curation, "USD");
   assert.equal(products.length, 1);
@@ -138,9 +138,9 @@ test("assembleStoreCatalogue: admin overrides win; sorts category (blank last) â
     rawProduct({ pid: 12, name: "Charlie" }),
   ];
   const curation: StoreCurationRow[] = [
-    { whmcsProductId: 12, name: "No category", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
-    { whmcsProductId: 11, name: "Second", description: "", imageUrl: null, category: "Apps", sortOrder: 2, enabled: true },
-    { whmcsProductId: 10, name: "First", description: "Custom blurb", imageUrl: "/uploads/x.png", category: "Apps", sortOrder: 1, enabled: true },
+    { whmcsProductId: 12, name: "No category", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: true },
+    { whmcsProductId: 11, name: "Second", description: "", imageUrls: [], imageUrl: null, category: "Apps", sortOrder: 2, enabled: true },
+    { whmcsProductId: 10, name: "First", description: "Custom blurb", imageUrls: [], imageUrl: "/uploads/x.png", category: "Apps", sortOrder: 1, enabled: true },
   ];
   const products = assembleStoreCatalogue(raws, curation, "USD");
   assert.deepEqual(products.map((p) => p.pid), [10, 11, 12]);
@@ -161,7 +161,7 @@ test("assembleStoreCatalogue: a one-time product bills as a single 'onetime' cha
     pricing: { USD: { monthly: "25.00", msetupfee: "5.00", annually: "-1.00" } },
   });
   const curation: StoreCurationRow[] = [
-    { whmcsProductId: 20, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+    { whmcsProductId: 20, name: "", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: true },
   ];
   const products = assembleStoreCatalogue([raw], curation, "USD");
   assert.equal(products.length, 1);
@@ -178,7 +178,7 @@ test("assembleStoreCatalogue: a free product bills as a single 'free' charge", (
     pricing: { USD: { monthly: "0.00" } },
   });
   const curation: StoreCurationRow[] = [
-    { whmcsProductId: 21, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+    { whmcsProductId: 21, name: "", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: true },
   ];
   const products = assembleStoreCatalogue([raw], curation, "USD");
   assert.equal(products.length, 1);
@@ -197,7 +197,7 @@ test("assembleStoreCatalogue: a one-time product with no usable price is dropped
     pricing: { USD: { monthly: "-1.00", annually: "100.00" } },
   });
   const curation: StoreCurationRow[] = [
-    { whmcsProductId: 22, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true },
+    { whmcsProductId: 22, name: "", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: true },
   ];
   const products = assembleStoreCatalogue([raw], curation, "USD");
   assert.deepEqual(products, []);
@@ -210,7 +210,7 @@ test("loadStoreCatalogue: no enabled rows short-circuits without a WHMCS call", 
     return { ok: true, data: { products: { product: [] } } };
   };
   const r = await loadStoreCatalogue(
-    [{ whmcsProductId: 10, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: false }],
+    [{ whmcsProductId: 10, name: "", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: false }],
     fetcher,
   );
   assert.equal(called, false);
@@ -221,7 +221,7 @@ test("loadStoreCatalogue: no enabled rows short-circuits without a WHMCS call", 
 test("loadStoreCatalogue: WHMCS read failure reports unreachable", async () => {
   const fetcher = async (): Promise<WhmcsRawFetch> => ({ ok: false, reason: "network", error: "down" });
   const r = await loadStoreCatalogue(
-    [{ whmcsProductId: 10, name: "", description: "", imageUrl: null, category: null, sortOrder: 0, enabled: true }],
+    [{ whmcsProductId: 10, name: "", description: "", imageUrls: [], imageUrl: null, category: null, sortOrder: 0, enabled: true }],
     fetcher,
   );
   assert.equal(r.unreachable, true);
@@ -231,7 +231,7 @@ test("loadStoreCatalogue: WHMCS read failure reports unreachable", async () => {
 test("loadStoreCatalogue: merges live products on a reachable read", async () => {
   const fetcher = async (): Promise<WhmcsRawFetch> => ({ ok: true, data: { products: { product: [rawProduct()] } } });
   const r = await loadStoreCatalogue(
-    [{ whmcsProductId: 10, name: "Shiny", description: "", imageUrl: null, category: "Hosting", sortOrder: 0, enabled: true }],
+    [{ whmcsProductId: 10, name: "Shiny", description: "", imageUrls: [], imageUrl: null, category: "Hosting", sortOrder: 0, enabled: true }],
     fetcher,
     "USD",
   );

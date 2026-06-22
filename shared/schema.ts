@@ -973,6 +973,10 @@ export const storeProducts = pgTable("store_products", {
   name: text("name"),
   description: text("description"),
   imageUrl: text("image_url"),
+  // Additional gallery images shown on the configure step, BEYOND the primary
+  // `imageUrl` (which the catalogue card and admin thumbnail keep using). Each
+  // entry is an `/uploads/<uuid>` path into `uploaded_files`, same as `imageUrl`.
+  imageUrls: text("image_urls").array().notNull().default(sql`'{}'::text[]`),
   category: text("category"),
   sortOrder: integer("sort_order").notNull().default(0),
   enabled: boolean("enabled").notNull().default(true),

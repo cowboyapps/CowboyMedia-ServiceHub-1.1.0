@@ -426,8 +426,33 @@ function withUploadArray(field: string, maxCount: number) {
   };
 }
 
+// Like withUpload but for several named fields at once (e.g. a single primary
+// `image` plus multiple additional `images`). Preserves route-param inference
+// and maps multer rejections to a clear response. req.files is keyed by field.
+function withUploadFields(fields: { name: string; maxCount: number }[]) {
+  const handler = upload.fields(fields);
+  const maxCount = fields.reduce((m, f) => Math.max(m, f.maxCount), 1);
+  return <P>(req: Request<P>, res: Response, next: NextFunction): void => {
+    handler(req as Request, res, (err: unknown) => {
+      if (err) {
+        const rejection = describeUploadRejection(err, maxCount);
+        if (rejection) {
+          res.status(rejection.status).json(rejection.body);
+          return;
+        }
+        next(err);
+        return;
+      }
+      next();
+    });
+  };
+}
+
 // Cap files per WHMCS ticket reply (multer also caps each file at 25MB).
 const WHMCS_REPLY_MAX_ATTACHMENTS = 5;
+
+// Cap additional gallery images per storefront product (beyond the primary).
+const STORE_PRODUCT_MAX_GALLERY_IMAGES = 8;
 
 // Turn multer's in-memory files into the base64 shape the WHMCS client forwards.
 function toWhmcsAttachmentUploads(files: Express.Multer.File[] | undefined): WhmcsTicketAttachmentUpload[] {
@@ -6595,6 +6620,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         name: r.name,
         description: r.description,
         imageUrl: r.imageUrl,
+        imageUrls: r.imageUrls ?? [],
         category: r.category,
         sortOrder: r.sortOrder,
         enabled: r.enabled,
@@ -6840,6 +6866,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     const s = String(v).trim().toLowerCase();
     return s === "true" || s === "1" || s === "on" || s === "yes";
   };
+  // Split the multi-field upload (primary `image` + additional `images`) coming
+  // from withUploadFields, where req.files is keyed by field name.
+  const storeProductUploads = (req: Request): { primary?: Express.Multer.File; gallery: Express.Multer.File[] } => {
+    const files = (req.files ?? {}) as Record<string, Express.Multer.File[]>;
+    return { primary: files.image?.[0], gallery: files.images ?? [] };
+  };
+  // Parse the JSON array of gallery image URLs the admin asked to remove.
+  const parseRemoveImageUrls = (v: unknown): string[] => {
+    if (typeof v !== "string" || !v.trim()) return [];
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed.filter((u): u is string => typeof u === "string") : [];
+    } catch {
+      return [];
+    }
+  };
 
   app.get("/api/admin/store-products", requireAdmin, async (_req, res) => {
     try {
@@ -6850,7 +6892,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/admin/store-products", requireAdmin, withUpload("image"), async (req, res) => {
+  app.post(
+    "/api/admin/store-products",
+    requireAdmin,
+    withUploadFields([
+      { name: "image", maxCount: 1 },
+      { name: "images", maxCount: STORE_PRODUCT_MAX_GALLERY_IMAGES },
+    ]),
+    async (req, res) => {
     try {
       const whmcsProductId = Number(req.body?.whmcsProductId);
       if (!Number.isInteger(whmcsProductId) || whmcsProductId <= 0) {
@@ -6860,7 +6909,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (existing) {
         return res.status(409).json({ message: "That WHMCS product is already in the store." });
       }
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
+      const { primary, gallery } = storeProductUploads(req);
+      const imageUrl = primary ? await saveUploadedFile(primary) : null;
+      const imageUrls: string[] = [];
+      for (const file of gallery) imageUrls.push(await saveUploadedFile(file));
+      const savedBlobs = [imageUrl, ...imageUrls].filter((u): u is string => !!u);
       let product;
       try {
         product = await storage.createStoreProduct({
@@ -6868,14 +6921,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           name: cleanStoreStr(req.body?.name),
           description: cleanStoreStr(req.body?.description),
           imageUrl,
+          imageUrls,
           category: cleanStoreStr(req.body?.category),
           sortOrder: parseStoreSortOrder(req.body?.sortOrder),
           enabled: parseStoreBool(req.body?.enabled, true),
         });
       } catch (e) {
-        // The blob was persisted before the row; a failed insert (e.g. a race on
-        // the unique pid, or a transient DB error) would otherwise orphan it.
-        if (imageUrl) await deleteUploadedFileIfUnreferenced(imageUrl);
+        // The blobs were persisted before the row; a failed insert (e.g. a race
+        // on the unique pid, or a transient DB error) would otherwise orphan them.
+        for (const url of savedBlobs) await deleteUploadedFileIfUnreferenced(url);
         throw e;
       }
       logActivity("setting", "store_product_created", {
@@ -6889,7 +6943,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.patch("/api/admin/store-products/:id", requireAdmin, withUpload("image"), async (req, res) => {
+  app.patch(
+    "/api/admin/store-products/:id",
+    requireAdmin,
+    withUploadFields([
+      { name: "image", maxCount: 1 },
+      { name: "images", maxCount: STORE_PRODUCT_MAX_GALLERY_IMAGES },
+    ]),
+    async (req, res) => {
     try {
       const id = getParam(req, "id");
       const existing = await storage.getStoreProduct(id);
@@ -6902,31 +6963,53 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (req.body?.sortOrder !== undefined) update.sortOrder = parseStoreSortOrder(req.body.sortOrder);
       if (req.body?.enabled !== undefined) update.enabled = parseStoreBool(req.body.enabled, existing.enabled);
 
-      // Image handling: a new upload replaces the old blob; `removeImage=true`
+      const { primary, gallery } = storeProductUploads(req);
+
+      // Primary image handling: a new upload replaces the old blob; `removeImage=true`
       // clears it. The previous blob is removed only when nothing else still
       // references it (shared `uploaded_files` store).
-      let oldImageToCleanup: string | null = null;
-      let newImageToRollback: string | null = null;
-      if (req.file) {
-        update.imageUrl = await saveUploadedFile(req.file);
-        newImageToRollback = update.imageUrl;
-        oldImageToCleanup = existing.imageUrl;
+      const oldImagesToCleanup: string[] = [];
+      const newBlobsToRollback: string[] = [];
+      if (primary) {
+        update.imageUrl = await saveUploadedFile(primary);
+        newBlobsToRollback.push(update.imageUrl);
+        if (existing.imageUrl) oldImagesToCleanup.push(existing.imageUrl);
       } else if (parseStoreBool(req.body?.removeImage, false)) {
         update.imageUrl = null;
-        oldImageToCleanup = existing.imageUrl;
+        if (existing.imageUrl) oldImagesToCleanup.push(existing.imageUrl);
+      }
+
+      // Gallery handling: drop any URLs the admin removed, then append new uploads.
+      // Only recompute when something actually changed (removals or new uploads).
+      const removeUrls = parseRemoveImageUrls(req.body?.removeImageUrls);
+      if (removeUrls.length > 0 || gallery.length > 0) {
+        const kept = (existing.imageUrls ?? []).filter((u) => !removeUrls.includes(u));
+        for (const url of removeUrls) {
+          if ((existing.imageUrls ?? []).includes(url)) oldImagesToCleanup.push(url);
+        }
+        for (const file of gallery) {
+          const url = await saveUploadedFile(file);
+          newBlobsToRollback.push(url);
+          kept.push(url);
+        }
+        update.imageUrls = kept;
       }
 
       let product;
       try {
         product = await storage.updateStoreProduct(id, update);
       } catch (e) {
-        // A new blob was persisted before the row update; a failed update would
-        // otherwise orphan it (the old blob stays referenced and untouched).
-        if (newImageToRollback) await deleteUploadedFileIfUnreferenced(newImageToRollback);
+        // New blobs were persisted before the row update; a failed update would
+        // otherwise orphan them (the old blobs stay referenced and untouched).
+        for (const url of newBlobsToRollback) await deleteUploadedFileIfUnreferenced(url);
         throw e;
       }
-      if (oldImageToCleanup && oldImageToCleanup !== product?.imageUrl) {
-        await deleteUploadedFileIfUnreferenced(oldImageToCleanup);
+      const stillReferenced = new Set<string>([
+        ...(product?.imageUrl ? [product.imageUrl] : []),
+        ...(product?.imageUrls ?? []),
+      ]);
+      for (const url of oldImagesToCleanup) {
+        if (!stillReferenced.has(url)) await deleteUploadedFileIfUnreferenced(url);
       }
       logActivity("setting", "store_product_updated", {
         actorId: req.session.userId,
@@ -6944,7 +7027,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const id = getParam(req, "id");
       const removed = await storage.deleteStoreProduct(id);
       if (!removed) return res.status(404).json({ message: "Store product not found" });
-      if (removed.imageUrl) await deleteUploadedFileIfUnreferenced(removed.imageUrl);
+      for (const url of [removed.imageUrl, ...(removed.imageUrls ?? [])]) {
+        if (url) await deleteUploadedFileIfUnreferenced(url);
+      }
       logActivity("setting", "store_product_deleted", {
         actorId: req.session.userId,
         targetType: "setting",
