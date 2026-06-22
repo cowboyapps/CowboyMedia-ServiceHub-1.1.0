@@ -30,3 +30,4 @@
 - [WHMCS one-time/free pricing](whmcs-onetime-paytype-pricing.md) — paytype field marks onetime/free; one-off price sits in the `monthly` field; branch on paytype or it shows as recurring monthly. Config-option sub-options carry the same pricing shape.
 - [Radix Select long-item clipping](radix-select-long-item-clipping.md) — long SelectItem labels overflow off-screen on mobile (content overflow-x-hidden); cap content max-w to viewport + whitespace-normal break-words.
 - [iOS Radix Select collisionPadding](ios-radix-select-collision-padding.md) — tall popper Select menus tuck under the iPhone status bar (top items unreachable); a max-height cap won't fix it — add collisionPadding so Radix clears the safe area.
+- [Driving Radix Select in jsdom](radix-select-jsdom-driving.md) — open via mouse-pointerType pointerdown on trigger, then plain click the item; native BubbleSelect is empty when closed and portaled pointerup misses React's root.
