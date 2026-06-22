@@ -33,6 +33,8 @@ import {
   FileText,
   Download,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   XCircle,
   AlertTriangle,
   History,
@@ -1401,6 +1403,10 @@ interface BillingSummaryViewProps {
 export function BillingSummaryView({ data, isLoading, context = "customer", userId }: BillingSummaryViewProps) {
   const { toast } = useToast();
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  // Long invoice histories collapse to the newest few; "Show all" reveals the
+  // rest so the page stays compact on mobile while the full history is one tap
+  // away.
+  const [showAllInvoices, setShowAllInvoices] = useState(false);
   const [cancelProduct, setCancelProduct] = useState<BillingProduct | null>(null);
   const [adminAction, setAdminAction] = useState<{ product: BillingProduct; action: AdminServiceAction } | null>(null);
   // Persistent "Payment received" confirmation shown after returning from WHMCS's
@@ -1571,6 +1577,16 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
 
   const hasInvoices = data.invoices.length > 0;
   const hasProducts = data.products.length > 0;
+  // Sort first (Newest / Outstanding-first), then cap the initial render so a
+  // long history doesn't dominate the page; the "Show all" expander below
+  // reveals the rest of the sorted list.
+  const sortedInvoices = sortInvoices(data.invoices, invoiceSort);
+  const INVOICE_PREVIEW_CAP = 5;
+  const invoicesCollapsible = sortedInvoices.length > INVOICE_PREVIEW_CAP;
+  const visibleInvoices =
+    invoicesCollapsible && !showAllInvoices
+      ? sortedInvoices.slice(0, INVOICE_PREVIEW_CAP)
+      : sortedInvoices;
 
   return (
     <div className="space-y-4" data-testid="billing-summary">
@@ -1778,7 +1794,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
           </p>
         ) : (
           <div className="space-y-2">
-            {sortInvoices(data.invoices, invoiceSort).map((inv) => {
+            {visibleInvoices.map((inv) => {
               const needsPay = inv.status === "unpaid" || inv.status === "overdue";
               return (
                 <Card
@@ -1841,6 +1857,27 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
                 </Card>
               );
             })}
+            {invoicesCollapsible && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={() => setShowAllInvoices((prev) => !prev)}
+                data-testid="button-toggle-all-invoices"
+              >
+                {showAllInvoices ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" />
+                    Show fewer invoices
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" />
+                    Show all invoices ({data.invoices.length})
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         )}
       </div>
