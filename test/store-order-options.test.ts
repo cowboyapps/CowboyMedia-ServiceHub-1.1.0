@@ -68,24 +68,10 @@ HEProto.setPointerCapture ??= () => {};
 HEProto.releasePointerCapture ??= () => {};
 HEProto.scrollIntoView ??= () => {};
 
-// shadcn's toast store (client/src/hooks/use-toast.ts) schedules a removal timer
-// with TOAST_REMOVE_DELAY (1_000_000ms ≈ 16min) and never unref()s it. Any test
-// that surfaces a toast — the required-field block + order-success flow below — is
-// enough to leave that handle pending, so the node:test subprocess can't exit and
-// the single-pass runner (script/run-tests.ts) kills it as a "timeout". React
-// Query's default gcTime (5min) is the same shape. Unref any large-delay timer so
-// the process exits once the tests (and their awaited work) finish, while leaving
-// the 0ms frame-flush timers below untouched so flushFrames still drives renders.
-const realSetTimeout: typeof setTimeout = globalThis.setTimeout;
-const unrefBigTimers = ((fn: (...a: unknown[]) => void, delay?: number, ...args: unknown[]) => {
-  const handle = realSetTimeout(fn, delay as number, ...args);
-  if (typeof delay === "number" && delay >= 60_000) {
-    (handle as unknown as { unref?: () => void }).unref?.();
-  }
-  return handle;
-}) as unknown as typeof setTimeout;
-g.setTimeout = unrefBigTimers;
-
+// shadcn's toast store (client/src/hooks/use-toast.ts) now unref()s its
+// TOAST_REMOVE_DELAY removal timer at the source, so a toast firing here no
+// longer pins the node:test event loop open. React Query's lingering gc timers
+// are neutralised by the gcTime:0 override applied right after the imports below.
 const rafImpl: typeof requestAnimationFrame = (cb) =>
   setTimeout(() => cb(Date.now()), 0) as unknown as number;
 const cafImpl: typeof cancelAnimationFrame = (id) =>
@@ -148,6 +134,21 @@ const { queryClient } = await import("../client/src/lib/queryClient");
 const { AuthProvider } = await import("../client/src/lib/auth");
 const { useToast } = await import("../client/src/hooks/use-toast");
 const MyServicesPage = (await import("../client/src/pages/my-services-page")).default;
+
+// This file drives the real (singleton) queryClient — the page seeds + invalidates
+// against that exact instance — so we can't swap in a throwaway client with a short
+// gcTime the way the other jsdom tests do. React Query's mutation cache schedules a
+// 5-minute gc timer when the order-POST mutation's observer unsubscribes on unmount,
+// and queryClient.clear() does NOT clear it (MutationCache.remove never destroys the
+// mutation). That ref'd timer would keep the node:test process alive long past the
+// assertions, so collapse gcTime to 0 on the shared client for this run, matching the
+// repo's "gcTime:0 teardown" convention for client-component tests.
+const __defaults = queryClient.getDefaultOptions();
+queryClient.setDefaultOptions({
+  ...__defaults,
+  queries: { ...__defaults.queries, gcTime: 0 },
+  mutations: { ...__defaults.mutations, gcTime: 0 },
+});
 
 after(() => {
   try {

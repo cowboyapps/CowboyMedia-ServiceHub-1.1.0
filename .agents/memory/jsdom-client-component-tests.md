@@ -48,6 +48,16 @@ the node:test subprocess alive (exit blocked until killed). Set `gcTime: 0` on b
 `queries` and `mutations` in the test's `QueryClient`, unmount in cleanup, and
 `window.close()` in `after()`. Then the file exits 0 on its own.
 
+**`queryClient.clear()` does NOT clear the MUTATION gc timer.** A test that fires a
+`useMutation` (e.g. an order/POST) and then unmounts schedules a 5-min *mutation*
+gc timer (`Mutation.scheduleGc` via observer unsubscribe). `clear()` clears query
+gc but `MutationCache.remove()` never calls `mutation.destroy()`, so that timer
+survives and pins the loop. When the test must drive the **singleton** `queryClient`
+(the page seeds/invalidates against that exact instance, so a throwaway client with
+`gcTime:0` would desync), collapse gcTime on the singleton for that run instead:
+`queryClient.setDefaultOptions({ ...defaults, queries:{...,gcTime:0}, mutations:{...,gcTime:0} })`.
+Per-file subprocess isolation makes this safe. Precedent: `test/admin-service-actions.test.ts`.
+
 ## Toasts block process exit (looks like an OOM/hang, isn't memory)
 shadcn's toast store (`client/src/hooks/use-toast.ts`) schedules a removal
 `setTimeout` with `TOAST_REMOVE_DELAY` (1_000_000ms ≈ 16min) on every dismiss and
@@ -57,11 +67,12 @@ handle pending, so the `tsx --test` subprocess never exits: node:test prints eac
 SIGKILLs it (reported as a timeout/crash, easily mistaken for an OOM).
 **Tell-tale:** the file passes one test at a time but hangs once a toast-firing
 test is included; the per-test ms times are tiny but wall-clock runs to the
-watchdog. **Fix in the test harness (don't edit the component):** wrap
-`globalThis.setTimeout` to `.unref()` any timer with a large delay (e.g.
-`delay >= 60_000`) — covers the toast timer AND React Query's 5-min `gcTime` —
-while leaving the 0ms frame-flush timers alone so `flushFrames` still drives
-renders. The unref'd timer still fires; it just stops keeping the loop alive.
+watchdog. **Fixed at the source:** `addToRemoveQueue` now `.unref()`s its removal
+timer (no-op shape in the browser, where handles have no `unref`), so a toast no
+longer pins the loop — no per-test harness workaround needed. An earlier
+`unrefBigTimers` `globalThis.setTimeout` shim that unref'd any `delay >= 60_000`
+timer ALSO masked React Query's gc timers; if you delete such a shim, handle the
+gc timers separately (see the mutation-gc note above) or the file hangs again.
 
 ## Capturing test output in this environment
 - The bash tool often returns `-1 / no output` for multi-file `tsx --test` runs even

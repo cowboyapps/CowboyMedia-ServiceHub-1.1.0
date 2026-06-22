@@ -68,6 +68,12 @@ const addToRemoveQueue = (toastId: string) => {
     })
   }, TOAST_REMOVE_DELAY)
 
+  // In Node (e.g. component tests) this timer would otherwise keep the event
+  // loop alive for the full TOAST_REMOVE_DELAY, stalling the process from
+  // exiting. unref() lets it still fire but stops it pinning the loop. It's a
+  // no-op shape in the browser, where timer handles have no unref().
+  ;(timeout as unknown as { unref?: () => void }).unref?.()
+
   toastTimeouts.set(toastId, timeout)
 }
 
