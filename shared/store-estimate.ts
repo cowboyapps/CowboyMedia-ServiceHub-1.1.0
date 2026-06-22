@@ -36,24 +36,36 @@ export interface OrderEstimate {
 }
 
 /**
- * The "From <price>" label shown on a catalogue card. The starting price is the
- * lowest *positive* recurring price across the product's billing cycles (so a
- * customer sees the cheapest entry point, e.g. monthly rather than annual). When
- * a product has no positive price — a free product, or one whose only cycle is
- * priced at 0 — it reads "Free". Returns null when no cycle price can be parsed
- * at all (older WHMCS installs / unpriced products), so the card can omit the
- * line rather than show a wrong figure.
+ * The numeric starting price of a catalogue card — the lowest *positive*
+ * recurring price across the product's billing cycles (so a customer sees the
+ * cheapest entry point, e.g. monthly rather than annual). Falls back to the
+ * lowest price overall when nothing is positive (a free / 0-priced product, →
+ * <= 0). Returns null when no cycle price can be parsed at all (older WHMCS
+ * installs / unpriced products). Used both for the "From" label and for the
+ * customer-facing price sort.
  */
-export function startingPriceLabel(product: {
-  currency: string | null;
+export function startingPriceValue(product: {
   cycles: { price: string }[];
-}): string | null {
+}): number | null {
   const parsed = product.cycles
     .map((c) => parseFloat(c.price))
     .filter((n) => Number.isFinite(n));
   if (parsed.length === 0) return null;
   const positive = parsed.filter((n) => n > 0);
-  const amount = positive.length > 0 ? Math.min(...positive) : Math.min(...parsed);
+  return positive.length > 0 ? Math.min(...positive) : Math.min(...parsed);
+}
+
+/**
+ * The "From <price>" label shown on a catalogue card. Reads "Free" for a
+ * 0-priced product and is omitted (null) when no price can be parsed, so the
+ * card shows nothing rather than a wrong figure.
+ */
+export function startingPriceLabel(product: {
+  currency: string | null;
+  cycles: { price: string }[];
+}): string | null {
+  const amount = startingPriceValue(product);
+  if (amount === null) return null;
   if (amount <= 0) return "Free";
   const cur = product.currency ? ` ${product.currency}` : "";
   return `From ${amount.toFixed(2)}${cur}`;

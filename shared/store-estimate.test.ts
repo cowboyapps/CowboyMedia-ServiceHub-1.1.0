@@ -4,6 +4,7 @@ import {
   computeOrderEstimate,
   priceForCycle,
   startingPriceLabel,
+  startingPriceValue,
   type EstimateProduct,
 } from "./store-estimate.js";
 
@@ -163,4 +164,24 @@ test("startingPriceLabel: omits currency when unknown", () => {
     startingPriceLabel({ currency: null, cycles: [{ price: "7.50" }] }),
     "From 7.50",
   );
+});
+
+test("startingPriceValue: cheapest positive price across cycles", () => {
+  assert.equal(
+    startingPriceValue({ cycles: [{ price: "100.00" }, { price: "10.00" }, { price: "50.00" }] }),
+    10,
+  );
+});
+
+test("startingPriceValue: ignores a 0 cycle when a positive one exists", () => {
+  assert.equal(startingPriceValue({ cycles: [{ price: "0.00" }, { price: "5.00" }] }), 5);
+});
+
+test("startingPriceValue: free/zero-only product is 0 (sorts as cheapest)", () => {
+  assert.equal(startingPriceValue({ cycles: [{ price: "0.00" }] }), 0);
+});
+
+test("startingPriceValue: no parseable price returns null (sorts last)", () => {
+  assert.equal(startingPriceValue({ cycles: [{ price: "" }, { price: "n/a" }] }), null);
+  assert.equal(startingPriceValue({ cycles: [] }), null);
 });

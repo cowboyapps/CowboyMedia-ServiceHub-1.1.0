@@ -56,7 +56,7 @@ import {
   X,
 } from "lucide-react";
 import type { Service } from "@shared/schema";
-import { computeOrderEstimate, priceForCycle, startingPriceLabel } from "@shared/store-estimate";
+import { computeOrderEstimate, priceForCycle, startingPriceLabel, startingPriceValue } from "@shared/store-estimate";
 
 /**
  * Open a blank tab SYNCHRONOUSLY inside a user click. Ordering/upgrading can't
@@ -899,6 +899,13 @@ function AddProductFlow() {
   const [search, setSearch] = useState("");
   const [categoryKey, setCategoryKey] = useState<string>(ALL_CATEGORIES);
 
+  // Sort order for the catalogue (step 1). "featured" keeps the admin-curated
+  // grouped-by-category layout; the price options flatten the matches into a
+  // single list ordered by starting price so customers can compare across
+  // categories. Products with no parseable price sort last either way.
+  type SortKey = "featured" | "price-asc" | "price-desc";
+  const [sortKey, setSortKey] = useState<SortKey>("featured");
+
   // Chips offered above the grid — one per category in catalogue order. Only
   // worth showing when there's more than one category to jump between.
   const categoryChips = useMemo(
@@ -929,6 +936,25 @@ function AddProductFlow() {
       .filter((g) => g.items.length > 0);
   }, [grouped, search, categoryKey]);
 
+  // When a price sort is active, flatten the (already category-filtered,
+  // search-filtered) matches into one list ordered by starting price. Products
+  // whose price can't be parsed (null) always sink to the bottom regardless of
+  // direction, so a missing figure never jumps to the top of "low to high".
+  const sortedProducts = useMemo(() => {
+    if (sortKey === "featured") return [];
+    const items = filteredGroups.flatMap((g) => g.items);
+    const dir = sortKey === "price-asc" ? 1 : -1;
+    return [...items].sort((a, b) => {
+      const pa = startingPriceValue(a);
+      const pb = startingPriceValue(b);
+      if (pa === null && pb === null) return a.name.localeCompare(b.name);
+      if (pa === null) return 1;
+      if (pb === null) return -1;
+      if (pa !== pb) return (pa - pb) * dir;
+      return a.name.localeCompare(b.name);
+    });
+  }, [filteredGroups, sortKey]);
+
   // Card tap (step 1 → step 2): select the product and, when it offers only one
   // billing term (e.g. a one-time or free product), auto-pick it — same rule the
   // old dropdown used — so the customer needn't re-choose.
@@ -944,6 +970,58 @@ function AddProductFlow() {
     setCycle("");
     setConfigValues({});
     setCustomValues({});
+  };
+
+  // A single catalogue card (step 1). Shared by the grouped "Featured" layout
+  // and the flattened price-sorted list so the markup stays in one place.
+  const renderProductCard = (p: StoreCatalogueProduct) => {
+    const price = startingPriceLabel(p);
+    return (
+      <button
+        key={p.pid}
+        type="button"
+        onClick={() => selectProduct(p)}
+        className="text-left rounded-lg border bg-card overflow-hidden flex flex-col hover-elevate active-elevate-2"
+        data-testid={`card-store-product-${p.pid}`}
+      >
+        <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
+          {p.imageUrl ? (
+            <img
+              src={p.imageUrl}
+              alt={p.name}
+              loading="lazy"
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <Package className="w-8 h-8 text-muted-foreground" />
+          )}
+        </div>
+        <div className="p-3 flex flex-col gap-1 flex-1">
+          {p.category && (
+            <Badge variant="secondary" className="self-start text-[10px] font-normal">
+              {p.category}
+            </Badge>
+          )}
+          <p
+            className="font-medium text-sm leading-snug"
+            data-testid={`text-store-product-name-${p.pid}`}
+          >
+            {p.name}
+          </p>
+          {p.description && (
+            <p className="text-xs text-muted-foreground line-clamp-2">
+              {p.description}
+            </p>
+          )}
+          <p
+            className="text-sm font-semibold mt-auto pt-1"
+            data-testid={`text-store-product-price-${p.pid}`}
+          >
+            {price ?? "Contact us for pricing"}
+          </p>
+        </div>
+      </button>
+    );
   };
 
   const buildOrderPayload = () => {
@@ -1052,7 +1130,7 @@ function AddProductFlow() {
         Order new product
       </Button>
 
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); setSearch(""); setCategoryKey(ALL_CATEGORIES); } }}>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); setSearch(""); setCategoryKey(ALL_CATEGORIES); setSortKey("featured"); } }}>
         <DialogContent data-testid="dialog-add-product" className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Order a new product</DialogTitle>
@@ -1082,28 +1160,51 @@ function AddProductFlow() {
               {/* Step 1 — catalogue grid. Tapping a card advances to step 2. */}
               {!product && (
                 <div className="space-y-4" data-testid="store-catalogue">
-                  {/* Search box — filters cards live by name + description. */}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    <Input
-                      type="text"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search products…"
-                      className="pl-9 pr-9"
-                      data-testid="input-search-products"
-                    />
-                    {search && (
-                      <button
-                        type="button"
-                        onClick={() => setSearch("")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover-elevate active-elevate-2"
-                        aria-label="Clear search"
-                        data-testid="button-clear-search"
+                  {/* Search box + price sort — filters cards live by name +
+                      description; sort reorders the matches by starting price. */}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <Input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search products…"
+                        className="pl-9 pr-9"
+                        data-testid="input-search-products"
+                      />
+                      {search && (
+                        <button
+                          type="button"
+                          onClick={() => setSearch("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover-elevate active-elevate-2"
+                          aria-label="Clear search"
+                          data-testid="button-clear-search"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                      <SelectTrigger
+                        className="sm:w-[180px] shrink-0"
+                        aria-label="Sort products"
+                        data-testid="select-sort-products"
                       >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="featured" data-testid="option-sort-featured">
+                          Featured
+                        </SelectItem>
+                        <SelectItem value="price-asc" data-testid="option-sort-price-asc">
+                          Price: low to high
+                        </SelectItem>
+                        <SelectItem value="price-desc" data-testid="option-sort-price-desc">
+                          Price: high to low
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* Category filter chips — only when there's more than one. */}
@@ -1142,6 +1243,14 @@ function AddProductFlow() {
                     >
                       No products match your search.
                     </p>
+                  ) : sortKey !== "featured" ? (
+                    /* Price sort active — flatten into one grid ordered by price. */
+                    <div
+                      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+                      data-testid="store-catalogue-sorted"
+                    >
+                      {sortedProducts.map((p) => renderProductCard(p))}
+                    </div>
                   ) : (
                     filteredGroups.map((group) => (
                     <div key={group.category ?? "__uncat"} className="space-y-2">
@@ -1152,55 +1261,7 @@ function AddProductFlow() {
                         {group.category ?? "Other products"}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {group.items.map((p) => {
-                          const price = startingPriceLabel(p);
-                          return (
-                            <button
-                              key={p.pid}
-                              type="button"
-                              onClick={() => selectProduct(p)}
-                              className="text-left rounded-lg border bg-card overflow-hidden flex flex-col hover-elevate active-elevate-2"
-                              data-testid={`card-store-product-${p.pid}`}
-                            >
-                              <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
-                                {p.imageUrl ? (
-                                  <img
-                                    src={p.imageUrl}
-                                    alt={p.name}
-                                    loading="lazy"
-                                    className="w-full h-full object-contain"
-                                  />
-                                ) : (
-                                  <Package className="w-8 h-8 text-muted-foreground" />
-                                )}
-                              </div>
-                              <div className="p-3 flex flex-col gap-1 flex-1">
-                                {p.category && (
-                                  <Badge variant="secondary" className="self-start text-[10px] font-normal">
-                                    {p.category}
-                                  </Badge>
-                                )}
-                                <p
-                                  className="font-medium text-sm leading-snug"
-                                  data-testid={`text-store-product-name-${p.pid}`}
-                                >
-                                  {p.name}
-                                </p>
-                                {p.description && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2">
-                                    {p.description}
-                                  </p>
-                                )}
-                                <p
-                                  className="text-sm font-semibold mt-auto pt-1"
-                                  data-testid={`text-store-product-price-${p.pid}`}
-                                >
-                                  {price ?? "Contact us for pricing"}
-                                </p>
-                              </div>
-                            </button>
-                          );
-                        })}
+                        {group.items.map((p) => renderProductCard(p))}
                       </div>
                     </div>
                     ))
