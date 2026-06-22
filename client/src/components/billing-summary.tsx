@@ -273,6 +273,9 @@ function parseAmount(value: string | null | undefined): number | null {
 /** How the customer has chosen to order their invoice list. */
 export type InvoiceSortMode = "newest" | "outstanding";
 
+/** localStorage key persisting the customer's invoice sort choice across visits. */
+const INVOICE_SORT_STORAGE_KEY = "billing:invoice-sort";
+
 /**
  * Rank used by "Outstanding first": bills that need action float to the top —
  * overdue (0), then unpaid (1), then everything else (2). Mirrors the
@@ -1423,9 +1426,21 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
   // wondering whether anything was charged.
   const [noPaymentNotice, setNoPaymentNotice] = useState(false);
   // Client-side invoice ordering. Default keeps the server's strict newest-first
-  // order; "outstanding" floats bills that need action to the top. Ephemeral —
-  // resets on reload, never triggers an extra API call.
-  const [invoiceSort, setInvoiceSort] = useState<InvoiceSortMode>("newest");
+  // order; "outstanding" floats bills that need action to the top. Persisted to
+  // localStorage so the customer's choice sticks across visits/reloads; never
+  // triggers an extra API call.
+  const [invoiceSort, setInvoiceSort] = useState<InvoiceSortMode>(() => {
+    try {
+      const stored = window.localStorage.getItem(INVOICE_SORT_STORAGE_KEY);
+      if (stored === "newest" || stored === "outstanding") return stored;
+    } catch {}
+    return "newest";
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(INVOICE_SORT_STORAGE_KEY, invoiceSort);
+    } catch {}
+  }, [invoiceSort]);
 
   // Payments happen on WHMCS's off-site hosted checkout (the pay links open in a
   // new tab), so our server never sees them and the per-client billing cache can
