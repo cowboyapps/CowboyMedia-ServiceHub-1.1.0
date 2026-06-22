@@ -268,6 +268,41 @@ function parseAmount(value: string | null | undefined): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
+/** How the customer has chosen to order their invoice list. */
+export type InvoiceSortMode = "newest" | "outstanding";
+
+/**
+ * Rank used by "Outstanding first": bills that need action float to the top —
+ * overdue (0), then unpaid (1), then everything else (2). Mirrors the
+ * attention-first ordering the server used before invoices went strictly
+ * newest-first (Task #520).
+ */
+function attentionRank(status: InvoiceStatus): number {
+  return status === "overdue" ? 0 : status === "unpaid" ? 1 : 2;
+}
+
+/**
+ * Order invoices for display, client-side, over the already-loaded list.
+ * - "newest": the server's default strict date-desc order — returned untouched.
+ * - "outstanding": overdue → unpaid → rest, each group kept newest-first.
+ * Returns a new array; never mutates the input. Date tie-breaks fall back to a
+ * descending id compare so the order is deterministic.
+ */
+export function sortInvoices(
+  invoices: BillingInvoice[],
+  mode: InvoiceSortMode,
+): BillingInvoice[] {
+  if (mode === "newest") return invoices;
+  return [...invoices].sort((a, b) => {
+    const r = attentionRank(a.status) - attentionRank(b.status);
+    if (r !== 0) return r;
+    const da = a.date ?? "";
+    const db = b.date ?? "";
+    if (da !== db) return db.localeCompare(da);
+    return b.id - a.id;
+  });
+}
+
 /**
  * Snapshot of "what the customer still owes" used to detect a settled payment
  * after returning from WHMCS's off-site checkout. Captures the set of invoices
@@ -1381,6 +1416,10 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
   // an invoice is still outstanding, so the silent screen doesn't leave them
   // wondering whether anything was charged.
   const [noPaymentNotice, setNoPaymentNotice] = useState(false);
+  // Client-side invoice ordering. Default keeps the server's strict newest-first
+  // order; "outstanding" floats bills that need action to the top. Ephemeral —
+  // resets on reload, never triggers an extra API call.
+  const [invoiceSort, setInvoiceSort] = useState<InvoiceSortMode>("newest");
 
   // Payments happen on WHMCS's off-site hosted checkout (the pay links open in a
   // new tab), so our server never sees them and the per-client billing cache can
@@ -1664,9 +1703,39 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
       {/* Invoices — kept directly under the balance so the thing you pay sits
           next to the amount you owe. */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Receipt className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold" data-testid="heading-billing-invoices">Invoices</h2>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold" data-testid="heading-billing-invoices">Invoices</h2>
+          </div>
+          {hasInvoices && (
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={invoiceSort}
+              onValueChange={(v) => {
+                if (v) setInvoiceSort(v as InvoiceSortMode);
+              }}
+              className="shrink-0"
+              aria-label="Sort invoices"
+              data-testid="toggle-invoice-sort"
+            >
+              <ToggleGroupItem
+                value="newest"
+                className="h-7 px-2.5 text-xs"
+                data-testid="toggle-invoice-sort-newest"
+              >
+                Newest first
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="outstanding"
+                className="h-7 px-2.5 text-xs"
+                data-testid="toggle-invoice-sort-outstanding"
+              >
+                Outstanding first
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
         </div>
         {data.payAll && data.payAll.url && (
           <Card className="border-destructive/40 mb-2" data-testid="card-pay-all-outstanding">
@@ -1709,7 +1778,7 @@ export function BillingSummaryView({ data, isLoading, context = "customer", user
           </p>
         ) : (
           <div className="space-y-2">
-            {data.invoices.map((inv) => {
+            {sortInvoices(data.invoices, invoiceSort).map((inv) => {
               const needsPay = inv.status === "unpaid" || inv.status === "overdue";
               return (
                 <Card
