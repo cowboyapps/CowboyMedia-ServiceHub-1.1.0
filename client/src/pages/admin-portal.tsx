@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
+import { ImageCropDialog, type CropAspectKey } from "@/components/image-crop-dialog";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
@@ -7288,6 +7289,57 @@ function StoreProductsSection() {
   const [rowDragId, setRowDragId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  // Crop step: when an admin picks file(s), they're queued here and cropped one
+  // at a time before landing in imageFile / galleryFiles. Cropping every photo
+  // to the same aspect keeps the catalogue card + customer gallery uniform.
+  const [cropAspect, setCropAspect] = useState<CropAspectKey>("16:9");
+  const [cropQueue, setCropQueue] = useState<File[]>([]);
+  const [cropTarget, setCropTarget] = useState<"primary" | "gallery" | null>(null);
+  const cropResultsRef = useRef<File[]>([]);
+
+  const startCrop = (files: File[], target: "primary" | "gallery") => {
+    if (files.length === 0) return;
+    cropResultsRef.current = [];
+    setCropTarget(target);
+    setCropQueue(files);
+  };
+
+  const cancelCrop = () => {
+    setCropQueue([]);
+    setCropTarget(null);
+    cropResultsRef.current = [];
+    if (cropTarget === "primary" && fileInputRef.current) fileInputRef.current.value = "";
+    if (cropTarget === "gallery" && galleryInputRef.current) galleryInputRef.current.value = "";
+  };
+
+  const handleCropConfirm = (cropped: File) => {
+    cropResultsRef.current = [...cropResultsRef.current, cropped];
+    const remaining = cropQueue.slice(1);
+    if (remaining.length > 0) {
+      setCropQueue(remaining);
+      return;
+    }
+    // Batch finished — commit the cropped files to the right slot.
+    const results = cropResultsRef.current;
+    if (cropTarget === "primary") {
+      setImageFile(results[0] ?? null);
+      setRemoveImage(false);
+      setPromotePrimaryUrl(null);
+    } else if (cropTarget === "gallery") {
+      setGalleryFiles((prev) => [...prev, ...results]);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+    }
+    setCropQueue([]);
+    setCropTarget(null);
+    cropResultsRef.current = [];
+  };
+
+  // Object URLs for previewing freshly cropped (not-yet-saved) files. Memoised
+  // + revoked on change so we don't leak a blob URL on every render.
+  const primaryPreviewUrl = useMemo(() => (imageFile ? URL.createObjectURL(imageFile) : null), [imageFile]);
+  useEffect(() => () => { if (primaryPreviewUrl) URL.revokeObjectURL(primaryPreviewUrl); }, [primaryPreviewUrl]);
+  const galleryPreviewUrls = useMemo(() => galleryFiles.map((f) => URL.createObjectURL(f)), [galleryFiles]);
+  useEffect(() => () => { galleryPreviewUrls.forEach((u) => URL.revokeObjectURL(u)); }, [galleryPreviewUrls]);
 
   const handleGalleryDrop = (targetIdx: number) => {
     setGalleryOrder((prev) => {
@@ -7377,6 +7429,9 @@ function StoreProductsSection() {
     setGalleryOrder([]);
     setGalleryDragIdx(null);
     setPromotePrimaryUrl(null);
+    setCropQueue([]);
+    setCropTarget(null);
+    cropResultsRef.current = [];
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
@@ -7442,6 +7497,9 @@ function StoreProductsSection() {
     setGalleryOrder(p.imageUrls ?? []);
     setGalleryDragIdx(null);
     setPromotePrimaryUrl(null);
+    setCropQueue([]);
+    setCropTarget(null);
+    cropResultsRef.current = [];
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
@@ -7582,8 +7640,20 @@ function StoreProductsSection() {
 
               <div>
                 <Label>Primary image</Label>
-                <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { setImageFile(e.target.files?.[0] ?? null); setRemoveImage(false); setPromotePrimaryUrl(null); }} className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm" data-testid="input-store-image" />
-                <p className="text-xs text-muted-foreground mt-1">Shown on the catalogue card and as the first gallery image.</p>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) startCrop([f], "primary"); }} className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm" data-testid="input-store-image" />
+                <p className="text-xs text-muted-foreground mt-1">Shown on the catalogue card and as the first gallery image. You'll crop it to a consistent shape before saving.</p>
+                {/* Preview of the freshly cropped primary image (before save). */}
+                {imageFile && primaryPreviewUrl && (
+                  <div className="flex items-center gap-2 mt-2" data-testid="preview-store-primary-new">
+                    <img src={primaryPreviewUrl} alt="" className="w-14 h-14 rounded border object-cover" data-testid="img-store-primary-new" />
+                    <p className="text-xs text-muted-foreground">
+                      Cropped image ready.{" "}
+                      <button type="button" className="underline hover:text-foreground" onClick={() => startCrop([imageFile], "primary")} data-testid="button-store-recrop-primary">Re-crop</button>
+                      {" · "}
+                      <button type="button" className="underline hover:text-foreground" onClick={() => { setImageFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} data-testid="button-store-clear-primary">Remove</button>
+                    </p>
+                  </div>
+                )}
                 {/* Current primary preview (edit mode). When a gallery image is
                     pending promotion, show THAT image here instead so the admin
                     sees the result, and flag where the old primary will land. */}
@@ -7681,14 +7751,32 @@ function StoreProductsSection() {
                   type="file"
                   accept="image/*"
                   multiple
-                  onChange={(e) => setGalleryFiles(Array.from(e.target.files ?? []))}
+                  onChange={(e) => { const files = Array.from(e.target.files ?? []); if (files.length > 0) startCrop(files, "gallery"); }}
                   className="block w-full text-sm mt-1 file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm"
                   data-testid="input-store-gallery"
                 />
                 {galleryFiles.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-store-gallery-count">
-                    {galleryFiles.length} new image{galleryFiles.length === 1 ? "" : "s"} selected
-                  </p>
+                  <div className="mt-2" data-testid="text-store-gallery-count">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {galleryFiles.length} new cropped image{galleryFiles.length === 1 ? "" : "s"} ready
+                    </p>
+                    <div className="flex flex-wrap gap-2" data-testid="list-store-gallery-new">
+                      {galleryPreviewUrls.map((url, i) => (
+                        <div key={url} className="relative" data-testid={`gallery-new-${i}`}>
+                          <img src={url} alt="" className="w-14 h-14 rounded border object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setGalleryFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="absolute -top-1.5 -right-1.5 rounded-full bg-background border shadow-sm p-0.5 hover-elevate"
+                            aria-label="Remove image"
+                            data-testid={`button-gallery-new-remove-${i}`}
+                          >
+                            <XIcon className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -7711,6 +7799,16 @@ function StoreProductsSection() {
           )}
         </div>
       </CardContent>
+
+      <ImageCropDialog
+        open={cropQueue.length > 0}
+        file={cropQueue[0] ?? null}
+        aspect={cropAspect}
+        onAspectChange={setCropAspect}
+        position={cropTarget === "gallery" ? { index: cropResultsRef.current.length, total: cropResultsRef.current.length + cropQueue.length } : undefined}
+        onConfirm={handleCropConfirm}
+        onCancel={cancelCrop}
+      />
     </Card>
   );
 }
