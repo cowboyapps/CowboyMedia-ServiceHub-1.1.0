@@ -218,6 +218,13 @@
       "when": 1782111684200,
       "tag": "0030_red_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1782115401747,
+      "tag": "0031_clever_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

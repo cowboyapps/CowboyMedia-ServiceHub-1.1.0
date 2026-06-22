@@ -77,7 +77,7 @@ import {
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import { db } from "./db";
-import { eq, desc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
+import { eq, desc, asc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
 import { invalidatePublicStatusCache } from "./public-status-cache";
 
 export type DashboardMetrics = {
@@ -389,6 +389,7 @@ export interface IStorage {
   recordWhmcsServiceNotified(userId: string, whmcsServiceId: number, marker: ServiceMarker): Promise<void>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]>;
+  reorderWhmcsProductMappings(orderedProductIds: number[]): Promise<void>;
   deleteWhmcsProductMappings(whmcsProductId: number): Promise<void>;
   listWhmcsProductDns(): Promise<WhmcsProductDns[]>;
   getWhmcsProductDns(whmcsProductId: number): Promise<WhmcsProductDns | undefined>;
@@ -1392,19 +1393,51 @@ export class DatabaseStorage implements IStorage {
   }
 
   async listWhmcsProductMappings(): Promise<WhmcsProductMapping[]> {
-    return db.select().from(whmcsProductMappings);
+    return db
+      .select()
+      .from(whmcsProductMappings)
+      .orderBy(asc(whmcsProductMappings.sortOrder), asc(whmcsProductMappings.createdAt));
   }
 
   // Replace the full set of services mapped to a WHMCS product in one shot:
   // delete the product's existing rows, then insert the (de-duped) new set.
   // Passing an empty array clears the mapping entirely. Mirrors setAlertServices.
+  // The product's display position (sortOrder) is preserved across edits; a
+  // brand-new product is appended to the end of the list.
   async setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[]): Promise<WhmcsProductMapping[]> {
     const unique = Array.from(new Set(serviceIds));
+    const [existing] = await db
+      .select({ sortOrder: whmcsProductMappings.sortOrder })
+      .from(whmcsProductMappings)
+      .where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId))
+      .limit(1);
+    let sortOrder = existing?.sortOrder;
+    if (sortOrder === undefined) {
+      const [{ max } = { max: null }] = await db
+        .select({ max: sql<number | null>`max(${whmcsProductMappings.sortOrder})` })
+        .from(whmcsProductMappings);
+      sortOrder = max === null || max === undefined ? 0 : max + 1;
+    }
     await db.delete(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
     if (unique.length > 0) {
-      await db.insert(whmcsProductMappings).values(unique.map(serviceId => ({ whmcsProductId, serviceId })));
+      await db.insert(whmcsProductMappings).values(unique.map(serviceId => ({ whmcsProductId, serviceId, sortOrder })));
     }
     return db.select().from(whmcsProductMappings).where(eq(whmcsProductMappings.whmcsProductId, whmcsProductId));
+  }
+
+  // Persist the admin's drag-to-reorder of the mapping list. Each product's rows
+  // all receive the product's new index as their shared sortOrder. Runs in one
+  // transaction so a mid-loop failure can't leave a half-applied (and therefore
+  // colliding) ordering.
+  async reorderWhmcsProductMappings(orderedProductIds: number[]): Promise<void> {
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < orderedProductIds.length; i++) {
+        await tx
+          .update(whmcsProductMappings)
+          .set({ sortOrder: i })
+          .where(eq(whmcsProductMappings.whmcsProductId, orderedProductIds[i]));
+      }
+    });
   }
 
   async deleteWhmcsProductMappings(whmcsProductId: number): Promise<void> {

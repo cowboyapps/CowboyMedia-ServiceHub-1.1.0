@@ -6945,6 +6945,48 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Persist the admin's drag-to-reorder of the mapping list. Body carries the
+  // full ordered list of WHMCS product ids; each product's rows take its new
+  // index as a shared sortOrder. Pure DB write — never touches WHMCS.
+  app.post("/api/admin/whmcs/product-mappings/reorder", requireAdmin, async (req, res) => {
+    try {
+      const raw: unknown = req.body?.orderedProductIds;
+      if (!Array.isArray(raw)) {
+        return res.status(400).json({ message: "orderedProductIds must be an array" });
+      }
+      const orderedProductIds: number[] = [];
+      for (const v of raw) {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n <= 0) {
+          return res.status(400).json({ message: "orderedProductIds must contain positive integers" });
+        }
+        orderedProductIds.push(n);
+      }
+      if (new Set(orderedProductIds).size !== orderedProductIds.length) {
+        return res.status(400).json({ message: "orderedProductIds must not contain duplicates" });
+      }
+      // The new order must be an EXACT permutation of the currently-mapped
+      // products: a missing id would keep a stale sortOrder and an unknown id a
+      // no-op, both of which produce colliding/ambiguous ordering. A mismatch
+      // means the list changed under the admin (e.g. concurrent edit) — ask the
+      // client to refresh (409) so it re-fetches and retries.
+      const existingRows = await storage.listWhmcsProductMappings();
+      const existing = new Set(existingRows.map((r) => r.whmcsProductId));
+      if (orderedProductIds.length !== existing.size || orderedProductIds.some((id) => !existing.has(id))) {
+        return res.status(409).json({ message: "The mapping list changed. Refresh and try reordering again." });
+      }
+      await storage.reorderWhmcsProductMappings(orderedProductIds);
+      logActivity("setting", "whmcs_product_mapping_reordered", {
+        actorId: req.session.userId,
+        targetType: "setting",
+        summary: `Reordered ${orderedProductIds.length} WHMCS product mapping${orderedProductIds.length === 1 ? "" : "s"}`,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   // Remove all mappings for a single WHMCS product.
   app.delete("/api/admin/whmcs/product-mappings/:pid", requireAdmin, async (req, res) => {
     try {

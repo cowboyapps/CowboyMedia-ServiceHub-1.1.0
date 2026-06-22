@@ -7723,6 +7723,10 @@ function WhmcsProductMappingSection() {
   const { toast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  // Drag-to-reorder of the mapping rows. `rowOrder` mirrors the server list
+  // locally so the drag preview updates instantly; dropping persists the order.
+  const [rowOrder, setRowOrder] = useState<WhmcsProductMappingRow[]>([]);
+  const [rowDragId, setRowDragId] = useState<number | null>(null);
 
   const { data: productsData, isLoading: productsLoading } = useQuery<{
     ok: boolean;
@@ -7789,6 +7793,48 @@ function WhmcsProductMappingSection() {
     onError: (e: Error) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
   });
 
+  // Mirror the server's mapping list into local drag state. Skip while a drag is
+  // in flight so an incoming refetch can't yank rows out from under the cursor.
+  useEffect(() => {
+    if (rowDragId !== null) return;
+    setRowOrder(mappings);
+  }, [mappingsData, rowDragId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedProductIds: number[]) => {
+      const res = await apiRequest("POST", "/api/admin/whmcs/product-mappings/reorder", { orderedProductIds });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.message || "Failed to save order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Mapping order saved" });
+    },
+    onError: (e: Error) => {
+      invalidate();
+      toast({ title: "Reorder failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const handleRowDrop = (targetId: number) => {
+    if (rowDragId === null || rowDragId === targetId) {
+      setRowDragId(null);
+      return;
+    }
+    const from = rowOrder.findIndex((m) => m.whmcsProductId === rowDragId);
+    const to = rowOrder.findIndex((m) => m.whmcsProductId === targetId);
+    setRowDragId(null);
+    if (from === -1 || to === -1) return;
+    const next = [...rowOrder];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setRowOrder(next);
+    reorderMutation.mutate(next.map((m) => m.whmcsProductId));
+  };
+
   const startEdit = (m: WhmcsProductMappingRow) => {
     setSelectedProductId(String(m.whmcsProductId));
     setSelectedServiceIds([...m.serviceIds]);
@@ -7824,23 +7870,42 @@ function WhmcsProductMappingSection() {
         </div>
 
         {/* Existing mappings */}
-        {mappings.length === 0 ? (
+        {rowOrder.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-no-mappings">No product mappings yet.</p>
         ) : (
           <div className="space-y-2" data-testid="list-whmcs-mappings">
-            {mappings.map((m) => (
-              <div key={m.whmcsProductId} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-mapping-${m.whmcsProductId}`}>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{productName(m.whmcsProductId)}</p>
-                    <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {m.serviceIds.map((sid) => (
-                      <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
-                        {serviceName(sid)}
-                      </Badge>
-                    ))}
+            {rowOrder.length > 1 && (
+              <p className="text-xs text-muted-foreground" data-testid="text-mapping-reorder-hint">Drag the handle to reorder this list (for example to group a product's monthly, quarterly and annual variants together).</p>
+            )}
+            {rowOrder.map((m) => (
+              <div
+                key={m.whmcsProductId}
+                draggable
+                onDragStart={() => setRowDragId(m.whmcsProductId)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleRowDrop(m.whmcsProductId)}
+                onDragEnd={() => setRowDragId(null)}
+                className={`flex items-start justify-between gap-2 rounded-md border p-3 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
+                data-testid={`row-mapping-${m.whmcsProductId}`}
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  {rowOrder.length > 1 && (
+                    <span className="mt-0.5 shrink-0 cursor-grab text-muted-foreground" data-testid={`drag-mapping-${m.whmcsProductId}`} aria-label="Drag to reorder">
+                      <GripVertical className="w-4 h-4" />
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{productName(m.whmcsProductId)}</p>
+                      <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {m.serviceIds.map((sid) => (
+                        <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
+                          {serviceName(sid)}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">

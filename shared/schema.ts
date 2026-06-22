@@ -941,6 +941,10 @@ export const whmcsProductMappings = pgTable("whmcs_product_mappings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   whmcsProductId: integer("whmcs_product_id").notNull(),
   serviceId: varchar("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  // Admin-controlled display order of the mapping list (drag-to-reorder). All
+  // rows sharing a whmcsProductId carry the SAME sortOrder so the grouped list
+  // (one entry per product) orders deterministically.
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   pidServiceUniq: uniqueIndex("whmcs_product_mappings_pid_service_uniq").on(table.whmcsProductId, table.serviceId),

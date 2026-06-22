@@ -1,0 +1,1 @@
+ALTER TABLE "whmcs_product_mappings" ADD COLUMN "sort_order" integer DEFAULT 0 NOT NULL;
