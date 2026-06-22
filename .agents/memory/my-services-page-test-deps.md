@@ -32,6 +32,8 @@ contract; the failures only surfaced once the page actually rendered.
 payload shape, or the order-flow render path, grep `rg -l my-services-page test/`
 and update each fixture/wrapper.
 
-**Env note:** `store-order-options` is heavy enough that running it standalone
-can OOM-kill a constrained shell before TAP output; verify individual tests with
-`tsx --test --test-name-pattern="..."` to keep memory bounded.
+**Env note:** `store-order-options` was thought to OOM standalone, but the real
+cause was an event-loop hang, not memory — see
+[jsdom client-component tests](jsdom-client-component-tests.md) "Toasts block
+process exit". Any test here that surfaces a toast (required-field block /
+order-success) must unref the shadcn removal timer or the file hangs.

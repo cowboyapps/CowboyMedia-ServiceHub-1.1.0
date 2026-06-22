@@ -48,6 +48,21 @@ the node:test subprocess alive (exit blocked until killed). Set `gcTime: 0` on b
 `queries` and `mutations` in the test's `QueryClient`, unmount in cleanup, and
 `window.close()` in `after()`. Then the file exits 0 on its own.
 
+## Toasts block process exit (looks like an OOM/hang, isn't memory)
+shadcn's toast store (`client/src/hooks/use-toast.ts`) schedules a removal
+`setTimeout` with `TOAST_REMOVE_DELAY` (1_000_000ms ≈ 16min) on every dismiss and
+**never `unref()`s it**. Any render test that surfaces even one toast leaves that
+handle pending, so the `tsx --test` subprocess never exits: node:test prints each
+`✔` but never reaches the final `ℹ tests N` summary, and the single-pass runner
+SIGKILLs it (reported as a timeout/crash, easily mistaken for an OOM).
+**Tell-tale:** the file passes one test at a time but hangs once a toast-firing
+test is included; the per-test ms times are tiny but wall-clock runs to the
+watchdog. **Fix in the test harness (don't edit the component):** wrap
+`globalThis.setTimeout` to `.unref()` any timer with a large delay (e.g.
+`delay >= 60_000`) — covers the toast timer AND React Query's 5-min `gcTime` —
+while leaving the 0ms frame-flush timers alone so `flushFrames` still drives
+renders. The unref'd timer still fires; it just stops keeping the loop alive.
+
 ## Capturing test output in this environment
 - The bash tool often returns `-1 / no output` for multi-file `tsx --test` runs even
   though the process keeps running. Workaround: launch with `setsid bash -c '... > /tmp/x.log 2>&1; echo EXIT:$? > /tmp/x.done' </dev/null & disown`,

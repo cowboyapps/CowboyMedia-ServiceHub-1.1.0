@@ -68,6 +68,24 @@ HEProto.setPointerCapture ??= () => {};
 HEProto.releasePointerCapture ??= () => {};
 HEProto.scrollIntoView ??= () => {};
 
+// shadcn's toast store (client/src/hooks/use-toast.ts) schedules a removal timer
+// with TOAST_REMOVE_DELAY (1_000_000ms ≈ 16min) and never unref()s it. Any test
+// that surfaces a toast — the required-field block + order-success flow below — is
+// enough to leave that handle pending, so the node:test subprocess can't exit and
+// the single-pass runner (script/run-tests.ts) kills it as a "timeout". React
+// Query's default gcTime (5min) is the same shape. Unref any large-delay timer so
+// the process exits once the tests (and their awaited work) finish, while leaving
+// the 0ms frame-flush timers below untouched so flushFrames still drives renders.
+const realSetTimeout: typeof setTimeout = globalThis.setTimeout;
+const unrefBigTimers = ((fn: (...a: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+  const handle = realSetTimeout(fn, delay as number, ...args);
+  if (typeof delay === "number" && delay >= 60_000) {
+    (handle as unknown as { unref?: () => void }).unref?.();
+  }
+  return handle;
+}) as unknown as typeof setTimeout;
+g.setTimeout = unrefBigTimers;
+
 const rafImpl: typeof requestAnimationFrame = (cb) =>
   setTimeout(() => cb(Date.now()), 0) as unknown as number;
 const cafImpl: typeof cancelAnimationFrame = (id) =>
