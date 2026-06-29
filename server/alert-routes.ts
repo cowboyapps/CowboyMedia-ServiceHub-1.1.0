@@ -184,6 +184,16 @@ export function registerAlertRoutes(
     }
   });
 
+  // Editing an alert's core details (title/description/severity/covered services)
+  // is a CORRECTION action and intentionally sends NO customer-facing
+  // notifications — unlike create / post-update / resolve, which are the channels
+  // for communicating new information (each notify-by-default with a "silent"
+  // opt-out). Re-pinging every subscriber on a typo fix or wording tweak would be
+  // spam and erode trust in alert notifications; admins who want to tell customers
+  // about a change should "post an update" instead. So edits are inherently
+  // silent and the edit form has no notification controls. If notifications are
+  // ever added here, gate them behind a `silent` toggle (default OFF) exactly like
+  // the other lifecycle routes for consistency.
   app.patch("/api/admin/alerts/:id", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
