@@ -638,6 +638,140 @@ test("route POST /api/admin/alerts/:id/updates with silent off fires every notif
   assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a normal resolve update");
 });
 
+// ---------------------------------------------------------------------------
+// Per-channel opt-out guard tests.
+//
+// Separate from the all-or-nothing "silent" flag, the create and add-update
+// routes support granular per-channel opt-outs: sendPush=false skips ONLY push
+// (email/in-app/Discord/Telegram/follower-email still fire) and sendEmail=false
+// skips ONLY email (push/in-app/etc still fire). The silent guard tests above
+// only cover all-on and all-off; these pin the granular gating so a refactor
+// that conflates the two flags (or drops one channel's guard) is caught. They
+// also pin the resolve-update override: when status=resolved, the add-update
+// route FORCES push+email regardless of sendPush/sendEmail, so a customer can
+// never miss a resolution. They need no DB.
+// ---------------------------------------------------------------------------
+
+test("route POST /api/admin/alerts with sendPush=false suppresses ONLY push", async () => {
+  const { app, notifications } = routeHarness(
+    subscriberStorageCreate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+    sendPush: false,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(notifications.push, 0, "push is suppressed when sendPush=false");
+  // Every other channel still fires.
+  assert.equal(notifications.email, 1, "email still fires when only push is opted out");
+  assert.equal(notifications.inApp, 1, "in-app still fires when only push is opted out");
+  assert.equal(notifications.discord, 1, "Discord still fires when only push is opted out");
+  assert.equal(notifications.telegram, 1, "Telegram still fires when only push is opted out");
+  assert.equal(notifications.followerEmail, 2, "follower emails still fire when only push is opted out");
+});
+
+test("route POST /api/admin/alerts with sendEmail=false suppresses ONLY email", async () => {
+  const { app, notifications } = routeHarness(
+    subscriberStorageCreate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+    sendEmail: false,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(notifications.email, 0, "email is suppressed when sendEmail=false");
+  // Every other channel still fires.
+  assert.equal(notifications.push, 1, "push still fires when only email is opted out");
+  assert.equal(notifications.inApp, 1, "in-app still fires when only email is opted out");
+  assert.equal(notifications.discord, 1, "Discord still fires when only email is opted out");
+  assert.equal(notifications.telegram, 1, "Telegram still fires when only email is opted out");
+  assert.equal(notifications.followerEmail, 2, "follower emails still fire when only email is opted out");
+});
+
+// A non-resolved impact-change update so the per-channel gating applies (push
+// and email are only forced on the resolved path) and follower emails still
+// fire (notifyServiceSubscribers fires for an impact change too).
+test("route POST /api/admin/alerts/:id/updates with sendPush=false suppresses ONLY push", async () => {
+  const { app, notifications } = routeHarness(
+    subscriberStorageUpdate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    serviceImpact: "degraded",
+    message: "Investigating",
+    sendPush: false,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(notifications.push, 0, "push is suppressed when sendPush=false on a non-resolved update");
+  // Every other channel still fires.
+  assert.equal(notifications.email, 1, "email still fires when only push is opted out");
+  assert.equal(notifications.inApp, 1, "in-app still fires when only push is opted out");
+  assert.equal(notifications.discord, 1, "Discord still fires when only push is opted out");
+  assert.equal(notifications.telegram, 1, "Telegram still fires when only push is opted out");
+  assert.equal(notifications.followerEmail, 2, "follower emails still fire when only push is opted out");
+});
+
+test("route POST /api/admin/alerts/:id/updates with sendEmail=false suppresses ONLY email", async () => {
+  const { app, notifications } = routeHarness(
+    subscriberStorageUpdate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    serviceImpact: "degraded",
+    message: "Investigating",
+    sendEmail: false,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(notifications.email, 0, "email is suppressed when sendEmail=false on a non-resolved update");
+  // Every other channel still fires.
+  assert.equal(notifications.push, 1, "push still fires when only email is opted out");
+  assert.equal(notifications.inApp, 1, "in-app still fires when only email is opted out");
+  assert.equal(notifications.discord, 1, "Discord still fires when only email is opted out");
+  assert.equal(notifications.telegram, 1, "Telegram still fires when only email is opted out");
+  assert.equal(notifications.followerEmail, 2, "follower emails still fire when only email is opted out");
+});
+
+// The add-update route forces push+email on a resolution (status=resolved) even
+// when BOTH per-channel flags are off, so a customer can never miss the "it's
+// fixed" message. This pins that intentional override so it isn't mistaken for a
+// regression and isn't weakened by a refactor of the per-channel gating.
+test("route POST /api/admin/alerts/:id/updates with status=resolved forces push+email despite sendPush=false and sendEmail=false", async () => {
+  const { app, notifications } = routeHarness(
+    subscriberStorageUpdate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "resolved",
+    message: "Fixed",
+    sendPush: false,
+    sendEmail: false,
+  });
+
+  assert.equal(res.status, 200);
+  // The resolve path overrides both opt-outs.
+  assert.equal(notifications.push, 1, "push is forced on a resolution even with sendPush=false");
+  assert.equal(notifications.email, 1, "email is forced on a resolution even with sendEmail=false");
+  // The remaining channels fire as normal.
+  assert.equal(notifications.inApp, 1, "in-app fires on a forced resolution");
+  assert.equal(notifications.discord, 1, "Discord fires on a forced resolution");
+  assert.equal(notifications.telegram, 1, "Telegram fires on a forced resolution");
+  assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a forced resolution");
+});
+
 test("route DELETE /api/admin/alerts/:id recomputes services captured before deletion", async () => {
   const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
     getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
