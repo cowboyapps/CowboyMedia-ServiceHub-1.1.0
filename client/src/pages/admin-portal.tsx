@@ -75,6 +75,7 @@ const createAlertSchema = z.object({
   serviceIds: z.array(z.string()).min(1, "Select at least one service"),
   sendPush: z.boolean().default(true),
   sendEmail: z.boolean().default(true),
+  silent: z.boolean().default(false),
 });
 
 const addUpdateSchema = z.object({
@@ -83,6 +84,7 @@ const addUpdateSchema = z.object({
   serviceImpact: z.string().default("no_change"),
   sendPush: z.boolean().default(true),
   sendEmail: z.boolean().default(true),
+  silent: z.boolean().default(false),
 });
 
 const createNewsSchema = z.object({
@@ -1199,12 +1201,12 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const form = useForm({
     resolver: zodResolver(createAlertSchema),
-    defaultValues: { title: "", description: "", severity: "warning", status: "investigating", serviceImpact: "degraded", serviceIds: [] as string[], sendPush: true, sendEmail: true },
+    defaultValues: { title: "", description: "", severity: "warning", status: "investigating", serviceImpact: "degraded", serviceIds: [] as string[], sendPush: true, sendEmail: true, silent: false },
   });
 
   const updateForm = useForm({
     resolver: zodResolver(addUpdateSchema),
-    defaultValues: { message: "", status: "investigating", serviceImpact: "no_change", sendPush: true, sendEmail: true },
+    defaultValues: { message: "", status: "investigating", serviceImpact: "no_change", sendPush: true, sendEmail: true, silent: false },
   });
 
   const createMutation = useMutation({
@@ -1218,13 +1220,13 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       const res = await fetch("/api/admin/alerts", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to create alert");
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       setDialogOpen(false);
       form.reset();
       setAlertImageFile(null);
-      toast({ title: "Alert created" });
+      toast({ title: vars.silent ? "Alert created silently" : "Alert created", description: vars.silent ? "No notifications were sent." : undefined });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -1237,14 +1239,14 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       const res = await fetch(`/api/admin/alerts/${selectedAlertId}/updates`, { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to post update");
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       if (selectedAlertId) queryClient.invalidateQueries({ queryKey: ["/api/alerts", selectedAlertId, "updates"] });
       setUpdateDialogOpen(false);
       updateForm.reset();
       setUpdateImageFile(null);
-      toast({ title: "Update posted" });
+      toast({ title: vars.silent ? "Update posted silently" : "Update posted", description: vars.silent ? "No notifications were sent." : undefined });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -1422,17 +1424,26 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                 <FormField control={form.control} name="sendPush" render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-3">
                     <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
-                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-alert-push" /></FormControl>
+                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={form.watch("silent")} data-testid="switch-alert-push" /></FormControl>
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="sendEmail" render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-3">
                     <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
-                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-alert-email" /></FormControl>
+                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={form.watch("silent")} data-testid="switch-alert-email" /></FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="silent" render={({ field }) => (
+                  <FormItem className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-sm font-medium">Send silently (no notifications)</FormLabel>
+                      <p className="text-xs text-muted-foreground">Record the alert without sending any push, email, Discord, Telegram or in-app notifications.</p>
+                    </div>
+                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-alert-silent" /></FormControl>
                   </FormItem>
                 )} />
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-alert">
-                  {createMutation.isPending ? "Creating..." : "Create Alert"}
+                  {createMutation.isPending ? "Creating..." : form.watch("silent") ? "Create Silently" : "Create Alert"}
                 </Button>
               </form>
             </Form>
@@ -1483,17 +1494,26 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               <FormField control={updateForm.control} name="sendPush" render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border p-3">
                   <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
-                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-push" /></FormControl>
+                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-push" /></FormControl>
                 </FormItem>
               )} />
               <FormField control={updateForm.control} name="sendEmail" render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border p-3">
                   <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
-                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-email" /></FormControl>
+                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-email" /></FormControl>
+                </FormItem>
+              )} />
+              <FormField control={updateForm.control} name="silent" render={({ field }) => (
+                <FormItem className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-sm font-medium">Send silently (no notifications)</FormLabel>
+                    <p className="text-xs text-muted-foreground">Post this update without sending any push, email, Discord, Telegram or in-app notifications.</p>
+                  </div>
+                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-silent" /></FormControl>
                 </FormItem>
               )} />
               <Button type="submit" className="w-full" disabled={addUpdateMutation.isPending} data-testid="button-submit-update">
-                {addUpdateMutation.isPending ? "Posting..." : "Post Update"}
+                {addUpdateMutation.isPending ? "Posting..." : updateForm.watch("silent") ? "Post Silently" : "Post Update"}
               </Button>
             </form>
           </Form>

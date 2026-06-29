@@ -103,9 +103,10 @@ export function registerAlertRoutes(
   app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, ...alertData } = req.body;
+      const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, silent: rawSilent, ...alertData } = req.body;
       const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
       const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
+      const silent = rawSilent === "true" || rawSilent === true;
       if (imageUrl) alertData.imageUrl = imageUrl;
       const serviceIds = parseServiceIds(rawServiceIds);
       if (serviceIds.length === 0) {
@@ -121,8 +122,14 @@ export function registerAlertRoutes(
       const serviceNames = coveredServices.map(s => s.name);
       const serviceNameDisplay = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
       const impactLabel = impact === "outage" ? "Outage" : impact === "maintenance" ? "Maintenance" : "Degraded Performance";
-      logActivity("alert", "alert_created", { actorId: req.session.userId!, targetId: alert.id, targetType: "alert", summary: `Alert created: ${alert.title} (${serviceNameDisplay} — ${impactLabel})`, details: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity, services: serviceNames, impact }) });
+      logActivity("alert", "alert_created", { actorId: req.session.userId!, targetId: alert.id, targetType: "alert", summary: `Alert created${silent ? " (silently)" : ""}: ${alert.title} (${serviceNameDisplay} — ${impactLabel})`, details: JSON.stringify({ title: alert.title, description: alert.description, severity: alert.severity, services: serviceNames, impact, silent }) });
       broadcast({ type: "new_alert", alert });
+      // Silent create: status + timeline + activity log + realtime refresh still
+      // happen above, but skip every customer-facing notification channel below.
+      if (silent) {
+        console.log(`[Alert Create] Alert ${alert.id} created silently — notifications suppressed`);
+        return res.json(alert);
+      }
       const allUsers = await storage.getAllUsers();
       const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => alert.serviceIds.includes(sid)));
       console.log(`[Alert Create] Alert ${alert.id} — sendPush=${parsedSendPush}, ${subscribers.length} subscriber(s)`);
@@ -209,9 +216,10 @@ export function registerAlertRoutes(
   app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, ...updateData } = req.body;
+      const { sendPush, sendEmail, serviceImpact, silent: rawSilent, ...updateData } = req.body;
       const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
       const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
+      const silent = rawSilent === "true" || rawSilent === true;
       const update = await storage.createAlertUpdate({
         alertId: getParam(req, "id"),
         message: updateData.message,
@@ -224,7 +232,7 @@ export function registerAlertRoutes(
         await storage.updateAlert(getParam(req, "id"), { status: updateData.status });
       }
       broadcast({ type: "alert_update", alertId: req.params.id, update });
-      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact }) });
+      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}${silent ? " (silently)" : ""}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact, silent }) });
       const alert = await storage.getAlert(getParam(req, "id"));
       if (alert) {
         const isResolved = updateData.status === "resolved";
@@ -241,6 +249,13 @@ export function registerAlertRoutes(
         // Recompute each covered service's status (handles resolve → operational
         // and impact changes, while keeping shared services at their worst active impact).
         await recomputeForCoveredServices(alert.serviceIds, alertStatusDeps);
+        // Silent update: status + timeline + activity log + realtime refresh still
+        // happen above, but skip every customer-facing notification channel below
+        // (silent overrides the resolve-forces-notify behaviour too).
+        if (silent) {
+          console.log(`[Alert Update] Alert ${req.params.id} updated silently — notifications suppressed`);
+          return res.json(update);
+        }
         const pushTitle = isResolved
           ? `${serviceName}: Resolved — Now Operational`
           : impactLabel
