@@ -338,6 +338,7 @@ export function registerAlertRoutes(
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
       const resolveMessage = req.body?.message || "Issue has been resolved.";
+      const silent = req.body?.silent === "true" || req.body?.silent === true;
       const updated = await storage.updateAlert(getParam(req, "id"), { status: "resolved", resolvedAt: new Date() });
       if (!updated) return res.status(404).json({ message: "Alert not found" });
       await storage.createAlertUpdate({
@@ -352,8 +353,14 @@ export function registerAlertRoutes(
       const coveredServices = (await Promise.all(updated.serviceIds.map(sid => storage.getService(sid)))).filter((s): s is Service => !!s);
       const serviceNames = coveredServices.map(s => s.name);
       const serviceName = serviceNames.length > 0 ? serviceNames.join(", ") : "Service";
-      logActivity("alert", "alert_resolved", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert resolved: ${updated.title} (${serviceName})`, details: JSON.stringify({ title: updated.title, resolveMessage, services: serviceNames }) });
+      logActivity("alert", "alert_resolved", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert resolved${silent ? " (silently)" : ""}: ${updated.title} (${serviceName})`, details: JSON.stringify({ title: updated.title, resolveMessage, services: serviceNames, silent }) });
       broadcast({ type: "alert_resolved", alertId: req.params.id });
+      // Silent resolve: status + timeline + activity log + realtime refresh still
+      // happen above, but skip every customer-facing notification channel below.
+      if (silent) {
+        console.log(`[Alert Resolve] Alert ${req.params.id} resolved silently — notifications suppressed`);
+        return res.json(updated);
+      }
       const allUsers = await storage.getAllUsers();
       const subscribers = allUsers.filter(u => u.id !== req.session.userId && u.subscribedServices?.some(sid => updated.serviceIds.includes(sid)));
       console.log(`[Alert Resolve] Alert ${req.params.id} — ${subscribers.length} subscriber(s) to notify`);

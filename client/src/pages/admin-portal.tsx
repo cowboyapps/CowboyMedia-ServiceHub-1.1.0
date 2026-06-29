@@ -1181,6 +1181,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [resolveAlertId, setResolveAlertId] = useState<string | null>(null);
   const [resolveMessage, setResolveMessage] = useState("");
   const [resolveImageFile, setResolveImageFile] = useState<File | null>(null);
+  const [resolveSilent, setResolveSilent] = useState(false);
   const [editUpdateDialogOpen, setEditUpdateDialogOpen] = useState(false);
   const [editingAlertUpdate, setEditingAlertUpdate] = useState<{ alertId: string; update: AlertUpdate } | null>(null);
   const [editUpdateMessage, setEditUpdateMessage] = useState("");
@@ -1272,10 +1273,11 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   });
 
   const resolveMutation = useMutation({
-    mutationFn: async ({ id, message, imageFile }: { id: string; message: string; imageFile: File | null }) => {
+    mutationFn: async ({ id, message, imageFile, silent }: { id: string; message: string; imageFile: File | null; silent: boolean }) => {
       const formData = new FormData();
       if (message) formData.append("message", message);
       if (imageFile) formData.append("image", imageFile);
+      if (silent) formData.append("silent", "true");
       const res = await fetch(`/api/admin/alerts/${id}/resolve`, { method: "PATCH", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to resolve alert");
     },
@@ -1286,7 +1288,8 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       setResolveAlertId(null);
       setResolveMessage("");
       setResolveImageFile(null);
-      toast({ title: "Alert resolved" });
+      setResolveSilent(false);
+      toast({ title: vars.silent ? "Alert resolved silently" : "Alert resolved", description: vars.silent ? "No notifications were sent." : undefined });
     },
   });
 
@@ -1561,7 +1564,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); } }}>
+      <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); setResolveSilent(false); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader><DialogTitle>Resolve Alert</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -1574,13 +1577,20 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               <Input type="file" accept="image/*" onChange={(e) => setResolveImageFile(e.target.files?.[0] || null)} data-testid="input-resolve-image" />
               {resolveImageFile && <img src={URL.createObjectURL(resolveImageFile)} alt="Preview" className="max-h-20 rounded-md" />}
             </div>
+            <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="switch-resolve-silent">Resolve silently</Label>
+                <p className="text-xs text-muted-foreground">Mark resolved without sending any push, email, Discord, Telegram or in-app notifications.</p>
+              </div>
+              <Switch id="switch-resolve-silent" checked={resolveSilent} onCheckedChange={setResolveSilent} data-testid="switch-resolve-silent" />
+            </div>
             <Button
               className="w-full"
               disabled={resolveMutation.isPending}
-              onClick={() => resolveAlertId && resolveMutation.mutate({ id: resolveAlertId, message: resolveMessage, imageFile: resolveImageFile })}
+              onClick={() => resolveAlertId && resolveMutation.mutate({ id: resolveAlertId, message: resolveMessage, imageFile: resolveImageFile, silent: resolveSilent })}
               data-testid="button-confirm-resolve"
             >
-              {resolveMutation.isPending ? "Resolving..." : "Resolve Alert"}
+              {resolveMutation.isPending ? "Resolving..." : resolveSilent ? "Resolve Silently" : "Resolve Alert"}
             </Button>
           </div>
         </DialogContent>
