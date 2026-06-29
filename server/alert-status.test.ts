@@ -99,10 +99,22 @@ test("service-change helper recomputes the union of previous and new service ids
 // recomputeServiceStatus is always the recorder under test and isn't overridable.
 function routeHarness(
   storageOverrides: Record<string, any> = {},
-  opts: { uploadedFile?: any } = {},
+  opts: { uploadedFile?: any; depsOverrides?: Record<string, any> } = {},
 ) {
   const recomputed: string[] = [];
   const serviceUpdatedBroadcasts: string[] = [];
+  const otherBroadcasts: string[] = [];
+  // Records, per channel, how many times each customer-facing notification
+  // helper fired. Used by the silent-resolve guard tests to assert a silent
+  // resolve invokes NONE of them, while a normal resolve fires all of them.
+  const notifications = {
+    push: 0,
+    email: 0,
+    inApp: 0,
+    discord: 0,
+    telegram: 0,
+    followerEmail: 0,
+  };
 
   const baseStorage: Record<string, any> = {
     createAlert: async (data: any, serviceIds: string[]) => ({ id: "alert-1", serviceIds, title: data.title ?? "t", description: data.description ?? "d", severity: data.severity ?? "minor" }),
@@ -117,6 +129,14 @@ function routeHarness(
     updateAlertUpdate: async () => ({ id: "update-1" }),
   };
   const storageSpy: any = { ...baseStorage, ...storageOverrides };
+  // createContentNotificationBulk is the in-app channel; wrap whatever
+  // implementation is in effect (base or override) so its calls are recorded
+  // regardless of how a test customizes it.
+  const innerBulk = storageSpy.createContentNotificationBulk;
+  storageSpy.createContentNotificationBulk = async (...args: any[]) => {
+    notifications.inApp += 1;
+    return innerBulk?.(...args);
+  };
   storageSpy.recomputeServiceStatus = async (sid: string) => {
     recomputed.push(sid);
     return "operational";
@@ -126,6 +146,7 @@ function routeHarness(
     storage: storageSpy,
     broadcast: (msg: any) => {
       if (msg?.type === "service_updated") serviceUpdatedBroadcasts.push(msg.serviceId);
+      else if (msg?.type) otherBroadcasts.push(msg.type);
     },
     saveUploadedFile: async () => "image.png",
     parseServiceIds: (raw: any) =>
@@ -137,12 +158,24 @@ function routeHarness(
     logActivity: () => {},
     customerWantsPush: () => false,
     customerWantsEmail: () => false,
-    sendPushToUser: async () => {},
-    sendTemplatedEmail: async () => {},
-    fireDiscordForServices: () => {},
-    fireTelegram: () => {},
+    customerWantsInApp: () => false,
+    sendPushToUser: async () => {
+      notifications.push += 1;
+    },
+    sendTemplatedEmail: async () => {
+      notifications.email += 1;
+    },
+    fireDiscordForServices: () => {
+      notifications.discord += 1;
+    },
+    fireTelegram: () => {
+      notifications.telegram += 1;
+    },
     getBaseUrl: () => "http://test.local",
-    notifyServiceSubscribers: () => {},
+    notifyServiceSubscribers: () => {
+      notifications.followerEmail += 1;
+    },
+    ...(opts.depsOverrides ?? {}),
   };
 
   // Pass-through middleware: authorize every request as an admin and skip multer.
@@ -162,7 +195,7 @@ function routeHarness(
   const app = express();
   app.use(express.json());
   registerAlertRoutes(app, middleware, deps);
-  return { app, recomputed, serviceUpdatedBroadcasts };
+  return { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications };
 }
 
 // Boot `app` on an ephemeral port, issue one request, return { status, body }.
@@ -371,6 +404,99 @@ test("route PATCH /api/admin/alerts/:id/resolve sets no imageUrl when no file is
     !("imageUrl" in calls[0]),
     "no imageUrl key is set on the resolve update when nothing was uploaded",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Silent-resolve guard tests.
+//
+// The resolve route supports a "silent" mode: it still updates the alert status,
+// writes the resolution timeline entry, recomputes service status, logs the
+// activity, and broadcasts the realtime refresh — but skips EVERY customer-facing
+// notification channel via a single early return. A future refactor could move
+// code across that return and either leak notifications on a silent resolve or
+// suppress them on a normal one. These two tests pin both directions: silent →
+// zero notification helpers fire; normal → every channel fires. They need no DB.
+// ---------------------------------------------------------------------------
+
+// A subscriber who wants every channel, so a normal resolve fan-out actually
+// invokes push/email/in-app for them. The acting admin is filtered out by id.
+const wantsEverythingDeps = {
+  customerWantsPush: () => true,
+  customerWantsEmail: () => true,
+  customerWantsInApp: () => true,
+};
+const subscriberStorage = {
+  updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+  getAllUsers: async () => [
+    { id: "cust-1", role: "customer", email: "c@example.com", fullName: "Cust One", subscribedServices: ["s1"] },
+  ],
+};
+
+test("route PATCH /api/admin/alerts/:id/resolve with silent=true suppresses ALL notification channels", async () => {
+  // Spy on the two state-mutating storage calls so we can assert the silent path
+  // still flips the alert to resolved and writes the resolution timeline entry.
+  const updateAlertCalls: Array<{ id: string; data: Record<string, any> }> = [];
+  const createUpdateCalls: Array<Record<string, any>> = [];
+  const { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications } = routeHarness(
+    {
+      ...subscriberStorage,
+      updateAlert: async (id: string, data: Record<string, any>) => {
+        updateAlertCalls.push({ id, data });
+        return { id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" };
+      },
+      createAlertUpdate: async (data: Record<string, any>) => {
+        createUpdateCalls.push(data);
+        return { id: "update-1", ...data };
+      },
+    },
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed", silent: true });
+
+  assert.equal(res.status, 200);
+  // The non-notification side effects still happen on a silent resolve.
+  // 1) The alert is flipped to resolved with a resolvedAt timestamp.
+  assert.equal(updateAlertCalls.length, 1, "silent resolve still updates the alert exactly once");
+  assert.equal(updateAlertCalls[0].id, "alert-1", "the alert id from the URL is forwarded");
+  assert.equal(updateAlertCalls[0].data.status, "resolved", "silent resolve still sets status=resolved");
+  assert.ok(updateAlertCalls[0].data.resolvedAt instanceof Date, "silent resolve still stamps resolvedAt");
+  // 2) The resolution timeline entry is still written.
+  assert.equal(createUpdateCalls.length, 1, "silent resolve still writes the resolution timeline entry");
+  assert.equal(createUpdateCalls[0].status, "resolved", "the timeline entry is the resolution note");
+  assert.equal(createUpdateCalls[0].alertId, "alert-1", "the timeline entry is attached to the alert");
+  assert.equal(createUpdateCalls[0].message, "Fixed", "the resolve message is persisted on the timeline entry");
+  // 3) Service status recompute + realtime broadcasts still fire.
+  assert.deepEqual(recomputed, ["s1", "s2"], "silent resolve still recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "silent resolve still broadcasts service_updated");
+  assert.ok(otherBroadcasts.includes("alert_resolved"), "silent resolve still broadcasts the realtime alert_resolved refresh");
+  // ...but every customer-facing notification channel is suppressed.
+  assert.equal(notifications.push, 0, "no push notifications on a silent resolve");
+  assert.equal(notifications.email, 0, "no emails on a silent resolve");
+  assert.equal(notifications.inApp, 0, "no in-app notifications on a silent resolve");
+  assert.equal(notifications.discord, 0, "no Discord post on a silent resolve");
+  assert.equal(notifications.telegram, 0, "no Telegram post on a silent resolve");
+  assert.equal(notifications.followerEmail, 0, "no follower emails on a silent resolve");
+});
+
+test("route PATCH /api/admin/alerts/:id/resolve with silent off fires every notification channel", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts, notifications } = routeHarness(
+    subscriberStorage,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+
+  assert.equal(res.status, 200);
+  // Same non-notification side effects as the silent path.
+  assert.deepEqual(recomputed, ["s1", "s2"], "normal resolve recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "normal resolve broadcasts service_updated");
+  // ...and every customer-facing channel fires.
+  assert.equal(notifications.push, 1, "the subscribing customer gets a push on a normal resolve");
+  assert.equal(notifications.email, 1, "the subscribing customer gets an email on a normal resolve");
+  assert.equal(notifications.inApp, 1, "in-app notifications are created on a normal resolve");
+  assert.equal(notifications.discord, 1, "Discord is notified on a normal resolve");
+  assert.equal(notifications.telegram, 1, "Telegram is notified on a normal resolve");
+  // notifyServiceSubscribers (follower email) fires once per covered service.
+  assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a normal resolve");
 });
 
 test("route DELETE /api/admin/alerts/:id recomputes services captured before deletion", async () => {
