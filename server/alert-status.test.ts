@@ -499,6 +499,145 @@ test("route PATCH /api/admin/alerts/:id/resolve with silent off fires every noti
   assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a normal resolve");
 });
 
+// ---------------------------------------------------------------------------
+// Silent-create guard tests.
+//
+// The create route mirrors the resolve route's "silent" mode: it still persists
+// the alert, recomputes service status, logs the activity, and broadcasts the
+// realtime `new_alert` refresh — but skips EVERY customer-facing notification
+// channel via a single early return. These two pin both directions: silent →
+// zero notification helpers fire; normal → every channel fires. They need no DB.
+// ---------------------------------------------------------------------------
+
+// A subscriber storage for the create/update paths: createAlert echoes the
+// posted serviceIds, getAlert reports the same coverage, and one customer
+// subscribes to s1 so a normal fan-out actually reaches them.
+const subscriberStorageCreate = {
+  getAllUsers: async () => [
+    { id: "cust-1", role: "customer", email: "c@example.com", fullName: "Cust One", subscribedServices: ["s1"] },
+  ],
+};
+
+test("route POST /api/admin/alerts with silent=true suppresses ALL notification channels", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications } = routeHarness(
+    subscriberStorageCreate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+    silent: true,
+  });
+
+  assert.equal(res.status, 200);
+  // Non-notification side effects still happen on a silent create.
+  assert.deepEqual(recomputed, ["s1", "s2"], "silent create still recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "silent create still broadcasts service_updated");
+  assert.ok(otherBroadcasts.includes("new_alert"), "silent create still broadcasts the realtime new_alert refresh");
+  // ...but every customer-facing notification channel is suppressed.
+  assert.equal(notifications.push, 0, "no push notifications on a silent create");
+  assert.equal(notifications.email, 0, "no emails on a silent create");
+  assert.equal(notifications.inApp, 0, "no in-app notifications on a silent create");
+  assert.equal(notifications.discord, 0, "no Discord post on a silent create");
+  assert.equal(notifications.telegram, 0, "no Telegram post on a silent create");
+  assert.equal(notifications.followerEmail, 0, "no follower emails on a silent create");
+});
+
+test("route POST /api/admin/alerts with silent off fires every notification channel", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts, notifications } = routeHarness(
+    subscriberStorageCreate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(recomputed, ["s1", "s2"], "normal create recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "normal create broadcasts service_updated");
+  // ...and every customer-facing channel fires.
+  assert.equal(notifications.push, 1, "the subscribing customer gets a push on a normal create");
+  assert.equal(notifications.email, 1, "the subscribing customer gets an email on a normal create");
+  assert.equal(notifications.inApp, 1, "in-app notifications are created on a normal create");
+  assert.equal(notifications.discord, 1, "Discord is notified on a normal create");
+  assert.equal(notifications.telegram, 1, "Telegram is notified on a normal create");
+  // notifyServiceSubscribers (follower email) fires once per covered service.
+  assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a normal create");
+});
+
+// ---------------------------------------------------------------------------
+// Silent-update guard tests.
+//
+// The add-update route's "silent" mode overrides even the resolve-forces-notify
+// behaviour: a silent resolution update still flips the alert, writes the
+// timeline entry, recomputes status, and broadcasts the realtime refresh — but
+// skips EVERY customer-facing channel. Using status=resolved here proves silent
+// wins over the path that would otherwise force notifications. They need no DB.
+// ---------------------------------------------------------------------------
+
+// getAlert reports the covered services for the update path; one customer
+// subscribes to s1 so a normal fan-out actually reaches them.
+const subscriberStorageUpdate = {
+  getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+  getAllUsers: async () => [
+    { id: "cust-1", role: "customer", email: "c@example.com", fullName: "Cust One", subscribedServices: ["s1"] },
+  ],
+};
+
+test("route POST /api/admin/alerts/:id/updates with silent=true suppresses ALL notification channels", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications } = routeHarness(
+    subscriberStorageUpdate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "resolved",
+    message: "Fixed",
+    silent: true,
+  });
+
+  assert.equal(res.status, 200);
+  // Non-notification side effects still happen on a silent update.
+  assert.deepEqual(recomputed, ["s1", "s2"], "silent update still recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "silent update still broadcasts service_updated");
+  assert.ok(otherBroadcasts.includes("alert_update"), "silent update still broadcasts the realtime alert_update refresh");
+  // ...but every customer-facing notification channel is suppressed, even though
+  // status=resolved would otherwise force push/email regardless of opt-in.
+  assert.equal(notifications.push, 0, "no push notifications on a silent update");
+  assert.equal(notifications.email, 0, "no emails on a silent update");
+  assert.equal(notifications.inApp, 0, "no in-app notifications on a silent update");
+  assert.equal(notifications.discord, 0, "no Discord post on a silent update");
+  assert.equal(notifications.telegram, 0, "no Telegram post on a silent update");
+  assert.equal(notifications.followerEmail, 0, "no follower emails on a silent update");
+});
+
+test("route POST /api/admin/alerts/:id/updates with silent off fires every notification channel", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts, notifications } = routeHarness(
+    subscriberStorageUpdate,
+    { depsOverrides: wantsEverythingDeps },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "resolved",
+    message: "Fixed",
+  });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(recomputed, ["s1", "s2"], "normal update recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "normal update broadcasts service_updated");
+  // ...and every customer-facing channel fires.
+  assert.equal(notifications.push, 1, "the subscribing customer gets a push on a normal resolve update");
+  assert.equal(notifications.email, 1, "the subscribing customer gets an email on a normal resolve update");
+  assert.equal(notifications.inApp, 1, "in-app notifications are created on a normal resolve update");
+  assert.equal(notifications.discord, 1, "Discord is notified on a normal resolve update");
+  assert.equal(notifications.telegram, 1, "Telegram is notified on a normal resolve update");
+  // notifyServiceSubscribers (follower email) fires once per covered service on resolve.
+  assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a normal resolve update");
+});
+
 test("route DELETE /api/admin/alerts/:id recomputes services captured before deletion", async () => {
   const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
     getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
