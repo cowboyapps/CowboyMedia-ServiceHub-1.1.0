@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, integer, primaryKey, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, bigint, primaryKey, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { NotificationPrefs } from "./notification-categories";
@@ -1477,3 +1477,21 @@ export const registerSchema = z.object({
 });
 
 export type RegisterData = z.infer<typeof registerSchema>;
+
+// Idempotency keys for the customer-initiated WHMCS *money* writes (place order,
+// store order, plan upgrade, cancellation). Postgres-backed (not an in-process
+// Map) so retry protection (a) survives a redeploy/restart mid-submission and
+// (b) works no matter which app process a retry is routed to. Keyed by
+// `${sessionUserId}:${idempotencyKey}`. `state` is 'pending' (claimed, in
+// flight) or 'done' (final response captured). `status`/`body` hold the captured
+// response for replay; both NULL while pending. `expiresAt` is epoch ms — stored
+// as bigint to sidestep timestamp/timezone coercion in the begin comparison.
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  scopedKey: text("scoped_key").primaryKey(),
+  state: text("state").notNull(),
+  status: integer("status"),
+  body: jsonb("body"),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+});
+
+export type IdempotencyKeyRow = typeof idempotencyKeys.$inferSelect;

@@ -239,6 +239,13 @@
       "when": 1782851675721,
       "tag": "0033_easy_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782859155024,
+      "tag": "0034_magenta_siren",
+      "breakpoints": true
     }
   ]
 }

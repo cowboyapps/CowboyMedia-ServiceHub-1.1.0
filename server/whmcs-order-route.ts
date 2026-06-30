@@ -16,6 +16,10 @@ import {
 import { isUnlinkedStaff } from "./roles";
 import { placeOrderSchema } from "@shared/schema";
 
+// Re-exported for tests that build catalogue fixtures against the order route's
+// dependency shape (the canonical type lives in whmcs-billing).
+export type { OrderableProduct } from "./whmcs-billing";
+
 // Handler factories for the customer in-app ordering endpoints:
 //   GET  /api/billing/products   — the orderable product catalogue
 //   POST /api/billing/order      — place a new product order

@@ -6,6 +6,7 @@ import {
   isValidIdempotencyKey,
   __resetIdempotencyStore,
 } from "./idempotency";
+import { db } from "./db";
 
 // Tests for the money-write idempotency layer (Task #591). The guard makes a
 // repeated order/store-order/upgrade/cancel request carrying the SAME
@@ -70,7 +71,7 @@ const orderHandler: HandlerOpts = {
 };
 
 test("a repeated request with the same key replays the first response, write runs once", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   const { app, writeCount } = makeApp(orderHandler);
   const key = "abcd1234efgh5678";
 
@@ -87,7 +88,7 @@ test("a repeated request with the same key replays the first response, write run
 });
 
 test("a different key runs the write again (a genuinely new submission)", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   const { app, writeCount } = makeApp(orderHandler);
 
   await call(app, { pid: 1 }, { "Idempotency-Key": "key-one-aaaaaa" });
@@ -97,7 +98,7 @@ test("a different key runs the write again (a genuinely new submission)", async 
 });
 
 test("no key at all preserves the old behaviour (every request runs)", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   const { app, writeCount } = makeApp(orderHandler);
 
   await call(app, { pid: 1 });
@@ -106,7 +107,7 @@ test("no key at all preserves the old behaviour (every request runs)", async () 
 });
 
 test("the same key from a DIFFERENT user is not deduped (scoped per user)", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   const { app, writeCount } = makeApp(orderHandler);
   const key = "shared-key-cccccc";
 
@@ -118,7 +119,7 @@ test("the same key from a DIFFERENT user is not deduped (scoped per user)", asyn
 });
 
 test("a pre-write rejection is NOT persisted — a corrected retry with the same key runs", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   // First call rejects before the write (no whmcsWriteAttempted flag); second
   // call (same key) is allowed to proceed and write.
   let attempt = 0;
@@ -147,7 +148,7 @@ test("a pre-write rejection is NOT persisted — a corrected retry with the same
 });
 
 test("a write-attempted failure IS persisted — a retry replays it, never re-charging", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   // The write was attempted but WHMCS errored/timed out. We don't know if a
   // charge landed, so a same-key retry must replay the failure, NOT re-submit.
   let runs = 0;
@@ -168,7 +169,7 @@ test("a write-attempted failure IS persisted — a retry replays it, never re-ch
 });
 
 test("a concurrent duplicate (still in flight) gets 409, not a second run", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   // Gate the first handler so it stays in flight while the duplicate arrives.
   let release!: () => void;
   const gate = new Promise<void>((r) => { release = r; });
@@ -214,7 +215,7 @@ test("a concurrent duplicate (still in flight) gets 409, not a second run", asyn
 });
 
 test("a client abort mid-write does NOT free the key — a retry never re-runs the write", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   // The real double-charge risk: the client's 30s timeout aborts the socket
   // WHILE the WHMCS write is in flight. Node keeps the handler running, so the
   // write may still land. A same-key retry must NOT execute the handler again.
@@ -288,7 +289,7 @@ test("a client abort mid-write does NOT free the key — a retry never re-runs t
 });
 
 test("an abort DURING pre-write validation still frees the key (no write happened)", async () => {
-  __resetIdempotencyStore();
+  await __resetIdempotencyStore();
   // If the abort lands before the handler ever reaches the WHMCS write, nothing
   // dangerous happened — once the handler finishes its pre-write rejection the
   // key must be freed so a corrected resubmit with the same key can run.
@@ -341,6 +342,28 @@ test("an abort DURING pre-write validation still frees the key (no write happene
   } finally {
     release();
     server.close();
+  }
+});
+
+test("store unavailable FAILS CLOSED — the write does NOT run, client gets 503", async () => {
+  await __resetIdempotencyStore();
+  // Simulate the idempotency store being unreachable (DB hiccup, table missing
+  // mid-rollout). The guard protects money writes, so it must refuse the
+  // request rather than run the handler without a working dedupe check —
+  // running it would re-open the double-charge window a retry could exploit.
+  const { app, writeCount } = makeApp(orderHandler);
+  const key = "store-down-iiiiii";
+
+  const originalExecute = db.execute.bind(db);
+  (db as any).execute = () => {
+    throw new Error("simulated idempotency store outage");
+  };
+  try {
+    const res = await call(app, { pid: 1 }, { "Idempotency-Key": key });
+    assert.equal(res.status, 503, "an unavailable store must refuse, not run the write");
+    assert.equal(writeCount.n, 0, "the WHMCS write must NOT run when dedupe can't be checked");
+  } finally {
+    (db as any).execute = originalExecute;
   }
 });
 
