@@ -31,19 +31,30 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export class TimeoutError extends Error {
-  constructor(message = "Request timed out") {
+  constructor(message = "The request timed out — please check your connection and try again.") {
     super(message);
     this.name = "TimeoutError";
   }
 }
 
+// Default client-side timeout for every mutation/write request. Without it, a
+// truly dead connection (online flag set, but no packets flowing) leaves the
+// fetch pending forever, so the bound `mutation.isPending` never clears and the
+// button stays disabled with no way to retry short of a reload. Every
+// `apiRequest` caller sends a small JSON body (file uploads go through raw
+// `fetch`/FormData, never this helper), so a single shared timeout is safe.
+// Opt out (or extend) per call via `{ timeoutMs }`: pass `0`/`null` to disable,
+// or a larger number for legitimately slow endpoints (e.g. AI generation).
+export const DEFAULT_TIMEOUT_MS = 30_000;
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number | null },
 ): Promise<Response> {
-  const timeoutMs = options?.timeoutMs;
+  const timeoutMs =
+    options?.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs;
   const controller = timeoutMs ? new AbortController() : undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;

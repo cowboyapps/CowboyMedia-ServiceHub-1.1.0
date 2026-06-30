@@ -175,7 +175,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
 
   const aiDraftMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/tickets/${ticketId}/ai-draft`);
+      const res = await apiRequest("POST", `/api/tickets/${ticketId}/ai-draft`, undefined, { timeoutMs: 60_000 });
       return (await res.json()) as { draft: string; remaining: number };
     },
     onSuccess: (data) => {
