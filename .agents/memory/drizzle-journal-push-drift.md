@@ -87,3 +87,16 @@ This is **local/dev-only** drift caused by db:push in post-merge setup. Prod
 deploys via `deploy/update.sh` and only ever runs the migrator (never push), so
 prod's DB stays consistent with its journal and applies the same migrations
 cleanly. Do NOT "fix" prod for this.
+
+# Root cause structurally removed in post-merge (keep the recovery above for legacy DBs)
+
+`scripts/post-merge.sh` no longer calls `scripts/db-sync.sh` (`drizzle-kit push`).
+It now runs the journaling migrator (`npm run db:migrate` → `runMigrations`), so a
+table-adding merge applies + journals in lockstep and the next boot is a clean
+no-op — the recurring `relation already exists` crash can no longer originate from
+post-merge. Guarded by `test/post-merge-migrate-gate.test.ts`.
+**Why:** push applies schema without writing `drizzle.__drizzle_migrations`; the
+migrator does both, matching boot/prebuild/prod.
+**Still watch:** `db:push` survives in the `.replit` deploy build step (`.replit`
+`build = [... "bash scripts/db-sync.sh"]`), so the same drift can still appear via
+a Replit Deployments build — use the journal-insert recovery above if it recurs there.

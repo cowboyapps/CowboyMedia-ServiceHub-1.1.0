@@ -24,9 +24,17 @@
 #   is no risk.
 #
 # WHERE THIS RUNS
-#   - scripts/post-merge.sh (after a task merges into the dev env)
-#   - production deploy build step in deploy/update.sh (once per production deploy,
-#     before the new server image is rolled out)
+#   - the .replit deploy build step (`build = [... "bash scripts/db-sync.sh"]`),
+#     once per Replit deployment build.
+#
+#   NOTE: scripts/post-merge.sh deliberately does NOT call this anymore. A bare
+#   `drizzle-kit push` applies the schema WITHOUT recording the drizzle migration
+#   journal (drizzle.__drizzle_migrations), so a new table created here strands
+#   the journal and the next boot's migrator (server/migrate.ts) replays its
+#   CREATE TABLE and crashes with `relation already exists` (42P07). Post-merge
+#   now runs the journaling migrator (`npm run db:migrate`) instead. The VPS
+#   production deploy (deploy/update.sh) does not use this script either — it
+#   relies on the in-process migrator at boot plus prebuild's db:check.
 
 set -euo pipefail
 
