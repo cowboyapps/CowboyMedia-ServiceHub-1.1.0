@@ -5,13 +5,27 @@ import { createIdempotencyMiddleware, __resetIdempotencyStore } from "./idempote
 import {
   createPlaceOrderHandler,
   type OrderRouteDeps,
-  type OrderableProduct,
 } from "./whmcs-order-route";
 import {
   createRequestCancellationHandler,
   type CancelRouteDeps,
 } from "./whmcs-cancel-route";
-import type { OrderableProductsData, PaymentMethodsData, ServicesListData } from "./whmcs-billing";
+import {
+  createPlaceProductOrderHandler,
+  type StoreRouteDeps,
+} from "./whmcs-store-route";
+import {
+  createSubmitUpgradeHandler,
+  type UpgradeRouteDeps,
+} from "./whmcs-upgrade-route";
+import type {
+  OrderableProductsData,
+  PaymentMethodsData,
+  ServicesListData,
+  StoreCatalogueData,
+  StoreCatalogueProduct,
+  OrderableProduct,
+} from "./whmcs-billing";
 import type { WhmcsRawFetch } from "./whmcs";
 
 // End-to-end money-flow idempotency test (Task #597).
@@ -268,5 +282,244 @@ test("cancel: a retry after the cancellation already submitted replays the same 
     assert.equal(retry.status, 200);
     assert.equal(retryBody.ok, true);
     assert.equal(cancelRuns, 1, "the cancellation was submitted exactly once");
+  });
+});
+
+// ---------- store-order flow (Task #602) ----------
+
+// The storefront product order (/api/billing/store-order) is a second
+// customer-initiated AddOrder write that shares the SAME billing idempotency
+// guard as the in-app order above. Prove the timeout+retry race can't place a
+// second product order either, driving the REAL store handler behind the REAL
+// middleware exactly as routes.ts mounts it.
+
+function storeProduct(over: Partial<StoreCatalogueProduct> = {}): StoreCatalogueProduct {
+  return {
+    pid: 20,
+    name: "Curated VPS",
+    description: "",
+    imageUrl: null,
+    images: [],
+    category: null,
+    sortOrder: 0,
+    currency: "USD",
+    cycles: [{ cycle: "monthly", label: "Monthly", price: "12.00", setupFee: null }],
+    configOptions: [],
+    customFields: [],
+    ...over,
+  };
+}
+
+function makeStoreApp(addOrder: NonNullable<StoreRouteDeps["addOrder"]>) {
+  const deps: StoreRouteDeps = {
+    getWhmcsSettings: async () => ({ baseUrl: "https://billing.example.com", enabled: true }),
+    getUser: async () => ({ whmcsClientId: 5 }),
+    hasWhmcsCredentials: () => true,
+    normalizeBaseUrl: (raw) => raw,
+    loadStoreCatalogue: async (): Promise<StoreCatalogueData> => ({ products: [storeProduct()], unreachable: false }),
+    loadPaymentMethods: async (): Promise<PaymentMethodsData> => ({
+      methods: [{ module: "stripe", displayName: "Card" }],
+      unreachable: false,
+    }),
+    addOrder,
+  };
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: "u1" };
+    next();
+  });
+  app.post("/api/billing/store-order", createIdempotencyMiddleware({ ttlMs: 60_000 }), createPlaceProductOrderHandler(deps));
+  return app;
+}
+
+test("store-order: a 30s-timeout abort mid-write then a retry never places a second order", async () => {
+  __resetIdempotencyStore();
+  let orderRuns = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const addOrder: NonNullable<StoreRouteDeps["addOrder"]> = async (): Promise<WhmcsRawFetch> => {
+    orderRuns += 1;
+    await gate;
+    return { ok: true, data: { invoiceid: 9000 + orderRuns } };
+  };
+
+  await withServer(makeStoreApp(addOrder), async (baseUrl) => {
+    const url = `${baseUrl}/api/billing/store-order`;
+    const orderBody = { pid: 20, billingCycle: "monthly" };
+
+    // 1. Customer submits; WHMCS is slow; the browser's 30s timeout aborts.
+    const ac = new AbortController();
+    const firstP = post(url, orderBody, ac.signal).catch((e) => ({ aborted: true, e }) as any);
+    await new Promise((r) => setTimeout(r, 50));
+    ac.abort();
+    await firstP;
+
+    // 2. Retry while the original write is STILL in flight → refused (409).
+    await new Promise((r) => setTimeout(r, 30));
+    const inFlightRetry = await post(url, orderBody);
+    assert.equal(inFlightRetry.status, 409, "a retry during the in-flight write must be refused");
+    assert.equal(orderRuns, 1, "the WHMCS order write must not run a second time");
+
+    // 3. The original (slow) write finally lands.
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 4. A later retry replays the original response — same invoice, no second order.
+    const replay = await post(url, orderBody);
+    const body = await replay.json();
+    assert.equal(replay.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.invoiceId, 9001, "the retry must replay the original invoice, not mint a new one");
+    assert.equal(orderRuns, 1, "exactly one order was ever placed");
+  });
+  release();
+});
+
+test("store-order: a retry after the slow write already finished replays the same invoice", async () => {
+  __resetIdempotencyStore();
+  let orderRuns = 0;
+  const addOrder: NonNullable<StoreRouteDeps["addOrder"]> = async (): Promise<WhmcsRawFetch> => {
+    orderRuns += 1;
+    return { ok: true, data: { invoiceid: 9500 + orderRuns } };
+  };
+
+  await withServer(makeStoreApp(addOrder), async (baseUrl) => {
+    const url = `${baseUrl}/api/billing/store-order`;
+    const orderBody = { pid: 20, billingCycle: "monthly" };
+
+    const first = await post(url, orderBody);
+    const firstBody = await first.json();
+    assert.equal(first.status, 200);
+    assert.equal(firstBody.invoiceId, 9501);
+
+    const retry = await post(url, orderBody);
+    const retryBody = await retry.json();
+    assert.equal(retry.status, 200);
+    assert.equal(retryBody.invoiceId, 9501, "the timeout retry replays the first order");
+    assert.equal(orderRuns, 1, "the order was placed exactly once");
+  });
+});
+
+// ---------- upgrade / plan-change flow (Task #602) ----------
+
+// The plan change (/api/billing/services/:serviceId/upgrade) is a customer
+// UpgradeProduct write behind the SAME billing idempotency guard. Prove the
+// timeout+retry race can't submit a second upgrade (and double-bill the prorated
+// invoice), driving the REAL upgrade handler behind the REAL middleware.
+
+function catalogueProduct(over: Partial<OrderableProduct> = {}): OrderableProduct {
+  return {
+    pid: 30,
+    gid: 2,
+    name: "Plan A",
+    description: "",
+    currency: "USD",
+    cycles: [{ cycle: "monthly", label: "Monthly", price: "10.00", setupFee: null }],
+    ...over,
+  };
+}
+
+function makeUpgradeApp(submitUpgrade: NonNullable<UpgradeRouteDeps["submitUpgrade"]>) {
+  const services: ServicesListData = {
+    services: [{ id: 42, pid: 30, status: "Active", billingCycle: "Monthly" } as any],
+    unreachable: false,
+  };
+  const deps: UpgradeRouteDeps = {
+    getWhmcsSettings: async () => ({ baseUrl: "https://billing.example.com", enabled: true }),
+    getUser: async () => ({ whmcsClientId: 5 }),
+    hasWhmcsCredentials: () => true,
+    normalizeBaseUrl: (raw) => raw,
+    loadServicesList: async () => services,
+    loadOrderableProducts: async (): Promise<OrderableProductsData> => ({
+      // Current product (pid 30) + a same-group target (pid 31) the customer may move to.
+      products: [catalogueProduct(), catalogueProduct({ pid: 31, name: "Plan B" })],
+      unreachable: false,
+    }),
+    loadPaymentMethods: async (): Promise<PaymentMethodsData> => ({
+      methods: [{ module: "stripe", displayName: "Card" }],
+      unreachable: false,
+    }),
+    submitUpgrade,
+  };
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).session = { userId: "u1" };
+    next();
+  });
+  app.post(
+    "/api/billing/services/:serviceId/upgrade",
+    createIdempotencyMiddleware({ ttlMs: 60_000 }),
+    createSubmitUpgradeHandler(deps),
+  );
+  return app;
+}
+
+test("upgrade: a 30s-timeout abort mid-write then a retry never submits a second plan change", async () => {
+  __resetIdempotencyStore();
+  let upgradeRuns = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const submitUpgrade: NonNullable<UpgradeRouteDeps["submitUpgrade"]> = async (): Promise<WhmcsRawFetch> => {
+    upgradeRuns += 1;
+    await gate;
+    return { ok: true, data: { invoiceid: 6000 + upgradeRuns } };
+  };
+
+  await withServer(makeUpgradeApp(submitUpgrade), async (baseUrl) => {
+    const url = `${baseUrl}/api/billing/services/42/upgrade`;
+    const upgradeBody = { newProductId: 31, billingCycle: "monthly" };
+
+    // 1. Submit; WHMCS slow; browser 30s timeout aborts.
+    const ac = new AbortController();
+    const firstP = post(url, upgradeBody, ac.signal).catch((e) => ({ aborted: true, e }) as any);
+    await new Promise((r) => setTimeout(r, 50));
+    ac.abort();
+    await firstP;
+
+    // 2. Retry while still in flight → refused, no second upgrade.
+    await new Promise((r) => setTimeout(r, 30));
+    const inFlightRetry = await post(url, upgradeBody);
+    assert.equal(inFlightRetry.status, 409, "a retry during the in-flight upgrade must be refused");
+    assert.equal(upgradeRuns, 1, "the WHMCS upgrade write must not run a second time");
+
+    // 3. The original (slow) upgrade lands.
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 4. A later retry replays the original response — same invoice, no second change.
+    const replay = await post(url, upgradeBody);
+    const body = await replay.json();
+    assert.equal(replay.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.invoiceId, 6001, "the retry must replay the original invoice, not mint a new one");
+    assert.equal(upgradeRuns, 1, "exactly one plan change was ever submitted");
+  });
+  release();
+});
+
+test("upgrade: a retry after the slow write already finished replays the same invoice", async () => {
+  __resetIdempotencyStore();
+  let upgradeRuns = 0;
+  const submitUpgrade: NonNullable<UpgradeRouteDeps["submitUpgrade"]> = async (): Promise<WhmcsRawFetch> => {
+    upgradeRuns += 1;
+    return { ok: true, data: { invoiceid: 6500 + upgradeRuns } };
+  };
+
+  await withServer(makeUpgradeApp(submitUpgrade), async (baseUrl) => {
+    const url = `${baseUrl}/api/billing/services/42/upgrade`;
+    const upgradeBody = { newProductId: 31, billingCycle: "monthly" };
+
+    const first = await post(url, upgradeBody);
+    const firstBody = await first.json();
+    assert.equal(first.status, 200);
+    assert.equal(firstBody.invoiceId, 6501);
+
+    const retry = await post(url, upgradeBody);
+    const retryBody = await retry.json();
+    assert.equal(retry.status, 200);
+    assert.equal(retryBody.invoiceId, 6501, "the timeout retry replays the first plan change");
+    assert.equal(upgradeRuns, 1, "the plan change was submitted exactly once");
   });
 });
