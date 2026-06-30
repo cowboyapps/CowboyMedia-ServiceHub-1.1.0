@@ -115,6 +115,10 @@ let pendingPublish: { version: string; title: string; bodyHtml: string } | null 
 // Status the publish POST should return — flip to a non-200 to simulate a
 // failed publish and exercise publishMutation.onError.
 let publishStatus = 200;
+// When set, the publish POST awaits this promise before responding — lets a
+// test hold the request mid-flight (a stalled / never-resolving network) so it
+// can assert the button stays disabled while pending, then release it.
+let publishGate: Promise<void> | null = null;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -141,6 +145,7 @@ g.fetch = async (input: unknown, init?: { method?: string }): Promise<Response> 
   if (pathname === "/api/admin/changelog/pending-publish") return jsonResponse(pendingPublish);
 
   if (method === "POST" && pathname.endsWith("/publish")) {
+    if (publishGate) await publishGate;
     return publishStatus === 200
       ? jsonResponse({})
       : jsonResponse({ error: "Publish exploded" }, publishStatus);
@@ -188,6 +193,7 @@ beforeEach(() => {
   currentUser = null;
   pendingPublish = null;
   publishStatus = 200;
+  publishGate = null;
   fetchCalls = [];
   try {
     window.localStorage.clear();
@@ -377,6 +383,72 @@ test("a failed publish keeps the dialog open, writes no dismiss key, and stays r
       "retry fired a second publish POST",
     );
     assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after the retry succeeds");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("a stalled publish disables the button while in flight, then hands control back once it settles", async () => {
+  pendingPublish = PENDING_ENTRY;
+  // Hold the publish POST open: the fetch stub awaits this until we release it,
+  // simulating a request that hangs / a flaky network mid-flight.
+  let releasePublish!: () => void;
+  publishGate = new Promise<void>((resolve) => {
+    releasePublish = resolve;
+  });
+  const h = await mountPrompt(MASTER_ADMIN);
+  try {
+    assert.ok(has("dialog-changelog-publish-prompt"), "prompt is shown before publishing");
+
+    // Fire the publish — the gated fetch never resolves yet, so the mutation
+    // stays pending and the dialog stays open.
+    await click("button-changelog-publish-prompt-publish");
+
+    const publishCall = fetchCalls.find(
+      (c) => c.method === "POST" && c.pathname === `/api/admin/changelog/${APP_VERSION}/publish`,
+    );
+    assert.ok(publishCall, "publish POST fired");
+
+    // While the request hangs, the button is disabled (guards double-submit).
+    const pendingBtn = get("button-changelog-publish-prompt-publish") as HTMLButtonElement;
+    assert.equal(pendingBtn.disabled, true, "publish button is disabled while the request is in flight");
+    assert.ok(has("dialog-changelog-publish-prompt"), "dialog stays open while the publish hangs");
+
+    // The hung request finally settles — here as a failure (e.g. a timeout).
+    // The admin must NOT be trapped on a frozen button: it re-enables and the
+    // dialog stays open so they can retry or dismiss.
+    publishStatus = 500;
+    releasePublish();
+    await flush();
+
+    assert.ok(
+      has("dialog-changelog-publish-prompt"),
+      "dialog still open after the stalled publish settles with an error",
+    );
+    const settledBtn = get("button-changelog-publish-prompt-publish") as HTMLButtonElement;
+    assert.equal(
+      settledBtn.disabled,
+      false,
+      "button re-enables once the stalled request settles — the admin isn't trapped",
+    );
+    assert.equal(
+      window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
+      null,
+      "a stalled-then-failed publish writes no dismiss key",
+    );
+
+    // Prove the admin can still act after the hang: Later dismisses and closes.
+    await click("button-changelog-publish-prompt-dismiss");
+    assert.equal(
+      has("dialog-changelog-publish-prompt"),
+      false,
+      "admin can still dismiss the prompt after a stalled publish",
+    );
+    assert.equal(
+      window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
+      "1",
+      "dismissing after a stalled publish writes the per-version dismiss key",
+    );
   } finally {
     h.cleanup();
   }
