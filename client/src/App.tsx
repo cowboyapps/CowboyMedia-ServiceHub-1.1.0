@@ -1034,7 +1034,7 @@ function AnnouncementPopup() {
   );
 }
 
-type ServiceAnnouncement = { id: string; serviceId: number; serviceName: string };
+type ServiceAnnouncement = { id: string; serviceId: number; serviceName: string; title: string; body: string };
 
 // One-time "a new service was added to your account" popup (Task #567). Fires
 // for a service ordered directly in WHMCS (outside the ServiceHub store) that
@@ -1112,15 +1112,12 @@ function NewServicePopup() {
             </div>
           </div>
           <DialogTitle className="text-center text-xl" data-testid="text-new-service-title">
-            New service added
+            {current.title}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-2 py-2 text-center">
-          <p className="text-sm text-muted-foreground">
-            A new service has been added to your account:
-          </p>
           <p className="text-base font-semibold text-foreground" data-testid="text-new-service-name">
-            {current.serviceName}
+            {current.body}
           </p>
         </div>
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">

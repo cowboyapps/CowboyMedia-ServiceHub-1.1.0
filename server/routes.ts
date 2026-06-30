@@ -95,7 +95,12 @@ import { promisify } from "util";
 import webpush from "web-push";
 import { sendEmail, sendEmailToMultiple, renderTemplate, getDefaultTemplate } from "./email";
 import { NOTIFICATION_TEMPLATE_DEFS } from "@shared/notification-templates";
-import { invalidateNotificationTemplateCache } from "./notification-templates-store";
+import { invalidateNotificationTemplateCache, getNotificationOverride } from "./notification-templates-store";
+import {
+  SERVICE_ADDED_TEMPLATE_KEY,
+  serviceAddedTitle,
+  serviceAddedBody,
+} from "@shared/whmcs-service-notify";
 import { format } from "date-fns";
 import sanitizeHtml from "sanitize-html";
 import { fireTelegram, fireTelegramMany, sendTelegramTestMessage, composeServiceUpdate, composeNews } from "./telegram";
@@ -6408,7 +6413,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get("/api/whmcs/service-announcements", requireAuth, async (req, res) => {
     try {
       const rows = await storage.getUndismissedWhmcsServiceAnnouncements(req.session.userId!);
-      res.json(rows.map((r) => ({ id: r.id, serviceId: r.whmcsServiceId, serviceName: r.serviceName })));
+      const ov = await getNotificationOverride(SERVICE_ADDED_TEMPLATE_KEY);
+      const title = serviceAddedTitle(ov);
+      res.json(rows.map((r) => ({
+        id: r.id,
+        serviceId: r.whmcsServiceId,
+        serviceName: r.serviceName,
+        title,
+        body: serviceAddedBody({ id: r.whmcsServiceId, name: r.serviceName, status: "", nextDueDate: null }, ov),
+      })));
     } catch (e) {
       logError("whmcs", e, {
         severity: "warn",

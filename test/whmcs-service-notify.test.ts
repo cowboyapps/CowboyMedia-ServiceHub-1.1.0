@@ -10,6 +10,8 @@ import {
   serviceNotifBody,
   serviceReadyTitle,
   serviceReadyBody,
+  serviceAddedTitle,
+  serviceAddedBody,
   type ServiceNotifyCandidate,
   type ServiceMarkerMap,
 } from "../shared/whmcs-service-notify";
@@ -140,6 +142,32 @@ test("serviceReadyTitle + serviceReadyBody: customer-friendly, names the service
   assert.equal(
     serviceReadyBody(svc({ name: "Starter VPS", domain: "vps.example.com" })),
     "Starter VPS (vps.example.com) is ready — tap to view your login details.",
+  );
+});
+
+test("serviceAddedTitle + serviceAddedBody: default wording names the service", () => {
+  assert.equal(serviceAddedTitle(), "New service added");
+  assert.equal(
+    serviceAddedBody(svc({ name: "Starter VPS", domain: "vps.example.com" })),
+    "Starter VPS (vps.example.com) has been added to your account — tap to view it.",
+  );
+});
+
+test("serviceAdded copy: an enabled admin override wins over the default wording", () => {
+  const override = { title: "We added something for you", body: "Say hello to {service}!", enabled: true };
+  assert.equal(serviceAddedTitle(override), "We added something for you");
+  assert.equal(
+    serviceAddedBody(svc({ name: "Starter VPS", domain: "vps.example.com" }), override),
+    "Say hello to Starter VPS (vps.example.com)!",
+  );
+});
+
+test("serviceAdded copy: a disabled override falls back to the built-in default wording", () => {
+  const override = { title: "Custom title", body: "Custom body", enabled: false };
+  assert.equal(serviceAddedTitle(override), "New service added");
+  assert.equal(
+    serviceAddedBody(svc({ name: "Starter VPS", domain: "vps.example.com" }), override),
+    "Starter VPS (vps.example.com) has been added to your account — tap to view it.",
   );
 });
 
