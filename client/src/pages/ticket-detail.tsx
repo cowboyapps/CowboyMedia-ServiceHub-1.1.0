@@ -29,7 +29,8 @@ import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Z
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
-import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest, TimeoutError } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
@@ -504,7 +505,7 @@ export default function TicketDetail() {
     };
   }, []);
 
-  const { data: ticket, isLoading } = useQuery<Ticket>({
+  const { data: ticket, isLoading, isError, error, refetch, isFetching } = useQuery<Ticket>({
     queryKey: ["/api/tickets", params.id],
   });
 
@@ -1060,6 +1061,29 @@ export default function TicketDetail() {
         <Skeleton className="h-60" />
       </div>
     );
+  }
+
+  if (isError) {
+    const isNotFound =
+      !(error instanceof TimeoutError) && /^(4\d\d):/.test((error as Error)?.message ?? "");
+    if (!isNotFound) {
+      return (
+        <div className="space-y-4">
+          <QueryErrorState
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            resourceName="this ticket"
+            data-testid="error-ticket-detail"
+          />
+          <div className="text-center">
+            <Link href="/tickets">
+              <Button variant="ghost" data-testid="button-back-tickets">Back to Tickets</Button>
+            </Link>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (!ticket) {
