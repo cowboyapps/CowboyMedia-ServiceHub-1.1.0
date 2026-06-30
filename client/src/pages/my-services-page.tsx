@@ -36,7 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, liveQueryOptions } from "@/lib/queryClient";
 import { Link, useSearch } from "wouter";
 import {
   Server,
@@ -1554,6 +1554,7 @@ function AddProductFlow() {
 function MyActiveServices() {
   const { data, isLoading } = useQuery<ActiveServicesPayload>({
     queryKey: ["/api/my/services"],
+    ...liveQueryOptions,
   });
 
   // Deep-link target from a "your new service is ready" notification:
@@ -1601,6 +1602,7 @@ function MyActiveServices() {
 function MyMonitoredServices() {
   const { data, isLoading } = useQuery<DerivedServicesPayload>({
     queryKey: ["/api/my/whmcs-services"],
+    ...liveQueryOptions,
   });
 
   if (isLoading) return <Skeleton className="h-28 rounded-xl" data-testid="my-services-loading" />;
@@ -1645,9 +1647,11 @@ function MyMonitoredServices() {
 function NoServicesNotice() {
   const { data, isLoading } = useQuery<ActiveServicesPayload>({
     queryKey: ["/api/my/services"],
+    ...liveQueryOptions,
   });
   const { data: monitored, isLoading: monitoredLoading } = useQuery<DerivedServicesPayload>({
     queryKey: ["/api/my/whmcs-services"],
+    ...liveQueryOptions,
   });
 
   if (isLoading || monitoredLoading) return null;

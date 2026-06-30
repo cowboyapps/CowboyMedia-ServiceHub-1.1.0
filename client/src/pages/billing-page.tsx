@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { liveQueryOptions } from "@/lib/queryClient";
 import { BillingSummaryView, type BillingSummary } from "@/components/billing-summary";
 import { WhmcsProfileCard } from "@/components/whmcs-profile-card";
 
 export default function BillingPage() {
   const { data, isLoading } = useQuery<BillingSummary>({
     queryKey: ["/api/billing"],
+    ...liveQueryOptions,
   });
 
   return (

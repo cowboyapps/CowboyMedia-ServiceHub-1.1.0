@@ -17,7 +17,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, liveQueryOptions } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 export { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
@@ -552,6 +552,7 @@ function InvoiceDetailDialog({
   const { data, isLoading } = useQuery<InvoiceDetailPayload>({
     queryKey,
     enabled: invoiceId != null,
+    ...liveQueryOptions,
   });
 
   const invoice = data?.invoice ?? null;

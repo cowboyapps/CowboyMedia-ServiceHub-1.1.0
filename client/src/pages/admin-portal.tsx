@@ -17,7 +17,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, liveQueryOptions } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8903,6 +8903,7 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
 
   const { data, isLoading } = useQuery<WhmcsPanelData>({
     queryKey: ["/api/admin/users", userId, "whmcs"],
+    ...liveQueryOptions,
   });
 
   const invalidate = () => {
@@ -9115,6 +9116,7 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
 function WhmcsBillingSection({ userId }: { userId: string }) {
   const { data, isLoading } = useQuery<BillingSummary>({
     queryKey: ["/api/admin/users", userId, "whmcs", "billing"],
+    ...liveQueryOptions,
   });
 
   return (
@@ -9152,6 +9154,7 @@ function serviceStatusBadgeClass(status: string): string {
 function WhmcsDerivedServicesSection({ userId }: { userId: string }) {
   const { data, isLoading } = useQuery<DerivedServicesPayload>({
     queryKey: ["/api/admin/users", userId, "whmcs", "derived-services"],
+    ...liveQueryOptions,
   });
 
   if (isLoading) {

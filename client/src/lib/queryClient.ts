@@ -64,6 +64,30 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+// Cache policy for WHMCS-backed (read-on-demand) screens — customer billing,
+// invoices, payments, services, and the admin per-user WHMCS panel + sub-views.
+// WHMCS data can change directly in WHMCS (an invoice paid/deleted, a product
+// cancelled) with no webhook to tell us, so these screens must re-check WHMCS on
+// open, when the window/app regains focus (PWA resume fires visibilitychange),
+// and on reconnect — instead of trusting the app-wide `staleTime: Infinity`
+// default that would otherwise show an indefinitely cached snapshot. Spread this
+// into the relevant `useQuery` calls (`...liveQueryOptions`) so the change is
+// scoped to WHMCS-backed queries and the rest of the app keeps its caching.
+//
+// The finite `staleTime` is the real fix: with the app-wide `Infinity` a query
+// is never stale, so nothing ever refetches; a 30s window makes data go stale
+// quickly so the (staleness-respecting) mount/focus/reconnect refetches below
+// actually fire on the next open/resume. They are `true` (not `"always"`) on
+// purpose — re-navigating within 30s reuses the just-loaded data instead of
+// firing a redundant refetch, while a resume/reopen after any real gap is past
+// staleTime and refetches, clearing e.g. an invoice deleted directly in WHMCS.
+export const liveQueryOptions = {
+  staleTime: 30_000,
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
+} as const;
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

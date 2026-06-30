@@ -15,7 +15,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, liveQueryOptions } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { updateWhmcsProfileSchema, type UpdateWhmcsProfileData } from "@shared/schema";
@@ -76,6 +76,7 @@ export function WhmcsProfileCard() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<ProfilePayload>({
     queryKey: ["/api/billing/profile"],
+    ...liveQueryOptions,
   });
 
   const form = useForm<UpdateWhmcsProfileData>({
