@@ -16,7 +16,7 @@ PORT = "5000"
 [deployment]
 deploymentTarget = "autoscale"
 run = ["node", "./dist/index.cjs"]
-build = ["bash", "-c", "npm run build && bash scripts/db-sync.sh"]
+build = ["bash", "-c", "npm run build && npm run db:migrate"]
 publicDir = "dist/public"
 
 [workflows]

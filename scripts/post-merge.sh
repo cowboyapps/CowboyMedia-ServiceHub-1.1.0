@@ -6,7 +6,7 @@ npm install
 # not by running `drizzle-kit push`.
 #
 # WHY (this fixes a recurring boot crash)
-#   `drizzle-kit push` (scripts/db-sync.sh) applies shared/schema.ts straight to
+#   `drizzle-kit push` applies shared/schema.ts straight to
 #   the DB but does NOT record anything in the drizzle migration journal
 #   (drizzle.__drizzle_migrations). So when a merged task added a new table, push
 #   created the table here without journaling it, and the NEXT boot's migrator

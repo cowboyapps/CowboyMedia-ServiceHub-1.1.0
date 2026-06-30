@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // Regression guard for the post-merge schema reconcile step.
@@ -20,6 +20,16 @@ import { join } from "node:path";
 
 function readPostMerge(): string {
   return readFileSync(join(process.cwd(), "scripts", "post-merge.sh"), "utf8");
+}
+
+function readReplit(): string {
+  return readFileSync(join(process.cwd(), ".replit"), "utf8");
+}
+
+// Extract the `build = [...]` array from the [deployment] section of .replit.
+function deployBuildLine(replit: string): string {
+  const match = replit.match(/^\s*build\s*=\s*(\[[^\]]*\])/m);
+  return match ? match[1] : "";
 }
 
 // Strip comment bodies so the assertions match real commands, not the
@@ -59,5 +69,57 @@ test("post-merge does NOT use drizzle-kit push / db-sync.sh to reconcile schema"
     `scripts/post-merge.sh must not invoke scripts/db-sync.sh (a bare ` +
       `\`drizzle-kit push --force\`) to reconcile schema; use \`npm run db:migrate\` ` +
       `so new tables are journaled; got commands:\n${commands}`,
+  );
+});
+
+// Same regression guard for the Replit Deployments build step. The .replit
+// deploy `build` command must reconcile schema with the journaling migrator
+// (`npm run db:migrate`), NOT a bare `drizzle-kit push` / db-sync.sh — otherwise
+// a table-adding deploy strands the journal and crashes the next boot, the exact
+// failure the post-merge fix eliminated for merges.
+
+test("deploy build applies committed migrations via the journaling migrator", () => {
+  const build = deployBuildLine(readReplit());
+  assert.notEqual(
+    build,
+    "",
+    "could not find the `build = [...]` deploy command in .replit",
+  );
+  assert.match(
+    build,
+    /\bnpm run db:migrate\b/,
+    `.replit deploy build must reconcile schema with \`npm run db:migrate\` ` +
+      `(the journaling migrator) so the migration journal stays in lockstep ` +
+      `with the schema; got build:\n${build}`,
+  );
+});
+
+test("deploy build does NOT use drizzle-kit push / db-sync.sh to reconcile schema", () => {
+  const build = deployBuildLine(readReplit());
+
+  assert.doesNotMatch(
+    build,
+    /drizzle-kit\s+push/,
+    `.replit deploy build must not run \`drizzle-kit push\` — it applies the ` +
+      `schema without journaling, which strands the migration journal and crashes ` +
+      `the next boot with "relation already exists"; got build:\n${build}`,
+  );
+
+  assert.doesNotMatch(
+    build,
+    /db-sync\.sh/,
+    `.replit deploy build must not invoke scripts/db-sync.sh (a bare ` +
+      `\`drizzle-kit push --force\`); use \`npm run db:migrate\` so new tables ` +
+      `are journaled; got build:\n${build}`,
+  );
+});
+
+test("the un-journaled drizzle-kit push helper (scripts/db-sync.sh) no longer exists", () => {
+  assert.equal(
+    existsSync(join(process.cwd(), "scripts", "db-sync.sh")),
+    false,
+    "scripts/db-sync.sh (a bare `drizzle-kit push --force` that skips the " +
+      "migration journal) should have been removed once its last caller (the " +
+      ".replit deploy build) switched to `npm run db:migrate`",
   );
 });

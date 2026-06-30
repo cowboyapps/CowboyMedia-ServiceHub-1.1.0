@@ -97,6 +97,12 @@ no-op — the recurring `relation already exists` crash can no longer originate 
 post-merge. Guarded by `test/post-merge-migrate-gate.test.ts`.
 **Why:** push applies schema without writing `drizzle.__drizzle_migrations`; the
 migrator does both, matching boot/prebuild/prod.
-**Still watch:** `db:push` survives in the `.replit` deploy build step (`.replit`
-`build = [... "bash scripts/db-sync.sh"]`), so the same drift can still appear via
-a Replit Deployments build — use the journal-insert recovery above if it recurs there.
+
+The `.replit` deploy build step (Replit Deployments path) was the last surviving
+`drizzle-kit push` caller; it now runs `npm run build && npm run db:migrate` and
+the bare-push helper `scripts/db-sync.sh` was deleted. Same test file guards the
+deploy build line + asserts `db-sync.sh` stays gone. So no remaining code path
+re-introduces un-journaled push drift; the journal-insert recovery above is now
+only for legacy/pre-existing drifted DBs.
+**Note:** change the deploy `build`/`run` command via the deployment skill's
+`deployConfig()` — direct edits to `.replit` are blocked.
