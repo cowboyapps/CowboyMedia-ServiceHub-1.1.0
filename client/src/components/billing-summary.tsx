@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { queryClient, apiRequest, liveQueryOptions } from "@/lib/queryClient";
-import { serverActionErrorMessage } from "@/lib/server-error";
+import { serverActionErrorMessage, isTimeoutError, paymentTimeoutMessage } from "@/lib/server-error";
 export { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -920,12 +920,15 @@ function CancelServiceDialog({
       handleClose();
     },
     onError: (e: Error) => {
+      const timedOut = isTimeoutError(e);
       toast({
-        title: "Couldn't submit your request",
-        description: serverActionErrorMessage(
-          e,
-          "We couldn't reach billing right now. Please try again shortly.",
-        ),
+        title: timedOut ? "Your cancellation may have gone through" : "Couldn't submit your request",
+        description: timedOut
+          ? paymentTimeoutMessage("services")
+          : serverActionErrorMessage(
+              e,
+              "We couldn't reach billing right now. Please try again shortly.",
+            ),
         variant: "destructive",
       });
     },

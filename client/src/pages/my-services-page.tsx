@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, liveQueryOptions } from "@/lib/queryClient";
+import { isTimeoutError, paymentTimeoutMessage } from "@/lib/server-error";
 import { Link, useSearch } from "wouter";
 import {
   Server,
@@ -494,10 +495,13 @@ function UpgradePlanAction({ service }: { service: ActiveService }) {
     },
     onError: (err: any, win) => {
       if (win) win.close();
+      const timedOut = isTimeoutError(err);
       toast({
         variant: "destructive",
-        title: "Couldn't change your plan",
-        description: err?.message || "Please try again shortly.",
+        title: timedOut ? "Your plan change may have gone through" : "Couldn't change your plan",
+        description: timedOut
+          ? paymentTimeoutMessage("services and invoices")
+          : err?.message || "Please try again shortly.",
       });
     },
   });
@@ -643,10 +647,13 @@ function AddServiceFlow() {
     },
     onError: (err: any, win) => {
       if (win) win.close();
+      const timedOut = isTimeoutError(err);
       toast({
         variant: "destructive",
-        title: "Couldn't place your order",
-        description: err?.message || "Please try again shortly.",
+        title: timedOut ? "Your order may have gone through" : "Couldn't place your order",
+        description: timedOut
+          ? paymentTimeoutMessage("services and invoices")
+          : err?.message || "Please try again shortly.",
       });
     },
   });
@@ -1125,10 +1132,13 @@ function AddProductFlow() {
     },
     onError: (err: any, win) => {
       if (win) win.close();
+      const timedOut = isTimeoutError(err);
       toast({
         variant: "destructive",
-        title: "Couldn't place your order",
-        description: err?.message || "Please try again shortly.",
+        title: timedOut ? "Your order may have gone through" : "Couldn't place your order",
+        description: timedOut
+          ? paymentTimeoutMessage("services and invoices")
+          : err?.message || "Please try again shortly.",
       });
     },
   });
