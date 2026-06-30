@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search } from "lucide-react";
@@ -1020,11 +1020,7 @@ export default function CommunityChatPage() {
       formData.append("content", content);
       if (file) formData.append("image", file);
       if (kbArticle) formData.append("kbArticleSlug", kbArticle.slug);
-      const res = await fetch("/api/community-chat/messages", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", "/api/community-chat/messages", formData);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         toast({ title: "Failed to send", description: data.error, variant: "destructive" });

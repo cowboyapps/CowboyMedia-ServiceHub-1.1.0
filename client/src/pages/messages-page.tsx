@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
@@ -306,11 +306,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
       formData.append("body", body);
       if (file) formData.append("image", file);
       if (kbSlug) formData.append("kbArticleSlug", kbSlug);
-      const res = await fetch(`/api/message-threads/${threadId}/messages`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", `/api/message-threads/${threadId}/messages`, formData);
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to send");
       return res.json();
     },
@@ -535,7 +531,7 @@ function NewConversationDialog() {
       fd.append("body", data.body ?? "");
       if (imageFile) fd.append("image", imageFile);
       if (kbArticle) fd.append("kbArticleSlug", kbArticle.slug);
-      const res = await fetch("/api/message-threads", { method: "POST", body: fd, credentials: "include" });
+      const res = await uploadRequest("POST", "/api/message-threads", fd);
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed");
       return res.json();
     },

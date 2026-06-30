@@ -29,7 +29,7 @@ import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Z
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, TicketMessage, Service, User, TicketCategory } from "@shared/schema";
@@ -785,11 +785,7 @@ export default function TicketDetail() {
     if (internal) formData.append("isInternal", "true");
     if (kb) formData.append("kbArticleSlug", kb.slug);
 
-    fetch(`/api/tickets/${params.id}/messages`, {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    })
+    uploadRequest("POST", `/api/tickets/${params.id}/messages`, formData)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to send");
         return res.json();

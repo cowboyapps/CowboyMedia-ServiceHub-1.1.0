@@ -17,7 +17,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { queryClient, apiRequest, liveQueryOptions } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest, liveQueryOptions } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1218,7 +1218,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         else formData.append(k, String(v));
       });
       if (alertImageFile) formData.append("image", alertImageFile);
-      const res = await fetch("/api/admin/alerts", { method: "POST", body: formData, credentials: "include" });
+      const res = await uploadRequest("POST", "/api/admin/alerts", formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to create alert");
     },
     onSuccess: (_data, vars) => {
@@ -1237,7 +1237,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       const formData = new FormData();
       Object.entries(data).forEach(([k, v]) => formData.append(k, String(v)));
       if (updateImageFile) formData.append("image", updateImageFile);
-      const res = await fetch(`/api/admin/alerts/${selectedAlertId}/updates`, { method: "POST", body: formData, credentials: "include" });
+      const res = await uploadRequest("POST", `/api/admin/alerts/${selectedAlertId}/updates`, formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to post update");
     },
     onSuccess: (_data, vars) => {
@@ -1261,7 +1261,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       formData.append("serviceIds", JSON.stringify(data.serviceIds));
       if (imageFile) formData.append("image", imageFile);
       if (removeImage) formData.append("removeImage", "true");
-      const res = await fetch(`/api/admin/alerts/${id}`, { method: "PATCH", body: formData, credentials: "include" });
+      const res = await uploadRequest("PATCH", `/api/admin/alerts/${id}`, formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to update alert");
     },
     onSuccess: () => {
@@ -1281,7 +1281,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       if (message) formData.append("message", message);
       if (imageFile) formData.append("image", imageFile);
       if (silent) formData.append("silent", "true");
-      const res = await fetch(`/api/admin/alerts/${id}/resolve`, { method: "PATCH", body: formData, credentials: "include" });
+      const res = await uploadRequest("PATCH", `/api/admin/alerts/${id}/resolve`, formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to resolve alert");
     },
     onSuccess: (_data, vars) => {
@@ -1302,7 +1302,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       formData.append("message", message);
       if (imageFile) formData.append("image", imageFile);
       if (removeImage) formData.append("removeImage", "true");
-      const res = await fetch(`/api/admin/alerts/${alertId}/updates/${updateId}`, { method: "PATCH", body: formData, credentials: "include" });
+      const res = await uploadRequest("PATCH", `/api/admin/alerts/${alertId}/updates/${updateId}`, formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to update");
     },
     onSuccess: () => {
@@ -1787,11 +1787,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
       formData.append("content", data.content);
       if (imageFile) formData.append("image", imageFile);
 
-      const res = await fetch("/api/admin/news", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", "/api/admin/news", formData);
       if (!res.ok) throw new Error(await res.text());
       const story = await res.json();
       if (attachPoll && isPollDraftValid(pollDraft)) {
@@ -1825,11 +1821,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
       if (editImageFile) formData.append("image", editImageFile);
       if (removeImage && !editImageFile) formData.append("removeImage", "true");
 
-      const res = await fetch(`/api/admin/news/${editingStory.id}`, {
-        method: "PATCH",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("PATCH", `/api/admin/news/${editingStory.id}`, formData);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -3788,7 +3780,7 @@ function DownloadsTab({ canManage = true }: { canManage?: boolean }) {
       formData.append("downloaderCode", downloaderCode);
       formData.append("downloadUrl", downloadUrl);
       if (imageFile) formData.append("image", imageFile);
-      const res = await fetch("/api/admin/downloads", { method: "POST", body: formData, credentials: "include" });
+      const res = await uploadRequest("POST", "/api/admin/downloads", formData);
       if (!res.ok) { const err = await res.json().catch(() => ({ message: "Request failed" })); throw new Error(err.message); }
     },
     onSuccess: () => {
@@ -3810,7 +3802,7 @@ function DownloadsTab({ canManage = true }: { canManage?: boolean }) {
       formData.append("downloadUrl", downloadUrl);
       if (imageFile) formData.append("image", imageFile);
       if (removeImage) formData.append("removeImage", "true");
-      const res = await fetch(`/api/admin/downloads/${editItem.id}`, { method: "PATCH", body: formData, credentials: "include" });
+      const res = await uploadRequest("PATCH", `/api/admin/downloads/${editItem.id}`, formData);
       if (!res.ok) { const err = await res.json().catch(() => ({ message: "Request failed" })); throw new Error(err.message); }
     },
     onSuccess: () => {
@@ -5417,11 +5409,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
       const formData = new FormData();
       formData.append("message", message);
       if (file) formData.append("file", file);
-      const res = await fetch(`/api/admin/chat/threads/${threadId}/messages`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", `/api/admin/chat/threads/${threadId}/messages`, formData);
       if (!res.ok) throw new Error("Failed to send");
       return res.json();
     },
@@ -7584,7 +7572,7 @@ function StoreProductsSection() {
       if (editingId && galleryOrder.length > 0) fd.append("imageUrlsOrder", JSON.stringify(galleryOrder));
       if (editingId && promotePrimaryUrl && !imageFile) fd.append("promotePrimaryImageUrl", promotePrimaryUrl);
       const url = editingId ? `/api/admin/store-products/${editingId}` : "/api/admin/store-products";
-      const res = await fetch(url, { method: editingId ? "PATCH" : "POST", body: fd, credentials: "include" });
+      const res = await uploadRequest(editingId ? "PATCH" : "POST", url, fd);
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         throw new Error(b.message || "Failed to save product");
@@ -9293,11 +9281,7 @@ function WhmcsTicketsSection({ userId }: { userId: string }) {
       const form = new FormData();
       form.append("message", message);
       for (const f of files) form.append("attachments", f);
-      const res = await fetch(`/api/admin/users/${userId}/whmcs/tickets/${selectedId}/reply`, {
-        method: "POST",
-        body: form,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", `/api/admin/users/${userId}/whmcs/tickets/${selectedId}/reply`, form);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || `Failed to send reply (${res.status})`);

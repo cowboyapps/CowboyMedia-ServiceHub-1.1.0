@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -94,11 +94,7 @@ export default function ReportRequestPage() {
       if (data.description) formData.append("description", data.description);
       if (data.file) formData.append("image", data.file);
 
-      const res = await fetch("/api/report-requests", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", "/api/report-requests", formData);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "Request failed" }));
         throw new Error(err.message);

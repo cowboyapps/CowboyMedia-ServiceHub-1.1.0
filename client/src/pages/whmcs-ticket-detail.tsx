@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, uploadRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -45,11 +45,7 @@ export default function WhmcsTicketDetailPage() {
       const form = new FormData();
       form.append("message", message);
       for (const f of files) form.append("attachments", f);
-      const res = await fetch(`/api/whmcs-tickets/${id}/reply`, {
-        method: "POST",
-        body: form,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", `/api/whmcs-tickets/${id}/reply`, form);
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { message?: string }));
         throw new Error(body.message || `Reply failed (${res.status})`);

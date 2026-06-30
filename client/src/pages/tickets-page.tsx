@@ -45,7 +45,7 @@ import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTri
 import { WhmcsTicketList, type WhmcsTicketsListData } from "@/components/whmcs-tickets";
 import { useWhmcsSeenMap } from "@/lib/whmcs-unread";
 import { countNewReplies, newReplyTicketIds } from "@shared/whmcs-unread";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
@@ -257,11 +257,7 @@ export default function TicketsPage() {
       formData.append("priority", data.priority);
       if (imageFile) formData.append("image", imageFile);
 
-      const res = await fetch("/api/tickets", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", "/api/tickets", formData);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

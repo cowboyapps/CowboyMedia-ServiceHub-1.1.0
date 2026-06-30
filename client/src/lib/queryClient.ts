@@ -41,11 +41,24 @@ export class TimeoutError extends Error {
 // truly dead connection (online flag set, but no packets flowing) leaves the
 // fetch pending forever, so the bound `mutation.isPending` never clears and the
 // button stays disabled with no way to retry short of a reload. Every
-// `apiRequest` caller sends a small JSON body (file uploads go through raw
-// `fetch`/FormData, never this helper), so a single shared timeout is safe.
+// `apiRequest` caller sends a small JSON body (file uploads go through
+// `uploadRequest` below, never this helper), so a single shared timeout is safe.
 // Opt out (or extend) per call via `{ timeoutMs }`: pass `0`/`null` to disable,
 // or a larger number for legitimately slow endpoints (e.g. AI generation).
 export const DEFAULT_TIMEOUT_MS = 30_000;
+
+// Generous client-side timeout for raw file/image uploads. Uploads deliberately
+// bypass `apiRequest` because they send multipart `FormData` (binary blobs), not
+// a small JSON body, so they need their own helper. The deadline is far larger
+// than the JSON-write default because a legitimately slow connection pushing a
+// large image up can take a while — but a truly dead connection (online flag
+// set, no packets flowing) would otherwise leave the upload pending forever, the
+// progress spinner stuck with no error and no retry, the same failure mode the
+// read/write timeouts fixed. A finite abort surfaces a `TimeoutError` the caller
+// can show / retry instead of an infinite spinner. Opt out (or extend) per call
+// via `{ timeoutMs }`: pass `0`/`null` to disable, or a larger number for
+// unusually large uploads.
+export const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
 
 // Default client-side timeout for every read (query) request. Without it, a
 // truly dead connection (online flag set, but no packets flowing) leaves the
@@ -94,6 +107,51 @@ export async function apiRequest(
 
   await throwIfResNotOk(res);
   return res;
+}
+
+// Raw multipart upload helper for file/image POST/PATCH calls. Mirrors
+// `apiRequest`'s abort-timeout plumbing but sends `FormData` (so the browser
+// sets the multipart boundary itself — never set Content-Type manually) and does
+// NOT call `throwIfResNotOk`, because every upload call site does its own
+// `res.ok` handling (custom messages, optimistic UI). Returns the raw Response
+// so it is a drop-in for the previous `fetch(url, { method, body, credentials })`
+// pattern, but now a dead connection aborts after `DEFAULT_UPLOAD_TIMEOUT_MS` and
+// surfaces a `TimeoutError` instead of hanging the upload spinner forever.
+export async function uploadRequest(
+  method: string,
+  url: string,
+  formData: FormData,
+  options?: { timeoutMs?: number | null },
+): Promise<Response> {
+  const timeoutMs =
+    options?.timeoutMs === undefined
+      ? DEFAULT_UPLOAD_TIMEOUT_MS
+      : options.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  if (controller && timeoutMs) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
+  try {
+    return await fetch(url, {
+      method,
+      body: formData,
+      credentials: "include",
+      signal: controller?.signal,
+    });
+  } catch (err) {
+    if (timedOut) {
+      throw new TimeoutError();
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

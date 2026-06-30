@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { isPushSupported, subscribeToPush, unsubscribeFromPush, isSubscribedToPush } from "@/lib/push-notifications";
@@ -101,7 +101,7 @@ function ProfileEditorCard({ user }: { user: { id: string; fullName: string; ava
     try {
       const fd = new FormData();
       fd.append("image", file);
-      const res = await fetch("/api/auth/profile/avatar", { method: "POST", body: fd, credentials: "include" });
+      const res = await uploadRequest("POST", "/api/auth/profile/avatar", fd);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.message || "Upload failed");

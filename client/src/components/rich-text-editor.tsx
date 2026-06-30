@@ -12,6 +12,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { uploadRequest } from "@/lib/queryClient";
 import { useTiptapDraft } from "@/hooks/use-tiptap-draft";
 import { clearDraft as clearTiptapDraft } from "@/lib/tiptap-drafts";
 
@@ -90,11 +91,7 @@ export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "r
     try {
       const formData = new FormData();
       formData.append("image", file);
-      const res = await fetch("/api/admin/upload-inline-image", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      const res = await uploadRequest("POST", "/api/admin/upload-inline-image", formData);
       if (!res.ok) throw new Error("Upload failed");
       const { url } = await res.json();
       editor?.chain().focus().setImage({ src: url }).run();
