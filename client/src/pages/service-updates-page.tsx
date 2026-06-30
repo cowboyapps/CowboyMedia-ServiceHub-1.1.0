@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Trash2, Bell, ShieldAlert, X, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { QueryErrorState } from "@/components/query-error-state";
 import { formatDistanceToNow } from "date-fns";
 import type { ServiceUpdate, Service } from "@shared/schema";
 import { groupServiceUpdates, type ServiceUpdateGroup } from "@shared/group-service-updates";
@@ -142,7 +143,7 @@ export default function ServiceUpdatesPage() {
     return () => document.removeEventListener("visibilitychange", onVisChange);
   }, [markUpdatesRead]);
 
-  const { data: updates, isLoading } = useQuery<ServiceUpdate[]>({
+  const { data: updates, isLoading, isError, error, refetch, isFetching } = useQuery<ServiceUpdate[]>({
     queryKey: ["/api/service-updates"],
     enabled: !!user,
   });
@@ -268,6 +269,24 @@ export default function ServiceUpdatesPage() {
         <div className="space-y-2 pl-5">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
+          <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
+        </div>
+        <QueryErrorState
+          error={error}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          resourceName="service updates"
+          data-testid="error-service-updates"
+        />
       </div>
     );
   }

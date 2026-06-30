@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
 import type { Service } from "@shared/schema";
 import { Activity, CheckCircle, AlertTriangle, XCircle, Wrench, ChevronRight } from "lucide-react";
 import { Link } from "wouter";
@@ -36,7 +37,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function ServicesPage() {
-  const { data: services, isLoading } = useQuery<Service[]>({
+  const { data: services, isLoading, isError, error, refetch, isFetching } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
 
@@ -94,6 +95,14 @@ export default function ServicesPage() {
             </div>
           ))}
         </div>
+      ) : isError ? (
+        <QueryErrorState
+          error={error}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          resourceName="services"
+          data-testid="error-services"
+        />
       ) : !services || services.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">

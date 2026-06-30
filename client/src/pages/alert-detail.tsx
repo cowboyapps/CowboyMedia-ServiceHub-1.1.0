@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
+import { QueryErrorState } from "@/components/query-error-state";
+import { TimeoutError } from "@/lib/queryClient";
 import type { ServiceAlertWithServices, AlertUpdate, Service } from "@shared/schema";
 
 function StatusIcon({ status }: { status: string }) {
@@ -25,7 +27,7 @@ function StatusIcon({ status }: { status: string }) {
 export default function AlertDetail() {
   const params = useParams<{ id: string }>();
 
-  const { data: alert, isLoading } = useQuery<ServiceAlertWithServices>({
+  const { data: alert, isLoading, isError, error, refetch, isFetching } = useQuery<ServiceAlertWithServices>({
     queryKey: ["/api/alerts", params.id],
   });
 
@@ -49,6 +51,29 @@ export default function AlertDetail() {
         <Skeleton className="h-60" />
       </div>
     );
+  }
+
+  if (isError) {
+    const isNotFound =
+      !(error instanceof TimeoutError) && /^(4\d\d):/.test((error as Error)?.message ?? "");
+    if (!isNotFound) {
+      return (
+        <div className="space-y-4">
+          <QueryErrorState
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            resourceName="this alert"
+            data-testid="error-alert-detail"
+          />
+          <div className="text-center">
+            <Link href="/alerts">
+              <Button variant="ghost">Back to Alerts</Button>
+            </Link>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (!alert) {

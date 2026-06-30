@@ -10,6 +10,7 @@ import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType
 import { format } from "date-fns";
 import { LazyImage } from "@/components/lazy-image";
 import { stripHtml } from "@/components/rich-text-editor";
+import { QueryErrorState } from "@/components/query-error-state";
 
 function StatusIndicator({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -34,15 +35,15 @@ function SeverityBadge({ severity }: { severity: string }) {
 export default function Dashboard() {
   const { user } = useAuth();
 
-  const { data: services, isLoading: servicesLoading } = useQuery<Service[]>({
+  const { data: services, isLoading: servicesLoading, isError: servicesError, error: servicesErrorObj, refetch: refetchServices, isFetching: servicesFetching } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
 
-  const { data: alerts, isLoading: alertsLoading } = useQuery<ServiceAlertWithServices[]>({
+  const { data: alerts, isLoading: alertsLoading, isError: alertsError, error: alertsErrorObj, refetch: refetchAlerts, isFetching: alertsFetching } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
 
-  const { data: news, isLoading: newsLoading } = useQuery<NewsStory[]>({
+  const { data: news, isLoading: newsLoading, isError: newsError, error: newsErrorObj, refetch: refetchNews, isFetching: newsFetching } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
   });
 
@@ -158,6 +159,15 @@ export default function Dashboard() {
                   <Skeleton className="h-5 w-16 rounded-full" />
                 </div>
               ))
+            ) : servicesError ? (
+              <QueryErrorState
+                error={servicesErrorObj}
+                onRetry={() => refetchServices()}
+                isRetrying={servicesFetching}
+                resourceName="services"
+                className="py-6"
+                data-testid="error-dashboard-services"
+              />
             ) : displayServices.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">No services to display</p>
             ) : (
@@ -192,6 +202,15 @@ export default function Dashboard() {
                   <Skeleton className="h-5 w-16 rounded-full" />
                 </div>
               ))
+            ) : alertsError ? (
+              <QueryErrorState
+                error={alertsErrorObj}
+                onRetry={() => refetchAlerts()}
+                isRetrying={alertsFetching}
+                resourceName="alerts"
+                className="py-6"
+                data-testid="error-dashboard-alerts"
+              />
             ) : activeAlerts.length === 0 ? (
               <div className="text-center py-6">
                 <CheckCircle className="w-8 h-8 text-status-online animate-status-glow mx-auto mb-2" />
@@ -245,6 +264,15 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+          ) : newsError ? (
+            <QueryErrorState
+              error={newsErrorObj}
+              onRetry={() => refetchNews()}
+              isRetrying={newsFetching}
+              resourceName="news"
+              className="py-6"
+              data-testid="error-dashboard-news"
+            />
           ) : !news || news.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">No news stories yet</p>
           ) : (

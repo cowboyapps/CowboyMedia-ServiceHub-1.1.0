@@ -9,10 +9,11 @@ import { LazyImage } from "@/components/lazy-image";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { stripHtml } from "@/components/rich-text-editor";
 import { NewsReactionsBar } from "@/components/news-reactions-bar";
+import { QueryErrorState } from "@/components/query-error-state";
 import type { NewsStory } from "@shared/schema";
 
 export default function NewsPage() {
-  const { data: news, isLoading } = useQuery<NewsStory[]>({
+  const { data: news, isLoading, isError, error, refetch, isFetching } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
   });
 
@@ -58,6 +59,14 @@ export default function NewsPage() {
             </div>
           ))}
         </div>
+      ) : isError ? (
+        <QueryErrorState
+          error={error}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          resourceName="news"
+          data-testid="error-news"
+        />
       ) : !news || news.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">

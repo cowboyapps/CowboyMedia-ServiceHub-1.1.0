@@ -27,6 +27,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox, Paperclip, X, Download, BookOpen, ChevronRight, MessageSquare, Trash2, Users } from "lucide-react";
@@ -711,7 +712,7 @@ export default function MessagesPage() {
   const [, navigate] = useLocation();
   const canManage = isAdmin && hasPermission("messages.manage");
 
-  const { data: threads, isLoading } = useQuery<EnrichedThread[]>({
+  const { data: threads, isLoading, isError, error, refetch, isFetching } = useQuery<EnrichedThread[]>({
     queryKey: ["/api/message-threads"],
     refetchInterval: 15000,
   });
@@ -758,6 +759,17 @@ export default function MessagesPage() {
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
+      );
+    }
+    if (isError) {
+      return (
+        <QueryErrorState
+          error={error}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          resourceName="your messages"
+          data-testid="error-messages"
+        />
       );
     }
     if (!threads || threads.length === 0) {

@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Download, ExternalLink, FileDown, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { QueryErrorState } from "@/components/query-error-state";
 import type { Download as DownloadType } from "@shared/schema";
 
 export default function DownloadsPage() {
@@ -13,7 +14,7 @@ export default function DownloadsPage() {
   const [selectedDownload, setSelectedDownload] = useState<DownloadType | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { data: downloads, isLoading } = useQuery<DownloadType[]>({
+  const { data: downloads, isLoading, isError, error, refetch, isFetching } = useQuery<DownloadType[]>({
     queryKey: ["/api/downloads"],
   });
 
@@ -41,6 +42,14 @@ export default function DownloadsPage() {
             <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
         </div>
+      ) : isError ? (
+        <QueryErrorState
+          error={error}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          resourceName="downloads"
+          data-testid="error-downloads"
+        />
       ) : !downloads || downloads.length === 0 ? (
         <div className="text-center py-12">
           <FileDown className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />

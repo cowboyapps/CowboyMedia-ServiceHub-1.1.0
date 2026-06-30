@@ -11,7 +11,8 @@ import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import DOMPurify from "dompurify";
 import type { NewsStory } from "@shared/schema";
 import { Poll } from "@/components/poll";
-import { queryClient } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
+import { queryClient, TimeoutError } from "@/lib/queryClient";
 import { useEffect, useRef, useState } from "react";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
@@ -21,7 +22,7 @@ export default function NewsDetail() {
   const [lightbox, setLightbox] = useState<{ src: string; alt?: string } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const { data: story, isLoading } = useQuery<NewsStory>({
+  const { data: story, isLoading, isError, error, refetch, isFetching } = useQuery<NewsStory>({
     queryKey: ["/api/news", params.id],
   });
 
@@ -75,6 +76,29 @@ export default function NewsDetail() {
         <Skeleton className="h-60" />
       </div>
     );
+  }
+
+  if (isError) {
+    const isNotFound =
+      !(error instanceof TimeoutError) && /^(4\d\d):/.test((error as Error)?.message ?? "");
+    if (!isNotFound) {
+      return (
+        <div className="space-y-4">
+          <QueryErrorState
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            resourceName="this story"
+            data-testid="error-news-detail"
+          />
+          <div className="text-center">
+            <Link href="/news">
+              <Button variant="ghost">Back to News</Button>
+            </Link>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (!story) {

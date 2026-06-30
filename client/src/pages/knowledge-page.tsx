@@ -14,6 +14,8 @@ import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { QueryErrorState } from "@/components/query-error-state";
+import { TimeoutError } from "@/lib/queryClient";
 import type { KbArticle, KbCategory } from "@shared/schema";
 
 const ALLOWED_TAGS = ["p", "br", "strong", "em", "u", "span", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a", "code", "pre"];
@@ -26,7 +28,7 @@ function ArticleDetail({ slug }: { slug: string }) {
   const [lightbox, setLightbox] = useState<{ src: string; alt?: string } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const { data: article, isLoading, error } = useQuery<KbArticle>({
+  const { data: article, isLoading, error, refetch, isFetching } = useQuery<KbArticle>({
     queryKey: ["/api/kb/articles", slug],
   });
 
@@ -52,7 +54,42 @@ function ArticleDetail({ slug }: { slug: string }) {
     );
   }
 
-  if (error || !article) {
+  if (error) {
+    const isNotFound =
+      !(error instanceof TimeoutError) && /^(4\d\d):/.test(error.message);
+    if (isNotFound) {
+      return (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">Article not found</p>
+          <Link href="/knowledge">
+            <Button variant="ghost" className="mt-2" data-testid="button-back-knowledge">
+              Back to Knowledge Base
+            </Button>
+          </Link>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        <QueryErrorState
+          error={error}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+          resourceName="this article"
+          data-testid="error-kb-article"
+        />
+        <div className="text-center">
+          <Link href="/knowledge">
+            <Button variant="ghost" data-testid="button-back-knowledge">
+              Back to Knowledge Base
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!article) {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground">Article not found</p>
@@ -179,11 +216,11 @@ function KnowledgeIndex() {
   const debouncedSearch = useDebounce(search, 250);
   const [openCategoryIds, setOpenCategoryIds] = useState<Set<string>>(new Set());
 
-  const { data: categories = [], isLoading: catsLoading } = useQuery<KbCategory[]>({
+  const { data: categories = [], isLoading: catsLoading, isError: catsError, error: catsErrorObj, refetch: refetchCats, isFetching: catsFetching } = useQuery<KbCategory[]>({
     queryKey: ["/api/kb/categories"],
   });
 
-  const { data: articles = [], isLoading: articlesLoading } = useQuery<KbArticle[]>({
+  const { data: articles = [], isLoading: articlesLoading, isError: articlesIsError, error: articlesErrorObj, refetch: refetchArticles, isFetching: articlesFetching } = useQuery<KbArticle[]>({
     queryKey: debouncedSearch.trim()
       ? ["/api/kb/articles", { search: debouncedSearch.trim() }]
       : ["/api/kb/articles"],
@@ -250,6 +287,17 @@ function KnowledgeIndex() {
           <Skeleton className="h-12" />
           <Skeleton className="h-12" />
         </div>
+      ) : (catsError || articlesIsError) ? (
+        <QueryErrorState
+          error={catsError ? catsErrorObj : articlesErrorObj}
+          onRetry={() => {
+            if (catsError) refetchCats();
+            if (articlesIsError) refetchArticles();
+          }}
+          isRetrying={catsFetching || articlesFetching}
+          resourceName="the knowledge base"
+          data-testid="error-knowledge"
+        />
       ) : isSearching ? (
         articles.length === 0 ? (
           <Card>

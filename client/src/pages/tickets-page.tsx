@@ -46,6 +46,7 @@ import { WhmcsTicketList, type WhmcsTicketsListData } from "@/components/whmcs-t
 import { useWhmcsSeenMap } from "@/lib/whmcs-unread";
 import { countNewReplies, newReplyTicketIds } from "@shared/whmcs-unread";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -187,7 +188,7 @@ export default function TicketsPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: tickets, isLoading } = useQuery<AdminTicket[]>({
+  const { data: tickets, isLoading, isError: ticketsError, error: ticketsErrorObj, refetch: refetchTickets, isFetching: ticketsFetching } = useQuery<AdminTicket[]>({
     queryKey: ["/api/tickets"],
   });
 
@@ -674,6 +675,14 @@ export default function TicketsPage() {
                 <Skeleton className="w-4 h-4 flex-shrink-0 self-center" />
               </div>
             ))
+          ) : ticketsError ? (
+            <QueryErrorState
+              error={ticketsErrorObj}
+              onRetry={() => refetchTickets()}
+              isRetrying={ticketsFetching}
+              resourceName="your tickets"
+              data-testid="error-tickets"
+            />
           ) : openTickets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
@@ -720,7 +729,19 @@ export default function TicketsPage() {
         </TabsContent>
 
         <TabsContent value="closed" className="mt-4 space-y-3">
-          {closedTickets.length === 0 ? (
+          {isLoading ? (
+            Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 rounded-lg" />
+            ))
+          ) : ticketsError ? (
+            <QueryErrorState
+              error={ticketsErrorObj}
+              onRetry={() => refetchTickets()}
+              isRetrying={ticketsFetching}
+              resourceName="your tickets"
+              data-testid="error-tickets-closed"
+            />
+          ) : closedTickets.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center">
                 <p className="text-sm text-muted-foreground">No closed tickets</p>

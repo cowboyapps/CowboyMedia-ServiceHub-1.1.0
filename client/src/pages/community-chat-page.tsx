@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search } from "lucide-react";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
@@ -856,7 +857,7 @@ export default function CommunityChatPage() {
     setChatNotifPref(user.chatNotifications || "mentions");
   }, [user]);
 
-  const { data: messages, isLoading } = useQuery<EnrichedMessage[]>({
+  const { data: messages, isLoading, isError, error, refetch, isFetching } = useQuery<EnrichedMessage[]>({
     queryKey: ["/api/community-chat/messages"],
     refetchInterval: 30000,
   });
@@ -1197,6 +1198,16 @@ export default function CommunityChatPage() {
         {isLoading ? (
           <div className="space-y-2">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4" />)}
+          </div>
+        ) : isError ? (
+          <div className="flex items-center justify-center h-full">
+            <QueryErrorState
+              error={error}
+              onRetry={() => refetch()}
+              isRetrying={isFetching}
+              resourceName="the chat"
+              data-testid="error-community-chat"
+            />
           </div>
         ) : !messages || messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">

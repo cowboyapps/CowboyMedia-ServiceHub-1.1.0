@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { AlertTriangle, CheckCircle, Clock, ChevronRight } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -34,7 +35,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AlertsPage() {
-  const { data: alerts, isLoading: alertsLoading } = useQuery<ServiceAlertWithServices[]>({
+  const { data: alerts, isLoading: alertsLoading, isError: alertsError, error: alertsErrorObj, refetch: refetchAlerts, isFetching: alertsFetching } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
   const { data: services } = useQuery<Service[]>({
@@ -73,6 +74,15 @@ export default function AlertsPage() {
         <p className="text-sm text-muted-foreground mt-1">Track incidents and service disruptions</p>
       </div>
 
+      {alertsError ? (
+        <QueryErrorState
+          error={alertsErrorObj}
+          onRetry={() => refetchAlerts()}
+          isRetrying={alertsFetching}
+          resourceName="alerts"
+          data-testid="error-alerts"
+        />
+      ) : (
       <Tabs defaultValue="active">
         <TabsList>
           <TabsTrigger value="active" data-testid="tab-active-alerts">
@@ -172,6 +182,7 @@ export default function AlertsPage() {
           )}
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }

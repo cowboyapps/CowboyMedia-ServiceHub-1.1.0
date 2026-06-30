@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 import type { Service, ServiceAlertWithServices } from "@shared/schema";
 
 type DailyStatus = "up" | "partial" | "down" | "unknown";
@@ -107,10 +108,10 @@ function AlertStatusBadge({ status }: { status: string }) {
 export default function ServiceDetail() {
   const params = useParams<{ id: string }>();
 
-  const { data: services, isLoading: servicesLoading } = useQuery<Service[]>({
+  const { data: services, isLoading: servicesLoading, isError: servicesError, error: servicesErrorObj, refetch: refetchServices, isFetching: servicesFetching } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
-  const { data: allAlerts, isLoading: alertsLoading } = useQuery<ServiceAlertWithServices[]>({
+  const { data: allAlerts, isLoading: alertsLoading, isError: alertsIsError, error: alertsErrorObj, refetch: refetchAlerts, isFetching: alertsFetching } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
   });
 
@@ -128,6 +129,28 @@ export default function ServiceDetail() {
         <Skeleton className="h-32" />
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
+      </div>
+    );
+  }
+
+  if (servicesError || alertsIsError) {
+    return (
+      <div className="space-y-4">
+        <Link href="/services">
+          <Button variant="ghost" size="sm" data-testid="button-back-services">
+            <ArrowLeft className="w-4 h-4 mr-1" /> Back to Services
+          </Button>
+        </Link>
+        <QueryErrorState
+          error={servicesError ? servicesErrorObj : alertsErrorObj}
+          onRetry={() => {
+            if (servicesError) refetchServices();
+            if (alertsIsError) refetchAlerts();
+          }}
+          isRetrying={servicesFetching || alertsFetching}
+          resourceName="this service"
+          data-testid="error-service-detail"
+        />
       </div>
     );
   }
