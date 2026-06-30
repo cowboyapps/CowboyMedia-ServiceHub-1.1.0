@@ -47,6 +47,15 @@ export class TimeoutError extends Error {
 // or a larger number for legitimately slow endpoints (e.g. AI generation).
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
+// Default client-side timeout for every read (query) request. Without it, a
+// truly dead connection (online flag set, but no packets flowing) leaves the
+// `getQueryFn` fetch pending forever, so the bound `query.isLoading` never
+// clears and the page sits on a loading skeleton with no error and no retry.
+// A finite abort makes React Query's `isError` path render (retry UI / message)
+// instead of an endless skeleton, while still being generous enough not to trip
+// a slow-but-alive connection. The existing retry policy still applies on top.
+export const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -90,12 +99,38 @@ export async function apiRequest(
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
+  timeoutMs?: number | null;
 }) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
+  ({ on401: unauthorizedBehavior, timeoutMs }) =>
+  async ({ queryKey, signal }) => {
+    const effectiveTimeout =
+      timeoutMs === undefined ? DEFAULT_QUERY_TIMEOUT_MS : timeoutMs;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = effectiveTimeout
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, effectiveTimeout)
+      : undefined;
+    // Honour React Query's own cancellation (unmount / refetch) by forwarding it
+    // to the same controller, so we never leak a hanging fetch either way.
+    signal?.addEventListener("abort", () => controller.abort());
+
+    let res: Response;
+    try {
+      res = await fetch(queryKey.join("/") as string, {
+        credentials: "include",
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (timedOut) {
+        throw new TimeoutError();
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
