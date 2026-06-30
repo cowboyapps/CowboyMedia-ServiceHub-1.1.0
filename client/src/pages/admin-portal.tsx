@@ -131,6 +131,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [detailUser, setDetailUser] = useState<User | null>(null);
+  const [isEditingDetail, setIsEditingDetail] = useState(false);
   const [notifPrefsExpanded, setNotifPrefsExpanded] = useState(false);
   const [editFullName, setEditFullName] = useState("");
   const [editUsername, setEditUsername] = useState("");
@@ -251,11 +252,13 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
   const openDetailDialog = (u: User) => {
     setDetailUser(u);
     fillDetailFields(u);
+    setIsEditingDetail(false);
     pushUserUrl(u.id);
   };
 
   const closeDetailDialog = useCallback(() => {
     setDetailUser(null);
+    setIsEditingDetail(false);
     // Always pop the ?user= param so the URL stays in lock-step with
     // dialog state, even if our local view of initialUserId hasn't
     // caught up yet (race between open → immediate close).
@@ -290,6 +293,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
     setSearchQuery("");
     setDetailUser(target);
     fillDetailFields(target);
+    setIsEditingDetail(false);
     setDidFocusInitialUser(true);
     if (typeof window !== "undefined") {
       requestAnimationFrame(() => {
@@ -405,6 +409,8 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   <Input
                     value={editFullName}
                     onChange={(e) => setEditFullName(e.target.value)}
+                    readOnly={!isEditingDetail}
+                    className={!isEditingDetail ? "bg-muted/50 cursor-default focus-visible:ring-0" : undefined}
                     data-testid="input-edit-fullname"
                   />
                 </div>
@@ -413,6 +419,8 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   <Input
                     value={editUsername}
                     onChange={(e) => setEditUsername(e.target.value)}
+                    readOnly={!isEditingDetail}
+                    className={!isEditingDetail ? "bg-muted/50 cursor-default focus-visible:ring-0" : undefined}
                     data-testid="input-edit-username"
                   />
                 </div>
@@ -422,12 +430,14 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                     type="email"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
+                    readOnly={!isEditingDetail}
+                    className={!isEditingDetail ? "bg-muted/50 cursor-default focus-visible:ring-0" : undefined}
                     data-testid="input-edit-email"
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1 block">Role</label>
-                  <Select value={editRole} onValueChange={setEditRole}>
+                  <Select value={editRole} onValueChange={setEditRole} disabled={!isEditingDetail}>
                     <SelectTrigger data-testid="select-edit-role"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="customer">Customer</SelectItem>
@@ -564,14 +574,15 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                     {services.map((s) => (
                       <label
                         key={s.id}
-                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors"
+                        className={`flex items-center gap-3 px-3 py-2 transition-colors ${isEditingDetail ? "cursor-pointer hover:bg-accent/50" : "cursor-default"}`}
                         data-testid={`label-service-${s.id}`}
                       >
                         <input
                           type="checkbox"
                           checked={editSubscribedServices.includes(s.id)}
                           onChange={() => toggleService(s.id)}
-                          className="rounded border-input h-4 w-4 accent-primary"
+                          disabled={!isEditingDetail}
+                          className="rounded border-input h-4 w-4 accent-primary disabled:opacity-60"
                           data-testid={`checkbox-service-${s.id}`}
                         />
                         <div className="flex-1 min-w-0">
@@ -661,17 +672,41 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   )}
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <Button variant="outline" size="sm" onClick={closeDetailDialog} data-testid="button-detail-cancel">
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={updateUserMutation.isPending}
-                    onClick={handleSaveUser}
-                    data-testid="button-detail-save"
-                  >
-                    {updateUserMutation.isPending ? "Saving..." : "Save"}
-                  </Button>
+                  {isEditingDetail ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { fillDetailFields(detailUser); setIsEditingDetail(false); }}
+                        data-testid="button-detail-cancel-edit"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={updateUserMutation.isPending}
+                        onClick={handleSaveUser}
+                        data-testid="button-detail-save"
+                      >
+                        {updateUserMutation.isPending ? "Saving..." : "Save"}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="outline" size="sm" onClick={closeDetailDialog} data-testid="button-detail-cancel">
+                        Close
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => setIsEditingDetail(true)}
+                        data-testid="button-detail-edit"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        Edit
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
