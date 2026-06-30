@@ -30,17 +30,47 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+export class TimeoutError extends Error {
+  constructor(message = "Request timed out") {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  options?: { timeoutMs?: number },
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const timeoutMs = options?.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  if (controller && timeoutMs) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+      signal: controller?.signal,
+    });
+  } catch (err) {
+    if (timedOut) {
+      throw new TimeoutError();
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   await throwIfResNotOk(res);
   return res;

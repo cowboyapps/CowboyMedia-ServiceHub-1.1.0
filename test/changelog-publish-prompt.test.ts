@@ -119,6 +119,10 @@ let publishStatus = 200;
 // test hold the request mid-flight (a stalled / never-resolving network) so it
 // can assert the button stays disabled while pending, then release it.
 let publishGate: Promise<void> | null = null;
+// When true, the publish POST never resolves on its own — it only settles if
+// the caller aborts it (via an AbortSignal). Simulates a truly dead connection
+// that the client-side timeout must rescue.
+let publishHangs = false;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -132,7 +136,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 let fetchCalls: { method: string; pathname: string }[] = [];
 
 const realFetch = globalThis.fetch;
-g.fetch = async (input: unknown, init?: { method?: string }): Promise<Response> => {
+g.fetch = async (input: unknown, init?: { method?: string; signal?: AbortSignal }): Promise<Response> => {
   const url = typeof input === "string" ? input : String((input as { url?: string }).url ?? input);
   const pathname = url.split("?")[0];
   const method = (init?.method ?? (input as { method?: string })?.method ?? "GET").toUpperCase();
@@ -145,6 +149,22 @@ g.fetch = async (input: unknown, init?: { method?: string }): Promise<Response> 
   if (pathname === "/api/admin/changelog/pending-publish") return jsonResponse(pendingPublish);
 
   if (method === "POST" && pathname.endsWith("/publish")) {
+    if (publishHangs) {
+      // Never resolve on our own — only settle if the caller aborts (the
+      // client-side timeout), rejecting like a real aborted fetch would.
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const onAbort = () => {
+          const err = new Error("The operation was aborted");
+          (err as { name: string }).name = "AbortError";
+          reject(err);
+        };
+        if (signal) {
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort);
+        }
+      });
+    }
     if (publishGate) await publishGate;
     return publishStatus === 200
       ? jsonResponse({})
@@ -167,7 +187,7 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-const { getQueryFn } = await import("../client/src/lib/queryClient");
+const { getQueryFn, apiRequest, TimeoutError } = await import("../client/src/lib/queryClient");
 const { AuthProvider } = await import("../client/src/lib/auth");
 const { Router } = await import("wouter");
 const { memoryLocation } = await import("wouter/memory-location");
@@ -194,6 +214,7 @@ beforeEach(() => {
   pendingPublish = null;
   publishStatus = 200;
   publishGate = null;
+  publishHangs = false;
   fetchCalls = [];
   try {
     window.localStorage.clear();
@@ -518,3 +539,32 @@ test("\"Review in Admin Portal\" navigates to /admin and dismisses the prompt", 
     h.cleanup();
   }
 });
+
+// --- Client-side timeout: a publish that never resolves at all -------------
+// The settle test above proves the button re-enables once a stalled request
+// *finishes*. But a truly dead connection never finishes — without a client
+// timeout the button would stay disabled forever, trapping the admin. apiRequest
+// now aborts the fetch after timeoutMs and surfaces it as a TimeoutError, which
+// the publish mutation's onError handles like any other failure (re-enabling
+// the button + leaving the dialog open to retry/dismiss).
+
+test("apiRequest aborts a never-resolving request after timeoutMs and throws TimeoutError", async () => {
+  publishHangs = true;
+  await assert.rejects(
+    apiRequest("POST", `/api/admin/changelog/${APP_VERSION}/publish`, undefined, { timeoutMs: 20 }),
+    (err: unknown) => {
+      assert.ok(err instanceof TimeoutError, "a hung request surfaces as a TimeoutError, not a silent hang");
+      return true;
+    },
+  );
+});
+
+test("apiRequest does NOT abort a request that resolves before the timeout", async () => {
+  // publishHangs stays false → the stub responds immediately, well within the
+  // generous timeout, so a healthy publish is never spuriously aborted.
+  const res = await apiRequest("POST", `/api/admin/changelog/${APP_VERSION}/publish`, undefined, {
+    timeoutMs: 5_000,
+  });
+  assert.equal(res.ok, true, "a fast publish completes normally with the timeout armed");
+});
+

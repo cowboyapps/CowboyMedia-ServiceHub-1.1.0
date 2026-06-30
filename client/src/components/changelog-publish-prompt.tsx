@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, TimeoutError } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -60,14 +60,18 @@ export function ChangelogPublishPrompt() {
   );
 
   const publishMutation = useMutation({
-    mutationFn: async (version: string) => apiRequest("POST", `/api/admin/changelog/${version}/publish`),
+    mutationFn: async (version: string) =>
+      apiRequest("POST", `/api/admin/changelog/${version}/publish`, undefined, { timeoutMs: 15_000 }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog/pending-publish"] });
       setOpen(false);
       toast({ title: "Published", description: "Customers will see the welcome popup the next time they open the app." });
     },
-    onError: (e: any) => toast({ title: "Publish failed", description: e?.message ?? "", variant: "destructive" }),
+    onError: (e: any) =>
+      e instanceof TimeoutError
+        ? toast({ title: "Publish timed out", description: "Couldn't reach the server. Please try again.", variant: "destructive" })
+        : toast({ title: "Publish failed", description: e?.message ?? "", variant: "destructive" }),
   });
 
   const dismiss = () => {
