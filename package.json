@@ -9,7 +9,7 @@
     "build": "tsx script/build.ts",
     "lint": "eslint client/src server shared",
     "start": "NODE_ENV=production node dist/index.cjs",
-    "check": "tsc",
+    "check": "tsc --incremental false",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx script/migrate.ts",
     "db:check": "drizzle-kit check",
