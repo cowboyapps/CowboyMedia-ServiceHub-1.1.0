@@ -395,6 +395,7 @@ export interface IStorage {
   createWhmcsServiceAnnouncement(userId: string, whmcsServiceId: number, serviceName: string): Promise<boolean>;
   getUndismissedWhmcsServiceAnnouncements(userId: string): Promise<WhmcsServiceAnnouncement[]>;
   dismissWhmcsServiceAnnouncement(userId: string, id: string): Promise<void>;
+  getWhmcsServiceAlerts(userId: string, limit?: number): Promise<UserNotification[]>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[], productName?: string | null): Promise<WhmcsProductMapping[]>;
   reorderWhmcsProductMappings(orderedProductIds: number[]): Promise<void>;
@@ -1684,6 +1685,22 @@ export class DatabaseStorage implements IStorage {
       .update(whmcsServiceAnnouncements)
       .set({ dismissedAt: new Date() })
       .where(and(eq(whmcsServiceAnnouncements.id, id), eq(whmcsServiceAnnouncements.userId, userId)));
+  }
+
+  // Admin read-only audit: the new-service alerts (bell rows) a customer was
+  // sent, across BOTH the store "ready" path and the direct-WHMCS "added" path.
+  // Includes read/dismissed rows so support can answer "did this customer get
+  // notified, and when?" — newest first.
+  async getWhmcsServiceAlerts(userId: string, limit = 50): Promise<UserNotification[]> {
+    return db
+      .select()
+      .from(userNotifications)
+      .where(and(
+        eq(userNotifications.userId, userId),
+        inArray(userNotifications.type, ["whmcs_service_ready", "whmcs_service_added"]),
+      ))
+      .orderBy(desc(userNotifications.createdAt))
+      .limit(limit);
   }
 
   async createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken> {

@@ -7186,6 +7186,31 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Admin read-only audit of the new-service alerts a customer was sent — both
+  // the store "ready" path and the direct-WHMCS "added" path. Pure (no WHMCS
+  // call, never writes): support uses it to confirm a customer was notified and
+  // when. Locked shape { alerts: [...] }; empty array when none.
+  app.get("/api/admin/users/:id/whmcs/service-alerts", requirePermission("users.view", "users.manage"), async (req, res) => {
+    try {
+      const user = await storage.getUser(getParam(req, "id"));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const rows = await storage.getWhmcsServiceAlerts(user.id);
+      const alerts = rows.map((r) => ({
+        id: r.id,
+        type: r.type,
+        title: r.title,
+        body: r.body,
+        serviceId: r.referenceId,
+        createdAt: r.createdAt,
+        readAt: r.readAt,
+        dismissedAt: r.dismissedAt,
+      }));
+      return res.json({ alerts });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   // ---------- Support tickets (read-on-demand WHMCS mirror) ----------
   // WHMCS tickets are mirrored on view only — never stored, never mixed with
   // native ServiceHub tickets. A clean, fully-empty payload backs every

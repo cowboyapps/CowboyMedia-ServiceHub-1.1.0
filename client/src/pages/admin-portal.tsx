@@ -9042,6 +9042,7 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
         {link && <WhmcsBillingSection userId={userId} />}
 
         {link && <WhmcsDerivedServicesSection userId={userId} />}
+        {link && <WhmcsServiceAlertsSection userId={userId} />}
         {link && <WhmcsTicketsSection userId={userId} />}
 
         {!link && (
@@ -9180,6 +9181,87 @@ function WhmcsDerivedServicesSection({ userId }: { userId: string }) {
             </Badge>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+interface WhmcsServiceAlert {
+  id: string;
+  type: "whmcs_service_ready" | "whmcs_service_added" | string;
+  title: string;
+  body: string;
+  serviceId: string | null;
+  createdAt: string;
+  readAt: string | null;
+  dismissedAt: string | null;
+}
+
+// Admin read-only audit: the new-service alerts this customer was sent — both
+// the store "ready" path and the direct-WHMCS "added" path — so support can
+// answer "did this customer get notified, and when?" without digging in the DB.
+// Includes read/dismissed rows; live-refetches with the rest of the panel.
+function WhmcsServiceAlertsSection({ userId }: { userId: string }) {
+  const { data, isLoading } = useQuery<{ alerts: WhmcsServiceAlert[] }>({
+    queryKey: ["/api/admin/users", userId, "whmcs", "service-alerts"],
+    ...liveQueryOptions,
+  });
+
+  if (isLoading) {
+    return <div className="border-t pt-3"><Skeleton className="h-16 w-full" /></div>;
+  }
+
+  const alerts = data?.alerts ?? [];
+
+  return (
+    <div className="border-t pt-3" data-testid="panel-whmcs-service-alerts">
+      <div className="flex items-center gap-2 mb-2">
+        <Bell className="w-4 h-4 text-muted-foreground" />
+        <p className="text-sm font-medium">New-service alerts sent</p>
+      </div>
+      {alerts.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="text-service-alerts-empty">
+          No new-service alerts have been sent to this customer.
+        </p>
+      ) : (
+        <ul className="space-y-2" data-testid="list-whmcs-service-alerts">
+          {alerts.map((a) => {
+            const added = a.type === "whmcs_service_added";
+            const when = new Date(a.createdAt);
+            return (
+              <li
+                key={a.id}
+                className="flex items-start gap-2 text-sm"
+                data-testid={`row-service-alert-${a.id}`}
+              >
+                <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium truncate">{a.title}</span>
+                    <Badge variant="outline" className="h-5 px-1.5 text-xs">
+                      {added ? "Added" : "Ready"}
+                    </Badge>
+                    {a.dismissedAt ? (
+                      <Badge variant="outline" className="h-5 px-1.5 text-xs text-muted-foreground">Dismissed</Badge>
+                    ) : a.readAt ? (
+                      <Badge variant="outline" className="h-5 px-1.5 text-xs text-muted-foreground">Read</Badge>
+                    ) : (
+                      <Badge variant="outline" className="h-5 px-1.5 text-xs">Unread</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{a.body}</p>
+                  <p
+                    className="text-xs text-muted-foreground"
+                    title={when.toLocaleString()}
+                    data-testid={`text-service-alert-when-${a.id}`}
+                  >
+                    {formatDistanceToNow(when, { addSuffix: true })}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );
