@@ -1157,11 +1157,14 @@ export const appSettings = pgTable("app_settings", {
 
 export type AppSettings = typeof appSettings.$inferSelect;
 
-// Admin-editable release notes. One row per APP_VERSION. Created as a
-// "draft" by the boot-time auto-draft hook the moment a new version
-// goes live, then a master_admin writes notes in the admin portal and
-// flips status to "published" — which is the gate that makes the
-// "Welcome to version X" popup start firing for customers.
+// Admin-editable release notes. See shared/changelog-rollover.ts for the
+// lifecycle. A single always-open "rolling draft" (sentinel version,
+// status "collecting") accepts every append. When APP_VERSION changes and
+// the app reboots, the collected notes are stamped with the new version and
+// flipped to "awaiting_publish"; a master_admin then clicks Publish —
+// the gate that makes the "Welcome to version X" popup start firing for
+// customers. Publishing is only possible on an "awaiting_publish" entry, so
+// it can only happen as part of a version change, never mid-version.
 //
 // Editing a row after publish does NOT bump publishedAt and does NOT
 // re-fire the popup for users who already dismissed that version.

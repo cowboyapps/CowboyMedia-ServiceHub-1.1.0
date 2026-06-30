@@ -20,7 +20,7 @@ ServiceHub is a PWA for centralized service status monitoring and customer suppo
 - `TELEGRAM_BOT_TOKEN` (optional), `AI_INTEGRATIONS_OPENAI_BASE_URL` / `AI_INTEGRATIONS_OPENAI_API_KEY` (optional)
 - `WHMCS_API_IDENTIFIER` / `WHMCS_API_SECRET` (optional). Base URL is NOT an env var — it lives in the `whmcs_settings` DB row (Admin Portal → WHMCS Billing). Integration no-ops if any of {identifier, secret, baseUrl} is missing.
 - `DEPLOY_GATE_TOKEN` (prod only). Bearer token the VPS deploy listener uses to read `app_settings.auto_deploy_enabled` over HTTP before running `update.sh`. Must match `/etc/servicehub-deploy.env`. Unset → listener fails closed (refuses to deploy).
-- `CHANGELOG_APPEND_TOKEN` (long random; **set on prod AND mirrored to Replit Secrets**). Bearer token for the agent's changelog appends to production (`POST /api/agent/changelog/:version/append`). Without it, appends land in the dev DB and never reach customers. On the VPS it lives in `/opt/servicehub/.env` (the app env file, read via PM2 process env — NOT `/etc/servicehub-deploy.env`, which is the separate listener file). Route fails closed (HTTP 503) when unset. Rotate: `openssl rand -hex 32` → update Replit Secrets + `/opt/servicehub/.env` → `sudo -u servicehub pm2 reload servicehub --update-env` (source the env file first — see Manual deploy).
+- `CHANGELOG_APPEND_TOKEN` (long random; **set on prod AND mirrored to Replit Secrets**). Bearer token for the agent's changelog appends to production (`POST /api/agent/changelog/append`; legacy `:version` twin still accepted). Without it, appends land in the dev DB and never reach customers. On the VPS it lives in `/opt/servicehub/.env` (the app env file, read via PM2 process env — NOT `/etc/servicehub-deploy.env`, which is the separate listener file). Route fails closed (HTTP 503) when unset. Rotate: `openssl rand -hex 32` → update Replit Secrets + `/opt/servicehub/.env` → `sudo -u servicehub pm2 reload servicehub --update-env` (source the env file first — see Manual deploy).
 
 ## Replit ↔ GitHub sync (manual)
 
@@ -128,21 +128,21 @@ Service status monitoring (health, alerts, incidents) · Support ticketing (cate
 I prefer detailed explanations.
 I want iterative development.
 Ask before making major changes.
-When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, and bottom nav all read from it) without further explanation. The "Welcome to version X" popup is decoupled: when the new version boots, the server auto-creates an empty draft changelog entry; the popup only fires once the user clicks **Publish** on it in Admin Portal → Changelog.
+When the user says "change the version to...", update the `APP_VERSION` constant in `shared/version.ts` (single source of truth — settings, sidebar, and bottom nav all read from it) without further explanation. The "Welcome to version X" popup is decoupled and driven by the **rolling-draft** changelog model (see below): on the new version's first boot, the server stamps the collected rolling-draft notes with the new `APP_VERSION` (status `awaiting_publish`) and opens a fresh rolling draft. The popup only fires once a master admin clicks **Publish** on that awaiting-publish entry — either in Admin Portal → Changelog or via the "ready to publish" prompt shown on app open after a version change.
 
-**Auto-append the changelog as we work.** Whenever a change ships that a customer can see or interact with, append a single bullet to the **current** `APP_VERSION`'s draft entry from the Replit shell:
+**Auto-append the changelog as we work.** The changelog uses a **rolling-draft** model (`shared/changelog-rollover.ts`): a single always-open draft (reserved sentinel version `__rolling_draft__`, status `collecting`) collects every note regardless of the current version number. There is no per-version draft and no "wrong version / cannot append" rejection any more — the rolling draft always exists (created on demand) and always accepts appends. Whenever a change ships that a customer can see or interact with, append a single bullet from the Replit shell:
 
 ```bash
 tsx script/append-bullet.ts <New|Improved|Fixed> "<one short customer-friendly sentence>"
 ```
 
-That script POSTs to `https://cowboyhub.app/api/agent/changelog/:version/append` with the `CHANGELOG_APPEND_TOKEN` bearer, so the bullet lands in the **production** draft — the same DB the user reads in Admin Portal → Changelog. **Do NOT call the helper against the local Replit DB** — bullets there are invisible to prod and stranded once `APP_VERSION` bumps. (The session-gated `POST /api/admin/changelog/:version/append` route still backs the admin UI's "Edit draft" flow; both routes share the `appendBulletToBody` merge helper in `shared/changelog-append.ts`.) Rules:
+That script POSTs to `https://cowboyhub.app/api/agent/changelog/append` (no version in the path) with the `CHANGELOG_APPEND_TOKEN` bearer, so the bullet lands in the **production** rolling draft — the same DB the user reads in Admin Portal → Changelog. **Do NOT call the helper against the local Replit DB** — bullets there are invisible to prod. (The session-gated `POST /api/admin/changelog/append` route backs the admin UI's "Edit draft" flow; legacy `:version` twins still exist and ignore the version param. All share the `appendBulletToBody` merge helper in `shared/changelog-append.ts`.) Rules:
 - **Earns a bullet**: new user-visible features, fixes, UI/UX changes, anything meaningfully affecting a customer-facing function (faster, clearer, more reliable, new option/screen/alert channel).
 - **No bullet**: pure refactors, dev tooling, internal plumbing, test-only/type-only/comment changes, build/CI tweaks, non-user-visible schema changes.
 - **Buckets**: exactly three — `New` (brand new), `Improved` (existing got better), `Fixed` (bug fix). One per bullet.
 - **Tone**: customer-friendly plain English ("Faster ticket replies on slow networks"), not engineer-speak. One short sentence.
-- **Scope = current version only.** When `APP_VERSION` bumps, switch to the new draft and never touch older entries (the user owns those).
-- The user proofreads, tweaks, and clicks **Publish**. Do not publish on the user's behalf.
+- **Just append — don't worry about the version.** Bullets always land in the open rolling draft. On a version bump + reboot, the collected notes are auto-stamped with the new `APP_VERSION` (status `awaiting_publish`) and a fresh rolling draft opens. Never touch already-published history (the user owns those).
+- **Publishing only happens as part of a version change.** The rolling draft is never directly publishable; only a version-stamped `awaiting_publish` entry is. The user proofreads, tweaks, and clicks **Publish** (or uses the on-open "ready to publish" prompt). Do not publish on the user's behalf.
 
 ## Build artifacts
 

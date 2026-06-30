@@ -79,6 +79,11 @@ import {
   users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
+import {
+  ROLLING_DRAFT_VERSION,
+  planChangelogRollover,
+  type RolloverActions,
+} from "@shared/changelog-rollover";
 import { db } from "./db";
 import { eq, desc, asc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
 import { invalidatePublicStatusCache } from "./public-status-cache";
@@ -469,6 +474,9 @@ export interface IStorage {
   updateChangelogEntry(version: string, patch: Partial<InsertChangelogEntry>): Promise<ChangelogEntry | undefined>;
   publishChangelogEntry(version: string, publishedBy: string): Promise<ChangelogEntry | undefined>;
   deleteChangelogEntry(version: string): Promise<boolean>;
+  // Rolling-draft model (see shared/changelog-rollover.ts).
+  getOrCreateRollingDraft(): Promise<ChangelogEntry>;
+  ensureChangelogRollover(appVersion: string): Promise<RolloverActions>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2716,13 +2724,18 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async getAllChangelogEntries(): Promise<ChangelogEntry[]> {
-    // Admin contract: drafts first (newest createdAt first) so unfinished
-    // work surfaces at the top, then published entries (newest publishedAt
-    // first). A two-key sort with status='draft' winning the first key
-    // achieves both groupings in a single query.
+    // Admin contract: the open rolling draft ("collecting") pins to the top,
+    // then any version-stamped "awaiting_publish" entries, then published
+    // history — each newer-first. A three-bucket CASE plus a coalesced date
+    // achieves all groupings in a single query.
     return db.select().from(changelogEntries)
       .orderBy(
-        sql`CASE WHEN ${changelogEntries.status} = 'draft' THEN 0 ELSE 1 END`,
+        sql`CASE
+              WHEN ${changelogEntries.status} = 'collecting' THEN 0
+              WHEN ${changelogEntries.status} = 'awaiting_publish' THEN 1
+              WHEN ${changelogEntries.status} = 'draft' THEN 1
+              ELSE 2
+            END`,
         desc(sql`COALESCE(${changelogEntries.publishedAt}, ${changelogEntries.createdAt})`),
       );
   }
@@ -2763,6 +2776,14 @@ export class DatabaseStorage implements IStorage {
     const existing = await this.getChangelogEntry(version);
     if (!existing) return undefined;
     if (existing.status === "published") return existing; // idempotent — don't bump publishedAt
+    // Publishing is the gate that fires the customer "Welcome to version X"
+    // popup, and it can only happen as part of a version change. The ONLY
+    // publishable state is a version-stamped "awaiting_publish" entry (produced
+    // by the boot-time rollover after a version bump). The open rolling draft
+    // ("collecting") and any legacy "draft" rows are rejected — legacy drafts
+    // are reconciled to "awaiting_publish" by the boot rollover before they can
+    // ever be published, so there is no runtime path that publishes a draft.
+    if (existing.status !== "awaiting_publish") return undefined;
     const [updated] = await db.update(changelogEntries)
       .set({ status: "published", publishedAt: new Date(), publishedBy, updatedAt: new Date() })
       .where(eq(changelogEntries.version, version))
@@ -2772,9 +2793,61 @@ export class DatabaseStorage implements IStorage {
   async deleteChangelogEntry(version: string): Promise<boolean> {
     const existing = await this.getChangelogEntry(version);
     if (!existing) return false;
-    if (existing.status === "published") return false; // refuse — only drafts deletable
+    if (existing.status === "published") return false; // refuse — published history is permanent
+    if (existing.status === "collecting") return false; // refuse — the rolling draft is recreated on boot anyway
+    // Drafts and awaiting-publish entries are deletable (e.g. an empty entry
+    // promoted by a version bump that had no notes worth announcing).
     await db.delete(changelogEntries).where(eq(changelogEntries.version, version));
     return true;
+  }
+
+  // ---- rolling-draft model (see shared/changelog-rollover.ts) ----
+  async getOrCreateRollingDraft(): Promise<ChangelogEntry> {
+    const existing = await this.getChangelogEntry(ROLLING_DRAFT_VERSION);
+    if (existing) return existing;
+    return this.createChangelogEntry({
+      version: ROLLING_DRAFT_VERSION,
+      title: "",
+      bodyHtml: "",
+      status: "collecting",
+      publishedAt: null,
+      publishedBy: null,
+    });
+  }
+
+  // Boot-time reconciler. Idempotent. Guarantees exactly one open rolling
+  // draft and, when the version number has been bumped, stamps the collected
+  // notes with the new APP_VERSION (status "awaiting_publish") before opening
+  // a fresh rolling draft. Returns the actions it took (for logging).
+  async ensureChangelogRollover(appVersion: string): Promise<RolloverActions> {
+    const rolling = await this.getChangelogEntry(ROLLING_DRAFT_VERSION);
+    const appEntry = appVersion === ROLLING_DRAFT_VERSION
+      ? undefined
+      : await this.getChangelogEntry(appVersion);
+    const actions = planChangelogRollover({
+      rollingExists: !!rolling,
+      appVersionHasEntry: !!appEntry,
+      appVersionIsLegacyDraft: appEntry?.status === "draft",
+    });
+
+    if (actions.adoptLegacyDraft) {
+      await db.update(changelogEntries)
+        .set({ status: "awaiting_publish", updatedAt: new Date() })
+        .where(eq(changelogEntries.version, appVersion));
+    }
+    if (actions.promoteRollingDraft) {
+      // Rename the sentinel rolling draft to the live version and freeze it
+      // for publishing. The version column is the PK but is referenced by no
+      // foreign keys, so the rename is safe; promote only runs when the
+      // target version has no row, so there is no PK collision.
+      await db.update(changelogEntries)
+        .set({ version: appVersion, status: "awaiting_publish", updatedAt: new Date() })
+        .where(eq(changelogEntries.version, ROLLING_DRAFT_VERSION));
+    }
+    if (actions.createRollingDraft || actions.promoteRollingDraft) {
+      await this.getOrCreateRollingDraft();
+    }
+    return actions;
   }
 }
 

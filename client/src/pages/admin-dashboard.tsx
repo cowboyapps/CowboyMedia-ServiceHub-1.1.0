@@ -29,7 +29,7 @@ import { countBulletsInBody } from "@shared/changelog-append";
 
 type ChangelogDraftRow = {
   version: string;
-  status: "draft" | "published";
+  status: "collecting" | "awaiting_publish" | "published" | "draft";
   bodyHtml: string;
   updatedAt: string;
 };
@@ -149,9 +149,12 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
     queryKey: ["/api/admin/changelog"],
     enabled: !!isMasterAdmin,
   });
-  const currentDraft = changelogRows?.find(
-    (r) => r.version === APP_VERSION && r.status === "draft",
-  );
+  // Surface the open rolling draft (status "collecting") so agent-appended
+  // notes pile up visibly. Falls back to the current version's awaiting-publish
+  // entry if a version bump just stamped the notes but they're not published.
+  const currentDraft =
+    changelogRows?.find((r) => r.status === "collecting") ??
+    changelogRows?.find((r) => r.version === APP_VERSION && r.status === "awaiting_publish");
   const currentDraftBulletCount = currentDraft
     ? countBulletsInBody(currentDraft.bodyHtml)
     : 0;
@@ -482,19 +485,27 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <Stat
-                  label="Working on"
-                  value={<span className="font-mono">v{APP_VERSION}</span>}
-                  sub={currentDraft ? "draft — not yet published" : "no draft yet"}
+                  label="Collecting for"
+                  value={
+                    currentDraft?.status === "awaiting_publish"
+                      ? <span className="font-mono">v{currentDraft.version}</span>
+                      : "Next release"
+                  }
+                  sub={
+                    currentDraft?.status === "awaiting_publish"
+                      ? "staged — ready to publish"
+                      : "publishes on next version change"
+                  }
                 />
                 <Stat
                   label="Bullets queued"
                   value={currentDraft ? currentDraftBulletCount : "—"}
                   sub={
-                    currentDraft && currentDraftBulletCount > 0
+                    currentDraft?.status === "awaiting_publish"
                       ? "click to proofread + publish"
-                      : currentDraft
-                        ? "agent will append as we ship"
-                        : "create one in Changelog"
+                      : currentDraftBulletCount > 0
+                        ? "click to proofread"
+                        : "agent appends as we ship"
                   }
                 />
                 <Stat
@@ -507,11 +518,15 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                 />
                 <Stat
                   label="Status"
-                  value={currentDraft ? "Draft" : "Missing"}
+                  value={
+                    currentDraft?.status === "awaiting_publish" ? "Awaiting publish"
+                    : currentDraft ? "Collecting"
+                    : "Empty"
+                  }
                   sub={
-                    currentDraft
-                      ? "popup stays silent until you publish"
-                      : <span className="text-amber-600 dark:text-amber-400">welcome popup is off</span>
+                    currentDraft?.status === "awaiting_publish"
+                      ? <span className="text-amber-600 dark:text-amber-400">publish to fire the welcome popup</span>
+                      : "publishes only when the version changes"
                   }
                 />
               </div>

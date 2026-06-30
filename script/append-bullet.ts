@@ -1,9 +1,14 @@
-// Append one changelog bullet to the **current APP_VERSION's draft on
-// production**, via the bearer-token-gated /api/agent/changelog/.../append
-// route. This is the call site the Replit agent uses to satisfy the
-// "auto-append the changelog as we work" rule in replit.md — writing
-// straight at the prod DB avoids the dev/prod drift that used to leave
-// bullets stranded in the Replit-side database.
+// Append one changelog bullet to the **rolling draft on production**, via
+// the bearer-token-gated /api/agent/changelog/append route. This is the call
+// site the Replit agent uses to satisfy the "auto-append the changelog as we
+// work" rule in replit.md — writing straight at the prod DB avoids the
+// dev/prod drift that used to leave bullets stranded in the Replit-side
+// database.
+//
+// The changelog now has a single always-open rolling draft; every bullet
+// lands there no matter what the current version number is. The caller no
+// longer needs to know or send the live version — publishing happens later,
+// automatically, when the version number changes.
 //
 // Usage:
 //   tsx script/append-bullet.ts <New|Improved|Fixed> "<one short bullet>"
@@ -13,15 +18,13 @@
 //                             value set on the VPS in /etc/servicehub.env.
 //   CHANGELOG_APPEND_URL    — optional. Defaults to
 //                             https://cowboyhub.app/api/agent/changelog
-//                             (append `/${APP_VERSION}/append` at call
-//                             time so a single base var covers any
-//                             future version bump). Override for staging.
+//                             (the script appends `/append`). Override for
+//                             staging.
 //
 // Exits non-zero on any failure (bad args, missing token, non-2xx
 // response). The agent treats that as a hard failure and surfaces it.
 
 import "dotenv/config";
-import { APP_VERSION } from "../shared/version";
 import { isBulletHeading } from "../shared/changelog-append";
 
 async function main() {
@@ -41,7 +44,7 @@ async function main() {
     process.exit(2);
   }
   const base = (process.env.CHANGELOG_APPEND_URL ?? "https://cowboyhub.app/api/agent/changelog").replace(/\/$/, "");
-  const url = `${base}/${encodeURIComponent(APP_VERSION)}/append`;
+  const url = `${base}/append`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -61,7 +64,7 @@ async function main() {
   try { parsed = JSON.parse(text); } catch { /* tolerated */ }
   const liMatches = typeof parsed?.bodyHtml === "string" ? parsed.bodyHtml.match(/<li\b/gi) : null;
   const count = liMatches ? liMatches.length : "?";
-  console.log(`Appended to v${APP_VERSION} draft. Total bullets now: ${count}.`);
+  console.log(`Appended to the rolling changelog draft. Total bullets now: ${count}.`);
 }
 
 main().catch((e) => {

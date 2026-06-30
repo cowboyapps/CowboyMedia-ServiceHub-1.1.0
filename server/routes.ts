@@ -113,7 +113,7 @@ import {
   composeDiscordTest,
   type DiscordPayload,
 } from "./discord";
-import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, insertChangelogEntrySchema, type InsertChangelogEntry } from "@shared/schema";
+import { insertAnnouncementSchema, updateAnnouncementSchema, type UpdateAnnouncement, updateProfileSchema, type InsertChangelogEntry } from "@shared/schema";
 import { appendBulletToBody, isBulletHeading } from "@shared/changelog-append";
 import { APP_VERSION } from "@shared/version";
 import { requireAgentToken } from "./agent-auth";
@@ -1502,25 +1502,12 @@ export async function registerRoutes(
     } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });
 
-  app.post("/api/admin/changelog", requireMasterAdmin, async (req, res) => {
-    try {
-      const parsed = insertChangelogEntrySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid body", errors: parsed.error.flatten() });
-      const data = parsed.data;
-      // Force-create as draft regardless of incoming status — publish has its own endpoint.
-      const existing = await storage.getChangelogEntry(data.version);
-      if (existing) return res.status(409).json({ message: `Entry for version ${data.version} already exists` });
-      const created = await storage.createChangelogEntry({
-        version: data.version,
-        title: data.title ?? "",
-        bodyHtml: sanitizeNewsContent(data.bodyHtml ?? ""),
-        status: "draft",
-        publishedAt: null,
-        publishedBy: null,
-      });
-      res.status(201).json(created);
-    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
-  });
+  // NOTE: there is intentionally no manual "create changelog entry" route in
+  // the rolling-draft model. The single open rolling draft is created on demand
+  // (boot + first append), and version-stamped "awaiting_publish" entries are
+  // produced only by the boot-time rollover after a version bump. Allowing
+  // arbitrary draft creation would re-open the forbidden mid-version publish
+  // path, so the route is omitted entirely.
 
   app.patch("/api/admin/changelog/:version", requireMasterAdmin, async (req, res) => {
     try {
@@ -1540,10 +1527,16 @@ export async function registerRoutes(
   // (creating the section if missing), re-sanitizes the result, and saves.
   // Keeps agent edits small, atomic, and safe — and avoids the agent ever
   // round-tripping the entire body, which would risk wiping editorial
-  // tweaks the user made between appends.
-  // Shared body for both the session-gated admin route and the bearer-gated
-  // agent route. Same validation, same merge, same sanitize, same return —
-  // the only thing that differs between the two surfaces is auth.
+  // tweaks the user made between appends. Shared body for both the
+  // session-gated admin route and the bearer-gated agent route; the only
+  // difference between the two surfaces is auth.
+  //
+  // Every append lands in the single open rolling draft (status
+  // "collecting"), regardless of the current version number. There is no
+  // "wrong version" or "cannot append to a published entry" rejection any
+  // more — the rolling draft always exists (created on demand) and always
+  // accepts notes. Any :version path param is ignored; it's kept only for
+  // backwards compatibility with older callers.
   async function handleChangelogAppend(req: Request, res: Response) {
     try {
       const { heading, bullet } = (req.body || {}) as { heading?: unknown; bullet?: unknown };
@@ -1553,45 +1546,77 @@ export async function registerRoutes(
       if (typeof bullet !== "string" || !bullet.trim()) {
         return res.status(400).json({ message: "bullet required" });
       }
-      // Enforce the "current version only" invariant on the server too —
-      // not just by agent discipline. Prevents accidental writes to an
-      // older draft if APP_VERSION has moved on.
-      if (req.params.version !== APP_VERSION) {
-        return res.status(409).json({
-          message: `Can only append to the current APP_VERSION (${APP_VERSION})`,
-        });
-      }
-      const existing = await storage.getChangelogEntry(req.params.version);
-      if (!existing) return res.status(404).json({ message: "Not found" });
-      if (existing.status !== "draft") {
-        return res.status(409).json({ message: "Cannot append to a published entry" });
-      }
-      const merged = appendBulletToBody(existing.bodyHtml ?? "", heading, bullet);
-      const updated = await storage.updateChangelogEntry(req.params.version, {
+      const rolling = await storage.getOrCreateRollingDraft();
+      const merged = appendBulletToBody(rolling.bodyHtml ?? "", heading, bullet);
+      const updated = await storage.updateChangelogEntry(rolling.version, {
         bodyHtml: sanitizeNewsContent(merged),
       });
       res.json(updated);
     } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   }
 
+  // Version-less append (preferred) plus the legacy :version twins. All four
+  // route to the same handler and write to the rolling draft.
+  app.post("/api/admin/changelog/append", requireMasterAdmin, handleChangelogAppend);
   app.post("/api/admin/changelog/:version/append", requireMasterAdmin, handleChangelogAppend);
 
-  // Bearer-token twin of the route above. Same body, same merge, same
+  // Bearer-token twins of the routes above. Same body, same merge, same
   // response shape — auth is the only difference. Lets the Replit agent
   // (or any other automated caller) POST a bullet straight at production
   // without piggybacking on a master_admin browser session. The token
   // lives in `CHANGELOG_APPEND_TOKEN` on the VPS (mirror in Replit Secrets
   // so the agent's append script can read it). See replit.md.
   app.post(
+    "/api/agent/changelog/append",
+    requireAgentToken("CHANGELOG_APPEND_TOKEN"),
+    handleChangelogAppend,
+  );
+  app.post(
     "/api/agent/changelog/:version/append",
     requireAgentToken("CHANGELOG_APPEND_TOKEN"),
     handleChangelogAppend,
   );
 
+  // The version-stamped entry awaiting publish for the CURRENT live version,
+  // if any. Drives the master-admin "ready to publish" prompt on app open.
+  // Null when there's nothing to publish for this version.
+  app.get("/api/admin/changelog/pending-publish", requireMasterAdmin, async (_req, res) => {
+    try {
+      res.set("Cache-Control", "no-store");
+      const entry = await storage.getChangelogEntry(APP_VERSION);
+      if (!entry || entry.status !== "awaiting_publish") return res.json(null);
+      res.json({
+        version: entry.version,
+        title: entry.title,
+        bodyHtml: sanitizeNewsContent(entry.bodyHtml ?? ""),
+        updatedAt: entry.updatedAt,
+      });
+    } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
+  });
+
   app.post("/api/admin/changelog/:version/publish", requireMasterAdmin, async (req, res) => {
     try {
-      const updated = await storage.publishChangelogEntry(getParam(req, "version"), req.session.userId!);
-      if (!updated) return res.status(404).json({ message: "Not found" });
+      const version = getParam(req, "version");
+      const existing = await storage.getChangelogEntry(version);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      // Publishing fires the customer "Welcome to version X" popup and may ONLY
+      // happen on the current live version's "awaiting_publish" entry — the one
+      // the boot-time rollover stamps after a version bump. Two hard gates:
+      //   1) version must equal the running APP_VERSION (never publish notes for
+      //      a version you're not on, nor an older/skipped awaiting-publish row),
+      //   2) status must be "awaiting_publish" (the open rolling draft and
+      //      published history are both rejected).
+      if (existing.status === "collecting") {
+        return res.status(409).json({ message: "The rolling draft can't be published. Publishing happens when the version number changes." });
+      }
+      if (version !== APP_VERSION) {
+        return res.status(409).json({ message: `Only the current version (${APP_VERSION}) can be published.` });
+      }
+      if (existing.status !== "awaiting_publish") {
+        return res.status(409).json({ message: "Only an awaiting-publish entry can be published." });
+      }
+      const updated = await storage.publishChangelogEntry(version, req.session.userId!);
+      if (!updated) return res.status(409).json({ message: "Only an awaiting-publish entry can be published." });
       res.json(updated);
     } catch (e) { res.status(500).json({ message: getErrorMessage(e) }); }
   });

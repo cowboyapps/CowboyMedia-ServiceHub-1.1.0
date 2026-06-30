@@ -713,25 +713,19 @@ void (async () => {
     console.error("Changelog seed error:", e);
   }
 
-  // Auto-create an empty draft row for the current APP_VERSION the moment a
-  // new build boots, so the admin portal's Changelog tab always has a row
-  // ready to write into. The popup stays silent until master_admin clicks
-  // Publish on this row.
+  // Reconcile the rolling-draft changelog model (see
+  // shared/changelog-rollover.ts). Guarantees exactly one open rolling draft
+  // and, when the version number was bumped since the last boot, stamps the
+  // collected notes with the new APP_VERSION (status "awaiting_publish") and
+  // opens a fresh rolling draft. Idempotent on same-version reboots. The
+  // popup stays silent until master_admin clicks Publish.
   try {
-    const existing = await storage.getChangelogEntry(APP_VERSION);
-    if (!existing) {
-      await storage.createChangelogEntry({
-        version: APP_VERSION,
-        title: "",
-        bodyHtml: "",
-        status: "draft",
-        publishedAt: null,
-        publishedBy: null,
-      });
-      log(`Changelog: created draft row for version ${APP_VERSION}`);
-    }
+    const actions = await storage.ensureChangelogRollover(APP_VERSION);
+    if (actions.adoptLegacyDraft) log(`Changelog: adopted legacy draft for v${APP_VERSION} as awaiting-publish`);
+    if (actions.promoteRollingDraft) log(`Changelog: stamped collected notes as v${APP_VERSION}, awaiting publish`);
+    if (actions.createRollingDraft) log(`Changelog: opened a fresh rolling draft`);
   } catch (e) {
-    console.error("Changelog auto-draft error:", e);
+    console.error("Changelog rollover error:", e);
   }
 
   async function checkSetupReminders() {
