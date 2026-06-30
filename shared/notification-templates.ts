@@ -20,6 +20,7 @@ export type NotificationTemplateKey =
   | "whmcs.service.suspended"
   | "whmcs.service.unsuspended"
   | "whmcs.service.ready"
+  | "whmcs.service.added"
   | "whmcs.invoice.due_soon"
   | "whmcs.invoice.overdue"
   | "whmcs.ticket.reply";
@@ -114,6 +115,15 @@ export const NOTIFICATION_TEMPLATE_DEFS: NotificationTemplateDef[] = [
     description: "Sent once when a newly ordered service has finished provisioning and is ready to use.",
     defaultTitle: "Your new service is ready",
     defaultBody: "{service} is ready — tap to view your login details.",
+    variables: [SERVICE_VAR],
+  },
+  {
+    key: "whmcs.service.added",
+    group: "Service",
+    label: "New service added",
+    description: "Sent once when a brand-new service is detected on a customer's account (e.g. ordered directly in WHMCS).",
+    defaultTitle: "New service added",
+    defaultBody: "{service} has been added to your account — tap to view it.",
     variables: [SERVICE_VAR],
   },
   {

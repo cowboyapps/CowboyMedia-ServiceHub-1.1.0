@@ -224,3 +224,26 @@ export function serviceReadyBody(
 ): string {
   return renderNotification(SERVICE_READY_TEMPLATE_KEY, { service: serviceLabel(service) }, override).body;
 }
+
+// --- "New service added" copy (Task #567) -------------------------------------
+// A one-time message fired when a brand-new service is detected on an already-
+// baselined customer's account — e.g. one ordered directly in WHMCS, outside the
+// ServiceHub store. Like "ready" it is NOT a ServiceEventKind (no marker
+// transition drives it) and is strictly credential-free: it names the service
+// and deep-links to My Services where the secure details live.
+
+/** Notification-template key for the "new service added" message. */
+export const SERVICE_ADDED_TEMPLATE_KEY: NotificationTemplateKey = "whmcs.service.added";
+
+/** Title for the "new service added" message (admin override wins). */
+export function serviceAddedTitle(override?: NotificationTemplateOverride | null): string {
+  return renderNotification(SERVICE_ADDED_TEMPLATE_KEY, {}, override).title;
+}
+
+/** Body for the "new service added" message (admin override wins). */
+export function serviceAddedBody(
+  service: ServiceNotifyCandidate,
+  override?: NotificationTemplateOverride | null,
+): string {
+  return renderNotification(SERVICE_ADDED_TEMPLATE_KEY, { service: serviceLabel(service) }, override).body;
+}

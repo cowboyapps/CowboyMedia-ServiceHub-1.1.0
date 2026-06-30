@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, getWebSocketServer, sendPushToUser, sendTemplatedEmail, customerWantsPush, customerWantsEmail } from "./routes";
+import { registerRoutes, getWebSocketServer, sendPushToUser, sendTemplatedEmail, customerWantsPush, customerWantsEmail, broadcastToUserIds } from "./routes";
 import { hasWhmcsCredentials, normalizeBaseUrl as normalizeWhmcsBaseUrl } from "./whmcs";
 import { loadTicketsList as loadWhmcsTicketsList } from "./whmcs-tickets";
 import { startWhmcsTicketNotifier, type NotifierUser, type NotifierTicket } from "./whmcs-ticket-notifier";
@@ -43,6 +43,9 @@ import {
   SERVICE_READY_TEMPLATE_KEY,
   serviceReadyTitle,
   serviceReadyBody,
+  SERVICE_ADDED_TEMPLATE_KEY,
+  serviceAddedTitle,
+  serviceAddedBody,
 } from "@shared/whmcs-service-notify";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -600,6 +603,74 @@ void (async () => {
               },
         );
       })();
+    },
+    // --- "New service added" hooks (Task #567) -------------------------------
+    // Detects a service ordered directly in WHMCS (outside the ServiceHub store)
+    // on its first sighting after the customer has been baselined.
+    getServiceBaseline: (userId) => storage.getWhmcsServiceBaselined(userId),
+    recordServiceBaseline: (userId) => storage.recordWhmcsServiceBaselined(userId),
+    recordAddedAnnouncement: async (user, service) => {
+      // Persist the one-time popup row (idempotent on (user, service)). Returns
+      // false on failure so the notifier leaves the service unmarked + retries.
+      try {
+        return await storage.createWhmcsServiceAnnouncement(user.id, service.id, serviceLabel(service));
+      } catch (e) {
+        console.error("[whmcs-service-notifier] recordAddedAnnouncement failed:", (e as Error)?.message);
+        return false;
+      }
+    },
+    createAddedInApp: async (user, service) => {
+      // In-app is a PRIMARY channel for "added" (fires regardless of push prefs).
+      // Bell row deep-links to /my-services?service=<id> (the secure surface) so
+      // the new service's card auto-expands. Credential-free. Never throws.
+      try {
+        const ov = await getNotificationOverride(SERVICE_ADDED_TEMPLATE_KEY);
+        const row = await storage.createUserNotification({
+          userId: user.id,
+          type: "whmcs_service_added",
+          title: serviceAddedTitle(ov),
+          body: serviceAddedBody(service, ov),
+          referenceType: "whmcs_service",
+          referenceId: String(service.id),
+          url: `/my-services?service=${service.id}`,
+        });
+        return row.id;
+      } catch (e) {
+        console.error("[whmcs-service-notifier] createAddedInApp failed:", (e as Error)?.message);
+        return null;
+      }
+    },
+    sendAddedPush: (user, service, _baseUrl, notificationId) => {
+      void (async () => {
+        const ov = await getNotificationOverride(SERVICE_ADDED_TEMPLATE_KEY);
+        void sendPushToUser(
+          user.id,
+          {
+            title: serviceAddedTitle(ov),
+            body: serviceAddedBody(service, ov),
+            url: `/my-services?service=${service.id}`,
+            tag: `whmcs-service-${service.id}-added`,
+            resourceLabel: serviceLabel(service),
+            rollupNoun: "updates",
+          },
+          notificationId
+            ? { notificationId }
+            : {
+                type: "whmcs_service_added",
+                referenceType: "whmcs_service",
+                referenceId: String(service.id),
+              },
+        );
+      })();
+    },
+    broadcastAdded: (user, service) => {
+      // Nudge the customer's open tabs so the popup surfaces without a reload.
+      // Credential-free: only the service id + name + a message type.
+      broadcastToUserIds([user.id], {
+        type: "whmcs_service_added",
+        serviceId: String(service.id),
+        serviceName: serviceLabel(service),
+      });
     },
   });
 

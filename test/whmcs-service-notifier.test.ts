@@ -5,6 +5,7 @@ import {
   RENEW_SOON_DAYS,
   categoryForKind,
   SERVICE_READY_CATEGORY_KEY,
+  SERVICE_ADDED_CATEGORY_KEY,
   type WhmcsServiceNotifierDeps,
   type ServiceNotifierUser,
   type NotifierService,
@@ -44,6 +45,11 @@ interface Recorder {
   readyInApp: Array<{ userId: string; serviceId: number }>;
   readyPushes: Array<{ userId: string; serviceId: number; notificationId: string | null }>;
   fulfilled: string[];
+  addedAnnouncements: Array<{ userId: string; serviceId: number }>;
+  addedInApp: Array<{ userId: string; serviceId: number }>;
+  addedPushes: Array<{ userId: string; serviceId: number; notificationId: string | null }>;
+  addedBroadcasts: Array<{ userId: string; serviceId: number }>;
+  baselineRecords: string[];
 }
 
 function makeDeps(opts: {
@@ -64,6 +70,13 @@ function makeDeps(opts: {
   getPendingOrdersThrows?: boolean;
   readyInAppReturns?: string | null;
   wantsReadyPush?: boolean;
+  // "Added" detection (Task #567). Setting enableAdded wires all six hooks.
+  enableAdded?: boolean;
+  baselinedUsers?: string[];
+  getServiceBaselineThrows?: boolean;
+  recordAddedReturns?: boolean;
+  addedInAppReturns?: string | null;
+  wantsAddedPush?: boolean;
 }): { deps: WhmcsServiceNotifierDeps; rec: Recorder; state: Record<string, ServiceMarkerMap> } {
   const rec: Recorder = {
     inApp: [],
@@ -74,6 +87,11 @@ function makeDeps(opts: {
     readyInApp: [],
     readyPushes: [],
     fulfilled: [],
+    addedAnnouncements: [],
+    addedInApp: [],
+    addedPushes: [],
+    addedBroadcasts: [],
+    baselineRecords: [],
   };
   const state: Record<string, ServiceMarkerMap> = JSON.parse(JSON.stringify(opts.markerState ?? {}));
   const unreachable = opts.unreachableClients ?? new Set<number>();
@@ -108,8 +126,11 @@ function makeDeps(opts: {
     sendPush: (user, service, kind, _baseUrl, notificationId) =>
       rec.pushes.push({ userId: user.id, serviceId: service.id, kind, notificationId }),
     sendEmail: (user, service, kind) => rec.emails.push({ userId: user.id, serviceId: service.id, kind }),
-    wantsPush: (_user, categoryKey) =>
-      categoryKey === SERVICE_READY_CATEGORY_KEY ? (opts.wantsReadyPush ?? true) : (opts.wantsPush ?? true),
+    wantsPush: (_user, categoryKey) => {
+      if (categoryKey === SERVICE_READY_CATEGORY_KEY) return opts.wantsReadyPush ?? true;
+      if (categoryKey === SERVICE_ADDED_CATEGORY_KEY) return opts.wantsAddedPush ?? true;
+      return opts.wantsPush ?? true;
+    },
     wantsEmail: () => opts.wantsEmail ?? true,
     prefsOn: () => opts.prefsOn ?? true,
   };
@@ -132,6 +153,30 @@ function makeDeps(opts: {
     };
     deps.sendReadyPush = (user, service, _baseUrl, notificationId) =>
       rec.readyPushes.push({ userId: user.id, serviceId: service.id, notificationId });
+  }
+
+  if (opts.enableAdded) {
+    const baselined = new Set(opts.baselinedUsers ?? []);
+    deps.getServiceBaseline = async (userId) => {
+      if (opts.getServiceBaselineThrows) throw new Error("baseline boom");
+      return baselined.has(userId);
+    };
+    deps.recordServiceBaseline = async (userId) => {
+      rec.baselineRecords.push(userId);
+      baselined.add(userId);
+    };
+    deps.recordAddedAnnouncement = async (user, service) => {
+      rec.addedAnnouncements.push({ userId: user.id, serviceId: service.id });
+      return opts.recordAddedReturns ?? true;
+    };
+    deps.createAddedInApp = async (user, service) => {
+      rec.addedInApp.push({ userId: user.id, serviceId: service.id });
+      return opts.addedInAppReturns === undefined ? "added-notif-1" : opts.addedInAppReturns;
+    };
+    deps.sendAddedPush = (user, service, _baseUrl, notificationId) =>
+      rec.addedPushes.push({ userId: user.id, serviceId: service.id, notificationId });
+    deps.broadcastAdded = (user, service) =>
+      rec.addedBroadcasts.push({ userId: user.id, serviceId: service.id });
   }
 
   return { deps, rec, state };
@@ -654,4 +699,178 @@ test("ready detection is OFF when hooks are not wired (lifecycle behaves as befo
   assert.equal(result.readyNotified, 0);
   assert.equal(rec.readyInApp.length, 0);
   assert.equal(rec.readyPushes.length, 0);
+});
+
+// --- "New service added" detection (Task #567) -------------------------------
+
+test("added: silent baseline on a customer's first-ever poll (not yet baselined)", async () => {
+  // First poll, customer not baselined: all first-sightings are recorded
+  // SILENTLY (no announcement/bell/push/broadcast) and the customer is marked
+  // baselined after the pass.
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: [], // u1 not baselined yet
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.equal(rec.addedAnnouncements.length, 0);
+  assert.equal(rec.addedInApp.length, 0);
+  assert.equal(rec.addedPushes.length, 0);
+  assert.equal(rec.addedBroadcasts.length, 0);
+  assert.deepEqual(rec.baselineRecords, ["u1"]); // baselined after the pass
+  // Silent marker still written.
+  assert.deepEqual(rec.recorded, [
+    { userId: "u1", serviceId: 7, marker: { lastSeenStatus: "active", lastRenewalNotified: null } },
+  ]);
+});
+
+test("added: customer with zero services still gets baselined on first poll", async () => {
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: [],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.deepEqual(rec.baselineRecords, ["u1"]);
+});
+
+test("added: fires on a first-sighting service for an already-baselined customer", async () => {
+  // Customer already baselined; a brand-new service (no marker) appears — it was
+  // ordered directly in WHMCS. Fire announcement + bell + push + broadcast.
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 1);
+  assert.deepEqual(rec.addedAnnouncements, [{ userId: "u1", serviceId: 7 }]);
+  assert.deepEqual(rec.addedInApp, [{ userId: "u1", serviceId: 7 }]);
+  assert.deepEqual(rec.addedPushes, [{ userId: "u1", serviceId: 7, notificationId: "added-notif-1" }]);
+  assert.deepEqual(rec.addedBroadcasts, [{ userId: "u1", serviceId: 7 }]);
+  // Already baselined → never re-records the baseline marker.
+  assert.equal(rec.baselineRecords.length, 0);
+  // Silent marker for the service still written so it never re-fires.
+  assert.deepEqual(rec.recorded, [
+    { userId: "u1", serviceId: 7, marker: { lastSeenStatus: "active", lastRenewalNotified: null } },
+  ]);
+});
+
+test("added: does NOT fire again once the service has a marker (one-time)", async () => {
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    markerState: { u1: { "7": { lastSeenStatus: "active", lastRenewalNotified: null } } },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.equal(rec.addedAnnouncements.length, 0);
+  assert.equal(rec.addedInApp.length, 0);
+});
+
+test("added: respects push prefs (announcement + bell + broadcast still fire, no push)", async () => {
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    wantsAddedPush: false,
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 1);
+  assert.deepEqual(rec.addedAnnouncements, [{ userId: "u1", serviceId: 7 }]);
+  assert.deepEqual(rec.addedInApp, [{ userId: "u1", serviceId: 7 }]);
+  assert.equal(rec.addedPushes.length, 0); // push suppressed by prefs
+  assert.deepEqual(rec.addedBroadcasts, [{ userId: "u1", serviceId: 7 }]);
+});
+
+test("added: consumes a matching pending order so the ready path can't double-notify", async () => {
+  // The same provision must never fire BOTH "added" and "ready". When "added"
+  // fires, it fulfills the matching pending order so a later pass's ready path
+  // (which needs an unfulfilled order) can't replay.
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    pendingByUser: { u1: [{ id: "ord-1", whmcsProductId: 42 }] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 1);
+  assert.equal(result.readyNotified, 0); // ready did NOT also fire
+  assert.deepEqual(rec.fulfilled, ["ord-1"]); // matching order consumed
+  assert.equal(rec.readyInApp.length, 0);
+});
+
+test("added: transient failure on bell create leaves service unmarked for retry", async () => {
+  // createAddedInApp returns null → do NOT mark the service, do NOT push/broadcast,
+  // and do NOT baseline-advance prematurely; next pass retries.
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    addedInAppReturns: null,
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.deepEqual(rec.addedAnnouncements, [{ userId: "u1", serviceId: 7 }]); // attempted
+  assert.deepEqual(rec.addedInApp, [{ userId: "u1", serviceId: 7 }]); // attempted
+  assert.equal(rec.addedPushes.length, 0);
+  assert.equal(rec.addedBroadcasts.length, 0);
+  assert.equal(rec.recorded.length, 0); // service left unmarked
+});
+
+test("added: transient failure on announcement insert leaves service unmarked for retry", async () => {
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"],
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+    recordAddedReturns: false,
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.deepEqual(rec.addedAnnouncements, [{ userId: "u1", serviceId: 7 }]); // attempted
+  assert.equal(rec.addedInApp.length, 0); // bell never attempted (bailed first)
+  assert.equal(rec.recorded.length, 0); // service left unmarked
+});
+
+test("added: getServiceBaseline failure fails safe to silent baseline (never false-announces)", async () => {
+  // If the baseline read throws, treat the customer as NOT baselined so we
+  // silently baseline rather than risk announcing pre-existing services.
+  const { deps, rec } = makeDeps({
+    enableAdded: true,
+    baselinedUsers: ["u1"], // would normally be baselined...
+    getServiceBaselineThrows: true, // ...but the read fails
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.equal(rec.addedAnnouncements.length, 0);
+  assert.deepEqual(rec.baselineRecords, ["u1"]); // silently baselined instead
+});
+
+test("added detection is OFF when hooks are not wired (lifecycle behaves as before)", async () => {
+  const { deps, rec } = makeDeps({
+    // enableAdded omitted → addedEnabled false
+    users: [mkUser({ id: "u1", whmcsClientId: 100 })],
+    servicesByClient: { 100: [mkService({ id: 7, status: "Active", pid: 42 })] },
+  });
+  const result = await runWhmcsServiceNotifyPass(deps);
+  assert.equal(result.addedNotified, 0);
+  assert.equal(rec.addedAnnouncements.length, 0);
+  assert.equal(rec.baselineRecords.length, 0);
+  // Silent baseline marker as before.
+  assert.deepEqual(rec.recorded, [
+    { userId: "u1", serviceId: 7, marker: { lastSeenStatus: "active", lastRenewalNotified: null } },
+  ]);
 });

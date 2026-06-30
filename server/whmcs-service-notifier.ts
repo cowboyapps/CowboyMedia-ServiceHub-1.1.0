@@ -129,6 +129,42 @@ export interface WhmcsServiceNotifierDeps {
     baseUrl: string | null,
     notificationId: string | null,
   ) => void;
+
+  // --- "New service added" hooks (Task #567) ---------------------------------
+  // Detects a BRAND-NEW service (no prior marker) on an ALREADY-baselined
+  // customer — e.g. one ordered directly in WHMCS, outside the ServiceHub store.
+  // All six must be supplied together to enable the feature; when any is missing
+  // the notifier behaves exactly as before (every first-sighting is a silent
+  // baseline, no "added" detection). Kept optional so existing call sites/tests
+  // don't break.
+  /** Has this customer completed a baseline pass? false => first-ever poll. */
+  getServiceBaseline?: (userId: string) => Promise<boolean>;
+  /** Mark this customer baselined after a full reachable first pass. */
+  recordServiceBaseline?: (userId: string) => Promise<void>;
+  /**
+   * Persist the one-time popup announcement (idempotent on (user, service)).
+   * Returns false on failure so the caller leaves the service unmarked + retries.
+   */
+  recordAddedAnnouncement?: (user: ServiceNotifierUser, service: NotifierService) => Promise<boolean>;
+  /**
+   * Create the in-app (bell) row for the "added" message and return its id (null
+   * on failure). In-app is a PRIMARY channel for "added" so it fires regardless
+   * of push prefs. Never throws.
+   */
+  createAddedInApp?: (
+    user: ServiceNotifierUser,
+    service: NotifierService,
+    baseUrl: string | null,
+  ) => Promise<string | null>;
+  /** Fire the "added" push (caller decides delivery; never throws). */
+  sendAddedPush?: (
+    user: ServiceNotifierUser,
+    service: NotifierService,
+    baseUrl: string | null,
+    notificationId: string | null,
+  ) => void;
+  /** Real-time WebSocket nudge so the popup can surface without a reload. */
+  broadcastAdded?: (user: ServiceNotifierUser, service: NotifierService) => void;
 }
 
 /** A customer's recorded pending order, matched to a new service by product id. */
@@ -145,12 +181,17 @@ export function categoryForKind(kind: ServiceEventKind): string {
 /** Opt-in push category for the "new service is ready" message. */
 export const SERVICE_READY_CATEGORY_KEY = "whmcs_service_ready";
 
+/** Opt-in push category for the "new service added" message. */
+export const SERVICE_ADDED_CATEGORY_KEY = "whmcs_service_added";
+
 export interface ServiceNotifyPassResult {
   active: boolean;
   usersScanned: number;
   eventsNotified: number;
   /** Count of "new service is ready" messages fired this pass. */
   readyNotified: number;
+  /** Count of "new service added" announcements fired this pass. */
+  addedNotified: number;
 }
 
 /** Current calendar date (UTC) as YYYY-MM-DD. */
@@ -170,6 +211,7 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
   let usersScanned = 0;
   let eventsNotified = 0;
   let readyNotified = 0;
+  let addedNotified = 0;
 
   // The "new service is ready" feature is active only when ALL its hooks are
   // wired (production). Tests of the lifecycle events leave them off.
@@ -180,21 +222,33 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
     deps.sendReadyPush
   );
 
+  // The "new service added" feature is active only when ALL its hooks are wired
+  // (production). Lifecycle-only / ready-only tests leave them off, so every
+  // first-sighting stays a silent baseline (unchanged behavior).
+  const addedEnabled = !!(
+    deps.getServiceBaseline &&
+    deps.recordServiceBaseline &&
+    deps.recordAddedAnnouncement &&
+    deps.createAddedInApp &&
+    deps.sendAddedPush &&
+    deps.broadcastAdded
+  );
+
   let config: { active: boolean; baseUrl: string | null };
   try {
     config = await deps.getConfig();
   } catch (e) {
     console.error("[whmcs-service-notifier] getConfig failed:", (e as Error)?.message);
-    return { active: false, usersScanned, eventsNotified, readyNotified };
+    return { active: false, usersScanned, eventsNotified, readyNotified, addedNotified };
   }
-  if (!config.active) return { active: false, usersScanned, eventsNotified, readyNotified };
+  if (!config.active) return { active: false, usersScanned, eventsNotified, readyNotified, addedNotified };
 
   let users: ServiceNotifierUser[];
   try {
     users = await deps.getLinkedUsers();
   } catch (e) {
     console.error("[whmcs-service-notifier] getLinkedUsers failed:", (e as Error)?.message);
-    return { active: true, usersScanned, eventsNotified, readyNotified };
+    return { active: true, usersScanned, eventsNotified, readyNotified, addedNotified };
   }
 
   for (const user of users) {
@@ -221,6 +275,71 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
           pending = null;
         }
       }
+
+      // Whether this customer has already completed a baseline pass. On their
+      // very FIRST poll (not yet baselined) every first-sighting is recorded
+      // SILENTLY so linking an existing account / enabling the feature never
+      // blasts them about pre-existing services. After that, a first-sighting is
+      // a genuine addition. Read once per user; the marker is written after the
+      // whole pass (below) only when it was reachable end-to-end.
+      let customerBaselined = true;
+      if (addedEnabled) {
+        try {
+          customerBaselined = await deps.getServiceBaseline!(user.id);
+        } catch (e) {
+          console.error(`[whmcs-service-notifier] getServiceBaseline ${user.id} failed:`, (e as Error)?.message);
+          // Fail safe: treat as NOT baselined so we silently baseline rather than
+          // risk falsely announcing pre-existing services as "added".
+          customerBaselined = false;
+        }
+      }
+
+      // Fire the one-time "a new service was added to your account" announcement
+      // for a brand-new service (no prior marker) on a customer we have ALREADY
+      // baselined — e.g. one ordered directly in WHMCS, outside the ServiceHub
+      // store. Distinct from "ready": "added" fires on the FIRST sighting (no
+      // marker); "ready" fires on a later pending->active transition (has a
+      // marker). To guarantee a single service never fires BOTH, when "added"
+      // fires we consume + fulfill any matching pending order so the "ready" path
+      // (which needs an unfulfilled order) can't replay for the same provision on
+      // a later pass. The persisted announcement row + bell are PRIMARY channels
+      // (fire regardless of push prefs); push is gated on the opt-in category and
+      // folds quiet hours. Returns true on full success (caller records the
+      // baseline marker), false on a transient failure (announcement/bell create
+      // failed) so the caller LEAVES the service unmarked and the next pass
+      // retries the whole announcement.
+      const fireAdded = async (p: typeof plans[number]): Promise<boolean> => {
+        // Persist the one-time popup row FIRST (idempotent on (user, service), so
+        // a retry never duplicates it). Bail on failure → retry next pass.
+        const annOk = await deps.recordAddedAnnouncement!(user, p.service);
+        if (!annOk) return false;
+        // Bell row (primary channel). A null return is a transient failure: retry.
+        const notificationId = await deps.createAddedInApp!(user, p.service, config.baseUrl);
+        if (notificationId == null) return false;
+        // Consume any matching pending order so the store "ready" path can't ALSO
+        // fire for this provision on a later pass.
+        const pid = p.service.pid;
+        if (pid != null && pending && pending.length > 0) {
+          const idx = pending.findIndex((o) => o.whmcsProductId === pid);
+          if (idx !== -1) {
+            const order = pending[idx];
+            pending.splice(idx, 1);
+            if (deps.markPendingOrderFulfilled) {
+              try {
+                await deps.markPendingOrderFulfilled(order.id);
+              } catch (e) {
+                console.error(`[whmcs-service-notifier] markPendingOrderFulfilled (added) failed:`, (e as Error)?.message);
+              }
+            }
+          }
+        }
+        if (deps.wantsPush(user, SERVICE_ADDED_CATEGORY_KEY)) {
+          deps.sendAddedPush!(user, p.service, config.baseUrl, notificationId);
+        }
+        deps.broadcastAdded!(user, p.service);
+        addedNotified++;
+        return true;
+      };
 
       // Fire the one-time "your new service is ready" message ONLY when a service
       // we previously saw as PENDING flips to ACTIVE — i.e. WHMCS has just finished
@@ -274,8 +393,18 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
         // about pre-existing suspensions / renewals. An already-active service on
         // its first sighting is treated as PRE-EXISTING (never a new provision) —
         // "ready" is fired only on the later pending->active transition, so we do
-        // NOT check ready here.
+        // NOT check ready here. EXCEPTION (Task #567): when the feature is wired
+        // AND this customer has already been baselined, a first-sighting service
+        // is a genuine ADDITION (ordered directly in WHMCS) → announce it. On the
+        // customer's first-ever poll (not yet baselined) we still baseline
+        // silently.
         if (plan.isBaseline) {
+          if (addedEnabled && customerBaselined) {
+            const fired = await fireAdded(plan);
+            // On a transient failure leave the service UNMARKED so the next pass
+            // retries the announcement (the bell create or row insert failed).
+            if (!fired) continue;
+          }
           await deps.recordMarker(user.id, service.id, {
             lastSeenStatus: plan.status,
             lastRenewalNotified: plan.renewalDue ? service.nextDueDate : null,
@@ -337,12 +466,21 @@ export async function runWhmcsServiceNotifyPass(deps: WhmcsServiceNotifierDeps):
           });
         }
       }
+
+      // After a full reachable pass, mark this customer baselined so subsequent
+      // first-sighting services are treated as genuine additions rather than
+      // silent baselines. Runs even when the customer has zero services. Only
+      // reached when nothing above threw (a mid-pass failure skips this and the
+      // whole pass is retried next time).
+      if (addedEnabled && !customerBaselined) {
+        await deps.recordServiceBaseline!(user.id);
+      }
     } catch (e) {
       console.error(`[whmcs-service-notifier] user ${user.id} pass failed:`, (e as Error)?.message);
     }
   }
 
-  return { active: true, usersScanned, eventsNotified, readyNotified };
+  return { active: true, usersScanned, eventsNotified, readyNotified, addedNotified };
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;

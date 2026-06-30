@@ -25,7 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone, ArrowRightLeft, Home } from "lucide-react";
+import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone, ArrowRightLeft, Home, PackagePlus } from "lucide-react";
 import DOMPurify from "dompurify";
 import type { Announcement } from "@shared/schema";
 import { NotificationCenter } from "@/components/notification-center";
@@ -1034,6 +1034,108 @@ function AnnouncementPopup() {
   );
 }
 
+type ServiceAnnouncement = { id: string; serviceId: number; serviceName: string };
+
+// One-time "a new service was added to your account" popup (Task #567). Fires
+// for a service ordered directly in WHMCS (outside the ServiceHub store) that
+// the next poll detects. Mirrors the bell + push the notifier already sends.
+// Queued through the modal slot (priority 65) so it never stacks on top of the
+// onboarding tour (70) / whmcs-link (75); it takes its turn ahead of the
+// announcement (60) / welcome (55) dialogs.
+function NewServicePopup() {
+  const { user } = useAuth();
+  const { subscribe } = useGlobalSocket();
+  const [, setLocation] = useLocation();
+  const [open, setOpen] = useState(false);
+
+  const { data } = useQuery<ServiceAnnouncement[]>({
+    queryKey: ["/api/whmcs/service-announcements"],
+    enabled: !!user && user.role === "customer",
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
+  // Real-time nudge: the notifier broadcasts to the customer's tabs the moment
+  // it records an announcement, so refetch the queue without waiting for a
+  // reload.
+  useEffect(() => {
+    if (!user || user.role !== "customer") return;
+    const handleWs = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "whmcs_service_added") {
+          queryClient.invalidateQueries({ queryKey: ["/api/whmcs/service-announcements"] });
+        }
+      } catch {}
+    };
+    return subscribe(handleWs);
+  }, [user, subscribe]);
+
+  const current = data && data.length > 0 ? data[0] : null;
+
+  // Surface the popup whenever there's an undismissed announcement to show.
+  useEffect(() => {
+    setOpen(!!current);
+  }, [current?.id]);
+
+  const dismissMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("POST", `/api/whmcs/service-announcements/${id}/dismiss`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/whmcs/service-announcements"] });
+    },
+  });
+
+  const isMine = useModalSlot("whmcs-service-added", 65, open && !!current);
+
+  if (!current || !isMine) return null;
+
+  const handleClose = () => {
+    setOpen(false);
+    dismissMutation.mutate(current.id);
+  };
+
+  const handleView = () => {
+    setOpen(false);
+    dismissMutation.mutate(current.id);
+    setLocation(`/my-services?service=${current.serviceId}`);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-new-service">
+        <DialogHeader>
+          <div className="flex justify-center mb-2">
+            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+              <PackagePlus className="w-7 h-7 text-primary" />
+            </div>
+          </div>
+          <DialogTitle className="text-center text-xl" data-testid="text-new-service-title">
+            New service added
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2 py-2 text-center">
+          <p className="text-sm text-muted-foreground">
+            A new service has been added to your account:
+          </p>
+          <p className="text-base font-semibold text-foreground" data-testid="text-new-service-name">
+            {current.serviceName}
+          </p>
+        </div>
+        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+          <Button className="w-full" onClick={handleView} data-testid="button-new-service-view">
+            View service
+          </Button>
+          <Button variant="outline" className="w-full" onClick={handleClose} data-testid="button-new-service-close">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AppContent() {
   const { user, isLoading, isAdmin } = useAuth();
   const [location] = useLocation();
@@ -1142,6 +1244,7 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
       <SetupReminderDialog />
       <PrivateMessagePopup />
       <AnnouncementPopup />
+      <NewServicePopup />
       <OnboardingTour />
       <AuthenticatedLayout />
     </GlobalSocketProvider>

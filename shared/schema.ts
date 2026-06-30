@@ -1109,6 +1109,41 @@ export const insertWhmcsPendingOrderSchema = createInsertSchema(whmcsPendingOrde
 export type WhmcsPendingOrder = typeof whmcsPendingOrders.$inferSelect;
 export type InsertWhmcsPendingOrder = z.infer<typeof insertWhmcsPendingOrderSchema>;
 
+// Per-customer baseline marker for the "new service added" detector (Task #567).
+// The service notifier announces a brand-new WHMCS service (one a customer
+// ordered directly in WHMCS, outside the ServiceHub store) on the next poll. To
+// tell "this customer's very first poll" (baseline everything silently) apart
+// from "a new service appeared on an already-known customer" we record a single
+// row per user the first time we complete a reachable pass for them. Its mere
+// existence means the customer has been baselined; afterwards any first-sighting
+// service is treated as newly added.
+export const whmcsServiceBaselines = pgTable("whmcs_service_baselines", {
+  userId: varchar("user_id").primaryKey(),
+  baselinedAt: timestamp("baselined_at").defaultNow().notNull(),
+});
+
+export type WhmcsServiceBaseline = typeof whmcsServiceBaselines.$inferSelect;
+
+// One-time in-app popup queue for the "a new service was added to your account"
+// announcement (Task #567). Persisted (not just pushed) so the popup survives a
+// reload and is dismissed exactly once per (user, service). The service name is
+// captured at detection time because WHMCS services are read-on-demand and never
+// stored. NO credentials are stored here — the popup only deep-links to My
+// Services where the secure details live.
+export const whmcsServiceAnnouncements = pgTable("whmcs_service_announcements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  whmcsServiceId: integer("whmcs_service_id").notNull(),
+  serviceName: text("service_name").notNull(),
+  dismissedAt: timestamp("dismissed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userServiceUniq: uniqueIndex("whmcs_service_announcements_user_service_uniq").on(table.userId, table.whmcsServiceId),
+  userIdx: index("whmcs_service_announcements_user_id_idx").on(table.userId),
+}));
+
+export type WhmcsServiceAnnouncement = typeof whmcsServiceAnnouncements.$inferSelect;
+
 // App-level operational settings (singleton row). Holds the kill-switch for
 // the GitHub→VPS auto-deploy webhook so a master_admin can pause production
 // deploys from the UI during a maintenance window without touching the VPS.

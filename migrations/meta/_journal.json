@@ -232,6 +232,13 @@
       "when": 1782118482505,
       "tag": "0032_early_marrow",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782851675721,
+      "tag": "0033_easy_valeria_richards",
+      "breakpoints": true
     }
   ]
 }

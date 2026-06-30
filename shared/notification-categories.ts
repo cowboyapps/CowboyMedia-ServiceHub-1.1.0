@@ -96,6 +96,13 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["push"],
   },
   {
+    key: "whmcs_service_added",
+    label: "New service added",
+    description: "When a new service is added to your account",
+    group: "Billing",
+    channels: ["push"],
+  },
+  {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",

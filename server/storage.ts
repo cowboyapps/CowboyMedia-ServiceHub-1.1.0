@@ -56,6 +56,9 @@ import {
   type WhmcsProductDns,
   whmcsPendingOrders,
   type WhmcsPendingOrder,
+  whmcsServiceBaselines,
+  whmcsServiceAnnouncements,
+  type WhmcsServiceAnnouncement,
   whmcsTicketNotifications,
   whmcsInvoiceNotifications,
   whmcsServiceNotifications,
@@ -387,6 +390,11 @@ export interface IStorage {
   recordWhmcsInvoiceNotified(userId: string, whmcsInvoiceId: number, lastNotifiedStage: string): Promise<void>;
   getWhmcsServiceNotifyState(userId: string): Promise<ServiceMarkerMap>;
   recordWhmcsServiceNotified(userId: string, whmcsServiceId: number, marker: ServiceMarker): Promise<void>;
+  getWhmcsServiceBaselined(userId: string): Promise<boolean>;
+  recordWhmcsServiceBaselined(userId: string): Promise<void>;
+  createWhmcsServiceAnnouncement(userId: string, whmcsServiceId: number, serviceName: string): Promise<boolean>;
+  getUndismissedWhmcsServiceAnnouncements(userId: string): Promise<WhmcsServiceAnnouncement[]>;
+  dismissWhmcsServiceAnnouncement(userId: string, id: string): Promise<void>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[], productName?: string | null): Promise<WhmcsProductMapping[]>;
   reorderWhmcsProductMappings(orderedProductIds: number[]): Promise<void>;
@@ -1627,6 +1635,55 @@ export class DatabaseStorage implements IStorage {
           updatedAt: new Date(),
         },
       });
+  }
+
+  async getWhmcsServiceBaselined(userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ userId: whmcsServiceBaselines.userId })
+      .from(whmcsServiceBaselines)
+      .where(eq(whmcsServiceBaselines.userId, userId))
+      .limit(1);
+    return !!row;
+  }
+
+  async recordWhmcsServiceBaselined(userId: string): Promise<void> {
+    await db
+      .insert(whmcsServiceBaselines)
+      .values({ userId })
+      .onConflictDoNothing({ target: whmcsServiceBaselines.userId });
+  }
+
+  // Idempotent: the unique (user, service) index means a retried pass never
+  // duplicates the popup. Returns false on a DB error so the notifier can leave
+  // the service unmarked and retry next pass (the bell + push are gated on this).
+  async createWhmcsServiceAnnouncement(userId: string, whmcsServiceId: number, serviceName: string): Promise<boolean> {
+    try {
+      await db
+        .insert(whmcsServiceAnnouncements)
+        .values({ userId, whmcsServiceId, serviceName })
+        .onConflictDoNothing({
+          target: [whmcsServiceAnnouncements.userId, whmcsServiceAnnouncements.whmcsServiceId],
+        });
+      return true;
+    } catch (e) {
+      console.error("[storage] createWhmcsServiceAnnouncement failed:", (e as Error)?.message);
+      return false;
+    }
+  }
+
+  async getUndismissedWhmcsServiceAnnouncements(userId: string): Promise<WhmcsServiceAnnouncement[]> {
+    return db
+      .select()
+      .from(whmcsServiceAnnouncements)
+      .where(and(eq(whmcsServiceAnnouncements.userId, userId), isNull(whmcsServiceAnnouncements.dismissedAt)))
+      .orderBy(whmcsServiceAnnouncements.createdAt);
+  }
+
+  async dismissWhmcsServiceAnnouncement(userId: string, id: string): Promise<void> {
+    await db
+      .update(whmcsServiceAnnouncements)
+      .set({ dismissedAt: new Date() })
+      .where(and(eq(whmcsServiceAnnouncements.id, id), eq(whmcsServiceAnnouncements.userId, userId)));
   }
 
   async createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken> {

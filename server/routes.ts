@@ -578,6 +578,15 @@ function broadcastToThreadParticipants(data: any, participantUserIds: string[]) 
   });
 }
 
+/**
+ * Push a realtime message to every open socket authenticated as one of
+ * `userIds`. Exported so background notifiers (e.g. the WHMCS service notifier)
+ * can nudge a specific customer's tabs without reaching into the WS internals.
+ */
+export function broadcastToUserIds(userIds: string[], data: any): void {
+  broadcastToThreadParticipants(data, userIds);
+}
+
 let wsSessionUserMap: Map<WebSocket, string>;
 let wssRef: WebSocketServer | null = null;
 export function getWebSocketServer(): WebSocketServer | null {
@@ -6391,6 +6400,40 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       logActivity,
     }),
   );
+
+  // Customer self-view: the one-time "a new service was added to your account"
+  // popup queue (Task #567). Reads only the logged-in user's OWN undismissed
+  // announcements. PURE — never 500s, returns [] on any error so the popup never
+  // breaks page render. No credentials in the payload; only the deep-link target.
+  app.get("/api/whmcs/service-announcements", requireAuth, async (req, res) => {
+    try {
+      const rows = await storage.getUndismissedWhmcsServiceAnnouncements(req.session.userId!);
+      res.json(rows.map((r) => ({ id: r.id, serviceId: r.whmcsServiceId, serviceName: r.serviceName })));
+    } catch (e) {
+      logError("whmcs", e, {
+        severity: "warn",
+        userId: req.session.userId,
+        summary: "list service announcements",
+      });
+      res.json([]);
+    }
+  });
+
+  // Dismiss one announcement so its popup never shows again. Scoped to the
+  // logged-in user (the storage update matches on both id AND userId).
+  app.post("/api/whmcs/service-announcements/:id/dismiss", requireAuth, async (req, res) => {
+    try {
+      await storage.dismissWhmcsServiceAnnouncement(req.session.userId!, req.params.id);
+      res.json({ ok: true });
+    } catch (e) {
+      logError("whmcs", e, {
+        severity: "warn",
+        userId: req.session.userId,
+        summary: "dismiss service announcement",
+      });
+      res.status(500).json({ error: "Failed to dismiss announcement" });
+    }
+  });
 
   // Customer self-view: only ever reads the logged-in user's OWN linked WHMCS
   // client. Never accepts a clientId param, never forwards raw WHMCS error
