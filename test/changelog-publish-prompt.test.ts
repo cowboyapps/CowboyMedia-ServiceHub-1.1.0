@@ -120,10 +120,16 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+// Records every non-GET request so the interactive tests can assert the
+// publish POST fires (with the right version in the path).
+let fetchCalls: { method: string; pathname: string }[] = [];
+
 const realFetch = globalThis.fetch;
-g.fetch = async (input: unknown): Promise<Response> => {
+g.fetch = async (input: unknown, init?: { method?: string }): Promise<Response> => {
   const url = typeof input === "string" ? input : String((input as { url?: string }).url ?? input);
   const pathname = url.split("?")[0];
+  const method = (init?.method ?? (input as { method?: string })?.method ?? "GET").toUpperCase();
+  if (method !== "GET") fetchCalls.push({ method, pathname });
 
   if (pathname === "/api/auth/me") {
     return currentUser ? jsonResponse(currentUser) : jsonResponse(null, 401);
@@ -172,6 +178,7 @@ beforeEach(() => {
   _resetModalQueueForTests();
   currentUser = null;
   pendingPublish = null;
+  fetchCalls = [];
   try {
     window.localStorage.clear();
   } catch {}
@@ -187,6 +194,7 @@ async function flush(): Promise<void> {
 
 interface MountResult {
   root: Root;
+  history: string[];
   cleanup: () => void;
 }
 
@@ -202,7 +210,7 @@ async function mountPrompt(user: typeof MASTER_ADMIN | typeof PLAIN_ADMIN): Prom
     },
   });
 
-  const { hook } = memoryLocation({ path: "/" });
+  const { hook, history } = memoryLocation({ path: "/", record: true });
 
   const Wrapper: React.FC = () =>
     React.createElement(
@@ -226,6 +234,7 @@ async function mountPrompt(user: typeof MASTER_ADMIN | typeof PLAIN_ADMIN): Prom
 
   return {
     root,
+    history: history as string[],
     cleanup: () => {
       act(() => root.unmount());
       container.remove();
@@ -236,6 +245,20 @@ async function mountPrompt(user: typeof MASTER_ADMIN | typeof PLAIN_ADMIN): Prom
 
 function has(id: string): boolean {
   return window.document.body.querySelector(`[data-testid="${id}"]`) !== null;
+}
+
+function get(id: string): HTMLElement {
+  const el = window.document.body.querySelector(`[data-testid="${id}"]`);
+  assert.ok(el, `expected element [data-testid="${id}"] to exist`);
+  return el as HTMLElement;
+}
+
+async function click(id: string): Promise<void> {
+  const el = get(id);
+  await act(async () => {
+    el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await flush();
 }
 
 test("master admin with an awaiting-publish entry sees the publish prompt", async () => {
@@ -278,6 +301,93 @@ test("publish prompt stays hidden when there is no awaiting-publish entry", asyn
   const h = await mountPrompt(MASTER_ADMIN);
   try {
     assert.equal(has("dialog-changelog-publish-prompt"), false, "nothing to publish → no prompt");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// --- Interactive paths: the buttons must actually publish and dismiss ------
+// The gating tests above prove the prompt shows; these prove its actions work.
+// A regression that left the prompt visible but inert would mean a master admin
+// could see "ready to publish" yet never fire the customer welcome popup.
+
+test("\"Publish now\" POSTs the publish endpoint with the current version and closes", async () => {
+  pendingPublish = PENDING_ENTRY;
+  const h = await mountPrompt(MASTER_ADMIN);
+  try {
+    assert.ok(has("dialog-changelog-publish-prompt"), "prompt is shown before publishing");
+    await click("button-changelog-publish-prompt-publish");
+
+    const publishCall = fetchCalls.find(
+      (c) => c.method === "POST" && c.pathname === `/api/admin/changelog/${APP_VERSION}/publish`,
+    );
+    assert.ok(publishCall, "publish POST fired with the current version in the path");
+    assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after a successful publish");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("\"Later\" persists the per-version dismiss key and closes the dialog", async () => {
+  pendingPublish = PENDING_ENTRY;
+  const h = await mountPrompt(MASTER_ADMIN);
+  try {
+    assert.equal(
+      window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
+      null,
+      "no dismiss key before clicking Later",
+    );
+    await click("button-changelog-publish-prompt-dismiss");
+
+    assert.equal(
+      window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
+      "1",
+      "Later writes the per-version dismiss key so it won't nag again",
+    );
+    assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after Later");
+    assert.ok(
+      !fetchCalls.some((c) => c.pathname.endsWith("/publish")),
+      "Later does not publish",
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("\"Preview\" reveals the staged release notes, then hides them again", async () => {
+  pendingPublish = PENDING_ENTRY;
+  const h = await mountPrompt(MASTER_ADMIN);
+  try {
+    assert.equal(has("changelog-publish-prompt-preview"), false, "preview hidden by default");
+    await click("button-changelog-publish-prompt-preview");
+
+    assert.ok(has("changelog-publish-prompt-preview"), "preview revealed after clicking Preview");
+    const preview = get("changelog-publish-prompt-preview");
+    assert.ok(
+      preview.textContent!.includes("Something new"),
+      "preview shows the staged release-notes body",
+    );
+
+    await click("button-changelog-publish-prompt-preview");
+    assert.equal(has("changelog-publish-prompt-preview"), false, "preview hidden again after toggling off");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("\"Review in Admin Portal\" navigates to /admin and dismisses the prompt", async () => {
+  pendingPublish = PENDING_ENTRY;
+  const h = await mountPrompt(MASTER_ADMIN);
+  try {
+    await click("button-changelog-publish-prompt-edit");
+
+    assert.ok(h.history.includes("/admin"), "navigated to /admin");
+    assert.equal(
+      window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
+      "1",
+      "Review also dismisses the prompt so it won't reappear",
+    );
+    assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after navigating away");
   } finally {
     h.cleanup();
   }
