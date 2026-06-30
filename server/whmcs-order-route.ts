@@ -189,6 +189,10 @@ export function createPlaceOrderHandler(deps: OrderRouteDeps) {
         return res.status(409).json({ ok: false, message: "Online ordering isn't available right now because no payment method is set up. Please contact support." });
       }
 
+      // Past this point we hand the order to WHMCS. Mark the request as having
+      // attempted the write so the idempotency layer persists this response and a
+      // timeout-driven retry (same key) replays it instead of ordering again.
+      res.locals.whmcsWriteAttempted = true;
       const result = await submit({
         clientId,
         pid: parsed.data.pid,

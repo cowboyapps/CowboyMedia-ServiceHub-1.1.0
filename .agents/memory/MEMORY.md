@@ -34,3 +34,4 @@
 - [Driving Radix Select in jsdom](radix-select-jsdom-driving.md) — open via mouse-pointerType pointerdown on trigger, then plain click the item; native BubbleSelect is empty when closed and portaled pointerup misses React's root.
 - [My Services page test deps](my-services-page-test-deps.md) — page-rendering jsdom tests must track new providers (AuthProvider) + catalogue fields (images:[]) in lockstep; stale "sort resets" assertions encode retired behavior.
 - [WHMCS added-service detection](whmcs-added-service-detection.md) — "added" (direct WHMCS order, first sighting, no marker) vs "ready" (store order, pending->active); "added" consumes the matching pending order so neither double-notifies; per-customer baseline gate.
+- [Idempotency client-abort semantics](idempotency-client-abort.md) — money-write idempotency must NOT free a claimed key on early socket close (client timeout); handler keeps running, abandoning lets a retry double-charge.

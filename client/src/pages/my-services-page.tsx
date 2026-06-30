@@ -36,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useIdempotencyKey } from "@/hooks/use-idempotency-key";
 import { apiRequest, queryClient, liveQueryOptions } from "@/lib/queryClient";
 import { isTimeoutError, paymentTimeoutMessage } from "@/lib/server-error";
 import { Link, useSearch } from "wouter";
@@ -473,16 +474,23 @@ function UpgradePlanAction({ service }: { service: ActiveService }) {
   const options = data?.ok ? data.options ?? [] : [];
   const chosen = options.find((o) => String(o.pid) === selected) ?? null;
 
+  const idempotency = useIdempotencyKey();
   const mutation = useMutation({
     mutationFn: async (_win: Window | null) => {
       if (!chosen) throw new Error("Pick a plan first.");
-      const res = await apiRequest("POST", `/api/billing/services/${service.id}/upgrade`, {
-        newProductId: chosen.pid,
-        billingCycle: chosen.billingCycle,
-      });
+      const res = await apiRequest(
+        "POST",
+        `/api/billing/services/${service.id}/upgrade`,
+        {
+          newProductId: chosen.pid,
+          billingCycle: chosen.billingCycle,
+        },
+        { idempotencyKey: idempotency.getKey() },
+      );
       return (await res.json()) as PayResult;
     },
     onSuccess: (result, win) => {
+      idempotency.reset();
       setOpen(false);
       setSelected("");
       queryClient.invalidateQueries({ queryKey: ["/api/my/services"] });
@@ -496,6 +504,9 @@ function UpgradePlanAction({ service }: { service: ActiveService }) {
     onError: (err: any, win) => {
       if (win) win.close();
       const timedOut = isTimeoutError(err);
+      // Keep the key on a timeout so the user's retry is deduped; rotate it on any
+      // other failure so a corrected resubmission starts a fresh attempt.
+      if (!timedOut) idempotency.reset();
       toast({
         variant: "destructive",
         title: timedOut ? "Your plan change may have gone through" : "Couldn't change your plan",
@@ -624,16 +635,23 @@ function AddServiceFlow() {
   const product = products.find((p) => String(p.pid) === productId) ?? null;
   const cycleOpt = product?.cycles.find((c) => c.cycle === cycle) ?? null;
 
+  const idempotency = useIdempotencyKey();
   const mutation = useMutation({
     mutationFn: async (_win: Window | null) => {
       if (!product || !cycleOpt) throw new Error("Pick a product and term first.");
-      const res = await apiRequest("POST", "/api/billing/order", {
-        pid: product.pid,
-        billingCycle: cycleOpt.cycle,
-      });
+      const res = await apiRequest(
+        "POST",
+        "/api/billing/order",
+        {
+          pid: product.pid,
+          billingCycle: cycleOpt.cycle,
+        },
+        { idempotencyKey: idempotency.getKey() },
+      );
       return (await res.json()) as PayResult;
     },
     onSuccess: (result, win) => {
+      idempotency.reset();
       setOpen(false);
       setProductId("");
       setCycle("");
@@ -648,6 +666,9 @@ function AddServiceFlow() {
     onError: (err: any, win) => {
       if (win) win.close();
       const timedOut = isTimeoutError(err);
+      // Keep the key on a timeout so the user's retry is deduped; rotate it on any
+      // other failure so a corrected resubmission starts a fresh attempt.
+      if (!timedOut) idempotency.reset();
       toast({
         variant: "destructive",
         title: timedOut ? "Your order may have gone through" : "Couldn't place your order",
@@ -1112,14 +1133,18 @@ function AddProductFlow() {
     return null;
   };
 
+  const idempotency = useIdempotencyKey();
   const mutation = useMutation({
     mutationFn: async (_win: Window | null) => {
       const payload = buildOrderPayload();
       if (!payload) throw new Error("Pick a product and term first.");
-      const res = await apiRequest("POST", "/api/billing/store-order", payload);
+      const res = await apiRequest("POST", "/api/billing/store-order", payload, {
+        idempotencyKey: idempotency.getKey(),
+      });
       return (await res.json()) as PayResult;
     },
     onSuccess: (result, win) => {
+      idempotency.reset();
       setOpen(false);
       reset();
       queryClient.invalidateQueries({ queryKey: ["/api/my/services"] });
@@ -1133,6 +1158,9 @@ function AddProductFlow() {
     onError: (err: any, win) => {
       if (win) win.close();
       const timedOut = isTimeoutError(err);
+      // Keep the key on a timeout so the user's retry is deduped; rotate it on any
+      // other failure so a corrected resubmission starts a fresh attempt.
+      if (!timedOut) idempotency.reset();
       toast({
         variant: "destructive",
         title: timedOut ? "Your order may have gone through" : "Couldn't place your order",

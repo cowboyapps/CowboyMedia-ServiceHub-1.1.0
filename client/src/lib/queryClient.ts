@@ -73,7 +73,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
-  options?: { timeoutMs?: number | null },
+  options?: { timeoutMs?: number | null; idempotencyKey?: string | null },
 ): Promise<Response> {
   const timeoutMs =
     options?.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs;
@@ -87,11 +87,17 @@ export async function apiRequest(
     }, timeoutMs);
   }
 
+  const headers: Record<string, string> = {};
+  if (data) headers["Content-Type"] = "application/json";
+  // Idempotency key (money writes): a timeout-driven retry reusing the same key
+  // is deduped server-side so it can't create a duplicate order/invoice/cancel.
+  if (options?.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+
   let res: Response;
   try {
     res = await fetch(url, {
       method,
-      headers: data ? { "Content-Type": "application/json" } : {},
+      headers,
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
       signal: controller?.signal,

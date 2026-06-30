@@ -117,6 +117,11 @@ export function createRequestCancellationHandler(deps: CancelRouteDeps) {
         return res.status(409).json({ ok: false, message: "Only active services can be cancelled." });
       }
 
+      // Past this point we hand the cancellation to WHMCS. Mark the request as
+      // having attempted the write so the idempotency layer persists this response
+      // and a timeout-driven retry (same key) replays it instead of submitting a
+      // second cancellation request.
+      res.locals.whmcsWriteAttempted = true;
       const result = await submit(serviceId, parsed.data.type, parsed.data.reason);
       if (!result.ok) {
         // WHMCS validation / permission / duplicate-request errors surface here.

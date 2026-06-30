@@ -254,6 +254,10 @@ export function createSubmitUpgradeHandler(deps: UpgradeRouteDeps) {
         return res.status(409).json({ ok: false, message: "Plan changes aren't available right now because no payment method is set up. Please contact support." });
       }
 
+      // Past this point we hand the plan change to WHMCS. Mark the request as
+      // having attempted the write so the idempotency layer persists this response
+      // and a timeout-driven retry (same key) replays it instead of upgrading again.
+      res.locals.whmcsWriteAttempted = true;
       const result = await submit(service.id, parsed.data.newProductId, parsed.data.billingCycle, gateway);
       if (!result.ok) {
         const msg = result.reason === "whmcs_error" && result.error

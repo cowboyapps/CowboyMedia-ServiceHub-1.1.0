@@ -144,6 +144,7 @@ import {
   createWhmcsPasswordLimiter,
   bypassRateLimitForAdmins,
 } from "./rate-limits";
+import { createIdempotencyMiddleware } from "./idempotency";
 import { logError } from "./error-log";
 import { createSearchHandler } from "./search";
 import { ChallengeStore } from "./totp";
@@ -6586,9 +6587,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     getUser: (id) => storage.getUser(id),
     invalidate: (clientId) => invalidateBillingCaches(clientId),
   });
+  // Idempotency guard for the customer-initiated WHMCS *money* writes (order,
+  // store order, plan change, cancellation). The client sends an `Idempotency-Key`
+  // header per submission attempt; a timeout-driven retry carrying the same key
+  // replays the first response instead of creating a duplicate order/invoice or
+  // cancellation. Mounted AFTER requireAuth (needs the session user to scope the
+  // key) and BEFORE the rate limiter (so a replay isn't counted or 429'd).
+  const billingIdempotency = createIdempotencyMiddleware();
   app.post(
     "/api/billing/services/:serviceId/cancel",
     requireAuth,
+    billingIdempotency,
     bypassRateLimitForAdmins,
     createWhmcsCancelLimiter(),
     async (req, res) => {
@@ -6678,6 +6687,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post(
     "/api/billing/order",
     requireAuth,
+    billingIdempotency,
     bypassRateLimitForAdmins,
     createWhmcsOrderLimiter(),
     async (req, res) => {
@@ -6720,6 +6730,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post(
     "/api/billing/store-order",
     requireAuth,
+    billingIdempotency,
     bypassRateLimitForAdmins,
     createWhmcsOrderLimiter(),
     async (req, res) => {
@@ -6744,6 +6755,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.post(
     "/api/billing/services/:serviceId/upgrade",
     requireAuth,
+    billingIdempotency,
     bypassRateLimitForAdmins,
     createWhmcsOrderLimiter(),
     async (req, res) => {

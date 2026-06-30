@@ -21,6 +21,7 @@ import { queryClient, apiRequest, liveQueryOptions } from "@/lib/queryClient";
 import { serverActionErrorMessage, isTimeoutError, paymentTimeoutMessage } from "@/lib/server-error";
 export { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
+import { useIdempotencyKey } from "@/hooks/use-idempotency-key";
 import {
   Wallet,
   Receipt,
@@ -900,16 +901,23 @@ function CancelServiceDialog({
   const [type, setType] = useState<CancellationType>("End of Billing Period");
   const [reason, setReason] = useState("");
 
+  const idempotency = useIdempotencyKey();
   const mutation = useMutation({
     mutationFn: async () => {
       if (!product) throw new Error("No service selected");
-      const res = await apiRequest("POST", `/api/billing/services/${product.id}/cancel`, {
-        type,
-        reason: reason.trim() || undefined,
-      });
+      const res = await apiRequest(
+        "POST",
+        `/api/billing/services/${product.id}/cancel`,
+        {
+          type,
+          reason: reason.trim() || undefined,
+        },
+        { idempotencyKey: idempotency.getKey() },
+      );
       return res.json() as Promise<{ ok: boolean; message?: string }>;
     },
     onSuccess: (result) => {
+      idempotency.reset();
       toast({
         title: "Cancellation request received",
         description:
@@ -921,6 +929,9 @@ function CancelServiceDialog({
     },
     onError: (e: Error) => {
       const timedOut = isTimeoutError(e);
+      // Keep the key on a timeout so the user's retry is deduped; rotate it on any
+      // other failure so a corrected resubmission starts a fresh attempt.
+      if (!timedOut) idempotency.reset();
       toast({
         title: timedOut ? "Your cancellation may have gone through" : "Couldn't submit your request",
         description: timedOut
