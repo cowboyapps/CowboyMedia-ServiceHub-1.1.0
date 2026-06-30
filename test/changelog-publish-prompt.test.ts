@@ -112,6 +112,9 @@ const PLAIN_ADMIN = { id: "admin-2", role: "admin", fullName: "Pat Plain", usern
 // Set per-test before mounting.
 let currentUser: typeof MASTER_ADMIN | typeof PLAIN_ADMIN | null = null;
 let pendingPublish: { version: string; title: string; bodyHtml: string } | null = null;
+// Status the publish POST should return — flip to a non-200 to simulate a
+// failed publish and exercise publishMutation.onError.
+let publishStatus = 200;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -136,6 +139,12 @@ g.fetch = async (input: unknown, init?: { method?: string }): Promise<Response> 
   }
   if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
   if (pathname === "/api/admin/changelog/pending-publish") return jsonResponse(pendingPublish);
+
+  if (method === "POST" && pathname.endsWith("/publish")) {
+    return publishStatus === 200
+      ? jsonResponse({})
+      : jsonResponse({ error: "Publish exploded" }, publishStatus);
+  }
 
   // Unknown endpoints: succeed quietly so background mutations don't error.
   return jsonResponse({});
@@ -178,6 +187,7 @@ beforeEach(() => {
   _resetModalQueueForTests();
   currentUser = null;
   pendingPublish = null;
+  publishStatus = 200;
   fetchCalls = [];
   try {
     window.localStorage.clear();
@@ -323,6 +333,50 @@ test("\"Publish now\" POSTs the publish endpoint with the current version and cl
     );
     assert.ok(publishCall, "publish POST fired with the current version in the path");
     assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after a successful publish");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("a failed publish keeps the dialog open, writes no dismiss key, and stays retryable", async () => {
+  pendingPublish = PENDING_ENTRY;
+  publishStatus = 500;
+  const h = await mountPrompt(MASTER_ADMIN);
+  try {
+    assert.ok(has("dialog-changelog-publish-prompt"), "prompt is shown before publishing");
+    await click("button-changelog-publish-prompt-publish");
+
+    const publishCall = fetchCalls.find(
+      (c) => c.method === "POST" && c.pathname === `/api/admin/changelog/${APP_VERSION}/publish`,
+    );
+    assert.ok(publishCall, "publish POST fired even though it failed");
+
+    // The dialog must NOT silently close — the admin needs to see it didn't work.
+    assert.ok(
+      has("dialog-changelog-publish-prompt"),
+      "dialog stays open after a failed publish so the admin isn't left thinking it worked",
+    );
+    // A failed publish must not be treated as an acknowledgement/dismissal.
+    assert.equal(
+      window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
+      null,
+      "a failed publish writes no dismiss key",
+    );
+    // The publish button is still actionable for a retry (not stuck disabled).
+    const publishBtn = get("button-changelog-publish-prompt-publish") as HTMLButtonElement;
+    assert.equal(publishBtn.disabled, false, "publish button is re-enabled so the admin can retry");
+
+    // Prove it's genuinely retryable: a second click that succeeds closes it.
+    publishStatus = 200;
+    await click("button-changelog-publish-prompt-publish");
+    assert.equal(
+      fetchCalls.filter(
+        (c) => c.method === "POST" && c.pathname === `/api/admin/changelog/${APP_VERSION}/publish`,
+      ).length,
+      2,
+      "retry fired a second publish POST",
+    );
+    assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after the retry succeeds");
   } finally {
     h.cleanup();
   }
