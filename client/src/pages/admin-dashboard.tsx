@@ -420,7 +420,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
         {isMasterAdmin && (
           <Card
             className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
-            onClick={() => go("error-logs")}
+            onClick={() => go("error-log")}
             data-testid="card-dashboard-system-health"
           >
             <CardHeader className="pb-2">
