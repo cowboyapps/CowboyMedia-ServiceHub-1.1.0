@@ -1073,11 +1073,12 @@ function NewServicePopup() {
   }, [user, subscribe]);
 
   const current = data && data.length > 0 ? data[0] : null;
+  const currentId = current?.id ?? null;
 
   // Surface the popup whenever there's an undismissed announcement to show.
   useEffect(() => {
-    setOpen(!!current);
-  }, [current?.id]);
+    setOpen(!!currentId);
+  }, [currentId]);
 
   const dismissMutation = useMutation({
     mutationFn: async (id: string) => {

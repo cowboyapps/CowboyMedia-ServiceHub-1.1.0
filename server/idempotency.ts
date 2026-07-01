@@ -248,7 +248,7 @@ export function createIdempotencyMiddleware(opts: { ttlMs?: number } = {}) {
         // Persist the outcome BEFORE the response reaches the client, so any
         // retry the client fires next always observes the final state (done /
         // cleared) rather than racing a still-`pending` row into a spurious 409.
-        settle().finally(() => originalJson(body));
+        void settle().finally(() => originalJson(body));
         return res;
       };
 
