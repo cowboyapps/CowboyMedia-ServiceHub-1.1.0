@@ -71,13 +71,21 @@ const okMethods = (): OrderRouteDeps["loadPaymentMethods"] =>
 async function withServer(app: express.Express, run: (baseUrl: string) => Promise<void>) {
   const { default: http } = await import("node:http");
   const server = http.createServer(app);
+  // Keep idle keep-alive sockets short-lived so a lingering connection (e.g. the
+  // aborted-mid-write requests these tests fire) can't hold the event loop open.
+  server.keepAliveTimeout = 1;
   await new Promise<void>((r) => server.listen(0, r));
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;
   try {
     await run(`http://127.0.0.1:${port}`);
   } finally {
-    server.close();
+    // Destroy any still-open (keep-alive / half-aborted) sockets, then wait for a
+    // full shutdown. A bare, un-awaited server.close() leaves those sockets open,
+    // so the tsx --test subprocess never exits and the deploy gate's per-file
+    // watchdog kills it as "timed out" (even though every assertion passed).
+    (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
 
