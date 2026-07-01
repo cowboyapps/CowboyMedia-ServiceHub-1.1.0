@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,6 +7,13 @@ import { useAuth } from "@/lib/auth";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import {
   LifeBuoy,
@@ -23,6 +30,8 @@ import {
   XCircle,
   Activity,
   FileText,
+  ImageOff,
+  ExternalLink,
 } from "lucide-react";
 import { APP_VERSION } from "@shared/version";
 import { countBulletsInBody } from "@shared/changelog-append";
@@ -140,6 +149,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
     refetchInterval: 300_000,
     enabled: !!isMasterAdmin,
   });
+  const [missingImagesOpen, setMissingImagesOpen] = useState(false);
 
   // Changelog draft activity (master_admin only). Surfaces the count of
   // bullets queued under the current APP_VERSION's draft so the user
@@ -424,7 +434,12 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                 {missingImages && missingImages.count > 0 && (
                   <Badge
                     variant="destructive"
-                    className={sysHealth && sysHealth.count5xxLast5Min > 0 ? "" : "ml-auto"}
+                    role="button"
+                    tabIndex={0}
+                    className={`cursor-pointer ${sysHealth && sysHealth.count5xxLast5Min > 0 ? "" : "ml-auto"}`}
+                    onClick={(e) => { e.stopPropagation(); setMissingImagesOpen(true); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setMissingImagesOpen(true); } }}
+                    title="View which articles are missing images"
                     data-testid="badge-missing-images-alert"
                   >
                     {missingImages.count} missing image{missingImages.count === 1 ? "" : "s"}
@@ -457,6 +472,81 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Missing-images breakdown dialog (master_admin only). Lists which KB
+            articles / news stories embed an /uploads/<uuid> image whose blob is
+            gone, plus the exact missing filenames, so the affected content can
+            be found and the image re-uploaded (or recovered from backup). */}
+        {isMasterAdmin && (
+          <Dialog open={missingImagesOpen} onOpenChange={setMissingImagesOpen}>
+            <DialogContent className="max-w-lg" data-testid="dialog-missing-images">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ImageOff className="w-4 h-4 text-red-500" />
+                  Missing images
+                </DialogTitle>
+                <DialogDescription>
+                  These published items embed an image whose file is no longer
+                  stored. Open each one and re-upload the image (or recover it
+                  from a backup) to fix the broken image for customers.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[60vh] overflow-y-auto space-y-3">
+                {!missingImages || missingImages.items.length === 0 ? (
+                  <p className="text-sm text-muted-foreground" data-testid="text-missing-images-empty">
+                    No missing images. Everything checks out.
+                  </p>
+                ) : (
+                  missingImages.items.map((item) => (
+                    <div
+                      key={`${item.type}-${item.id}`}
+                      className="rounded-md border p-3"
+                      data-testid={`row-missing-image-${item.id}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {item.type === "kb_article" ? (
+                            <BookOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="font-medium truncate" data-testid={`text-missing-image-title-${item.id}`}>
+                            {item.title}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0"
+                          onClick={() => {
+                            setMissingImagesOpen(false);
+                            go(item.type === "kb_article" ? "knowledge-base" : "news");
+                          }}
+                          data-testid={`link-missing-image-${item.id}`}
+                        >
+                          Open <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
+                        {item.type === "kb_article" ? "Knowledge Base article" : "News story"}
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {item.missingFilenames.map((fn) => (
+                          <li
+                            key={fn}
+                            className="font-mono text-xs text-red-500 break-all"
+                            data-testid={`text-missing-filename-${fn}`}
+                          >
+                            {fn}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
 
         {/* Changelog draft (master_admin only) — visibility into how many
