@@ -23,6 +23,7 @@ import { uploadedFiles, newsStories, insertServiceUpdateSchema, insertDownloadSc
 import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles, findMissingUploadReferences } from "./uploaded-file-cleanup";
 import { getErrorMessage, getErrorStatusCode, getErrorName, getErrorCode } from "./error-utils";
 import { queryString, queryInt } from "./request-utils";
+import { createErrorLogClearAllHandler, createErrorLogResolveAllHandler } from "./error-log-bulk-routes";
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
 import { createDashboardHandler } from "./dashboard";
@@ -856,16 +857,6 @@ function logActivity(category: string, action: string, opts: { actorId?: string;
   storage.createActivityLog({ category, action, ...opts }).catch(e => console.error("[ActivityLog] Failed to write:", getErrorMessage(e)));
 }
 
-// Human-readable summary of the filter in effect when a bulk error-log action
-// runs, for the activity-log entry. "all entries" when no filter is applied.
-function describeErrorLogFilters(filters: { severity?: string; source?: string; search?: string; resolved?: boolean }): string {
-  const parts: string[] = [];
-  if (filters.severity) parts.push(`severity: ${filters.severity}`);
-  if (filters.source) parts.push(`source: ${filters.source}`);
-  if (filters.search) parts.push(`search: "${filters.search}"`);
-  if (filters.resolved !== undefined) parts.push(filters.resolved ? "resolved only" : "unresolved only");
-  return parts.length > 0 ? `filter — ${parts.join(", ")}` : "all entries";
-}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -4804,65 +4795,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   // Bulk-delete error log entries. Destructive and irreversible, so gated on
   // master_admin rather than the plain error_log.view permission used by the
-  // read/resolve routes. Optionally honors the same filters as the list screen
-  // (severity/source/resolved/search) so "Clear all" removes exactly what the
-  // admin is currently looking at; with no filter it clears everything. Safe to
-  // run when the log is already empty (returns { deleted: 0 }).
-  app.delete("/api/admin/error-logs", requireMasterAdmin, async (req, res) => {
-    try {
-      const { severity, source, search, resolved } = req.query;
-      const resolvedParsed = resolved === "true" ? true : resolved === "false" ? false : undefined;
-      const filters = {
-        severity: queryString(severity),
-        source: queryString(source),
-        search: queryString(search),
-        resolved: resolvedParsed,
-      };
-      const deleted = await storage.deleteAllErrorLogs(filters);
-      const userId = (req as any).session?.userId || null;
-      const actor = userId ? await storage.getUser(userId) : null;
-      const actorName = actor?.fullName || "Unknown admin";
-      const filterDesc = describeErrorLogFilters(filters);
-      logActivity("error_log", "error_logs_cleared", {
-        actorId: userId || undefined,
-        summary: `${actorName} cleared ${deleted} error log ${deleted === 1 ? "entry" : "entries"} (${filterDesc})`,
-        details: JSON.stringify({ actor: actorName, deleted, filters }),
-      });
-      res.json({ deleted });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
+  // read/resolve routes. Handler factory lives in error-log-bulk-routes.ts so
+  // route tests can drive the REAL handler (query-string parsing included).
+  app.delete("/api/admin/error-logs", requireMasterAdmin, createErrorLogClearAllHandler({ storage, logActivity }));
 
   // Bulk-resolve unresolved error log entries. Non-destructive (keeps the audit
   // trail, just stamps resolvedAt/resolvedBy), so gated on the plain
   // error_log.view permission like the single-entry resolve route — unlike the
-  // master_admin-only clear-all above. Honors the same filters as the list
-  // screen (severity/source/search) so "Resolve all" acknowledges exactly what
-  // the admin is currently looking at. Only touches currently-unresolved rows.
-  app.post("/api/admin/error-logs/resolve-all", requirePermission("error_log.view"), async (req, res) => {
-    try {
-      const { severity, source, search } = req.query;
-      const userId = (req as any).session?.userId || null;
-      const filters = {
-        severity: queryString(severity),
-        source: queryString(source),
-        search: queryString(search),
-      };
-      const resolved = await storage.resolveAllErrorLogs(userId, filters);
-      const actor = userId ? await storage.getUser(userId) : null;
-      const actorName = actor?.fullName || "Unknown admin";
-      const filterDesc = describeErrorLogFilters(filters);
-      logActivity("error_log", "error_logs_resolved_all", {
-        actorId: userId || undefined,
-        summary: `${actorName} resolved ${resolved} error log ${resolved === 1 ? "entry" : "entries"} (${filterDesc})`,
-        details: JSON.stringify({ actor: actorName, resolved, filters }),
-      });
-      res.json({ resolved });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
+  // master_admin-only clear-all above. Same handler-factory pattern as above.
+  app.post("/api/admin/error-logs/resolve-all", requirePermission("error_log.view"), createErrorLogResolveAllHandler({ storage, logActivity }));
 
   app.get("/api/admin/error-logs/unresolved-count", requirePermission("error_log.view"), async (_req, res) => {
     try {
