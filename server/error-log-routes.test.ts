@@ -8,6 +8,7 @@ type ErrorLogStorage = {
   getErrorLogs(filters: { severity?: string; source?: string; resolved?: boolean; search?: string; page?: number; limit?: number }): Promise<{ logs: ErrorLog[]; total: number }>;
   getErrorLog(id: string): Promise<ErrorLog | undefined>;
   setErrorLogResolved(id: string, resolved: boolean, by?: string | null): Promise<ErrorLog | undefined>;
+  resolveAllErrorLogs(by: string | null, filters?: { severity?: string; source?: string; search?: string }): Promise<number>;
   countUnresolvedErrorLogsSince(since: Date): Promise<number>;
   deleteOldErrorLogs(days: number): Promise<number>;
   deleteAllErrorLogs(filters?: { severity?: string; source?: string; resolved?: boolean; search?: string }): Promise<number>;
@@ -59,6 +60,21 @@ function makeMemoryStorage(): ErrorLogStorage {
       const updated = { ...r, resolvedAt: resolved ? new Date() : null, resolvedBy: resolved ? (by ?? null) : null };
       rows.set(id, updated);
       return updated;
+    },
+    async resolveAllErrorLogs(by, filters) {
+      let n = 0;
+      for (const [id, r] of Array.from(rows.entries())) {
+        if (r.resolvedAt !== null) continue;
+        if (filters?.severity && r.severity !== filters.severity) continue;
+        if (filters?.source && r.source !== filters.source) continue;
+        if (filters?.search) {
+          const s = filters.search.toLowerCase();
+          if (!r.summary.toLowerCase().includes(s) && !(r.details || "").toLowerCase().includes(s)) continue;
+        }
+        rows.set(id, { ...r, resolvedAt: new Date(), resolvedBy: by ?? null });
+        n++;
+      }
+      return n;
     },
     async countUnresolvedErrorLogsSince(since) {
       return Array.from(rows.values()).filter(r => r.resolvedAt === null && r.createdAt >= since).length;
@@ -165,6 +181,44 @@ test("deleteAllErrorLogs honors filters, leaving non-matching rows intact", asyn
   assert.equal((await s.getErrorLogs({})).total, 2);
   assert.equal((await s.getErrorLogs({ source: "push" })).total, 1);
   assert.equal((await s.getErrorLogs({ source: "email", resolved: true })).total, 1);
+});
+
+test("resolveAllErrorLogs resolves every unresolved row and stamps the resolver", async () => {
+  const s = makeMemoryStorage();
+  await s.createErrorLog({ severity: "warn", source: "push", summary: "a", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.createErrorLog({ severity: "error", source: "email", summary: "b", details: null, userId: null, referenceType: null, referenceId: null });
+  const resolved = await s.resolveAllErrorLogs("admin-9");
+  assert.equal(resolved, 2);
+  assert.equal((await s.getErrorLogs({ resolved: false })).total, 0);
+  const all = await s.getErrorLogs({ resolved: true });
+  assert.equal(all.total, 2);
+  assert.ok(all.logs.every(l => l.resolvedBy === "admin-9" && l.resolvedAt !== null));
+});
+
+test("resolveAllErrorLogs skips already-resolved rows and returns only the count it changed", async () => {
+  const s = makeMemoryStorage();
+  const a = await s.createErrorLog({ severity: "warn", source: "push", summary: "a", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.createErrorLog({ severity: "error", source: "email", summary: "b", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.setErrorLogResolved(a.id, true, "earlier-admin");
+  const resolved = await s.resolveAllErrorLogs("admin-9");
+  assert.equal(resolved, 1);
+  // The pre-resolved row keeps its original resolver.
+  assert.equal((await s.getErrorLog(a.id))?.resolvedBy, "earlier-admin");
+});
+
+test("resolveAllErrorLogs honors filters, leaving non-matching unresolved rows untouched", async () => {
+  const s = makeMemoryStorage();
+  await s.createErrorLog({ severity: "warn", source: "push", summary: "keep me", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.createErrorLog({ severity: "error", source: "email", summary: "smtp boom", details: null, userId: null, referenceType: null, referenceId: null });
+  const resolved = await s.resolveAllErrorLogs("admin-9", { source: "email" });
+  assert.equal(resolved, 1);
+  assert.equal((await s.getErrorLogs({ resolved: false })).total, 1);
+  assert.equal((await s.getErrorLogs({ source: "push", resolved: false })).total, 1);
+});
+
+test("resolveAllErrorLogs is a safe no-op when nothing is unresolved", async () => {
+  const s = makeMemoryStorage();
+  assert.equal(await s.resolveAllErrorLogs("admin-9"), 0);
 });
 
 // ---------- Permission gating ----------

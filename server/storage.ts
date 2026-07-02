@@ -304,6 +304,7 @@ export interface IStorage {
   getErrorLogs(filters: { severity?: string; source?: string; resolved?: boolean; search?: string; page?: number; limit?: number }): Promise<{ logs: ErrorLog[]; total: number }>;
   getErrorLog(id: string): Promise<ErrorLog | undefined>;
   setErrorLogResolved(id: string, resolved: boolean, resolvedBy?: string | null): Promise<ErrorLog | undefined>;
+  resolveAllErrorLogs(resolvedBy: string | null, filters?: { severity?: string; source?: string; search?: string }): Promise<number>;
   countUnresolvedErrorLogsSince(since: Date): Promise<number>;
   deleteOldErrorLogs(daysOld: number): Promise<number>;
   deleteAllErrorLogs(filters?: { severity?: string; source?: string; resolved?: boolean; search?: string }): Promise<number>;
@@ -1375,6 +1376,17 @@ export class DatabaseStorage implements IStorage {
       .from(errorLogs)
       .where(and(isNull(errorLogs.resolvedAt), sql`${errorLogs.createdAt} >= ${since}`));
     return r?.count || 0;
+  }
+
+  async resolveAllErrorLogs(resolvedBy: string | null, filters?: { severity?: string; source?: string; search?: string }): Promise<number> {
+    const conditions = [isNull(errorLogs.resolvedAt)];
+    if (filters?.severity) conditions.push(eq(errorLogs.severity, filters.severity));
+    if (filters?.source) conditions.push(eq(errorLogs.source, filters.source));
+    if (filters?.search) conditions.push(sql`(${errorLogs.summary} ILIKE ${'%' + filters.search + '%'} OR ${errorLogs.details} ILIKE ${'%' + filters.search + '%'})`);
+    const result = await db.update(errorLogs)
+      .set({ resolvedAt: new Date(), resolvedBy: resolvedBy ?? null })
+      .where(and(...conditions));
+    return result.rowCount ?? 0;
   }
 
   async deleteOldErrorLogs(daysOld: number): Promise<number> {

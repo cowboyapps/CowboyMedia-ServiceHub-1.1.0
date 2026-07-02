@@ -4813,6 +4813,27 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Bulk-resolve unresolved error log entries. Non-destructive (keeps the audit
+  // trail, just stamps resolvedAt/resolvedBy), so gated on the plain
+  // error_log.view permission like the single-entry resolve route — unlike the
+  // master_admin-only clear-all above. Honors the same filters as the list
+  // screen (severity/source/search) so "Resolve all" acknowledges exactly what
+  // the admin is currently looking at. Only touches currently-unresolved rows.
+  app.post("/api/admin/error-logs/resolve-all", requirePermission("error_log.view"), async (req, res) => {
+    try {
+      const { severity, source, search } = req.query;
+      const userId = (req as any).session?.userId || null;
+      const resolved = await storage.resolveAllErrorLogs(userId, {
+        severity: queryString(severity),
+        source: queryString(source),
+        search: queryString(search),
+      });
+      res.json({ resolved });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   app.get("/api/admin/error-logs/unresolved-count", requirePermission("error_log.view"), async (_req, res) => {
     try {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);

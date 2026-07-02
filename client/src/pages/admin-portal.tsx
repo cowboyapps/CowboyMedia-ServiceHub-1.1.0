@@ -4556,6 +4556,24 @@ function ErrorLogsTab() {
     onError: (e: any) => toast({ title: "Failed", description: e?.message || "Could not update", variant: "destructive" }),
   });
 
+  const resolveAllMutation = useMutation({
+    mutationFn: async () => {
+      const params = new URLSearchParams();
+      if (severity) params.set("severity", severity);
+      if (source) params.set("source", source);
+      if (search) params.set("search", search);
+      const qs = params.toString();
+      const res = await apiRequest("POST", `/api/admin/error-logs/resolve-all${qs ? `?${qs}` : ""}`);
+      return res.json() as Promise<{ resolved: number }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs/unresolved-count"] });
+      toast({ title: "Errors resolved", description: `${result.resolved} ${result.resolved === 1 ? "entry" : "entries"} marked resolved.` });
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message || "Could not resolve errors", variant: "destructive" }),
+  });
+
   const clearAllMutation = useMutation({
     mutationFn: async () => {
       const params = new URLSearchParams();
@@ -4632,6 +4650,39 @@ function ErrorLogsTab() {
 
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs text-muted-foreground" data-testid="text-error-total">{total} error log entries</div>
+        <div className="flex items-center gap-2">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={total === 0 || resolved === "true" || resolveAllMutation.isPending}
+              data-testid="button-resolve-all-errors"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Resolve all
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Resolve all unresolved errors?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {hasFilter
+                  ? "This marks every unresolved error matching the current filters as resolved. The entries stay in the log for reference."
+                  : "This marks every unresolved error as resolved. The entries stay in the log for reference."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-resolve-all-errors-cancel">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => resolveAllMutation.mutate()}
+                data-testid="button-resolve-all-errors-confirm"
+              >
+                Resolve all
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {isMasterAdmin && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -4667,6 +4718,7 @@ function ErrorLogsTab() {
             </AlertDialogContent>
           </AlertDialog>
         )}
+        </div>
       </div>
 
       {isLoading ? (
