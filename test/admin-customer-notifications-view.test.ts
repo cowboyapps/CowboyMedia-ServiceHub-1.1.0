@@ -13,8 +13,12 @@ import { setupComponentTestTeardown } from "./helpers/component-test-teardown";
 //   - the empty state shows the right copy for "all" vs a specific type filter
 //   - changing the type filter refetches with the new `type` query param and
 //     swaps the rendered rows
+//   - "Load more" advances the offset, APPENDS the next page after the first
+//     (never replacing it), and disappears once the server says hasMore=false —
+//     so older history stays reachable for high-volume customers
 // The section makes its own `fetch` (not the shared queryFn), so a fetch stub
-// keyed on the `type` param serves each page and records the requested URLs.
+// keyed on the `type` param (and slicing by the `offset`/`limit` params) serves
+// each page and records the requested URLs.
 
 // --- jsdom globals + polyfills (mirrors test/store-catalogue-sort.test.ts) ---
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -133,8 +137,15 @@ g.fetch = (async (url: unknown) => {
     requestedUrls.push(str);
     const params = new URLSearchParams(str.split("?")[1] ?? "");
     const type = params.get("type") ?? "all";
-    const rows = pagesByType[type] ?? [];
-    return jsonResponse({ notifications: rows, hasMore: false });
+    const offset = Number(params.get("offset") ?? "0");
+    const limit = Number(params.get("limit") ?? "30");
+    const all = pagesByType[type] ?? [];
+    // Serve the requested window and report hasMore from what remains, so the
+    // stub behaves like the real offset-paginated endpoint. (Existing tests
+    // supply <= one page of rows, so they still get every row + hasMore=false.)
+    const rows = all.slice(offset, offset + limit);
+    const hasMore = offset + limit < all.length;
+    return jsonResponse({ notifications: rows, hasMore });
   }
   return jsonResponse({});
 }) as unknown as typeof fetch;
@@ -149,6 +160,7 @@ const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { CustomerNotificationsSection } = await import("../client/src/pages/admin-portal");
+const { NOTIFICATION_PAGE_SIZE } = await import("../client/src/pages/admin-portal-notifications");
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -328,6 +340,63 @@ test("changing the type filter refetches with the new type and swaps the rows", 
 
     // ...and the rendered rows swap to the news-only page.
     assert.deepEqual(rowOrder(c.container), ["only-news"], "rows swap to the filtered page");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("'Load more' appends the next page after the first and hides once hasMore=false", async () => {
+  // A history longer than one page: the first page fills a full window (so the
+  // server reports hasMore=true), the tail is a short second page. Ids encode
+  // their position so we can prove the second page is APPENDED after the first,
+  // not swapped in over it — a regression there silently hides older history.
+  const first = Array.from({ length: NOTIFICATION_PAGE_SIZE }, (_, i) =>
+    makeNotif({ id: `p1-${i}`, title: `First page ${i}` }),
+  );
+  const second = [
+    makeNotif({ id: "p2-0", title: "Second page 0" }),
+    makeNotif({ id: "p2-1", title: "Second page 1" }),
+  ];
+  pagesByType = { all: [...first, ...second] };
+  requestedUrls.length = 0;
+
+  const c = await mountSection();
+  try {
+    // First page rendered; the button is visible because the server said hasMore.
+    const firstIds = first.map((n) => n.id);
+    assert.deepEqual(rowOrder(c.container), firstIds, "the first page renders in order");
+    const loadMore = findByTestId(c.container, "button-load-more-notifications") as HTMLButtonElement | null;
+    assert.ok(loadMore, "the 'Load more' button appears while hasMore=true");
+
+    const before = requestedUrls.length;
+    await act(async () => {
+      loadMore!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await flushFrames();
+
+    // The second fetch carried the advanced offset (one full page in).
+    const newRequests = requestedUrls.slice(before);
+    assert.ok(
+      newRequests.some(
+        (u) => new URLSearchParams(u.split("?")[1] ?? "").get("offset") === String(NOTIFICATION_PAGE_SIZE),
+      ),
+      "the click fetches the next page at offset = page size",
+    );
+
+    // The second page is appended AFTER the first — the first page's rows are
+    // still present, in the same order, followed by the new rows.
+    assert.deepEqual(
+      rowOrder(c.container),
+      [...firstIds, "p2-0", "p2-1"],
+      "the second page is appended after the first (not replacing it)",
+    );
+
+    // Nothing left to load, so the button is gone.
+    assert.equal(
+      findByTestId(c.container, "button-load-more-notifications"),
+      null,
+      "the 'Load more' button disappears once hasMore=false",
+    );
   } finally {
     c.cleanup();
   }
