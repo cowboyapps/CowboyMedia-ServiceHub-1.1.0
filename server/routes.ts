@@ -856,6 +856,17 @@ function logActivity(category: string, action: string, opts: { actorId?: string;
   storage.createActivityLog({ category, action, ...opts }).catch(e => console.error("[ActivityLog] Failed to write:", getErrorMessage(e)));
 }
 
+// Human-readable summary of the filter in effect when a bulk error-log action
+// runs, for the activity-log entry. "all entries" when no filter is applied.
+function describeErrorLogFilters(filters: { severity?: string; source?: string; search?: string; resolved?: boolean }): string {
+  const parts: string[] = [];
+  if (filters.severity) parts.push(`severity: ${filters.severity}`);
+  if (filters.source) parts.push(`source: ${filters.source}`);
+  if (filters.search) parts.push(`search: "${filters.search}"`);
+  if (filters.resolved !== undefined) parts.push(filters.resolved ? "resolved only" : "unresolved only");
+  return parts.length > 0 ? `filter — ${parts.join(", ")}` : "all entries";
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -4801,11 +4812,21 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const { severity, source, search, resolved } = req.query;
       const resolvedParsed = resolved === "true" ? true : resolved === "false" ? false : undefined;
-      const deleted = await storage.deleteAllErrorLogs({
+      const filters = {
         severity: queryString(severity),
         source: queryString(source),
         search: queryString(search),
         resolved: resolvedParsed,
+      };
+      const deleted = await storage.deleteAllErrorLogs(filters);
+      const userId = (req as any).session?.userId || null;
+      const actor = userId ? await storage.getUser(userId) : null;
+      const actorName = actor?.fullName || "Unknown admin";
+      const filterDesc = describeErrorLogFilters(filters);
+      logActivity("error_log", "error_logs_cleared", {
+        actorId: userId || undefined,
+        summary: `${actorName} cleared ${deleted} error log ${deleted === 1 ? "entry" : "entries"} (${filterDesc})`,
+        details: JSON.stringify({ actor: actorName, deleted, filters }),
       });
       res.json({ deleted });
     } catch (e) {
@@ -4823,10 +4844,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     try {
       const { severity, source, search } = req.query;
       const userId = (req as any).session?.userId || null;
-      const resolved = await storage.resolveAllErrorLogs(userId, {
+      const filters = {
         severity: queryString(severity),
         source: queryString(source),
         search: queryString(search),
+      };
+      const resolved = await storage.resolveAllErrorLogs(userId, filters);
+      const actor = userId ? await storage.getUser(userId) : null;
+      const actorName = actor?.fullName || "Unknown admin";
+      const filterDesc = describeErrorLogFilters(filters);
+      logActivity("error_log", "error_logs_resolved_all", {
+        actorId: userId || undefined,
+        summary: `${actorName} resolved ${resolved} error log ${resolved === 1 ? "entry" : "entries"} (${filterDesc})`,
+        details: JSON.stringify({ actor: actorName, resolved, filters }),
       });
       res.json({ resolved });
     } catch (e) {

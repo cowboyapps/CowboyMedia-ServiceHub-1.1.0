@@ -3952,6 +3952,7 @@ const LOG_CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: 
   news: { label: "News", color: "bg-purple-500/10 text-purple-500", icon: Newspaper },
   service_update: { label: "Service Update", color: "bg-teal-500/10 text-teal-500", icon: RefreshCw },
   report: { label: "Report", color: "bg-cyan-500/10 text-cyan-500", icon: FileText },
+  error_log: { label: "Error Log", color: "bg-red-500/10 text-red-500", icon: AlertTriangle },
 };
 
 function DownloadsTab({ canManage = true }: { canManage?: boolean }) {
