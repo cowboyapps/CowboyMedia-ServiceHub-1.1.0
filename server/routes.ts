@@ -3833,13 +3833,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!client) return res.status(503).json({ message: "AI client unavailable." });
 
       const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         messages: [
           { role: "system", content: system },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.6,
-        max_tokens: 320,
+        max_completion_tokens: 2000,
       });
 
       const draft = completion.choices[0]?.message?.content?.trim() || "";
