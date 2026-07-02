@@ -116,7 +116,7 @@ interface AdminUserNotification {
 // sent — INCLUDING dismissed rows (support needs the full record, unlike the
 // customer's own feed). Newest-first, "load more" paginated, with a type filter
 // to isolate a category. Strictly read-only.
-function CustomerNotificationsSection({ userId }: { userId: string }) {
+export function CustomerNotificationsSection({ userId }: { userId: string }) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
   // Offset-based pagination (constant page size). "Load more" advances the
