@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ErrorLog, InsertErrorLog } from "../shared/schema";
-import { createRequirePermission } from "./require-permission";
+import { createRequirePermission, createRequireMasterAdmin } from "./require-permission";
 
 type ErrorLogStorage = {
   createErrorLog(data: InsertErrorLog): Promise<ErrorLog>;
@@ -10,6 +10,7 @@ type ErrorLogStorage = {
   setErrorLogResolved(id: string, resolved: boolean, by?: string | null): Promise<ErrorLog | undefined>;
   countUnresolvedErrorLogsSince(since: Date): Promise<number>;
   deleteOldErrorLogs(days: number): Promise<number>;
+  deleteAllErrorLogs(filters?: { severity?: string; source?: string; resolved?: boolean; search?: string }): Promise<number>;
 };
 
 function makeMemoryStorage(): ErrorLogStorage {
@@ -70,6 +71,22 @@ function makeMemoryStorage(): ErrorLogStorage {
       }
       return n;
     },
+    async deleteAllErrorLogs(filters) {
+      let n = 0;
+      for (const [id, r] of Array.from(rows.entries())) {
+        if (filters?.severity && r.severity !== filters.severity) continue;
+        if (filters?.source && r.source !== filters.source) continue;
+        if (filters?.resolved === true && r.resolvedAt === null) continue;
+        if (filters?.resolved === false && r.resolvedAt !== null) continue;
+        if (filters?.search) {
+          const s = filters.search.toLowerCase();
+          if (!r.summary.toLowerCase().includes(s) && !(r.details || "").toLowerCase().includes(s)) continue;
+        }
+        rows.delete(id);
+        n++;
+      }
+      return n;
+    },
   };
 }
 
@@ -119,7 +136,69 @@ test("countUnresolvedErrorLogsSince counts only unresolved within window", async
   assert.equal(await s.countUnresolvedErrorLogsSince(since), 1);
 });
 
+test("deleteAllErrorLogs with no filter removes everything and returns count", async () => {
+  const s = makeMemoryStorage();
+  await s.createErrorLog({ severity: "warn", source: "push", summary: "a", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.createErrorLog({ severity: "error", source: "email", summary: "b", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.createErrorLog({ severity: "fatal", source: "route", summary: "c", details: null, userId: null, referenceType: null, referenceId: null });
+  const deleted = await s.deleteAllErrorLogs();
+  assert.equal(deleted, 3);
+  assert.equal((await s.getErrorLogs({})).total, 0);
+});
+
+test("deleteAllErrorLogs is a safe no-op when the log is already empty", async () => {
+  const s = makeMemoryStorage();
+  const deleted = await s.deleteAllErrorLogs();
+  assert.equal(deleted, 0);
+});
+
+test("deleteAllErrorLogs honors filters, leaving non-matching rows intact", async () => {
+  const s = makeMemoryStorage();
+  await s.createErrorLog({ severity: "warn", source: "push", summary: "keep me", details: null, userId: null, referenceType: null, referenceId: null });
+  const e = await s.createErrorLog({ severity: "error", source: "email", summary: "smtp boom", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.createErrorLog({ severity: "error", source: "email", summary: "smtp again", details: null, userId: null, referenceType: null, referenceId: null });
+  await s.setErrorLogResolved(e.id, true, "admin-1");
+
+  // Only unresolved email errors should go.
+  const deleted = await s.deleteAllErrorLogs({ source: "email", resolved: false });
+  assert.equal(deleted, 1);
+  assert.equal((await s.getErrorLogs({})).total, 2);
+  assert.equal((await s.getErrorLogs({ source: "push" })).total, 1);
+  assert.equal((await s.getErrorLogs({ source: "email", resolved: true })).total, 1);
+});
+
 // ---------- Permission gating ----------
+
+// The Clear-all route is gated on master_admin, NOT the plain error_log.view
+// permission used by the read/resolve routes — bulk delete is destructive.
+test("clear-all master-admin gate blocks customers and delegated admins", async () => {
+  const users: Record<string, { role: string }> = {
+    cust: { role: "customer" },
+    adminA: { role: "admin" },
+    master: { role: "master_admin" },
+  };
+  const requireMasterAdmin = createRequireMasterAdmin({
+    getUser: async (id) => users[id],
+  });
+
+  const cases: Array<{ uid: string | undefined; expected: number }> = [
+    { uid: undefined, expected: 401 },
+    { uid: "cust", expected: 403 },
+    { uid: "adminA", expected: 403 },
+    { uid: "master", expected: 200 },
+  ];
+  for (const c of cases) {
+    const res = makeRes();
+    let nextCalled = false;
+    const req: any = { session: c.uid ? { userId: c.uid } : {}, method: "DELETE" };
+    await requireMasterAdmin(req, res as any, () => { nextCalled = true; });
+    if (c.expected === 200) {
+      assert.equal(nextCalled, true, `uid=${c.uid} should pass`);
+    } else {
+      assert.equal(res.statusCode, c.expected, `uid=${c.uid}`);
+    }
+  }
+});
 
 type Res = { statusCode: number; body?: any; status: (n: number) => Res; json: (b: any) => Res };
 function makeRes(): Res {

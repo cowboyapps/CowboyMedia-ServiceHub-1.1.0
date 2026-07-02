@@ -4505,6 +4505,7 @@ function severityBadgeClass(sev: string): string {
 
 function ErrorLogsTab() {
   const { toast } = useToast();
+  const { isMasterAdmin } = useAuth();
   const [severity, setSeverity] = useState<string>("");
   const [source, setSource] = useState<string>("");
   const [resolved, setResolved] = useState<string>("false");
@@ -4543,9 +4544,31 @@ function ErrorLogsTab() {
     onError: (e: any) => toast({ title: "Failed", description: e?.message || "Could not update", variant: "destructive" }),
   });
 
+  const clearAllMutation = useMutation({
+    mutationFn: async () => {
+      const params = new URLSearchParams();
+      if (severity) params.set("severity", severity);
+      if (source) params.set("source", source);
+      if (resolved !== "all") params.set("resolved", resolved);
+      if (search) params.set("search", search);
+      const qs = params.toString();
+      const res = await apiRequest("DELETE", `/api/admin/error-logs${qs ? `?${qs}` : ""}`);
+      return res.json() as Promise<{ deleted: number }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs/unresolved-count"] });
+      setPage(1);
+      setExpandedId(null);
+      toast({ title: "Error log cleared", description: `${result.deleted} ${result.deleted === 1 ? "entry" : "entries"} removed.` });
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message || "Could not clear error log", variant: "destructive" }),
+  });
+
   const logs = data?.logs || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / limit);
+  const hasFilter = !!severity || !!source || resolved !== "all" || !!search;
 
   const handleSearch = () => { setSearch(searchInput); setPage(1); };
 
@@ -4595,7 +4618,44 @@ function ErrorLogsTab() {
         </div>
       </div>
 
-      <div className="text-xs text-muted-foreground" data-testid="text-error-total">{total} error log entries</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground" data-testid="text-error-total">{total} error log entries</div>
+        {isMasterAdmin && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-7 text-xs"
+                disabled={total === 0 || clearAllMutation.isPending}
+                data-testid="button-clear-all-errors"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" /> Clear all
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear all error logs?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {hasFilter
+                    ? `This will permanently delete the ${total} error log ${total === 1 ? "entry" : "entries"} matching the current filters. This cannot be undone.`
+                    : `This will permanently delete all ${total} error log ${total === 1 ? "entry" : "entries"}. This cannot be undone.`}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-clear-all-errors-cancel">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => clearAllMutation.mutate()}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid="button-clear-all-errors-confirm"
+                >
+                  Clear all
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
 
       {isLoading ? (
         <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>

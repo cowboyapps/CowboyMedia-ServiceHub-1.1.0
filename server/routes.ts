@@ -4791,6 +4791,28 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Bulk-delete error log entries. Destructive and irreversible, so gated on
+  // master_admin rather than the plain error_log.view permission used by the
+  // read/resolve routes. Optionally honors the same filters as the list screen
+  // (severity/source/resolved/search) so "Clear all" removes exactly what the
+  // admin is currently looking at; with no filter it clears everything. Safe to
+  // run when the log is already empty (returns { deleted: 0 }).
+  app.delete("/api/admin/error-logs", requireMasterAdmin, async (req, res) => {
+    try {
+      const { severity, source, search, resolved } = req.query;
+      const resolvedParsed = resolved === "true" ? true : resolved === "false" ? false : undefined;
+      const deleted = await storage.deleteAllErrorLogs({
+        severity: queryString(severity),
+        source: queryString(source),
+        search: queryString(search),
+        resolved: resolvedParsed,
+      });
+      res.json({ deleted });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   app.get("/api/admin/error-logs/unresolved-count", requirePermission("error_log.view"), async (_req, res) => {
     try {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);

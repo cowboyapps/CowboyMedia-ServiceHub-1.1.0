@@ -306,6 +306,7 @@ export interface IStorage {
   setErrorLogResolved(id: string, resolved: boolean, resolvedBy?: string | null): Promise<ErrorLog | undefined>;
   countUnresolvedErrorLogsSince(since: Date): Promise<number>;
   deleteOldErrorLogs(daysOld: number): Promise<number>;
+  deleteAllErrorLogs(filters?: { severity?: string; source?: string; resolved?: boolean; search?: string }): Promise<number>;
 
   getUserByEmail(email: string): Promise<User | undefined>;
   createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken>;
@@ -1379,6 +1380,18 @@ export class DatabaseStorage implements IStorage {
   async deleteOldErrorLogs(daysOld: number): Promise<number> {
     const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
     const result = await db.delete(errorLogs).where(sql`${errorLogs.createdAt} < ${cutoff}`);
+    return result.rowCount ?? 0;
+  }
+
+  async deleteAllErrorLogs(filters?: { severity?: string; source?: string; resolved?: boolean; search?: string }): Promise<number> {
+    const conditions = [];
+    if (filters?.severity) conditions.push(eq(errorLogs.severity, filters.severity));
+    if (filters?.source) conditions.push(eq(errorLogs.source, filters.source));
+    if (filters?.resolved === true) conditions.push(isNotNull(errorLogs.resolvedAt));
+    if (filters?.resolved === false) conditions.push(isNull(errorLogs.resolvedAt));
+    if (filters?.search) conditions.push(sql`(${errorLogs.summary} ILIKE ${'%' + filters.search + '%'} OR ${errorLogs.details} ILIKE ${'%' + filters.search + '%'})`);
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const result = await db.delete(errorLogs).where(where);
     return result.rowCount ?? 0;
   }
 
