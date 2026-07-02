@@ -123,7 +123,7 @@ export function CustomerNotificationsSection({ userId }: { userId: string }) {
   // offset and appends the next page, so histories longer than the API's
   // per-request cap (100) stay fully reachable — a growing `limit` would clamp
   // and loop on the first page forever. See admin-portal-notifications.ts.
-  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useInfiniteQuery<{
+  const { data, isLoading, isError, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } = useInfiniteQuery<{
     notifications: AdminUserNotification[];
     hasMore: boolean;
   }>({
@@ -166,6 +166,30 @@ export function CustomerNotificationsSection({ userId }: { userId: string }) {
       <div className="p-3">
         {isLoading ? (
           <Skeleton className="h-24 w-full" />
+        ) : isError && notifications.length === 0 ? (
+          <div
+            className="flex flex-col items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3"
+            data-testid="text-customer-notifications-error"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-destructive" />
+              <p className="text-xs text-destructive">
+                We couldn't load this customer's notification history. This doesn't mean they
+                received nothing — try again.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => refetch()}
+              data-testid="button-retry-customer-notifications"
+            >
+              <RotateCw className="w-3.5 h-3.5 mr-1.5" />
+              Retry
+            </Button>
+          </div>
         ) : notifications.length === 0 ? (
           <p className="text-xs text-muted-foreground" data-testid="text-customer-notifications-empty">
             {typeFilter === "all"
@@ -223,6 +247,17 @@ export function CustomerNotificationsSection({ userId }: { userId: string }) {
                 );
               })}
             </ul>
+            {isError && (
+              <div
+                className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+                data-testid="text-customer-notifications-loadmore-error"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-destructive" />
+                <p className="text-xs text-destructive">
+                  We couldn't load older notifications. Some history may be missing — try again.
+                </p>
+              </div>
+            )}
             {hasNextPage && (
               <div className="pt-3 flex justify-center">
                 <Button
@@ -234,7 +269,7 @@ export function CustomerNotificationsSection({ userId }: { userId: string }) {
                   onClick={() => fetchNextPage()}
                   data-testid="button-load-more-notifications"
                 >
-                  {isFetchingNextPage ? "Loading..." : "Load more"}
+                  {isFetchingNextPage ? "Loading..." : isError ? "Retry" : "Load more"}
                 </Button>
               </div>
             )}

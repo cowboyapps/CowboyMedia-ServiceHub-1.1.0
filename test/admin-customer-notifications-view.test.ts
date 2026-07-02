@@ -255,6 +255,123 @@ async function selectFilterByLabel(label: string): Promise<void> {
   await flushFrames();
 }
 
+test("shows a distinct error state (with retry) when the initial page fails — not the empty copy", async () => {
+  // The initial fetch fails (network blip / 500). The section must surface a
+  // dedicated error state with a retry affordance instead of falling through to
+  // the empty-state copy, which would mislead support into believing the
+  // customer received nothing.
+  let failNext = true;
+  const savedFetch = g.fetch;
+  g.fetch = (async (url: unknown) => {
+    const str = String(url);
+    if (str.includes("/notifications")) {
+      requestedUrls.push(str);
+      if (failNext) {
+        return jsonResponse({ error: "boom" }, 500);
+      }
+      return jsonResponse({ notifications: [], hasMore: false });
+    }
+    return jsonResponse({});
+  }) as unknown as typeof fetch;
+  w.fetch = g.fetch;
+
+  const c = await mountSection();
+  try {
+    const error = findByTestId(c.container, "text-customer-notifications-error");
+    assert.ok(error, "the error state renders when the initial fetch fails");
+    // The misleading empty-state copy must NOT be shown.
+    assert.equal(
+      findByTestId(c.container, "text-customer-notifications-empty"),
+      null,
+      "the empty-state copy is not shown on a failed load",
+    );
+    assert.equal(
+      findByTestId(c.container, "list-customer-notifications"),
+      null,
+      "no list is rendered on a failed load",
+    );
+
+    // Retry succeeds now: clicking it refetches and clears the error.
+    failNext = false;
+    const retry = findByTestId(c.container, "button-retry-customer-notifications") as HTMLButtonElement | null;
+    assert.ok(retry, "the error state offers a retry affordance");
+    await act(async () => {
+      retry!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await flushFrames();
+
+    assert.equal(
+      findByTestId(c.container, "text-customer-notifications-error"),
+      null,
+      "the error state clears after a successful retry",
+    );
+    const empty = findByTestId(c.container, "text-customer-notifications-empty");
+    assert.ok(empty, "the empty state shows once the retry succeeds with no rows");
+  } finally {
+    c.cleanup();
+    g.fetch = savedFetch;
+    w.fetch = savedFetch;
+  }
+});
+
+test("surfaces a 'Load more' error when a second-page fetch fails, keeping the first page", async () => {
+  // The first page loads fine; the "Load more" fetch fails. The already-shown
+  // first page must stay, but there must be a clear signal that older history
+  // couldn't be reached — the empty copy must never appear.
+  const first = Array.from({ length: NOTIFICATION_PAGE_SIZE }, (_, i) =>
+    makeNotif({ id: `lp-${i}`, title: `Row ${i}` }),
+  );
+  let failNextPage = false;
+  const savedFetch = g.fetch;
+  g.fetch = (async (url: unknown) => {
+    const str = String(url);
+    if (str.includes("/notifications")) {
+      requestedUrls.push(str);
+      const params = new URLSearchParams(str.split("?")[1] ?? "");
+      const offset = Number(params.get("offset") ?? "0");
+      if (offset > 0 && failNextPage) {
+        return jsonResponse({ error: "boom" }, 500);
+      }
+      // Always report hasMore so the "Load more" button stays available.
+      return jsonResponse({ notifications: first, hasMore: true });
+    }
+    return jsonResponse({});
+  }) as unknown as typeof fetch;
+  w.fetch = g.fetch;
+
+  const c = await mountSection();
+  try {
+    const firstIds = first.map((n) => n.id);
+    assert.deepEqual(rowOrder(c.container), firstIds, "the first page renders");
+
+    failNextPage = true;
+    const loadMore = findByTestId(c.container, "button-load-more-notifications") as HTMLButtonElement | null;
+    assert.ok(loadMore, "the 'Load more' button is present");
+    await act(async () => {
+      loadMore!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await flushFrames();
+
+    // The first page is still shown...
+    assert.deepEqual(rowOrder(c.container), firstIds, "the first page stays after a failed load-more");
+    // ...with an explicit error signal...
+    assert.ok(
+      findByTestId(c.container, "text-customer-notifications-loadmore-error"),
+      "a load-more error signal is shown",
+    );
+    // ...and never the misleading empty copy.
+    assert.equal(
+      findByTestId(c.container, "text-customer-notifications-empty"),
+      null,
+      "the empty-state copy is not shown on a failed load-more",
+    );
+  } finally {
+    c.cleanup();
+    g.fetch = savedFetch;
+    w.fetch = savedFetch;
+  }
+});
+
 test("renders rows in server order (newest-first) with the three status badges", async () => {
   // Server returns newest-first; the section renders as-is. One row per status
   // so the dismissed → read → unseen badge precedence is all exercised.
