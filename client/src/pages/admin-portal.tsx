@@ -50,7 +50,7 @@ import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariab
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction, ADMIN_MENU_SENTINEL } from "./admin-portal-deeplink";
-import { NOTIFICATION_PAGE_SIZE, nextNotificationPageOffset, buildNotificationPageQuery } from "./admin-portal-notifications";
+import { NOTIFICATION_PAGE_SIZE, nextNotificationPageOffset, buildNotificationPageQuery, resolveNotificationLink } from "./admin-portal-notifications";
 
 // Human-readable labels for the in-app notification `type` column, used by the
 // admin customer-notification history view + its type filter. Types don't map
@@ -177,6 +177,7 @@ function CustomerNotificationsSection({ userId }: { userId: string }) {
             <ul className="space-y-2" data-testid="list-customer-notifications">
               {notifications.map((n) => {
                 const when = new Date(n.createdAt);
+                const linkTo = resolveNotificationLink(n);
                 return (
                   <li
                     key={n.id}
@@ -186,7 +187,18 @@ function CustomerNotificationsSection({ userId }: { userId: string }) {
                     <Bell className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-medium truncate">{n.title}</span>
+                        {linkTo ? (
+                          <Link
+                            href={linkTo}
+                            className="font-medium truncate inline-flex items-center gap-1 text-primary hover:underline"
+                            data-testid={`link-customer-notification-${n.id}`}
+                          >
+                            <span className="truncate">{n.title}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </Link>
+                        ) : (
+                          <span className="font-medium truncate">{n.title}</span>
+                        )}
                         <Badge variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-notification-type-${n.id}`}>
                           {notificationTypeLabel(n.type)}
                         </Badge>
