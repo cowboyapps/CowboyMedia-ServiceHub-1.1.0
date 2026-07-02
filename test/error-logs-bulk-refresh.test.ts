@@ -519,3 +519,28 @@ test("Clear all forwards the active severity/source/resolved/search filters", as
     h.cleanup();
   }
 });
+
+// When the admin picks the "All" resolved view, clear-all must OMIT the
+// `resolved` param entirely — exactly like the list query
+// (`if (resolved !== "all") params.set("resolved", resolved)`). Otherwise a
+// stray `resolved=all` would reach the server as a literal filter value and
+// could scope the delete differently from the rows the admin sees. The other
+// active filters must still ride along.
+test("Clear all omits the resolved param when the view is All, keeping other filters", async () => {
+  const h = await mountErrorLogsTab();
+  try {
+    // Switch to the "All" resolved view and keep a severity filter applied.
+    await pickSelectOption("select-error-resolved", "All");
+    await pickSelectOption("select-error-severity", "error");
+
+    await clickTestId("button-clear-all-errors");
+    await clickTestId("button-clear-all-errors-confirm");
+
+    assert.equal(deleteAllCalls.length, 1, "exactly one clear-all DELETE fires");
+    const params = new URLSearchParams(deleteAllCalls[0].fullUrl.split("?")[1] ?? "");
+    assert.equal(params.has("resolved"), false, "the resolved param is omitted when the view is All");
+    assert.equal(params.get("severity"), "error", "other active filters still ride along on clear-all");
+  } finally {
+    h.cleanup();
+  }
+});
