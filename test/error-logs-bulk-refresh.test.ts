@@ -146,8 +146,10 @@ const ERROR_LOGS = {
 // follow-up refetch happens after each bulk action.
 let listGetCount = 0;
 let countGetCount = 0;
-// Every bulk write the component fires is recorded here.
-type WriteCall = { url: string; method: string };
+// Every bulk write the component fires is recorded here. `url` is the pathname
+// only (for the endpoint-targeting assertions); `fullUrl` keeps the raw URL with
+// its query string so we can prove the active filters are forwarded.
+type WriteCall = { url: string; fullUrl: string; method: string };
 let resolveAllCalls: WriteCall[] = [];
 let deleteAllCalls: WriteCall[] = [];
 
@@ -166,13 +168,13 @@ g.fetch = async (input: unknown, init?: { method?: string; body?: unknown }): Pr
 
   // POST /api/admin/error-logs/resolve-all
   if (pathname === "/api/admin/error-logs/resolve-all" && method === "POST") {
-    resolveAllCalls.push({ url: pathname, method });
+    resolveAllCalls.push({ url: pathname, fullUrl: url, method });
     return jsonResponse({ resolved: 2 });
   }
 
   // DELETE /api/admin/error-logs (clear all) — must be checked before the GET.
   if (pathname === "/api/admin/error-logs" && method === "DELETE") {
-    deleteAllCalls.push({ url: pathname, method });
+    deleteAllCalls.push({ url: pathname, fullUrl: url, method });
     return jsonResponse({ deleted: 2 });
   }
 
@@ -342,6 +344,52 @@ async function clickTestId(id: string): Promise<void> {
   await flush();
 }
 
+// Drive a filter Radix Select the way a mouse user does: a primary-button mouse
+// pointerdown opens it (Radix only opens for pointerType "mouse"), mounting the
+// items in the portal; a click on the option whose visible text matches `label`
+// runs its handleSelect and fires onValueChange. The severity/source/resolved
+// SelectItems carry no data-testid, so match the option by its text.
+async function pickSelectOption(triggerTestId: string, label: string): Promise<void> {
+  const trigger = findByTestId(triggerTestId);
+  assert.ok(trigger, `the ${triggerTestId} select trigger is present`);
+  await act(async () => {
+    trigger!.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        pointerType: "mouse",
+      }),
+    );
+  });
+  await flush();
+
+  const options = Array.from(window.document.body.querySelectorAll('[role="option"]'));
+  const item = options.find((o) => o.textContent?.trim() === label) as HTMLElement | undefined;
+  assert.ok(item, `the "${label}" option is present once ${triggerTestId} opens`);
+  await act(async () => {
+    item!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await flush();
+}
+
+// Type into the search box and submit it (the component commits `searchInput`
+// into the `search` filter only when the search button is clicked / Enter).
+async function setSearch(term: string): Promise<void> {
+  const input = findByTestId("input-error-search") as HTMLInputElement | null;
+  assert.ok(input, "the search input is present");
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  await act(async () => {
+    setter?.call(input, term);
+    input!.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await flush();
+  await clickTestId("button-error-search");
+}
+
 // --- "Resolve all" refetches BOTH the list and the unresolved counter -------
 
 test("Resolve all refetches the error-log list and the unresolved-count badge", async () => {
@@ -407,6 +455,66 @@ test("Clear all refetches the error-log list and the unresolved-count badge", as
       countGetCount > countBefore,
       `the unresolved-count re-fetched after Clear all (was ${countBefore}, now ${countGetCount})`,
     );
+  } finally {
+    h.cleanup();
+  }
+});
+
+// --- Bulk actions FORWARD the admin's active filters to the server ----------
+//
+// The bulk buttons must only touch the rows the admin has filtered to: each
+// mutation builds a query string from the current severity/source/resolved/
+// search filters before POSTing resolve-all / DELETEing the collection. If a
+// regression dropped a param, an admin could resolve or delete far more entries
+// than their filtered view implies — a destructive, silent, user-visible bug.
+// These tests set filters through the real UI (Radix Selects + the search box),
+// fire each bulk action, and assert the outgoing URL carries every param.
+//
+// Resolve-all is a bulk resolve, so it forwards severity/source/search but NOT
+// `resolved` (there's nothing to resolve among already-resolved rows, and the
+// button is disabled in the Resolved view). Clear-all is a bulk delete, so it
+// forwards all four including `resolved`.
+
+test("Resolve all forwards the active severity/source/search filters", async () => {
+  const h = await mountErrorLogsTab();
+  try {
+    // Apply filters through the real controls (default resolved = Unresolved,
+    // which keeps the Resolve all button enabled).
+    await pickSelectOption("select-error-severity", "error");
+    await pickSelectOption("select-error-source", "push");
+    await setSearch("boom");
+
+    await clickTestId("button-resolve-all-errors");
+    await clickTestId("button-resolve-all-errors-confirm");
+
+    assert.equal(resolveAllCalls.length, 1, "exactly one resolve-all POST fires");
+    const params = new URLSearchParams(resolveAllCalls[0].fullUrl.split("?")[1] ?? "");
+    assert.equal(params.get("severity"), "error", "the severity filter is forwarded to resolve-all");
+    assert.equal(params.get("source"), "push", "the source filter is forwarded to resolve-all");
+    assert.equal(params.get("search"), "boom", "the search filter is forwarded to resolve-all");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("Clear all forwards the active severity/source/resolved/search filters", async () => {
+  const h = await mountErrorLogsTab();
+  try {
+    // Apply filters through the real controls. `resolved` starts at "false"
+    // (Unresolved) — a real filter value clear-all must forward.
+    await pickSelectOption("select-error-severity", "error");
+    await pickSelectOption("select-error-source", "push");
+    await setSearch("boom");
+
+    await clickTestId("button-clear-all-errors");
+    await clickTestId("button-clear-all-errors-confirm");
+
+    assert.equal(deleteAllCalls.length, 1, "exactly one clear-all DELETE fires");
+    const params = new URLSearchParams(deleteAllCalls[0].fullUrl.split("?")[1] ?? "");
+    assert.equal(params.get("severity"), "error", "the severity filter is forwarded to clear-all");
+    assert.equal(params.get("source"), "push", "the source filter is forwarded to clear-all");
+    assert.equal(params.get("resolved"), "false", "the resolved filter is forwarded to clear-all");
+    assert.equal(params.get("search"), "boom", "the search filter is forwarded to clear-all");
   } finally {
     h.cleanup();
   }
