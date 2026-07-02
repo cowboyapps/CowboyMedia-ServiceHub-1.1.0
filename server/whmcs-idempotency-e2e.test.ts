@@ -98,6 +98,36 @@ function post(url: string, body: unknown, signal?: AbortSignal) {
   });
 }
 
+// Bounded wait for the gated write to be entered. Without a timeout, a future
+// change that rejects the request BEFORE the writer runs (validation/auth/config)
+// would leave enteredP unresolved and hang the file into the watchdog again —
+// this fails fast with a clear diagnostic instead.
+function waitForEntered(enteredP: Promise<void>, label: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`${label}: request never reached the gated WHMCS write within 10s`)),
+      10_000,
+    );
+    enteredP.then(() => {
+      clearTimeout(t);
+      resolve();
+    });
+  });
+}
+
+// After release(), the original handler still has to finish writing its stored
+// response before a retry can replay it. A fixed sleep flakes on a loaded VPS,
+// so poll: keep retrying while the guard still answers 409 (write in flight).
+async function postUntilReplayed(url: string, body: unknown): Promise<Response> {
+  for (let i = 0; i < 80; i++) {
+    const res = await post(url, body);
+    if (res.status !== 409) return res;
+    await res.arrayBuffer(); // drain so the socket can be reused/closed
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error("replay never became available (still 409 after 4s of retries)");
+}
+
 // ---------- order flow ----------
 
 // Mount the REAL place-order handler exactly as routes.ts does: session
@@ -128,11 +158,18 @@ test("order: a 30s-timeout abort mid-write then a retry never places a second or
   let orderRuns = 0;
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
+  let entered!: () => void;
+  const enteredP = new Promise<void>((r) => (entered = r));
   // The real WHMCS write: counts invocations and blocks (slow WHMCS) so the
   // client can abort while it's in flight. Returns a fresh invoice id per run so
-  // a second real run would be detectable.
+  // a second real run would be detectable. Signals `entered` so the test can
+  // deterministically wait until the write is in flight before aborting — a
+  // fixed sleep flakes on a loaded VPS: if the abort fires before the key is
+  // claimed, the "in-flight retry" below becomes the FIRST claimer and
+  // deadlocks on the gate (seen as the deploy gate's "timed out").
   const addOrder: OrderRouteDeps["addOrder"] = async (): Promise<WhmcsRawFetch> => {
     orderRuns += 1;
+    entered();
     await gate;
     return { ok: true, data: { invoiceid: 7000 + orderRuns } };
   };
@@ -141,27 +178,26 @@ test("order: a 30s-timeout abort mid-write then a retry never places a second or
     const url = `${baseUrl}/api/billing/order`;
     const orderBody = { pid: 10, billingCycle: "monthly" };
 
-    // 1. Customer submits; WHMCS is slow; the browser's 30s timeout aborts.
+    // 1. Customer submits; WHMCS is slow; the browser's 30s timeout aborts —
+    //    only once the request has provably claimed the key and entered the write.
     const ac = new AbortController();
     const firstP = post(url, orderBody, ac.signal).catch((e) => ({ aborted: true, e }) as any);
-    await new Promise((r) => setTimeout(r, 50)); // let it claim the key + reach the gated write
+    await waitForEntered(enteredP, "order");
     ac.abort();
     await firstP;
 
     // 2. The customer retries while the original write is STILL in flight: the
     //    guard must refuse it (409), not start a second order.
-    await new Promise((r) => setTimeout(r, 30));
     const inFlightRetry = await post(url, orderBody);
     assert.equal(inFlightRetry.status, 409, "a retry during the in-flight write must be refused");
     assert.equal(orderRuns, 1, "the WHMCS order write must not run a second time");
 
     // 3. The original (slow) write finally lands.
     release();
-    await new Promise((r) => setTimeout(r, 50));
 
     // 4. A later retry replays the original order response — same invoice, no
-    //    second order placed.
-    const replay = await post(url, orderBody);
+    //    second order placed. (Polls past the tail of the in-flight window.)
+    const replay = await postUntilReplayed(url, orderBody);
     const body = await replay.json();
     assert.equal(replay.status, 200);
     assert.equal(body.ok, true);
@@ -233,8 +269,11 @@ test("cancel: a 30s-timeout abort mid-write then a retry never submits a second 
   let cancelRuns = 0;
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
+  let entered!: () => void;
+  const enteredP = new Promise<void>((r) => (entered = r));
   const addCancelRequest: CancelRouteDeps["addCancelRequest"] = async (): Promise<WhmcsRawFetch> => {
     cancelRuns += 1;
+    entered();
     await gate;
     return { ok: true, data: {} };
   };
@@ -243,25 +282,24 @@ test("cancel: a 30s-timeout abort mid-write then a retry never submits a second 
     const url = `${baseUrl}/api/billing/services/42/cancel`;
     const cancelBody = { type: "Immediate" };
 
-    // 1. Submit; WHMCS slow; browser 30s timeout aborts.
+    // 1. Submit; WHMCS slow; browser 30s timeout aborts once the write is
+    //    provably in flight (deterministic — see the order test's comment).
     const ac = new AbortController();
     const firstP = post(url, cancelBody, ac.signal).catch((e) => ({ aborted: true, e }) as any);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForEntered(enteredP, "cancel");
     ac.abort();
     await firstP;
 
     // 2. Retry while still in flight → refused, no second cancellation.
-    await new Promise((r) => setTimeout(r, 30));
     const inFlightRetry = await post(url, cancelBody);
     assert.equal(inFlightRetry.status, 409, "a retry during the in-flight cancel must be refused");
     assert.equal(cancelRuns, 1, "the cancellation must not be submitted a second time");
 
     // 3. The original cancel lands.
     release();
-    await new Promise((r) => setTimeout(r, 50));
 
     // 4. A later retry replays the original success — no second cancellation.
-    const replay = await post(url, cancelBody);
+    const replay = await postUntilReplayed(url, cancelBody);
     const body = await replay.json();
     assert.equal(replay.status, 200);
     assert.equal(body.ok, true);
@@ -346,8 +384,11 @@ test("store-order: a 30s-timeout abort mid-write then a retry never places a sec
   let orderRuns = 0;
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
+  let entered!: () => void;
+  const enteredP = new Promise<void>((r) => (entered = r));
   const addOrder: NonNullable<StoreRouteDeps["addOrder"]> = async (): Promise<WhmcsRawFetch> => {
     orderRuns += 1;
+    entered();
     await gate;
     return { ok: true, data: { invoiceid: 9000 + orderRuns } };
   };
@@ -356,25 +397,24 @@ test("store-order: a 30s-timeout abort mid-write then a retry never places a sec
     const url = `${baseUrl}/api/billing/store-order`;
     const orderBody = { pid: 20, billingCycle: "monthly" };
 
-    // 1. Customer submits; WHMCS is slow; the browser's 30s timeout aborts.
+    // 1. Customer submits; WHMCS is slow; the browser's 30s timeout aborts once
+    //    the write is provably in flight (deterministic — see the order test).
     const ac = new AbortController();
     const firstP = post(url, orderBody, ac.signal).catch((e) => ({ aborted: true, e }) as any);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForEntered(enteredP, "store-order");
     ac.abort();
     await firstP;
 
     // 2. Retry while the original write is STILL in flight → refused (409).
-    await new Promise((r) => setTimeout(r, 30));
     const inFlightRetry = await post(url, orderBody);
     assert.equal(inFlightRetry.status, 409, "a retry during the in-flight write must be refused");
     assert.equal(orderRuns, 1, "the WHMCS order write must not run a second time");
 
     // 3. The original (slow) write finally lands.
     release();
-    await new Promise((r) => setTimeout(r, 50));
 
     // 4. A later retry replays the original response — same invoice, no second order.
-    const replay = await post(url, orderBody);
+    const replay = await postUntilReplayed(url, orderBody);
     const body = await replay.json();
     assert.equal(replay.status, 200);
     assert.equal(body.ok, true);
@@ -469,8 +509,11 @@ test("upgrade: a 30s-timeout abort mid-write then a retry never submits a second
   let upgradeRuns = 0;
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
+  let entered!: () => void;
+  const enteredP = new Promise<void>((r) => (entered = r));
   const submitUpgrade: NonNullable<UpgradeRouteDeps["submitUpgrade"]> = async (): Promise<WhmcsRawFetch> => {
     upgradeRuns += 1;
+    entered();
     await gate;
     return { ok: true, data: { invoiceid: 6000 + upgradeRuns } };
   };
@@ -479,25 +522,24 @@ test("upgrade: a 30s-timeout abort mid-write then a retry never submits a second
     const url = `${baseUrl}/api/billing/services/42/upgrade`;
     const upgradeBody = { newProductId: 31, billingCycle: "monthly" };
 
-    // 1. Submit; WHMCS slow; browser 30s timeout aborts.
+    // 1. Submit; WHMCS slow; browser 30s timeout aborts once the write is
+    //    provably in flight (deterministic — see the order test's comment).
     const ac = new AbortController();
     const firstP = post(url, upgradeBody, ac.signal).catch((e) => ({ aborted: true, e }) as any);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForEntered(enteredP, "upgrade");
     ac.abort();
     await firstP;
 
     // 2. Retry while still in flight → refused, no second upgrade.
-    await new Promise((r) => setTimeout(r, 30));
     const inFlightRetry = await post(url, upgradeBody);
     assert.equal(inFlightRetry.status, 409, "a retry during the in-flight upgrade must be refused");
     assert.equal(upgradeRuns, 1, "the WHMCS upgrade write must not run a second time");
 
     // 3. The original (slow) upgrade lands.
     release();
-    await new Promise((r) => setTimeout(r, 50));
 
     // 4. A later retry replays the original response — same invoice, no second change.
-    const replay = await post(url, upgradeBody);
+    const replay = await postUntilReplayed(url, upgradeBody);
     const body = await replay.json();
     assert.equal(replay.status, 200);
     assert.equal(body.ok, true);
