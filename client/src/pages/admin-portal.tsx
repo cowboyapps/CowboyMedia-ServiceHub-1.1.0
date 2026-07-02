@@ -51,6 +51,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction, ADMIN_MENU_SENTINEL } from "./admin-portal-deeplink";
 
+// Preserve the admin tile-menu scroll position across a menu → section →
+// "Back to Admin Menu" round-trip. The menu and every section share App.tsx's
+// single scroll container (the PullToRefresh wrapper, id below); opening a
+// shorter section clamps that container's scrollTop, so the menu offset is lost
+// on return. We capture the offset at the moment a tile is clicked (before the
+// section renders and the clamp happens) and restore it once the menu view is
+// back. Module-scoped so the value survives the query-param re-render; cleared
+// on unmount so a fresh entry to /admin always starts at the top.
+const ADMIN_SCROLL_CONTAINER_ID = "app-scroll-container";
+let savedAdminMenuScroll: number | null = null;
+
 function pillColorClass(enabled: number, total: number): string {
   if (total === 0) return "bg-muted text-muted-foreground border-transparent";
   if (enabled === 0) return "bg-muted text-muted-foreground border-transparent";
@@ -10186,6 +10197,39 @@ export default function AdminPortal() {
     }
   }, [initialParams.ticket, navigate]);
 
+  // Whether the current URL resolves to the tile menu (no section open).
+  const isMenuView = computeInitialActiveSection({
+    tabParam: initialParams.tab,
+    hasDashboardView: hasPermission("dashboard.view"),
+  }) === null;
+
+  // Snapshot the shared scroll container before leaving the menu for a section.
+  const captureMenuScroll = useCallback(() => {
+    const el = document.getElementById(ADMIN_SCROLL_CONTAINER_ID);
+    if (el) savedAdminMenuScroll = el.scrollTop;
+  }, []);
+
+  // Restore the captured offset once the menu view is shown again. A fresh
+  // entry has no captured offset (null), so it stays at the top as before.
+  useEffect(() => {
+    if (isMenuView && savedAdminMenuScroll !== null) {
+      const target = savedAdminMenuScroll;
+      savedAdminMenuScroll = null;
+      requestAnimationFrame(() => {
+        const el = document.getElementById(ADMIN_SCROLL_CONTAINER_ID);
+        if (el) el.scrollTop = target;
+      });
+    }
+  }, [isMenuView]);
+
+  // Drop any pending offset when the portal unmounts so navigating away and
+  // back to /admin is treated as a fresh entry (top), not a back-navigation.
+  useEffect(() => {
+    return () => {
+      savedAdminMenuScroll = null;
+    };
+  }, []);
+
   const { data: contentCounts } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
     refetchInterval: 15000,
@@ -10362,7 +10406,11 @@ export default function AdminPortal() {
                     return (
                       <button
                         key={s.key}
-                        onClick={() => s.navigateTo ? navigate(s.navigateTo) : goToSection(s.key)}
+                        onClick={() => {
+                          captureMenuScroll();
+                          if (s.navigateTo) navigate(s.navigateTo);
+                          else goToSection(s.key);
+                        }}
                         className="relative flex flex-col items-center justify-center gap-1.5 p-3 sm:p-3.5 rounded-lg border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[88px]"
                         data-testid={`tile-admin-${s.key}`}
                       >

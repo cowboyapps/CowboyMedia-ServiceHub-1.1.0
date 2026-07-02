@@ -6,10 +6,11 @@ interface PullToRefreshProps {
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
+  id?: string;
 }
 
 export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
-  function PullToRefresh({ children, className, disabled }, ref) {
+  function PullToRefresh({ children, className, disabled, id }, ref) {
     const [pulling, setPulling] = useState(false);
     const [pullDistance, setPullDistance] = useState(0);
     const [refreshing, setRefreshing] = useState(false);
@@ -86,7 +87,7 @@ export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
     }, [disabled, handleTouchStart, handleTouchMove, handleTouchEnd]);
 
     if (disabled) {
-      return <div ref={ref} className={className}>{children}</div>;
+      return <div ref={ref} id={id} className={className}>{children}</div>;
     }
 
     const rotation = Math.min((pullDistance / threshold) * 360, 360);
@@ -94,7 +95,7 @@ export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
     const scale = Math.min(pullDistance / threshold, 1);
 
     return (
-      <div ref={containerRef} className={className} style={{ position: "relative" }}>
+      <div ref={containerRef} id={id} className={className} style={{ position: "relative" }}>
         <div
           style={{
             position: "absolute",
