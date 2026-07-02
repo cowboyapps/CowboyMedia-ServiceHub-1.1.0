@@ -75,6 +75,7 @@ import { createUpgradeOptionsHandler, createSubmitUpgradeHandler } from "./whmcs
 import { createAdminServiceActionHandler } from "./whmcs-admin-service-action-route";
 import { createWhmcsLinkHandler, createWhmcsUnlinkHandler, createWhmcsAutoMatchHandler } from "./whmcs-admin-link-route";
 import { createWhmcsLinkReadHandler } from "./whmcs-admin-link-read-route";
+import { createAdminUserNotificationsHandler } from "./admin-user-notifications-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
   loadTicketDetail as loadWhmcsTicketDetail,
@@ -7246,6 +7247,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.status(500).json({ message: getErrorMessage(e) });
     }
   });
+
+  // Admin read-only view of a customer's full in-app (bell) notification history
+  // — every type, newest-first, paginated, INCLUDING dismissed rows (support
+  // needs the complete record, unlike the customer's own feed which hides them).
+  // Supports an optional exact ?type= filter so an admin can isolate a category
+  // (e.g. the WHMCS "new service added"/"ready" notifications). Strictly
+  // read-only; permission-gated identically to the other customer-detail reads.
+  app.get(
+    "/api/admin/users/:id/notifications",
+    requirePermission("users.view", "users.manage"),
+    createAdminUserNotificationsHandler({
+      getUser: (id) => storage.getUser(id),
+      listNotifications: (userId, limit, offset, type) =>
+        storage.getUserNotificationsForAdmin(userId, limit, offset, type),
+    }),
+  );
 
   // ---------- Support tickets (read-on-demand WHMCS mirror) ----------
   // WHMCS tickets are mirrored on view only — never stored, never mixed with

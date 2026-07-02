@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLocation, useSearch, Link } from "wouter";
@@ -50,6 +50,188 @@ import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariab
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction, ADMIN_MENU_SENTINEL } from "./admin-portal-deeplink";
+import { NOTIFICATION_PAGE_SIZE, nextNotificationPageOffset, buildNotificationPageQuery } from "./admin-portal-notifications";
+
+// Human-readable labels for the in-app notification `type` column, used by the
+// admin customer-notification history view + its type filter. Types don't map
+// 1:1 to preference category keys (e.g. the `ticket_update` type covers several
+// ticket categories), so this is a dedicated display map. Unknown types fall
+// back to the raw value.
+const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+  whmcs_service_added: "New service added",
+  whmcs_service_ready: "New service is ready",
+  whmcs_service_status: "Service status change",
+  whmcs_service_renewal: "Service renewal reminder",
+  whmcs_ticket_reply: "Billing ticket reply",
+  whmcs_invoice_due: "Invoice reminder",
+  ticket_update: "Ticket update",
+  service_status: "Service status change",
+  service_update: "Service update",
+  service_alert: "Service alert",
+  private_message: "Private message",
+  message: "Conversation reply",
+  report_update: "Report update",
+  news: "News story",
+  warning: "Moderation notice",
+};
+
+// The type-filter dropdown options for the admin customer-notification view.
+// WHMCS "new service" categories are surfaced first so the common support
+// question ("did this customer get the new-service notification?") is one click.
+const NOTIFICATION_TYPE_FILTERS: { value: string; label: string }[] = [
+  { value: "whmcs_service_added", label: "New service added" },
+  { value: "whmcs_service_ready", label: "New service is ready" },
+  { value: "whmcs_service_status", label: "Service status change" },
+  { value: "whmcs_service_renewal", label: "Service renewal reminder" },
+  { value: "whmcs_invoice_due", label: "Invoice reminder" },
+  { value: "whmcs_ticket_reply", label: "Billing ticket reply" },
+  { value: "ticket_update", label: "Ticket update" },
+  { value: "service_status", label: "Service status change" },
+  { value: "service_update", label: "Service update" },
+  { value: "service_alert", label: "Service alert" },
+  { value: "private_message", label: "Private message" },
+  { value: "message", label: "Conversation reply" },
+  { value: "report_update", label: "Report update" },
+  { value: "news", label: "News story" },
+];
+
+function notificationTypeLabel(type: string): string {
+  return NOTIFICATION_TYPE_LABELS[type] ?? type;
+}
+
+interface AdminUserNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  referenceType: string | null;
+  referenceId: string | null;
+  url: string | null;
+  createdAt: string;
+  readAt: string | null;
+  dismissedAt: string | null;
+}
+
+// Admin read-only history of every in-app (bell) notification a customer was
+// sent — INCLUDING dismissed rows (support needs the full record, unlike the
+// customer's own feed). Newest-first, "load more" paginated, with a type filter
+// to isolate a category. Strictly read-only.
+function CustomerNotificationsSection({ userId }: { userId: string }) {
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+
+  // Offset-based pagination (constant page size). "Load more" advances the
+  // offset and appends the next page, so histories longer than the API's
+  // per-request cap (100) stay fully reachable — a growing `limit` would clamp
+  // and loop on the first page forever. See admin-portal-notifications.ts.
+  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useInfiniteQuery<{
+    notifications: AdminUserNotification[];
+    hasMore: boolean;
+  }>({
+    queryKey: ["/api/admin/users", userId, "notifications", typeFilter],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const qs = buildNotificationPageQuery(pageParam as number, typeFilter);
+      const res = await fetch(`/api/admin/users/${userId}/notifications?${qs}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load notifications");
+      return res.json();
+    },
+    getNextPageParam: (_lastPage, allPages) => nextNotificationPageOffset(allPages),
+    ...liveQueryOptions,
+  });
+
+  const notifications = data?.pages.flatMap((p) => p.notifications) ?? [];
+
+  return (
+    <div className="border rounded-md" data-testid="panel-customer-notifications">
+      <div className="flex flex-col gap-2 px-3 py-3 border-b sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Notifications received</p>
+          <p className="text-xs text-muted-foreground">
+            Read-only history of the in-app (bell) notifications sent to this customer.
+          </p>
+        </div>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="h-8 text-xs w-full sm:w-56" data-testid="select-notification-type-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All notifications</SelectItem>
+            {NOTIFICATION_TYPE_FILTERS.map((f) => (
+              <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="p-3">
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : notifications.length === 0 ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-customer-notifications-empty">
+            {typeFilter === "all"
+              ? "This customer hasn't received any notifications yet."
+              : "This customer hasn't received any notifications of this type yet."}
+          </p>
+        ) : (
+          <>
+            <ul className="space-y-2" data-testid="list-customer-notifications">
+              {notifications.map((n) => {
+                const when = new Date(n.createdAt);
+                return (
+                  <li
+                    key={n.id}
+                    className="flex items-start gap-2 text-sm border rounded-md px-2.5 py-2"
+                    data-testid={`row-customer-notification-${n.id}`}
+                  >
+                    <Bell className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium truncate">{n.title}</span>
+                        <Badge variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-notification-type-${n.id}`}>
+                          {notificationTypeLabel(n.type)}
+                        </Badge>
+                        {n.dismissedAt ? (
+                          <Badge variant="outline" className="h-5 px-1.5 text-xs text-muted-foreground" data-testid={`badge-notification-status-${n.id}`}>Dismissed</Badge>
+                        ) : n.readAt ? (
+                          <Badge variant="outline" className="h-5 px-1.5 text-xs text-muted-foreground" data-testid={`badge-notification-status-${n.id}`}>Read</Badge>
+                        ) : (
+                          <Badge variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-notification-status-${n.id}`}>Not yet seen</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{n.body}</p>
+                      <p
+                        className="text-xs text-muted-foreground"
+                        title={when.toLocaleString()}
+                        data-testid={`text-notification-when-${n.id}`}
+                      >
+                        {formatDistanceToNow(when, { addSuffix: true })}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {hasNextPage && (
+              <div className="pt-3 flex justify-center">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  disabled={isFetchingNextPage}
+                  onClick={() => fetchNextPage()}
+                  data-testid="button-load-more-notifications"
+                >
+                  {isFetchingNextPage ? "Loading..." : "Load more"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Preserve the admin tile-menu scroll position across a menu → section →
 // "Back to Admin Menu" round-trip. The menu and every section share App.tsx's
@@ -577,6 +759,10 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   </div>
                 );
               })()}
+
+              {detailUser.role === "customer" && (
+                <CustomerNotificationsSection userId={detailUser.id} />
+              )}
 
               <div>
                 <label className="text-sm font-medium mb-2 block">Subscribed Services</label>

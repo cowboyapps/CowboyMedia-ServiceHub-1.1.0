@@ -401,6 +401,7 @@ export interface IStorage {
   getUndismissedWhmcsServiceAnnouncements(userId: string): Promise<WhmcsServiceAnnouncement[]>;
   dismissWhmcsServiceAnnouncement(userId: string, id: string): Promise<void>;
   getWhmcsServiceAlerts(userId: string, limit?: number): Promise<UserNotification[]>;
+  getUserNotificationsForAdmin(userId: string, limit?: number, offset?: number, type?: string | null): Promise<UserNotification[]>;
   listWhmcsProductMappings(): Promise<WhmcsProductMapping[]>;
   setWhmcsProductMappingServices(whmcsProductId: number, serviceIds: string[], productName?: string | null): Promise<WhmcsProductMapping[]>;
   reorderWhmcsProductMappings(orderedProductIds: number[]): Promise<void>;
@@ -1709,6 +1710,22 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(desc(userNotifications.createdAt))
       .limit(limit);
+  }
+
+  // Admin read-only history of EVERY in-app (bell) notification a customer was
+  // sent — unlike the customer's own feed (getUserNotifications) this deliberately
+  // does NOT filter out dismissed rows, so support sees the full record. Optional
+  // exact-type filter; newest-first; paginated via limit/offset.
+  async getUserNotificationsForAdmin(userId: string, limit = 50, offset = 0, type: string | null = null): Promise<UserNotification[]> {
+    const conditions = [eq(userNotifications.userId, userId)];
+    if (type) conditions.push(eq(userNotifications.type, type));
+    return db
+      .select()
+      .from(userNotifications)
+      .where(and(...conditions))
+      .orderBy(desc(userNotifications.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
   async createPasswordResetToken(data: InsertPasswordResetToken): Promise<PasswordResetToken> {
