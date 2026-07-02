@@ -129,6 +129,13 @@ const ERROR_LOGS = {
   total: 2,
 };
 
+// An empty error log so `total === 0` and the "Clear all" button stays disabled.
+const EMPTY_LOGS = { logs: [] as (typeof ERROR_LOGS)["logs"], total: 0 };
+
+// Which fixture the fetch stub serves. Swap to EMPTY_LOGS before a mount to
+// exercise the disabled/empty-log path; defaults to the populated set.
+let servedLogs: { logs: (typeof ERROR_LOGS)["logs"]; total: number } = ERROR_LOGS;
+
 // Every DELETE the component fires is recorded here so a test can assert the
 // dialog gates it.
 let deleteCalls: string[] = [];
@@ -148,10 +155,10 @@ g.fetch = async (input: unknown, init?: { method?: string }): Promise<Response> 
 
   if (pathname === "/api/admin/error-logs" && method === "DELETE") {
     deleteCalls.push(url);
-    return jsonResponse({ deleted: ERROR_LOGS.total });
+    return jsonResponse({ deleted: servedLogs.total });
   }
-  if (pathname === "/api/admin/error-logs") return jsonResponse(ERROR_LOGS);
-  if (pathname === "/api/admin/error-logs/unresolved-count") return jsonResponse({ count: ERROR_LOGS.total });
+  if (pathname === "/api/admin/error-logs") return jsonResponse(servedLogs);
+  if (pathname === "/api/admin/error-logs/unresolved-count") return jsonResponse({ count: servedLogs.total });
 
   if (pathname === "/api/auth/me") return jsonResponse(ADMIN_USER);
   if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
@@ -319,5 +326,33 @@ test("cancelling the dialog fires no DELETE", async () => {
     assert.equal(deleteCalls.length, 0, "cancelling must NOT fire the DELETE");
   } finally {
     h.cleanup();
+  }
+});
+
+// --- (4) With an empty log (total=0) the button is disabled and inert --------
+
+test("with no errors the Clear all button is disabled and fires no DELETE", async () => {
+  servedLogs = EMPTY_LOGS;
+  const h = await mountErrorLogsTab();
+  try {
+    const trigger = findByTestId("button-clear-all-errors");
+    assert.ok(trigger, "the Clear all button still renders for a master admin");
+    assert.equal(
+      (trigger as HTMLButtonElement).disabled,
+      true,
+      "an empty error log must leave the Clear all button disabled",
+    );
+
+    // Clicking a disabled button must neither open the dialog nor fire a DELETE.
+    await clickTestId("button-clear-all-errors");
+    assert.equal(
+      findByTestId("button-clear-all-errors-confirm"),
+      null,
+      "the confirm dialog must not open from a disabled button",
+    );
+    assert.equal(deleteCalls.length, 0, "a disabled Clear all button must fire no DELETE");
+  } finally {
+    h.cleanup();
+    servedLogs = ERROR_LOGS;
   }
 });
