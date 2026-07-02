@@ -301,12 +301,18 @@ async function mountErrorLogsTab(): Promise<MountResult> {
       React.createElement(
         AuthProvider,
         null,
-        React.createElement(
-          Router,
-          { hook, searchHook },
-          React.createElement(CounterProbe),
-          React.createElement(Route, { path: "/admin", component: AdminPortal }),
-        ),
+        React.createElement(Router, {
+          hook,
+          searchHook,
+          children: [
+            React.createElement(CounterProbe, { key: "probe" }),
+            React.createElement(Route, {
+              key: "route",
+              path: "/admin",
+              component: AdminPortal,
+            }),
+          ],
+        }),
       ),
     );
 
