@@ -14,20 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDistanceToNow } from "date-fns";
-
-interface UserNotification {
-  id: string;
-  userId: string;
-  type: string;
-  title: string;
-  body: string;
-  referenceType: string | null;
-  referenceId: string | null;
-  url: string | null;
-  readAt: string | null;
-  dismissedAt: string | null;
-  createdAt: string;
-}
+import { groupNotifications, type UserNotification, type GroupedNotification } from "@/lib/notification-grouping";
 
 const typeIcons: Record<string, typeof Bell> = {
   message: Mail,
@@ -56,12 +43,23 @@ const RELATED_BADGE_KEYS = [
   "/api/content-notifications/counts",
 ];
 
-function invalidateRelatedBadges(type: string) {
-  const keys: string[] = ["/api/notifications/unread-count"];
+function badgeKeysForType(type: string): string[] {
+  const keys: string[] = [];
   if (type === "ticket_update" || type === "new_ticket") keys.push("/api/ticket-notifications/unread-count");
   if (type === "message") keys.push("/api/message-threads/unread-count");
   if (type === "report_update" || type === "new_report") keys.push("/api/report-notifications/unread-count");
   if (["alert", "news", "service_status", "service_update", "new_signup"].includes(type)) keys.push("/api/content-notifications/counts");
+  return keys;
+}
+
+// Invalidate the always-on notifications badge plus every category badge touched
+// by any notification in the group — a collapsed row can span multiple types, so
+// keying off only the latest one would leave sibling badges stale.
+function invalidateBadgesForTypes(types: Iterable<string>) {
+  const keys = new Set<string>(["/api/notifications/unread-count"]);
+  for (const type of types) {
+    for (const key of badgeKeysForType(type)) keys.add(key);
+  }
   for (const key of keys) {
     queryClient.invalidateQueries({ queryKey: [key] });
   }
@@ -172,49 +170,21 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
     );
   }
 
-  type GroupedNotification = {
-    key: string;
-    notifications: UserNotification[];
-    latest: UserNotification;
-    count: number;
-  };
-
-  const groupedNotifications: GroupedNotification[] = (() => {
-    const groups: GroupedNotification[] = [];
-    const messageGroups = new Map<string, UserNotification[]>();
-
-    for (const notif of notifications) {
-      if (notif.type === "message" && notif.referenceId) {
-        const key = `message-${notif.referenceId}`;
-        if (!messageGroups.has(key)) messageGroups.set(key, []);
-        messageGroups.get(key)!.push(notif);
-      } else {
-        groups.push({ key: notif.id, notifications: [notif], latest: notif, count: 1 });
-      }
-    }
-
-    for (const [key, notifs] of messageGroups) {
-      const sorted = notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      groups.push({ key, notifications: sorted, latest: sorted[0], count: sorted.length });
-    }
-
-    groups.sort((a, b) => new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime());
-    return groups;
-  })();
+  const groupedNotifications: GroupedNotification[] = groupNotifications(notifications);
 
   const handleDismissGroup = (e: React.MouseEvent, group: GroupedNotification) => {
     e.stopPropagation();
     hapticLight();
     const ids = group.notifications.map((n) => n.id);
     dismissMutation.mutate(ids);
-    invalidateRelatedBadges(group.latest.type);
+    invalidateBadgesForTypes(group.notifications.map((n) => n.type));
   };
 
   const handleTapGroup = (group: GroupedNotification) => {
     hapticLight();
     const ids = group.notifications.map((n) => n.id);
     dismissMutation.mutate(ids);
-    invalidateRelatedBadges(group.latest.type);
+    invalidateBadgesForTypes(group.notifications.map((n) => n.type));
     if (group.latest.url) {
       onNavigate(group.latest.url);
     }
@@ -280,7 +250,11 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                          {group.count > 1 ? `${group.count} new messages` : notif.body}
+                          {group.count > 1
+                            ? notif.type === "message"
+                              ? `${group.count} new messages`
+                              : `${group.count} updates`
+                            : notif.body}
                         </p>
                         <p className="text-[10px] text-muted-foreground/60 mt-1">
                           {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
