@@ -32,9 +32,12 @@ interface RichTextEditorProps {
   placeholder?: string;
   testIdPrefix?: string;
   draftKey?: string;
+  // Hides the image-upload toolbar button for surfaces where inline images
+  // aren't supported (e.g. service alerts — fan-out channels can't render them).
+  hideImage?: boolean;
 }
 
-export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "rich-editor", draftKey }: RichTextEditorProps) {
+export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "rich-editor", draftKey, hideImage }: RichTextEditorProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -224,17 +227,21 @@ export function RichTextEditor({ value, onChange, placeholder, testIdPrefix = "r
           <AlignRight className="w-4 h-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-border mx-1" />
+        {!hideImage && (
+          <>
+            <div className="w-px h-5 bg-border mx-1" />
 
-        <ToolbarButton
-          active={false}
-          onClick={() => fileInputRef.current?.click()}
-          testId={`${testIdPrefix}-image`}
-          title="Insert Image"
-          disabled={uploading}
-        >
-          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-        </ToolbarButton>
+            <ToolbarButton
+              active={false}
+              onClick={() => fileInputRef.current?.click()}
+              testId={`${testIdPrefix}-image`}
+              title="Insert Image"
+              disabled={uploading}
+            >
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+            </ToolbarButton>
+          </>
+        )}
       </div>
 
       <EditorContent editor={editor} />

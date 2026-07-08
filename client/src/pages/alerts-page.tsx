@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { AlertTriangle, CheckCircle, Clock, ChevronRight } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
@@ -125,7 +126,7 @@ export default function AlertsPage() {
                       <AlertTriangle className="w-5 h-5 text-status-away flex-shrink-0 mt-0.5" />
                       <div className="space-y-1">
                         <h3 className="font-semibold text-sm">{alert.title}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{alert.description}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
                         <div className="flex items-center gap-2 flex-wrap">
                           <SeverityBadge severity={alert.severity} />
                           <StatusBadge status={alert.status} />

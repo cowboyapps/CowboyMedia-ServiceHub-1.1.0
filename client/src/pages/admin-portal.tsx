@@ -41,6 +41,7 @@ import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-articl
 import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
+import { RichTextContent } from "@/components/rich-text-content";
 import { ANNOUNCEMENT_ROUTES, getAnnouncementRouteLabel } from "@shared/announcement-routes";
 import { APP_VERSION } from "@shared/version";
 import { countBulletsInBody } from "@shared/changelog-append";
@@ -309,7 +310,10 @@ const createServiceSchema = z.object({
 
 const createAlertSchema = z.object({
   title: z.string().min(1, "Title is required"),
-  description: z.string().min(1, "Description is required"),
+  description: z.string().min(1, "Description is required").refine(
+    (val) => val.replace(/<[^>]*>/g, "").trim().length > 0,
+    "Description is required"
+  ),
   severity: z.string().default("warning"),
   status: z.string().default("investigating"),
   serviceImpact: z.string().default("degraded"),
@@ -320,7 +324,10 @@ const createAlertSchema = z.object({
 });
 
 const addUpdateSchema = z.object({
-  message: z.string().min(1, "Message is required"),
+  message: z.string().min(1, "Message is required").refine(
+    (val) => val.replace(/<[^>]*>/g, "").trim().length > 0,
+    "Message is required"
+  ),
   status: z.string().min(1, "Status is required"),
   serviceImpact: z.string().default("no_change"),
   sendPush: z.boolean().default(true),
@@ -1635,7 +1642,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                   <FormItem><FormLabel>Title</FormLabel><FormControl><Input data-testid="input-alert-title" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea data-testid="input-alert-desc" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Description</FormLabel><FormControl><RichTextEditor value={field.value} onChange={field.onChange} placeholder="Describe the issue..." testIdPrefix="input-alert-desc" hideImage /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="serviceIds" render={({ field }) => (
                   <FormItem><FormLabel>Services</FormLabel>
@@ -1764,7 +1771,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                 <FormMessage /></FormItem>
               )} />
               <FormField control={updateForm.control} name="message" render={({ field }) => (
-                <FormItem><FormLabel>Message</FormLabel><FormControl><Textarea data-testid="input-update-message" {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem><FormLabel>Message</FormLabel><FormControl><RichTextEditor value={field.value} onChange={field.onChange} placeholder="What's the latest?" testIdPrefix="input-update-message" hideImage /></FormControl><FormMessage /></FormItem>
               )} />
               <div className="space-y-2">
                 <Label>Attach Image (optional)</Label>
@@ -1828,7 +1835,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea value={editAlertDesc} onChange={(e) => setEditAlertDesc(e.target.value)} rows={3} data-testid="input-edit-alert-desc" />
+              <RichTextEditor value={editAlertDesc} onChange={setEditAlertDesc} testIdPrefix="input-edit-alert-desc" hideImage />
             </div>
             <div className="space-y-2">
               <Label>Severity</Label>
@@ -1854,7 +1861,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
             </div>
             <Button
               className="w-full"
-              disabled={editAlertMutation.isPending || !editAlertTitle.trim() || !editAlertDesc.trim() || editAlertServiceIds.length === 0}
+              disabled={editAlertMutation.isPending || !editAlertTitle.trim() || !stripHtml(editAlertDesc) || editAlertServiceIds.length === 0}
               onClick={() => editingAlert && editAlertMutation.mutate({ id: editingAlert.id, data: { title: editAlertTitle, description: editAlertDesc, severity: editAlertSeverity, serviceIds: editAlertServiceIds }, imageFile: editAlertImageFile, removeImage: editAlertRemoveImage })}
               data-testid="button-save-edit-alert"
             >
@@ -1902,7 +1909,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           <div className="space-y-3">
             <div className="space-y-2">
               <Label>Message</Label>
-              <Textarea value={editUpdateMessage} onChange={(e) => setEditUpdateMessage(e.target.value)} rows={3} data-testid="input-edit-update-message" />
+              <RichTextEditor value={editUpdateMessage} onChange={setEditUpdateMessage} testIdPrefix="input-edit-update-message" hideImage />
             </div>
             <div className="space-y-2">
               <Label>Image</Label>
@@ -1917,7 +1924,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
             </div>
             <Button
               className="w-full"
-              disabled={editUpdateMutation.isPending || !editUpdateMessage.trim()}
+              disabled={editUpdateMutation.isPending || !stripHtml(editUpdateMessage)}
               onClick={() => editingAlertUpdate && editUpdateMutation.mutate({ alertId: editingAlertUpdate.alertId, updateId: editingAlertUpdate.update.id, message: editUpdateMessage, imageFile: editUpdateImageFile, removeImage: editUpdateRemoveImage })}
               data-testid="button-save-edit-update"
             >
@@ -1948,7 +1955,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                 </div>
                 {expandedAlertCardId === alert.id && (
                   <div className="space-y-2 pt-1 pl-6">
-                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{alert.description}</p>
+                    <RichTextContent content={alert.description} className="text-xs text-muted-foreground" testId={`text-admin-alert-desc-${alert.id}`} />
                     {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md" />}
                     <div className="flex items-center gap-1 flex-wrap">
                       {canManage && (
@@ -2016,7 +2023,7 @@ function AlertUpdatesList({ alertId, canManage, onEditUpdate }: { alertId: strin
               <Badge variant="secondary" className="text-xs capitalize">{update.status}</Badge>
               <span className="text-xs text-muted-foreground">{format(new Date(update.createdAt), "MMM d, h:mm a")}</span>
             </div>
-            <p className="text-xs whitespace-pre-wrap">{update.message}</p>
+            <RichTextContent content={update.message} className="text-xs" testId={`text-alert-update-message-${update.id}`} />
             {update.imageUrl && <ClickableImage src={update.imageUrl} alt="Update image" className="max-h-20 rounded-md mt-1" />}
           </div>
           {canManage && (

@@ -1,24 +1,12 @@
 import { storage } from "./storage";
 import { logError } from "./error-log";
+import { stripHtmlPreserveBreaks } from "@shared/html-text";
 
 function escapeHtml(text: string): string {
   return String(text ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function stripHtmlPreserveBreaks(html: string): string {
-  let s = String(html ?? "");
-  s = s.replace(/<br\s*\/?>/gi, "\n");
-  s = s.replace(/<\/(p|div|h[1-6]|li|blockquote|tr)>/gi, "\n\n");
-  s = s.replace(/<li[^>]*>/gi, "• ");
-  s = s.replace(/<[^>]*>/g, "");
-  s = s.replace(/&nbsp;/gi, " ");
-  s = s.replace(/[ \t]+/g, " ");
-  s = s.replace(/[ \t]*\n[ \t]*/g, "\n");
-  s = s.replace(/\n{3,}/g, "\n\n");
-  return s.trim();
 }
 
 function truncate(text: string, max = 800): string {
@@ -137,7 +125,7 @@ export function composeAlertCreated(opts: {
     opts.severity ? `<b>Severity:</b> ${escapeHtml(opts.severity)}` : "",
     ``,
     `<b>${escapeHtml(opts.title)}</b>`,
-    `<i>${escapeHtml(truncate(opts.description))}</i>`,
+    `<i>${escapeHtml(truncate(stripHtmlPreserveBreaks(opts.description)))}</i>`,
   ].filter(Boolean).join("\n");
 }
 
@@ -163,7 +151,7 @@ export function composeAlertUpdate(opts: {
   }
   lines.push("");
   lines.push(`<b>${escapeHtml(opts.title)}</b>`);
-  lines.push(`<i>${escapeHtml(truncate(opts.message))}</i>`);
+  lines.push(`<i>${escapeHtml(truncate(stripHtmlPreserveBreaks(opts.message)))}</i>`);
   return lines.join("\n");
 }
 
@@ -177,7 +165,7 @@ export function composeAlertResolved(opts: {
     `✅ <b>SERVICE ALERT RESOLVED — ${escapeHtml(serviceDisplay(opts))}</b>`,
     ``,
     `<b>${escapeHtml(opts.title)}</b>`,
-    `<i>${escapeHtml(truncate(opts.resolveMessage))}</i>`,
+    `<i>${escapeHtml(truncate(stripHtmlPreserveBreaks(opts.resolveMessage)))}</i>`,
   ].join("\n");
 }
 
@@ -190,7 +178,7 @@ export function composeServiceUpdate(opts: {
     `📢 <b>SERVICE UPDATE — ${escapeHtml(opts.serviceName)}</b>`,
     ``,
     `<b>${escapeHtml(opts.title)}</b>`,
-    `<i>${escapeHtml(truncate(opts.description))}</i>`,
+    `<i>${escapeHtml(truncate(stripHtmlPreserveBreaks(opts.description)))}</i>`,
   ].join("\n");
 }
 

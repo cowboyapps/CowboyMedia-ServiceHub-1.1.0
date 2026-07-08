@@ -12,6 +12,7 @@ import type { Service } from "@shared/schema";
 import { getParam } from "./http-params";
 import { recomputeForCoveredServices, recomputeForServiceChange } from "./alert-status";
 import { getErrorMessage } from "./error-utils";
+import { stripHtmlPreserveBreaks, htmlToPlainTextInline } from "@shared/html-text";
 import { composeAlertCreated, composeAlertUpdate, composeAlertResolved, type TelegramCategory } from "./telegram";
 import {
   composeAlertCreated as composeDiscordAlertCreated,
@@ -147,7 +148,7 @@ export function registerAlertRoutes(
         if (parsedSendEmail && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceNameDisplay}: ${impactLabel}`,
-            alert_description: `${alert.title}\n\n${alert.description}`,
+            alert_description: `${alert.title}\n\n${stripHtmlPreserveBreaks(alert.description)}`,
             customer_name: u.fullName,
           }, u.fullName);
         }
@@ -174,7 +175,7 @@ export function registerAlertRoutes(
         void notifyServiceSubscribers(s.id, "incident", {
           service_name: s.name,
           alert_title: alert.title,
-          alert_description: alert.description,
+          alert_description: stripHtmlPreserveBreaks(alert.description),
           impact_label: impactLabel,
         }, getBaseUrl(req));
       }
@@ -242,7 +243,7 @@ export function registerAlertRoutes(
         await storage.updateAlert(getParam(req, "id"), { status: updateData.status });
       }
       broadcast({ type: "alert_update", alertId: req.params.id, update });
-      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}${silent ? " (silently)" : ""}: ${updateData.message?.substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact, silent }) });
+      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}${silent ? " (silently)" : ""}: ${htmlToPlainTextInline(updateData.message || "").substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact, silent }) });
       const alert = await storage.getAlert(getParam(req, "id"));
       if (alert) {
         const isResolved = updateData.status === "resolved";
@@ -283,7 +284,7 @@ export function registerAlertRoutes(
           if ((parsedSendPush || isResolved) && customerWantsPush(u, "service_alert", alert.severity)) {
             await sendPushToUser(u.id, {
               title: pushTitle,
-              body: updateData.message,
+              body: htmlToPlainTextInline(updateData.message || ""),
               url: `/alerts/${req.params.id}`,
               tag: `alert-${req.params.id}`,
               resourceLabel: `${serviceName} alert: ${alert.title}`,
@@ -293,7 +294,7 @@ export function registerAlertRoutes(
           if ((parsedSendEmail || isResolved) && u.email && customerWantsEmail(u, "service_alert", alert.severity)) {
             sendTemplatedEmail(u.email, "customer_service_alert", {
               alert_title: emailTitle,
-              alert_description: updateData.message,
+              alert_description: stripHtmlPreserveBreaks(updateData.message || ""),
               customer_name: u.fullName,
             }, u.fullName);
           }
@@ -324,7 +325,7 @@ export function registerAlertRoutes(
             void notifyServiceSubscribers(s.id, "resolved", {
               service_name: s.name,
               alert_title: alert.title,
-              resolve_message: updateData.message,
+              resolve_message: stripHtmlPreserveBreaks(updateData.message || ""),
             }, getBaseUrl(req));
           }
         } else if (hasImpactChange) {
@@ -332,7 +333,7 @@ export function registerAlertRoutes(
             void notifyServiceSubscribers(s.id, "status", {
               service_name: s.name,
               alert_title: alert.title,
-              alert_description: updateData.message,
+              alert_description: stripHtmlPreserveBreaks(updateData.message || ""),
               impact_label: impactLabel || "",
             }, getBaseUrl(req));
           }
@@ -426,7 +427,7 @@ export function registerAlertRoutes(
         void notifyServiceSubscribers(s.id, "resolved", {
           service_name: s.name,
           alert_title: updated.title,
-          resolve_message: resolveMessage,
+          resolve_message: stripHtmlPreserveBreaks(resolveMessage || ""),
         }, getBaseUrl(req));
       }
       res.json(updated);

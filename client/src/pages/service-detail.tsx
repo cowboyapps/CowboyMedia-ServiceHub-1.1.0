@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
+import { stripHtml } from "@/components/rich-text-editor";
 import type { Service, ServiceAlertWithServices } from "@shared/schema";
 
 type DailyStatus = "up" | "partial" | "down" | "unknown";
@@ -232,7 +233,7 @@ export default function ServiceDetail() {
                         <AlertTriangle className="w-5 h-5 text-status-away flex-shrink-0 mt-0.5" />
                         <div className="space-y-1">
                           <h3 className="font-semibold text-sm">{alert.title}</h3>
-                          <p className="text-xs text-muted-foreground line-clamp-1 whitespace-pre-wrap">{alert.description}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
                           <div className="flex items-center gap-2 flex-wrap">
                             <SeverityBadge severity={alert.severity} />
                             <AlertStatusBadge status={alert.status} />

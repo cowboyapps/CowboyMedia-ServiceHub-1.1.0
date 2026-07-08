@@ -1,21 +1,6 @@
 import { storage } from "./storage";
 import { logError } from "./error-log";
-
-function stripHtmlPreserveBreaks(html: string): string {
-  let s = String(html ?? "");
-  s = s.replace(/<br\s*\/?>/gi, "\n");
-  s = s.replace(/<\/(p|div|h[1-6]|li|blockquote|tr)>/gi, "\n\n");
-  s = s.replace(/<li[^>]*>/gi, "• ");
-  s = s.replace(/<[^>]*>/g, "");
-  s = s.replace(/&nbsp;/gi, " ");
-  s = s.replace(/&amp;/g, "&");
-  s = s.replace(/&lt;/g, "<");
-  s = s.replace(/&gt;/g, ">");
-  s = s.replace(/[ \t]+/g, " ");
-  s = s.replace(/[ \t]*\n[ \t]*/g, "\n");
-  s = s.replace(/\n{3,}/g, "\n\n");
-  return s.trim();
-}
+import { stripHtmlPreserveBreaks } from "@shared/html-text";
 
 function truncate(text: string, max: number): string {
   const t = text ?? "";
@@ -216,7 +201,7 @@ export function composeAlertCreated(opts: {
   return {
     embeds: [{
       title: truncate(`🚨 Service Alert — ${clampTitle(opts.title)}`, 256),
-      description: clampDescription(opts.description || ""),
+      description: clampDescription(stripHtmlPreserveBreaks(opts.description || "")),
       url: alertUrl(opts.baseUrl, opts.alertId),
       color: impactColor(opts.impact, COLOR.outage),
       fields,
@@ -254,7 +239,7 @@ export function composeAlertUpdate(opts: {
   return {
     embeds: [{
       title: truncate(`${headerEmoji} ${headerLabel} — ${clampTitle(opts.title)}`, 256),
-      description: clampDescription(opts.message || ""),
+      description: clampDescription(stripHtmlPreserveBreaks(opts.message || "")),
       url: alertUrl(opts.baseUrl, opts.alertId),
       color,
       fields,
@@ -276,7 +261,7 @@ export function composeAlertResolved(opts: {
   return {
     embeds: [{
       title: truncate(`✅ Service Alert Resolved — ${clampTitle(opts.title)}`, 256),
-      description: clampDescription(opts.resolveMessage || ""),
+      description: clampDescription(stripHtmlPreserveBreaks(opts.resolveMessage || "")),
       url: alertUrl(opts.baseUrl, opts.alertId),
       color: COLOR.resolved,
       fields: [
@@ -328,7 +313,7 @@ export function composeServiceUpdate(opts: {
   return {
     embeds: [{
       title: truncate(`📢 Service Update — ${clampTitle(opts.title)}`, 256),
-      description: clampDescription(opts.description || ""),
+      description: clampDescription(stripHtmlPreserveBreaks(opts.description || "")),
       url: serviceUpdatesUrl(opts.baseUrl),
       color: COLOR.service_update,
       fields: [

@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
+import { RichTextContent } from "@/components/rich-text-content";
 
 type PublicIncident = {
   id: string;
@@ -166,7 +167,7 @@ export default function PublicIncidentPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-sm whitespace-pre-wrap" data-testid="text-incident-description">{data.description}</p>
+                <RichTextContent content={data.description} className="text-sm" testId="text-incident-description" />
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
                   {data.createdAt && (
                     <span className="flex items-center gap-1" data-testid="text-opened-at">
@@ -212,7 +213,7 @@ export default function PublicIncidentPage() {
                               {format(new Date(update.createdAt), "MMM d, h:mm a")}
                             </span>
                           </div>
-                          <p className="text-sm whitespace-pre-wrap">{update.message}</p>
+                          <RichTextContent content={update.message} className="text-sm" testId={`text-incident-update-message-${update.id}`} />
                           {update.imageUrl && (
                             <img src={update.imageUrl} alt="Update attachment" className="max-h-48 rounded-md mt-1 border" />
                           )}

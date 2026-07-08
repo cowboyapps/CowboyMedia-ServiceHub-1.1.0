@@ -80,6 +80,32 @@ test("composeAlertCreated: short input passes through unchanged", () => {
   assert.equal(e.url, "https://example.com/alerts/abc");
 });
 
+test("composeAlertCreated: HTML description is stripped to plain text", () => {
+  const payload = composeAlertCreated({
+    serviceName: "API",
+    impact: "outage",
+    title: "Login is down",
+    description: "<p>We are <strong>investigating</strong>.</p><p>More soon.</p>",
+    alertId: "abc",
+    baseUrl: "https://example.com",
+  });
+  const e = payload.embeds![0]!;
+  assert.equal(e.description, "We are investigating.\n\nMore soon.");
+});
+
+test("composeAlertUpdate: HTML message is stripped to plain text", () => {
+  const payload = composeAlertUpdate({
+    serviceName: "API",
+    title: "Login is down",
+    status: "monitoring",
+    message: "<p>Fix deployed &amp; monitoring.</p>",
+    impact: "degraded",
+    alertId: "abc",
+    baseUrl: "https://example.com",
+  });
+  assert.equal(payload.embeds![0]!.description, "Fix deployed & monitoring.");
+});
+
 test("composeAlertCreated: oversized inputs are clamped under all limits", () => {
   const payload = composeAlertCreated({
     serviceName: long(500, "S"),

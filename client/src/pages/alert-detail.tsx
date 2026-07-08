@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
+import { RichTextContent } from "@/components/rich-text-content";
 import { QueryErrorState } from "@/components/query-error-state";
 import { TimeoutError } from "@/lib/queryClient";
 import type { ServiceAlertWithServices, AlertUpdate, Service } from "@shared/schema";
@@ -116,7 +117,7 @@ export default function AlertDetail() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm whitespace-pre-wrap" data-testid="text-alert-description">{alert.description}</p>
+          <RichTextContent content={alert.description} className="text-sm" testId="text-alert-description" />
           {alert.imageUrl && (
             <ClickableImage src={alert.imageUrl} alt="Alert attachment" className="max-h-48 rounded-md" />
           )}
@@ -161,7 +162,7 @@ export default function AlertDetail() {
                         {format(new Date(update.createdAt), "MMM d, h:mm a")}
                       </span>
                     </div>
-                    <p className="text-sm whitespace-pre-wrap">{update.message}</p>
+                    <RichTextContent content={update.message} className="text-sm" testId={`text-alert-update-message-${update.id}`} />
                     {update.imageUrl && (
                       <ClickableImage src={update.imageUrl} alt="Update attachment" className="max-h-32 rounded-md mt-1" />
                     )}
