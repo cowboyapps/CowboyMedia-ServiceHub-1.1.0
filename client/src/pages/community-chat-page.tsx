@@ -1041,13 +1041,43 @@ export default function CommunityChatPage() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "community_message") {
-          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          // Patch the new message straight into the cached list (appended —
+          // list is oldest-first) instead of refetching the whole page.
+          // Dedup by id: the sender's own POST handler also invalidates, and
+          // reconnects can replay events.
+          const incoming = data.message as EnrichedMessage | undefined;
+          const cached = queryClient.getQueryData<EnrichedMessage[]>(["/api/community-chat/messages"]);
+          if (incoming?.id && cached) {
+            if (!cached.some((m) => m.id === incoming.id)) {
+              queryClient.setQueryData<EnrichedMessage[]>(
+                ["/api/community-chat/messages"],
+                [...cached, incoming],
+              );
+            }
+          } else {
+            // No cache yet or malformed payload — fall back to a refetch.
+            queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          }
         }
         if (data.type === "community_message_deleted") {
           queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
         }
         if (data.type === "community_message_edited") {
-          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          // In-place patch of the edited message's content/editedAt.
+          const cached = queryClient.getQueryData<EnrichedMessage[]>(["/api/community-chat/messages"]);
+          if (data.messageId && cached && cached.some((m) => m.id === data.messageId)) {
+            queryClient.setQueryData<EnrichedMessage[]>(
+              ["/api/community-chat/messages"],
+              cached.map((m) =>
+                m.id === data.messageId
+                  ? { ...m, content: data.content ?? m.content, editedAt: data.editedAt ?? m.editedAt }
+                  : m,
+              ),
+            );
+          } else {
+            // Message not in cache (older page, or no cache yet) — refetch.
+            queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          }
         }
         if (data.type === "community_reaction") {
           queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
