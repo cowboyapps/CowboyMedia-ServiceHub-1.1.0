@@ -48,6 +48,10 @@ class ResizeObserverStub implements ResizeObserver {
 g.ResizeObserver = ResizeObserverStub;
 w.ResizeObserver = ResizeObserverStub;
 
+// Radix DropdownMenu's focus scope needs MutationObserver (jsdom provides one
+// on the window; hoist it to global like the other browser classes).
+g.MutationObserver = w.MutationObserver;
+
 class DOMRectStub implements DOMRect {
   x = 0; y = 0; width = 0; height = 0;
   top = 0; right = 0; bottom = 0; left = 0;
@@ -74,6 +78,9 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 
 // Dynamic imports so jsdom globals are installed before React evaluates.
 const React = await import("react");
+// tsx compiles JSX with the classic runtime — components evaluated in this
+// subprocess (e.g. quick-response-picker) reference a global `React`.
+g.React = React;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
@@ -114,7 +121,7 @@ interface MountResult {
   cleanup: () => void;
 }
 
-async function mountComposer(): Promise<MountResult> {
+async function mountComposer(opts: { isAdmin?: boolean } = {}): Promise<MountResult> {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const handleRef: { current: ChatComposerHandle | null } = { current: null };
@@ -142,7 +149,7 @@ async function mountComposer(): Promise<MountResult> {
         disabledReason: null,
         adminUnclaimed: false,
         ticketClaimedByOther: false,
-        isAdmin: false, // customer mode keeps the tree minimal
+        isAdmin: opts.isAdmin ?? false, // customer mode keeps the tree minimal
         userId: "user-1",
         userFullName: "Test User",
         placeholderContext: {
@@ -340,6 +347,65 @@ test("oversized attachment is flagged, warned, and blocks send before the reques
       sendAfter.click();
     });
     assert.equal(h.sendCalls.length, 0, "no request goes out for an oversized file");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// --- The "+" attach menu (Radix DropdownMenu, portaled to body) collapses the
+// paperclip / KB-link / quick-response tools. Radix opens on a mouse-pointerType
+// pointerdown on the trigger (see test/community-chat-admin-gating.test.ts).
+
+async function openAttachMenu(container: HTMLElement): Promise<void> {
+  const trigger = container.querySelector(`[data-testid="button-composer-attach-menu"]`);
+  assert.ok(trigger instanceof window.HTMLElement, "attach menu trigger present");
+  await act(async () => {
+    trigger.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerType: "mouse",
+        button: 0,
+      }),
+    );
+  });
+  await flushFrames();
+}
+
+function inBody(id: string): Element | null {
+  return window.document.body.querySelector(`[data-testid="${id}"]`);
+}
+
+test("customer '+' menu shows attach-file and KB items but no quick responses", async () => {
+  const h = await mountComposer();
+  try {
+    await openAttachMenu(h.container);
+    assert.ok(inBody("button-attach-image"), "attach image/file item present");
+    assert.ok(inBody("button-attach-kb"), "KB article item present");
+    assert.equal(inBody("button-quick-responses"), null, "no quick-responses item for customer");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("admin '+' menu includes quick responses, and selecting it opens the picker popover", async () => {
+  const h = await mountComposer({ isAdmin: true });
+  try {
+    await openAttachMenu(h.container);
+    const qrItem = inBody("button-quick-responses");
+    assert.ok(qrItem instanceof window.HTMLElement, "quick-responses item present for admin");
+
+    // Select the item the way Radix expects (click), then flush past the
+    // setTimeout(0) that defers the popover open until after the menu closes.
+    await act(async () => {
+      (qrItem as HTMLElement).click();
+    });
+    await flushFrames();
+
+    assert.ok(
+      inBody("input-picker-search"),
+      "quick-response popover opened via the controlled hidden-anchor path",
+    );
   } finally {
     h.cleanup();
   }

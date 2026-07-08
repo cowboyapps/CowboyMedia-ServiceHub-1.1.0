@@ -38,3 +38,4 @@
 - [Idempotency client-abort semantics](idempotency-client-abort.md) — money-write idempotency must NOT free a claimed key on early socket close (client timeout); handler keeps running, abandoning lets a retry double-charge.
 - [jsdom calc() serialization](jsdom-calc-serialization.md) — cssstyle re-emits calc() (e.g. "- 2rem" → "+ 2rem"); round-trip expected strings through a scratch element, don't assert literals.
 - [Idempotency async-store listener timing](idempotency-async-store-listener-timing.md) — when the dedup store goes DB-backed (async), attach res close/finish listeners synchronously before the claim or a fast abort is missed → stale pending → permanent 409.
+- [Radix menu → popover handoff](radix-menu-to-popover-handoff.md) — opening a Popover from a DropdownMenuItem via setTimeout(0) races the menu's focus restore; open it in onCloseAutoFocus + preventDefault.

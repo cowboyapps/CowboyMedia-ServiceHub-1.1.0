@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Plus, Zap } from "lucide-react";
 import { QuickResponsePicker } from "@/components/quick-response-picker";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import { apiRequest } from "@/lib/queryClient";
@@ -104,12 +105,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
+  const [qrPickerOpen, setQrPickerOpen] = useState(false);
   const [aiSuggestCollapsed, setAiSuggestCollapsed] = useState(false);
   const [openTokenKey, setOpenTokenKey] = useState<string | null>(null);
 
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const placeholderOverlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Set by the "Quick responses" menu item; consumed in the menu's
+  // onCloseAutoFocus so the popover opens only after the menu has fully
+  // closed (a bare setTimeout races the menu's focus restore).
+  const pendingQrOpenRef = useRef(false);
 
   // Reset on ticket change
   useEffect(() => {
@@ -117,6 +123,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     setImageFile(null);
     setKbArticle(null);
     setKbPickerOpen(false);
+    setQrPickerOpen(false);
     setComposerMode("reply");
     setAiSuggestCollapsed(false);
     setOpenTokenKey(null);
@@ -442,7 +449,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
             </span>
           </div>
         )}
-        <div className="flex items-end gap-1.5 sm:gap-2">
+        <div className="relative flex items-end gap-1.5 sm:gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -451,31 +458,64 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
             onChange={(e) => setImageFile(e.target.files?.[0] || null)}
           />
           {!isInternal && (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="flex-shrink-0 h-9 w-9"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!canReply}
-              data-testid="button-attach-image"
-            >
-              <Paperclip className="w-4 h-4" />
-            </Button>
-          )}
-          {!isInternal && (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="flex-shrink-0 h-9 w-9"
-              onClick={() => setKbPickerOpen(true)}
-              disabled={!canReply}
-              data-testid="button-attach-kb"
-              title="Link a knowledge base article"
-            >
-              <BookOpen className="w-4 h-4" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="flex-shrink-0 h-9 w-9 self-end"
+                  disabled={!canReply}
+                  title="Add an attachment"
+                  data-testid="button-composer-attach-menu"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                side="top"
+                onCloseAutoFocus={(e) => {
+                  if (pendingQrOpenRef.current) {
+                    pendingQrOpenRef.current = false;
+                    // Keep focus off the trigger so the popover isn't
+                    // immediately dismissed by the focus restore.
+                    e.preventDefault();
+                    setQrPickerOpen(true);
+                  }
+                }}
+              >
+                <DropdownMenuItem
+                  onSelect={() => {
+                    // Defer past Radix's close/focus-restore so the programmatic
+                    // click on the hidden file input isn't swallowed.
+                    setTimeout(() => fileInputRef.current?.click(), 0);
+                  }}
+                  data-testid="button-attach-image"
+                >
+                  <Paperclip className="w-4 h-4 mr-2" />
+                  Attach image or file
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setKbPickerOpen(true)}
+                  data-testid="button-attach-kb"
+                >
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  Link a KB article
+                </DropdownMenuItem>
+                {isAdmin && userId && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      pendingQrOpenRef.current = true;
+                    }}
+                    data-testid="button-quick-responses"
+                  >
+                    <Zap className="w-4 h-4 mr-2" />
+                    Quick responses
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {isAdmin && userId && !isInternal && canReply && (
             <QuickResponsePicker
@@ -486,6 +526,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 admin_name: placeholderContext.admin_name,
               }}
               onInsert={applySuggestion}
+              open={qrPickerOpen}
+              onOpenChange={setQrPickerOpen}
+              hideTrigger
             />
           )}
           <div className="relative flex-1">

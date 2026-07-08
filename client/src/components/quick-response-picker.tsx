@@ -41,10 +41,20 @@ export type QuickResponsePickerProps = {
   context: QuickResponseVarContext;
   /** Insert handler. Must return true when the text was actually inserted, false if the user cancelled. */
   onInsert: (text: string) => boolean;
+  /** Optional controlled open state (used when the picker is launched from an external menu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Hide the built-in Zap trigger button (an invisible anchor is rendered instead). */
+  hideTrigger?: boolean;
 };
 
-export function QuickResponsePicker({ adminId, context, onInsert }: QuickResponsePickerProps) {
-  const [open, setOpen] = useState(false);
+export function QuickResponsePicker({ adminId, context, onInsert, open: controlledOpen, onOpenChange, hideTrigger }: QuickResponsePickerProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (o: boolean) => {
+    setUncontrolledOpen(o);
+    onOpenChange?.(o);
+  };
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<string>("all");
   const [recent, setRecent] = useState<string[]>(() => readRecent(adminId));
@@ -260,9 +270,13 @@ export function QuickResponsePicker({ adminId, context, onInsert }: QuickRespons
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" size="icon" variant="ghost" className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10" data-testid="button-quick-responses">
-          <Zap className="w-4 h-4" />
-        </Button>
+        {hideTrigger ? (
+          <span className="absolute bottom-0 left-0 w-px h-px pointer-events-none" aria-hidden="true" data-testid="anchor-quick-responses" />
+        ) : (
+          <Button type="button" size="icon" variant="ghost" className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10" data-testid="button-quick-responses">
+            <Zap className="w-4 h-4" />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(420px,calc(100vw-1rem))] p-0">
         <div className="p-2 border-b">
