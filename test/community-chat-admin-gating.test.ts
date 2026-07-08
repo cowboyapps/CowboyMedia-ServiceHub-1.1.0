@@ -193,6 +193,16 @@ g.fetch = async (input: unknown): Promise<Response> => {
   if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
   if (pathname === "/api/community-chat/messages") return jsonResponse([OTHER_MSG, EDITED_NO_HISTORY_MSG, EDITED_WITH_HISTORY_MSG]);
   if (pathname === "/api/community-chat/participants") return jsonResponse(PARTICIPANTS);
+  if (/^\/api\/community-chat\/messages\/[^/]+\/history$/.test(pathname)) {
+    // Only the admin harness should ever reach this endpoint; the customer
+    // UI must never render a control that triggers it.
+    return jsonResponse({
+      current: { content: "Edited recently", editedAt: ISO },
+      edits: [
+        { id: "hist-1", previousContent: "Original wording", editedByUsername: "OtherCustomer", createdAt: ISO },
+      ],
+    });
+  }
   if (/^\/api\/users\/[^/]+\/profile$/.test(pathname)) {
     return jsonResponse({
       id: "cust-2", fullName: "Other Customer", chatUsername: "OtherCustomer",
@@ -367,6 +377,54 @@ test("customer never sees a tappable (edited) label", async () => {
     assert.equal(editedLabelTag(EDITED_WITH_HISTORY_MSG.id), "SPAN", "history exists but customer gets plain label");
     assert.equal(editedLabelText(EDITED_WITH_HISTORY_MSG.id), "(edited)", "customer never sees the count");
     assert.equal(editedLabelTag(EDITED_NO_HISTORY_MSG.id), "SPAN", "no history → plain label");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// --- "View edit history" control + dialog gating ---------------------------
+
+test("admin can open the edit-history dialog from the (edited) button", async () => {
+  const h = await mountChat(ADMIN_USER);
+  try {
+    const btn = window.document.body.querySelector(
+      `[data-testid="label-edited-${EDITED_WITH_HISTORY_MSG.id}"]`,
+    );
+    assert.ok(btn instanceof window.HTMLElement, "(edited) control present for admin");
+    assert.equal(btn.tagName, "BUTTON", "control is a button");
+    assert.equal(btn.getAttribute("title"), "View edit history", "button is the View edit history control");
+
+    await clickTestId(`label-edited-${EDITED_WITH_HISTORY_MSG.id}`);
+    assert.ok(has("dialog-edit-history"), "clicking opens the edit-history dialog");
+    assert.ok(
+      window.document.body.textContent?.includes("Original wording"),
+      "dialog shows the fetched history row",
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("customer never sees the View edit history control or dialog", async () => {
+  const h = await mountChat(CUSTOMER_USER);
+  try {
+    // No element anywhere on the page carries the View edit history affordance.
+    assert.equal(
+      window.document.body.querySelector('[title="View edit history"]'),
+      null,
+      "no View edit history control for customer",
+    );
+
+    // The (edited) label exists but is inert — clicking it opens nothing.
+    const label = window.document.body.querySelector(
+      `[data-testid="label-edited-${EDITED_WITH_HISTORY_MSG.id}"]`,
+    );
+    assert.ok(label instanceof window.HTMLElement, "plain (edited) label present");
+    await act(async () => {
+      (label as HTMLElement).click();
+    });
+    await flush();
+    assert.equal(has("dialog-edit-history"), false, "edit-history dialog never opens for customer");
   } finally {
     h.cleanup();
   }
