@@ -383,7 +383,9 @@ export interface IStorage {
 
   getCommunityMessages(limit?: number, before?: string): Promise<CommunityMessage[]>;
   getCommunityMessage(id: string): Promise<CommunityMessage | undefined>;
+  getCommunityMessagesByIds(ids: string[]): Promise<CommunityMessage[]>;
   createCommunityMessage(data: InsertCommunityMessage): Promise<CommunityMessage>;
+  updateCommunityMessageContent(id: string, content: string, editedAt: Date): Promise<CommunityMessage | undefined>;
   deleteCommunityMessage(id: string): Promise<void>;
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
   toggleCommunityReaction(messageId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
@@ -2178,6 +2180,19 @@ export class DatabaseStorage implements IStorage {
 
   async createCommunityMessage(data: InsertCommunityMessage): Promise<CommunityMessage> {
     const [msg] = await db.insert(communityMessages).values(data).returning();
+    return msg;
+  }
+
+  async getCommunityMessagesByIds(ids: string[]): Promise<CommunityMessage[]> {
+    if (ids.length === 0) return [];
+    return db.select().from(communityMessages).where(inArray(communityMessages.id, ids));
+  }
+
+  async updateCommunityMessageContent(id: string, content: string, editedAt: Date): Promise<CommunityMessage | undefined> {
+    const [msg] = await db.update(communityMessages)
+      .set({ content, editedAt })
+      .where(eq(communityMessages.id, id))
+      .returning();
     return msg;
   }
 

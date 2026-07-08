@@ -5,6 +5,8 @@ import { registerAlertRoutes } from "./alert-routes";
 import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft, sweepAlertDrafts } from "./alert-drafts";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
+import { checkCommunityMessageEdit } from "./community-chat-edit";
+import { stripChatFormatting } from "@shared/chat-markdown";
 import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getParam } from "./http-params";
 import {
@@ -5679,12 +5681,29 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       // Enrich KB article references — one lookup per unique slug, not per message.
       const kbBySlug = await enrichKbArticlesForMessages(messages, storage);
+      // Quoted-reply snippets: batch-fetch originals; deleted originals
+      // degrade to null (client shows "Message deleted").
+      const replyIds = [...new Set(messages.map(m => m.replyToId).filter((id): id is string => !!id))];
+      const replyOriginals = await storage.getCommunityMessagesByIds(replyIds);
+      const replyById = new Map(replyOriginals.map(o => [o.id, o]));
+      const replySnippet = (id: string | null) => {
+        if (!id) return undefined;
+        const o = replyById.get(id);
+        if (!o) return null;
+        return {
+          id: o.id,
+          chatUsername: o.chatUsername,
+          content: o.content.length > 140 ? o.content.slice(0, 140) + "…" : o.content,
+          hasImage: !!o.imageUrl,
+        };
+      };
       const enriched = messages.map(m => ({
         ...m,
         reactions: reactionsByMessage[m.id] || [],
         isAdmin: ["admin", "master_admin"].includes(usersMap.get(m.userId)?.role || ""),
         avatarUrl: usersMap.get(m.userId)?.avatarUrl || null,
         kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
+        replyTo: replySnippet(m.replyToId),
       }));
       enriched.reverse();
       res.json(enriched);
@@ -5740,6 +5759,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(403).json({ error: "Only admins can use @everyone" });
       }
 
+      // Quoted reply: validate the referenced message still exists so we
+      // never store dangling ids at write time (deletes after the fact are
+      // handled gracefully at read time).
+      const rawReplyToId = typeof req.body?.replyToId === "string" ? req.body.replyToId.trim() : "";
+      let replyToId: string | null = null;
+      let replyToOriginal: Awaited<ReturnType<typeof storage.getCommunityMessage>> = undefined;
+      if (rawReplyToId) {
+        replyToOriginal = await storage.getCommunityMessage(rawReplyToId);
+        if (!replyToOriginal) {
+          return res.status(400).json({ error: "The message you're replying to no longer exists" });
+        }
+        replyToId = replyToOriginal.id;
+      }
+
       const wordFilters = await storage.getAllWordFilters();
       if (wordFilters.length > 0) {
         for (const filter of wordFilters) {
@@ -5757,8 +5790,19 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         content: trimmedContent,
         imageUrl,
         kbArticleSlug,
+        replyToId,
       });
-      const enriched = { ...msg, reactions: [], isAdmin: isAdminUser, kbArticle: kbArticleInfo };
+      const replyTo = replyToOriginal
+        ? {
+            id: replyToOriginal.id,
+            chatUsername: replyToOriginal.chatUsername,
+            content: replyToOriginal.content.length > 140
+              ? replyToOriginal.content.slice(0, 140) + "…"
+              : replyToOriginal.content,
+            hasImage: !!replyToOriginal.imageUrl,
+          }
+        : undefined;
+      const enriched = { ...msg, reactions: [], isAdmin: isAdminUser, kbArticle: kbArticleInfo, replyTo, avatarUrl: user.avatarUrl || null };
       broadcast({
         type: "community_message",
         message: enriched,
@@ -5777,8 +5821,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             }
           }
 
-          const bodyText = trimmedContent
-            ? (trimmedContent.length > 100 ? trimmedContent.slice(0, 100) + "…" : trimmedContent)
+          // Push previews are plain-text surfaces — strip formatting markers.
+          const plainContent = trimmedContent ? stripChatFormatting(trimmedContent) : "";
+          const bodyText = plainContent
+            ? (plainContent.length > 100 ? plainContent.slice(0, 100) + "…" : plainContent)
             : (imageUrl ? "📷 Sent an image" : "");
           const pushPayload = {
             title: `💬 ${chatUsername} in Community Chat`,
@@ -5841,6 +5887,57 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await deleteUploadedFileIfUnreferenced(existingMsg?.imageUrl);
       broadcast({ type: "community_message_deleted", messageId: req.params.id });
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+
+  // Edit a message's text. Author-only within a 15-minute window; admins may
+  // edit any message at any time. Word filter and @everyone gating re-apply.
+  app.patch("/api/community-chat/messages/:id", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      if (user.chatBanned) {
+        return res.status(403).json({ error: "You have been banned from community chat" });
+      }
+      const isAdminUser = user.role === "admin" || user.role === "master_admin";
+      const existing = await storage.getCommunityMessage(getParam(req, "id"));
+      const rawContent = typeof req.body?.content === "string" ? req.body.content : "";
+      const guard = checkCommunityMessageEdit({
+        message: existing,
+        requesterId: user.id,
+        isAdmin: isAdminUser,
+        newContent: rawContent,
+        hasImage: !!existing?.imageUrl,
+        hasKbArticle: !!existing?.kbArticleSlug,
+      });
+      if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+
+      let trimmedContent = rawContent.trim();
+      const hasEveryone = /@everyone\b/i.test(trimmedContent);
+      if (hasEveryone && !isAdminUser) {
+        return res.status(403).json({ error: "Only admins can use @everyone" });
+      }
+      const wordFilters = await storage.getAllWordFilters();
+      for (const filter of wordFilters) {
+        const pattern = new RegExp(filter.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+        trimmedContent = trimmedContent.replace(pattern, (match: string) => {
+          if (match.length <= 3) return match[0] + "*".repeat(match.length - 1);
+          return match[0] + "*".repeat(match.length - 2) + match[match.length - 1];
+        });
+      }
+
+      const editedAt = new Date();
+      const updated = await storage.updateCommunityMessageContent(getParam(req, "id"), trimmedContent, editedAt);
+      if (!updated) return res.status(404).json({ error: "Message not found" });
+      broadcast({
+        type: "community_message_edited",
+        messageId: updated.id,
+        content: updated.content,
+        editedAt: updated.editedAt,
+      });
+      res.json(updated);
     } catch (e) {
       res.status(500).json({ error: getErrorMessage(e) });
     }

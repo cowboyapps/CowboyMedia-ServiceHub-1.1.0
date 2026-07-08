@@ -698,6 +698,13 @@ export const communityMessages = pgTable("community_messages", {
   imageUrl: text("image_url"),
   kbArticleSlug: text("kb_article_slug"),
   pollId: varchar("poll_id"),
+  // Quoted-reply reference: id of the message being replied to. Soft
+  // reference (no FK) — the original may be deleted; readers degrade to a
+  // "Message deleted" placeholder at enrichment time.
+  replyToId: varchar("reply_to_id"),
+  // Set on every successful edit; null = never edited. Non-admin authors may
+  // edit only within a short window after posting (enforced server-side).
+  editedAt: timestamp("edited_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

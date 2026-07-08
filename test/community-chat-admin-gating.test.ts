@@ -323,9 +323,11 @@ test("customer tapping another user's name does NOT open the admin moderation me
     assert.ok(has(`button-username-${OTHER_MSG.id}`), "username is tappable");
     await clickTestId(`button-username-${OTHER_MSG.id}`);
 
-    // For a customer the tap opens the read-only profile dialog, never the
-    // moderation menu or any of its destructive actions.
-    assert.ok(has("dialog-user-profile"), "customer tap opens the read-only profile dialog");
+    // For a customer the tap opens the reply popup (Reply + View Profile),
+    // never the moderation menu or any of its destructive actions.
+    assert.ok(has("dialog-reply-actions"), "customer tap opens the reply popup");
+    assert.ok(has("button-reply"), "reply popup has a Reply action");
+    assert.ok(has("button-view-profile"), "reply popup has a View Profile action");
     assert.equal(has("dialog-admin-actions"), false, "no admin actions menu for customer");
     assert.equal(has("button-admin-delete-msg"), false, "no delete-message action for customer");
     assert.equal(has("button-admin-warn-user"), false, "no warn-user action for customer");

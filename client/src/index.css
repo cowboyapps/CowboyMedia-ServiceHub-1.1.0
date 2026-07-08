@@ -499,3 +499,18 @@ body {
     animation: none;
   }
 }
+
+/* Brief highlight when jumping to a quoted message */
+.chat-jump-highlight {
+  animation: chat-jump-flash 1.5s ease-out both;
+  border-radius: 0.75rem;
+}
+@keyframes chat-jump-flash {
+  0%, 40% { background-color: hsl(var(--primary) / 0.12); }
+  100% { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-jump-highlight {
+    animation: none;
+  }
+}

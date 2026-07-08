@@ -17,7 +17,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check } from "lucide-react";
+import { ChatMessageContent } from "@/components/chat-message-content";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { Link } from "wouter";
@@ -33,11 +34,16 @@ type AdminAction =
   | { type: "menu"; messageId: string; userId: string; username: string }
   | { type: "warn"; userId: string; username: string }
   | { type: "review"; userId: string; username: string }
-  | { type: "reply-only"; username: string }
+  | { type: "reply-only"; messageId: string; userId: string; username: string }
   | null;
 
 type ReactionGroup = { emoji: string; userIds: string[] };
-type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null };
+// Snippet of the message being replied to. `null` = original was deleted
+// (degrade gracefully); absent/undefined = not a reply at all.
+type ReplySnippet = { id: string; chatUsername: string; content: string; hasImage: boolean } | null;
+type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet };
+
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 const EMOJI_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
 
@@ -441,13 +447,14 @@ function ReviewCustomerDialog({ userId, username, onClose }: { userId: string; u
   );
 }
 
-function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, onReply }: {
+function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, onReply, onProfile }: {
   action: AdminAction;
   onClose: (next?: string) => void;
   onDelete: (messageId: string) => void;
   onWarnSubmit: (userId: string, message: string) => void;
   onBan: (userId: string) => void;
-  onReply: (username: string) => void;
+  onReply: (username: string, messageId: string) => void;
+  onProfile: (userId: string) => void;
 }) {
   const [warnMessage, setWarnMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -509,11 +516,19 @@ function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, on
           <div className="py-1">
             <button
               className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
-              onClick={() => { onReply(action.username); onClose(); }}
+              onClick={() => { onReply(action.username, action.messageId); onClose(); }}
               data-testid="button-reply"
             >
               <Reply className="w-4 h-4 text-muted-foreground" />
               Reply
+            </button>
+            <button
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+              onClick={() => { onProfile(action.userId); onClose(); }}
+              data-testid="button-view-profile"
+            >
+              <UserSearch className="w-4 h-4 text-muted-foreground" />
+              View Profile
             </button>
           </div>
         </DialogContent>
@@ -530,7 +545,7 @@ function MessageActionPopup({ action, onClose, onDelete, onWarnSubmit, onBan, on
         <div className="py-1">
           <button
             className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
-            onClick={() => { onReply(action.username); onClose(); }}
+            onClick={() => { onReply(action.username, action.messageId); onClose(); }}
             data-testid="button-reply"
           >
             <Reply className="w-4 h-4 text-muted-foreground" />
@@ -662,25 +677,46 @@ interface CommunityRowProps {
   isAdminUser: boolean;
   isActiveEmojiPicker: boolean;
   currentUserId: string;
+  selfUsername: string | null;
+  showUnreadDivider: boolean;
+  isEditing: boolean;
   onProfileClick: (userId: string) => void;
-  onAdminMenu: (a: { type: "menu"; messageId: string; userId: string; username: string }) => void;
+  onAdminMenu: (a: AdminAction) => void;
   onToggleEmojiPicker: (id: string) => void;
   onCloseEmojiPicker: () => void;
   onReact: (messageId: string, emoji: string) => void;
   onPollDeleted: () => void;
+  onJumpToMessage: (id: string) => void;
+  onStartEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (id: string, content: string) => Promise<boolean>;
 }
 
 const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRowProps) {
   const {
     msg, isMe, msgIsAdmin, isFirstInRun, isLastInRun: _ignored, tailClass,
     isNewSinceMount, showSeparator, dateSepLabel, rowGap, rowExtra, msgDate,
-    isAdminUser, isActiveEmojiPicker, currentUserId,
+    isAdminUser, isActiveEmojiPicker, currentUserId, selfUsername,
+    showUnreadDivider, isEditing,
     onProfileClick, onAdminMenu, onToggleEmojiPicker, onCloseEmojiPicker,
-    onReact, onPollDeleted,
+    onReact, onPollDeleted, onJumpToMessage, onStartEdit, onCancelEdit, onSaveEdit,
   } = props;
   const animClass = isNewSinceMount ? " chat-msg-enter" : "";
+  const [editText, setEditText] = useState(msg.content);
+  const [savingEdit, setSavingEdit] = useState(false);
+  useEffect(() => {
+    if (isEditing) setEditText(msg.content);
+  }, [isEditing, msg.content]);
+  const canEdit = !msg.pollId && (isAdminUser || (isMe && Date.now() - msgDate.getTime() < EDIT_WINDOW_MS));
   return (
     <div data-testid={`community-message-${msg.id}`} className={`${animClass}`.trim() || undefined}>
+      {showUnreadDivider && (
+        <div className="flex items-center gap-2 my-3" data-testid="divider-unread-messages">
+          <div className="flex-1 h-px bg-primary/30" />
+          <span className="text-[10px] font-medium text-primary uppercase tracking-wide">New messages</span>
+          <div className="flex-1 h-px bg-primary/30" />
+        </div>
+      )}
       {showSeparator && (
         <div className="flex items-center justify-center my-3">
           <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{dateSepLabel}</span>
@@ -715,7 +751,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                       if (isAdminUser && !msgIsAdmin) {
                         onAdminMenu({ type: "menu", messageId: msg.id, userId: msg.userId, username: msg.chatUsername });
                       } else {
-                        onProfileClick(msg.userId);
+                        onAdminMenu({ type: "reply-only", messageId: msg.id, userId: msg.userId, username: msg.chatUsername });
                       }
                     }}
                     data-testid={`button-username-${msg.id}`}
@@ -727,6 +763,28 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                 )}
                 {msgIsAdmin && <Shield className="w-2.5 h-2.5 flex-shrink-0" />}
               </p>
+            )}
+            {msg.replyTo !== undefined && (
+              msg.replyTo === null ? (
+                <div
+                  className={`mb-1 -mx-0.5 rounded-md border-l-2 px-2 py-1 text-xs italic ${isMe ? "border-primary-foreground/40 bg-primary-foreground/10 text-primary-foreground/60" : "border-border bg-background/50 text-muted-foreground"}`}
+                  data-testid={`quote-deleted-${msg.id}`}
+                >
+                  Message deleted
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onJumpToMessage(msg.replyTo!.id)}
+                  className={`block w-full text-left mb-1 -mx-0.5 rounded-md border-l-2 px-2 py-1 cursor-pointer transition-opacity hover:opacity-80 ${isMe ? "border-primary-foreground/50 bg-primary-foreground/10" : "border-primary bg-background/50"}`}
+                  data-testid={`quote-reply-${msg.id}`}
+                >
+                  <p className={`text-[10px] font-medium truncate ${isMe ? "text-primary-foreground/80" : "text-primary"}`}>{msg.replyTo.chatUsername}</p>
+                  <p className={`text-xs truncate ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                    {msg.replyTo.content ? msg.replyTo.content : msg.replyTo.hasImage ? "📷 Photo" : "…"}
+                  </p>
+                </button>
+              )
             )}
             {msg.pollId ? (
               <div className="my-1 -mx-1">
@@ -743,9 +801,65 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                     />
                   </div>
                 )}
-                {msg.content && (
-                  <p className="text-sm whitespace-pre-wrap break-words overflow-hidden" data-testid={`text-community-msg-${msg.id}`}>{msg.content}</p>
-                )}
+                {isEditing ? (
+                  <div className="my-1 min-w-[200px]" data-testid={`container-edit-msg-${msg.id}`}>
+                    <Textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Escape") { e.preventDefault(); onCancelEdit(); }
+                        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                          e.preventDefault();
+                          if (!editText.trim() && !msg.imageUrl && !msg.kbArticleSlug) return;
+                          setSavingEdit(true);
+                          const ok = await onSaveEdit(msg.id, editText);
+                          setSavingEdit(false);
+                          if (ok) onCancelEdit();
+                        }
+                      }}
+                      autoFocus
+                      rows={2}
+                      className={`text-sm min-h-[52px] resize-none ${isMe ? "bg-primary-foreground/10 text-primary-foreground border-primary-foreground/30 placeholder:text-primary-foreground/50" : ""}`}
+                      data-testid={`input-edit-msg-${msg.id}`}
+                    />
+                    <div className="flex items-center justify-end gap-1 mt-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className={`h-6 w-6 ${isMe ? "text-primary-foreground/70 hover:text-primary-foreground" : ""}`}
+                        onClick={onCancelEdit}
+                        disabled={savingEdit}
+                        data-testid={`button-cancel-edit-${msg.id}`}
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className={`h-6 w-6 ${isMe ? "text-primary-foreground/70 hover:text-primary-foreground" : ""}`}
+                        disabled={savingEdit || (!editText.trim() && !msg.imageUrl && !msg.kbArticleSlug)}
+                        onClick={async () => {
+                          setSavingEdit(true);
+                          const ok = await onSaveEdit(msg.id, editText);
+                          setSavingEdit(false);
+                          if (ok) onCancelEdit();
+                        }}
+                        data-testid={`button-save-edit-${msg.id}`}
+                        title="Save"
+                      >
+                        {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </div>
+                ) : msg.content ? (
+                  <ChatMessageContent
+                    content={msg.content}
+                    selfUsername={selfUsername}
+                    onPrimary={isMe}
+                    data-testid={`text-community-msg-${msg.id}`}
+                  />
+                ) : null}
                 {msg.kbArticle && (
                   <Link href={`/knowledge/${msg.kbArticle.slug}`}>
                     <div
@@ -773,7 +887,18 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
             <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
               <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                 {format(msgDate, "h:mm a")}
+                {msg.editedAt && <span className="ml-1 italic" data-testid={`label-edited-${msg.id}`}>(edited)</span>}
               </p>
+              {canEdit && !isEditing && (
+                <button
+                  onClick={() => onStartEdit(msg.id)}
+                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-primary-foreground/80" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
+                  data-testid={`button-edit-${msg.id}`}
+                  title="Edit message"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
               <div className="relative flex-shrink-0">
                 <button
                   onClick={() => onToggleEmojiPicker(msg.id)}
@@ -804,6 +929,13 @@ export default function CommunityChatPage() {
   const [chatNotifPref, setChatNotifPref] = useState("mentions");
   const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  // Reply target: quote chip in the composer + replyToId on send.
+  const [replyTarget, setReplyTarget] = useState<{ id: string; username: string; content: string; hasImage: boolean } | null>(null);
+  const replyTargetRef = useRef<typeof replyTarget>(null);
+  replyTargetRef.current = replyTarget;
   // Tracks message IDs present on first load so only newly-arrived messages
   // get the fade-in animation (initial history paints instantly).
   const initialMessageIdsRef = useRef<Set<string> | null>(null);
@@ -913,6 +1045,9 @@ export default function CommunityChatPage() {
         if (data.type === "community_message_deleted") {
           queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
         }
+        if (data.type === "community_message_edited") {
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+        }
         if (data.type === "community_reaction") {
           queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
         }
@@ -961,6 +1096,8 @@ export default function CommunityChatPage() {
       messagesEndRef.current?.scrollIntoView({ behavior });
     }
     setShowNewMessagesPill(false);
+    setUnreadCount(0);
+    setUnreadDividerId(null);
   }, []);
 
   const handleScroll = useCallback(() => {
@@ -968,16 +1105,33 @@ export default function CommunityChatPage() {
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     isNearBottomRef.current = nearBottom;
-    if (nearBottom) setShowNewMessagesPill(false);
+    if (nearBottom) {
+      setShowNewMessagesPill(false);
+      setUnreadCount(0);
+      setUnreadDividerId(null);
+    }
   }, []);
+
+  // Tracks IDs of the previous message list so newly-arrived messages can be
+  // identified for the unread divider (index math breaks under pagination).
+  const prevMessageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const count = messages?.length || 0;
     const prev = prevMessageCountRef.current;
     prevMessageCountRef.current = count;
+    const prevIds = prevMessageIdsRef.current;
+    if (messages) prevMessageIdsRef.current = new Set(messages.map((m) => m.id));
     if (count > prev && prev > 0) {
       if (isNearBottomRef.current) scrollToBottom();
-      else setShowNewMessagesPill(true);
+      else {
+        setShowNewMessagesPill(true);
+        const newOnes = messages!.filter((m) => !prevIds.has(m.id));
+        setUnreadCount((c) => c + newOnes.length);
+        if (newOnes.length > 0) {
+          setUnreadDividerId((curr) => curr ?? newOnes[0].id);
+        }
+      }
     } else if (count > 0 && prev === 0) {
       // First load: content may still be sizing, so one synchronous scroll lands
       // short. Re-pin across the next few frames to settle at the true bottom.
@@ -1007,38 +1161,18 @@ export default function CommunityChatPage() {
     const content = message.trim();
     const file = pendingImageRef.current;
     const kbArticle = pendingKbArticleRef.current;
+    const reply = replyTargetRef.current;
     if (!content && !file && !kbArticle) return;
     setMessage("");
     setPendingImage(null);
     pendingImageRef.current = null;
     setPendingKbArticle(null);
     pendingKbArticleRef.current = null;
+    setReplyTarget(null);
     setMentionQuery(null);
     mentionStartRef.current = null;
-    try {
-      const formData = new FormData();
-      formData.append("content", content);
-      if (file) formData.append("image", file);
-      if (kbArticle) formData.append("kbArticleSlug", kbArticle.slug);
-      const res = await uploadRequest("POST", "/api/community-chat/messages", formData);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast({ title: "Failed to send", description: data.error, variant: "destructive" });
-        setMessage(content);
-        if (file) {
-          setPendingImage(file);
-          pendingImageRef.current = file;
-        }
-        if (kbArticle) {
-          setPendingKbArticle(kbArticle);
-          pendingKbArticleRef.current = kbArticle;
-        }
-        return;
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
-      if (isNearBottomRef.current) setTimeout(() => scrollToBottom(), 50);
-    } catch {
-      toast({ title: "Failed to send message", variant: "destructive" });
+    setUnreadDividerId(null);
+    const restore = () => {
       setMessage(content);
       if (file) {
         setPendingImage(file);
@@ -1048,6 +1182,26 @@ export default function CommunityChatPage() {
         setPendingKbArticle(kbArticle);
         pendingKbArticleRef.current = kbArticle;
       }
+      if (reply) setReplyTarget(reply);
+    };
+    try {
+      const formData = new FormData();
+      formData.append("content", content);
+      if (file) formData.append("image", file);
+      if (kbArticle) formData.append("kbArticleSlug", kbArticle.slug);
+      if (reply) formData.append("replyToId", reply.id);
+      const res = await uploadRequest("POST", "/api/community-chat/messages", formData);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast({ title: "Failed to send", description: data.error, variant: "destructive" });
+        restore();
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+      if (isNearBottomRef.current) setTimeout(() => scrollToBottom(), 50);
+    } catch {
+      toast({ title: "Failed to send message", variant: "destructive" });
+      restore();
     }
     setTimeout(() => {
       const el = messageInputRef.current;
@@ -1139,7 +1293,62 @@ export default function CommunityChatPage() {
     }
   }, [toast]);
 
-  const handleReply = useCallback((username: string) => {
+  // The message list mirrored into a ref so memoised callbacks can look up
+  // messages without taking the whole list as a dep.
+  const messagesRef = useRef<EnrichedMessage[] | undefined>(undefined);
+  messagesRef.current = messages;
+
+  const handleJumpToMessage = useCallback((id: string) => {
+    const container = scrollContainerRef.current;
+    const el = container?.querySelector(`[data-testid="community-message-${id}"]`) as HTMLElement | null;
+    if (!el) {
+      toast({ title: "That message isn't loaded", description: "It may be further up in history." });
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("chat-jump-highlight");
+    setTimeout(() => el.classList.remove("chat-jump-highlight"), 1600);
+  }, [toast]);
+
+  const handleStartEdit = useCallback((id: string) => {
+    setEditingMessageId(id);
+  }, []);
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+  }, []);
+  const handleSaveEdit = useCallback(async (id: string, content: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/community-chat/messages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast({ title: "Couldn't save edit", description: data.error, variant: "destructive" });
+        return false;
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+      return true;
+    } catch {
+      toast({ title: "Couldn't save edit", variant: "destructive" });
+      return false;
+    }
+  }, [toast]);
+
+  const handleReply = useCallback((username: string, messageId?: string) => {
+    if (messageId) {
+      const original = messagesRef.current?.find((m) => m.id === messageId);
+      if (original) {
+        setReplyTarget({
+          id: original.id,
+          username: original.chatUsername,
+          content: original.content,
+          hasImage: !!original.imageUrl,
+        });
+      }
+    }
     const el = messageInputRef.current;
     const mention = `@${username} `;
     if (el) {
@@ -1280,12 +1489,19 @@ export default function CommunityChatPage() {
                   isAdminUser={isAdminUser}
                   isActiveEmojiPicker={activeEmojiPicker === msg.id}
                   currentUserId={user?.id || ""}
+                  selfUsername={chatUsername}
+                  showUnreadDivider={unreadDividerId === msg.id}
+                  isEditing={editingMessageId === msg.id}
                   onProfileClick={handleProfileClick}
                   onAdminMenu={setAdminAction}
                   onToggleEmojiPicker={handleToggleEmojiPicker}
                   onCloseEmojiPicker={handleCloseEmojiPicker}
                   onReact={handleReaction}
                   onPollDeleted={handlePollDeleted}
+                  onJumpToMessage={handleJumpToMessage}
+                  onStartEdit={handleStartEdit}
+                  onCancelEdit={handleCancelEdit}
+                  onSaveEdit={handleSaveEdit}
                 />
               );
             })}
@@ -1297,7 +1513,8 @@ export default function CommunityChatPage() {
       {showNewMessagesPill && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
           <Button size="sm" variant="secondary" className="rounded-full shadow-lg text-xs gap-1 px-3" onClick={() => scrollToBottom()} data-testid="button-community-new-messages">
-            <ChevronDown className="w-3 h-3" /> New messages
+            <ChevronDown className="w-3 h-3" />
+            {unreadCount > 0 ? `${unreadCount} new message${unreadCount === 1 ? "" : "s"}` : "New messages"}
           </Button>
         </div>
       )}
@@ -1321,6 +1538,27 @@ export default function CommunityChatPage() {
                   : `${typingNames.length} people are typing`}
               </span>
               <BouncingDots />
+            </div>
+          )}
+          {replyTarget && (
+            <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-primary bg-muted/40 px-2 py-1.5" data-testid="container-reply-target">
+              <Reply className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-medium text-primary truncate">Replying to {replyTarget.username}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {replyTarget.content || (replyTarget.hasImage ? "📷 Photo" : "…")}
+                </p>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 flex-shrink-0"
+                onClick={() => setReplyTarget(null)}
+                data-testid="button-cancel-reply"
+                title="Cancel reply"
+              >
+                <X className="w-3 h-3" />
+              </Button>
             </div>
           )}
           {pendingImage && imagePreviewUrl && (
@@ -1511,6 +1749,9 @@ export default function CommunityChatPage() {
               <Send className="w-4 h-4" />
             </Button>
           </div>
+          <p className="hidden sm:block text-[10px] text-muted-foreground mt-1 px-1" data-testid="text-formatting-hint">
+            **bold** *italic* ~~strike~~ `code`
+          </p>
         </div>
       )}
 
@@ -1537,6 +1778,7 @@ export default function CommunityChatPage() {
         onWarnSubmit={handleWarnUser}
         onBan={handleBanUser}
         onReply={handleReply}
+        onProfile={handleProfileClick}
       />
     </div>
   );
