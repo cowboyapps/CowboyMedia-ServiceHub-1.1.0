@@ -37,5 +37,6 @@
 - [WHMCS added-service detection](whmcs-added-service-detection.md) — "added" (direct WHMCS order, first sighting, no marker) vs "ready" (store order, pending->active); "added" consumes the matching pending order so neither double-notifies; per-customer baseline gate.
 - [Idempotency client-abort semantics](idempotency-client-abort.md) — money-write idempotency must NOT free a claimed key on early socket close (client timeout); handler keeps running, abandoning lets a retry double-charge.
 - [jsdom calc() serialization](jsdom-calc-serialization.md) — cssstyle re-emits calc() (e.g. "- 2rem" → "+ 2rem"); round-trip expected strings through a scratch element, don't assert literals.
+- [iOS keyboard-inset vs viewport pan](ios-keyboard-inset-pan.md) — detect keyboard as innerHeight - vv.height only; subtracting offsetTop cancels detection exactly when iOS pans; un-pan via scrollTo(0,0).
 - [Idempotency async-store listener timing](idempotency-async-store-listener-timing.md) — when the dedup store goes DB-backed (async), attach res close/finish listeners synchronously before the claim or a fast abort is missed → stale pending → permanent 409.
 - [Radix menu → popover handoff](radix-menu-to-popover-handoff.md) — opening a Popover from a DropdownMenuItem via setTimeout(0) races the menu's focus restore; open it in onCloseAutoFocus + preventDefault.

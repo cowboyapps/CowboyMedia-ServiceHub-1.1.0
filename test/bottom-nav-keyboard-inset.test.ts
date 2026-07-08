@@ -5,8 +5,10 @@ import { JSDOM } from "jsdom";
 // Render test pinning the "bottom nav hides while the on-screen keyboard is
 // open" behavior. BottomNav returns null when useKeyboardInset() > 0 so the
 // fixed bar can't float mid-screen above the iOS keyboard while typing. The
-// hook measures window.innerHeight - visualViewport.height - offsetTop with an
-// 80px jitter threshold; this test drives a stubbed visualViewport through
+// hook measures window.innerHeight - visualViewport.height (pan-independent —
+// offsetTop is deliberately NOT subtracted, or an iOS viewport pan would
+// cancel detection) with an 80px jitter threshold; this test drives a stubbed
+// visualViewport through
 // keyboard open/close and asserts the nav unmounts and remounts accordingly.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
@@ -73,8 +75,9 @@ g.matchMedia = matchMediaImpl;
 w.matchMedia = matchMediaImpl;
 
 // --- Controllable visualViewport stub --------------------------------------
-// useKeyboardInset computes: window.innerHeight - vv.height - vv.offsetTop,
-// with anything <= 80px treated as browser-chrome jitter (inset 0).
+// useKeyboardInset computes: window.innerHeight - vv.height (pan-independent;
+// offsetTop must NOT cancel detection), with anything <= 80px treated as
+// browser-chrome jitter (inset 0).
 type Listener = () => void;
 const vvListeners = new Map<string, Set<Listener>>();
 const visualViewportStub = {
@@ -241,6 +244,55 @@ test("sub-threshold viewport shrink (browser chrome jitter) does not hide the na
     await setKeyboardCoverage(60);
     assert.ok(navEl(container), "nav must not hide for sub-threshold viewport changes");
     await setKeyboardCoverage(0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("iOS visual-viewport pan (offsetTop) must not cancel keyboard detection", async () => {
+  // Regression: iOS pans the visual viewport down to chase the focused input,
+  // so offsetTop grows by ~the keyboard height. The old formula subtracted
+  // offsetTop and read the inset as 0 at exactly that moment — nav floated
+  // mid-screen with the keyboard open. Detection must ignore offsetTop, and
+  // the hook must un-pan via window.scrollTo(0, 0).
+  const scrollCalls: Array<[number, number]> = [];
+  const scrollToImpl = (x: number, y: number) => { scrollCalls.push([x, y]); };
+  g.scrollTo = scrollToImpl;
+  w.scrollTo = scrollToImpl;
+  Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
+
+  visualViewportStub.height = 800;
+  visualViewportStub.offsetTop = 0;
+  const { container, cleanup } = await mountNav();
+  try {
+    assert.ok(navEl(container), "nav visible before the keyboard opens");
+
+    // Keyboard covers 300px AND iOS pans the viewport down by 300px.
+    visualViewportStub.height = 500;
+    visualViewportStub.offsetTop = 300;
+    await act(async () => {
+      fireViewportResize();
+    });
+    await flush();
+
+    assert.equal(
+      navEl(container),
+      null,
+      "nav must hide even when the viewport pan offsets the keyboard height",
+    );
+    assert.ok(
+      scrollCalls.some(([x, y]) => x === 0 && y === 0),
+      "hook must un-pan via window.scrollTo(0, 0) while panned with keyboard open",
+    );
+
+    // Keyboard closes and pan resets: nav returns.
+    visualViewportStub.height = 800;
+    visualViewportStub.offsetTop = 0;
+    await act(async () => {
+      fireViewportResize();
+    });
+    await flush();
+    assert.ok(navEl(container), "nav must return once the keyboard closes");
   } finally {
     cleanup();
   }
