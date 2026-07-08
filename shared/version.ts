@@ -1,4 +1,4 @@
-export const APP_VERSION = "8.3";
+export const APP_VERSION = "8.4";
 
 export function versionAnchor(version: string): string {
   return `version-${version.replace(/\./g, "-")}`;
