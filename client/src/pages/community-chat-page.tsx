@@ -19,6 +19,7 @@ import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check } from "lucide-react";
 import { ChatMessageContent } from "@/components/chat-message-content";
+import { computeNewArrivals } from "@/lib/chat-unread";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { Link } from "wouter";
@@ -1122,15 +1123,15 @@ export default function CommunityChatPage() {
     prevMessageCountRef.current = count;
     const prevIds = prevMessageIdsRef.current;
     if (messages) prevMessageIdsRef.current = new Set(messages.map((m) => m.id));
-    if (count > prev && prev > 0) {
+    // Key off ID delta, NOT list length: the API list is capped, so at the cap
+    // new arrivals keep the length constant while old messages roll off.
+    const newArrivals = computeNewArrivals(prevIds, messages);
+    if (newArrivals.length > 0) {
       if (isNearBottomRef.current) scrollToBottom();
       else {
         setShowNewMessagesPill(true);
-        const newOnes = messages!.filter((m) => !prevIds.has(m.id));
-        setUnreadCount((c) => c + newOnes.length);
-        if (newOnes.length > 0) {
-          setUnreadDividerId((curr) => curr ?? newOnes[0].id);
-        }
+        setUnreadCount((c) => c + newArrivals.length);
+        setUnreadDividerId((curr) => curr ?? newArrivals[0]);
       }
     } else if (count > 0 && prev === 0) {
       // First load: content may still be sizing, so one synchronous scroll lands
