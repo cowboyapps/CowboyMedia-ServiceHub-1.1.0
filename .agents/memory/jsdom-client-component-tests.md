@@ -107,3 +107,14 @@ gc timers separately (see the mutation-gc note above) or the file hangs again.
   any failure/hang. Pass file paths as args to run a subset. Each file runs in
   its own subprocess, so globals don't leak and a purely additive file can't
   regress others.
+
+## Page WS handlers patch the SINGLETON queryClient
+Community-chat (and similar) pages import `queryClient` from `@/lib/queryClient`
+inside their WebSocket `onMessage` handlers while the rendered tree reads from
+whatever client the provider supplies. A render test that mounts with a
+throwaway `new QueryClient()` will see WS-driven cache patches silently land in
+the singleton and its assertions read an untouched cache. **Fix:** mount the
+test tree with the imported singleton (`queryClient` from
+`client/src/lib/queryClient`), set test-friendly defaults via
+`setDefaultOptions`, and `clear()` it in cleanup. Per-file subprocess isolation
+makes reusing the singleton safe. Precedent: `test/community-chat-reaction-patch.test.ts`.
