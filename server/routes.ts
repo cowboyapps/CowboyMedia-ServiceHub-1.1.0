@@ -22,6 +22,7 @@ import { db } from "./db";
 import { uploadedFiles, newsStories, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
 import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles, findMissingUploadReferences } from "./uploaded-file-cleanup";
 import { getErrorMessage, getErrorStatusCode, getErrorName, getErrorCode } from "./error-utils";
+import { stripHtmlPreserveBreaks } from "@shared/html-text";
 import { queryString, queryInt } from "./request-utils";
 import { createErrorLogClearAllHandler, createErrorLogResolveAllHandler } from "./error-log-bulk-routes";
 import { createBusinessHoursHandlers } from "./business-hours";
@@ -213,6 +214,24 @@ const sanitizeNewsContent = (html: string): string =>
     allowedAttributes: {
       "*": ["style"],
       img: ["src", "alt", "width", "height"],
+      a: ["href", "target", "rel"],
+    },
+    allowedStyles: {
+      "*": {
+        "text-align": [/^left$/, /^center$/, /^right$/, /^justify$/],
+        color: [/^#[0-9a-fA-F]{3,6}$/, /^rgb\(/, /^rgba\(/],
+      },
+    },
+  });
+
+// For rich text authored in RichTextEditor with images disabled (alert
+// descriptions, service updates): same allowlist as the client-side
+// RichTextContent renderer — no <img>.
+const sanitizeRichTextNoImg = (html: string): string =>
+  sanitizeHtml(html, {
+    allowedTags: ["p", "br", "strong", "em", "u", "s", "span", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a", "code", "pre"],
+    allowedAttributes: {
+      "*": ["style"],
       a: ["href", "target", "rel"],
     },
     allowedStyles: {
@@ -3141,7 +3160,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!parsed.success) {
         return res.status(400).json({ message: "Title, description, and serviceId are required" });
       }
-      const { title, description, serviceId, matureContent } = parsed.data;
+      const { title, serviceId, matureContent } = parsed.data;
+      const description = sanitizeRichTextNoImg(parsed.data.description);
       const update = await storage.createServiceUpdate({ title, description, serviceId, matureContent: matureContent ?? false });
       const service = await storage.getService(serviceId);
       const serviceName = service?.name || "Unknown Service";
@@ -3178,7 +3198,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           void sendTemplatedEmail(u.email, "customer_service_update", {
             service_name: serviceName,
             update_title: title,
-            update_description: description,
+            update_description: stripHtmlPreserveBreaks(description),
             customer_name: u.fullName,
           }, u.fullName);
         }
@@ -3198,7 +3218,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const { title, description, matureContent } = req.body;
       const data: Partial<{ title: string; description: string; matureContent: boolean }> = {};
       if (title !== undefined) data.title = title;
-      if (description !== undefined) data.description = description;
+      if (description !== undefined) data.description = sanitizeRichTextNoImg(String(description));
       if (matureContent !== undefined) data.matureContent = matureContent;
       const updated = await storage.updateServiceUpdate(getParam(req, "id"), data);
       if (!updated) return res.status(404).json({ message: "Service update not found" });

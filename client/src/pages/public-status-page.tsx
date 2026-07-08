@@ -13,6 +13,7 @@ import { serverActionErrorMessage } from "@/lib/server-error";
 import { format, formatDistanceToNow } from "date-fns";
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Bell, AlertCircle, ShieldCheck, ChevronRight, Megaphone } from "lucide-react";
 import { Link } from "wouter";
+import { htmlToPlainTextInline } from "@shared/html-text";
 
 type PublicAlert = {
   id: string;
@@ -413,7 +414,7 @@ export default function PublicStatusPage() {
                         </div>
                         {u.description && (
                           <p className="text-sm text-muted-foreground mb-1" data-testid={`text-update-snippet-${u.id}`}>
-                            {truncate(u.description, 200)}
+                            {truncate(htmlToPlainTextInline(u.description), 200)}
                           </p>
                         )}
                         <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">

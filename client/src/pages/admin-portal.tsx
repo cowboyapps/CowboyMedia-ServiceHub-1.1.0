@@ -3213,7 +3213,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
 
   const createSchema = z.object({
     title: z.string().min(1, "Title is required"),
-    description: z.string().min(1, "Description is required"),
+    description: z.string().refine(v => stripHtml(v).trim().length > 0, "Description is required"),
     serviceId: z.string().min(1, "Service is required"),
     matureContent: z.boolean().default(false),
   });
@@ -3320,7 +3320,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                   <FormItem>
                     <FormLabel>Description</FormLabel>
                     <FormControl>
-                      <Textarea {...field} rows={4} placeholder="Describe the update..." data-testid="input-service-update-description" />
+                      <RichTextEditor value={field.value} onChange={field.onChange} placeholder="Describe the update..." testIdPrefix="input-service-update-description" hideImage />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -3383,7 +3383,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                 </div>
                 {expandedUpdateId === update.id && (
                   <div className="space-y-2 pt-1 pl-6">
-                    <p className="text-sm whitespace-pre-wrap">{update.description}</p>
+                    <RichTextContent content={update.description} className="text-sm" testId={`text-admin-update-desc-${update.id}`} />
                     <div className="flex items-center gap-1 flex-wrap">
                       {canManage && (
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditDialog(update); }} data-testid={`button-admin-edit-update-${update.id}`}>
@@ -3431,8 +3431,8 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
               <Input id="edit-update-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} data-testid="input-edit-update-title" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-update-description">Description</Label>
-              <Textarea id="edit-update-description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={4} data-testid="input-edit-update-description" />
+              <Label>Description</Label>
+              <RichTextEditor value={editDescription} onChange={setEditDescription} testIdPrefix="input-edit-update-description" hideImage />
             </div>
             <div className="flex items-center justify-between border rounded-md px-3 py-2">
               <div>
@@ -3452,7 +3452,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
             </div>
             <Button
               className="w-full"
-              disabled={editMutation.isPending || !editTitle.trim() || !editDescription.trim()}
+              disabled={editMutation.isPending || !editTitle.trim() || !stripHtml(editDescription).trim()}
               onClick={() => {
                 if (editingUpdate) {
                   editMutation.mutate({ id: editingUpdate.id, data: { title: editTitle, description: editDescription, matureContent: editMatureContent } });

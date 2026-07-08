@@ -13,12 +13,11 @@ import { QueryErrorState } from "@/components/query-error-state";
 import { formatDistanceToNow } from "date-fns";
 import type { ServiceUpdate, Service } from "@shared/schema";
 import { groupServiceUpdates, type ServiceUpdateGroup } from "@shared/group-service-updates";
+import { isHtmlContent, stripHtmlPreserveBreaks } from "@shared/html-text";
+import DOMPurify from "dompurify";
+import { highlightHtml, escapeRegExp } from "@/lib/highlight-html";
 
 type Group = ServiceUpdateGroup<ServiceUpdate>;
-
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function HighlightedText({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
@@ -39,6 +38,34 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
         )
       )}
     </>
+  );
+}
+
+// Same allowlist as RichTextContent (no images for service updates).
+const RICH_ALLOWED_TAGS = ["p", "br", "strong", "em", "u", "s", "span", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "a", "code", "pre"];
+const RICH_ALLOWED_ATTR = ["style", "href", "target", "rel"];
+
+// HTML-aware description renderer: rich content is sanitized then highlighted
+// inside text nodes only; legacy plain-text falls back to HighlightedText.
+function HighlightedDescription({ content, query, className = "", testId }: { content: string; query: string; className?: string; testId?: string }) {
+  const html = useMemo(() => {
+    if (!isHtmlContent(content)) return null;
+    const sanitized = DOMPurify.sanitize(content, { ALLOWED_TAGS: RICH_ALLOWED_TAGS, ALLOWED_ATTR: RICH_ALLOWED_ATTR });
+    return highlightHtml(sanitized, query);
+  }, [content, query]);
+  if (html !== null) {
+    return (
+      <div
+        className={`prose prose-sm dark:prose-invert max-w-none break-words ${className}`}
+        data-testid={testId}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+  return (
+    <p className={`whitespace-pre-wrap break-words ${className}`} data-testid={testId}>
+      <HighlightedText text={content} query={query} />
+    </p>
   );
 }
 
@@ -201,7 +228,7 @@ export default function ServiceUpdatesPage() {
       }
       if (trimmedQuery) {
         const title = (u.title || "").toLowerCase();
-        const desc = (u.description || "").toLowerCase();
+        const desc = stripHtmlPreserveBreaks(u.description || "").toLowerCase();
         if (!title.includes(trimmedQuery) && !desc.includes(trimmedQuery)) return false;
       }
       return true;
@@ -503,9 +530,7 @@ export default function ServiceUpdatesPage() {
 
                       {showSingleDescription && (
                         <div className="mt-2 mb-1" onClick={(e) => e.stopPropagation()}>
-                          <p className="text-sm whitespace-pre-wrap text-foreground/90" data-testid={`text-update-desc-${group.head.id}`}>
-                            <HighlightedText text={group.head.description} query={trimmedQueryRaw} />
-                          </p>
+                          <HighlightedDescription content={group.head.description} query={trimmedQueryRaw} className="text-sm text-foreground/90" testId={`text-update-desc-${group.head.id}`} />
                         </div>
                       )}
 
@@ -558,9 +583,7 @@ export default function ServiceUpdatesPage() {
                                     Mature content — click to view
                                   </button>
                                 ) : (
-                                  <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-1" data-testid={`text-update-desc-${item.id}`}>
-                                    <HighlightedText text={item.description} query={trimmedQueryRaw} />
-                                  </p>
+                                  <HighlightedDescription content={item.description} query={trimmedQueryRaw} className="text-sm text-foreground/80 mt-1" testId={`text-update-desc-${item.id}`} />
                                 )}
                               </li>
                             );
