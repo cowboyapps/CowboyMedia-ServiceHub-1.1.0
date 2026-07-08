@@ -36,6 +36,7 @@ import {
   type ThreadMessage, type InsertThreadMessage,
   type UserNotification, type InsertUserNotification,
   type CommunityMessage, type InsertCommunityMessage,
+  type CommunityMessageEdit, type InsertCommunityMessageEdit,
   type CommunityReaction,
   type NewsReaction,
   type Poll, type PollOption,
@@ -77,7 +78,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, alertDrafts, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
+  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, alertDrafts, messageThreads, threadMessages, userNotifications, communityMessages, communityMessageEdits, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import {
@@ -386,6 +387,8 @@ export interface IStorage {
   getCommunityMessagesByIds(ids: string[]): Promise<CommunityMessage[]>;
   createCommunityMessage(data: InsertCommunityMessage): Promise<CommunityMessage>;
   updateCommunityMessageContent(id: string, content: string, editedAt: Date): Promise<CommunityMessage | undefined>;
+  recordCommunityMessageEdit(edit: InsertCommunityMessageEdit): Promise<CommunityMessageEdit>;
+  getCommunityMessageEditHistory(messageId: string): Promise<CommunityMessageEdit[]>;
   deleteCommunityMessage(id: string): Promise<void>;
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
   toggleCommunityReaction(messageId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
@@ -2196,8 +2199,20 @@ export class DatabaseStorage implements IStorage {
     return msg;
   }
 
+  async recordCommunityMessageEdit(edit: InsertCommunityMessageEdit): Promise<CommunityMessageEdit> {
+    const [row] = await db.insert(communityMessageEdits).values(edit).returning();
+    return row;
+  }
+
+  async getCommunityMessageEditHistory(messageId: string): Promise<CommunityMessageEdit[]> {
+    return db.select().from(communityMessageEdits)
+      .where(eq(communityMessageEdits.messageId, messageId))
+      .orderBy(desc(communityMessageEdits.createdAt));
+  }
+
   async deleteCommunityMessage(id: string): Promise<void> {
     await db.delete(communityReactions).where(eq(communityReactions.messageId, id));
+    await db.delete(communityMessageEdits).where(eq(communityMessageEdits.messageId, id));
     await db.delete(communityMessages).where(eq(communityMessages.id, id));
   }
 

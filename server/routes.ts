@@ -5931,6 +5931,21 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const editedAt = new Date();
       const updated = await storage.updateCommunityMessageContent(getParam(req, "id"), trimmedContent, editedAt);
       if (!updated) return res.status(404).json({ error: "Message not found" });
+      // Preserve the wording that was just replaced so admins can review the
+      // full edit history. Only record when the text actually changed;
+      // best-effort — a history hiccup must not fail the edit itself.
+      if (existing && existing.content !== trimmedContent) {
+        try {
+          await storage.recordCommunityMessageEdit({
+            messageId: updated.id,
+            previousContent: existing.content,
+            editedBy: user.id,
+            editedByUsername: user.chatUsername || user.username,
+          });
+        } catch (histErr) {
+          console.error("Community chat edit-history record error:", histErr);
+        }
+      }
       broadcast({
         type: "community_message_edited",
         messageId: updated.id,
@@ -5938,6 +5953,26 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         editedAt: updated.editedAt,
       });
       res.json(updated);
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+
+  // Full prior-version history of an edited message. Admin-only (first cut):
+  // moderation tooling, not exposed to regular members.
+  app.get("/api/community-chat/messages/:id/history", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      const isAdminUser = user.role === "admin" || user.role === "master_admin";
+      if (!isAdminUser) return res.status(403).json({ error: "Only admins can view edit history" });
+      const message = await storage.getCommunityMessage(getParam(req, "id"));
+      if (!message) return res.status(404).json({ error: "Message not found" });
+      const edits = await storage.getCommunityMessageEditHistory(message.id);
+      res.json({
+        current: { content: message.content, editedAt: message.editedAt },
+        edits,
+      });
     } catch (e) {
       res.status(500).json({ error: getErrorMessage(e) });
     }

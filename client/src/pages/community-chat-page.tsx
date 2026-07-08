@@ -662,6 +662,69 @@ function MentionAutocomplete({
   );
 }
 
+// Admin-only dialog listing every prior version of an edited message, newest
+// first, with who made each edit and when. Fetches lazily on open.
+type MessageEditHistory = {
+  current: { content: string; editedAt: string | null };
+  edits: Array<{ id: string; previousContent: string; editedByUsername: string; createdAt: string }>;
+};
+
+function EditHistoryDialog({ messageId, onOpenChange }: { messageId: string | null; onOpenChange: (open: boolean) => void }) {
+  const { data, isLoading, isError } = useQuery<MessageEditHistory>({
+    queryKey: ["/api/community-chat/messages", messageId, "history"],
+    enabled: !!messageId,
+    // History can grow while the app stays open (global staleTime is
+    // Infinity); refetch on every dialog open so it's never stale.
+    staleTime: 0,
+  });
+  return (
+    <Dialog open={!!messageId} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md" data-testid="dialog-edit-history">
+        <DialogHeader>
+          <DialogTitle>Edit history</DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        ) : isError ? (
+          <p className="text-sm text-destructive" data-testid="text-history-error">Could not load edit history.</p>
+        ) : data ? (
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3" data-testid="history-current-version">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-primary">Current</span>
+                {data.current.editedAt && (
+                  <span className="text-[10px] text-muted-foreground">{format(new Date(data.current.editedAt), "MMM d, h:mm a")}</span>
+                )}
+              </div>
+              <p className="text-sm whitespace-pre-wrap break-words">{data.current.content}</p>
+            </div>
+            {data.edits.length === 0 ? (
+              <p className="text-xs text-muted-foreground" data-testid="text-history-empty">
+                No earlier versions recorded. (History is only kept for edits made after this feature shipped.)
+              </p>
+            ) : (
+              data.edits.map((edit) => (
+                <div key={edit.id} className="rounded-md border border-border p-3" data-testid={`history-version-${edit.id}`}>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      Replaced by <span className="font-medium">{edit.editedByUsername}</span>
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{format(new Date(edit.createdAt), "MMM d, h:mm a")}</span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap break-words text-muted-foreground">{edit.previousContent}</p>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface CommunityRowProps {
   msg: EnrichedMessage;
   isMe: boolean;
@@ -691,6 +754,7 @@ interface CommunityRowProps {
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: (id: string, content: string) => Promise<boolean>;
+  onShowHistory: (id: string) => void;
 }
 
 const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRowProps) {
@@ -701,6 +765,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
     showUnreadDivider, isEditing,
     onProfileClick, onAdminMenu, onToggleEmojiPicker, onCloseEmojiPicker,
     onReact, onPollDeleted, onJumpToMessage, onStartEdit, onCancelEdit, onSaveEdit,
+    onShowHistory,
   } = props;
   const animClass = isNewSinceMount ? " chat-msg-enter" : "";
   const [editText, setEditText] = useState(msg.content);
@@ -888,7 +953,20 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
             <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
               <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                 {format(msgDate, "h:mm a")}
-                {msg.editedAt && <span className="ml-1 italic" data-testid={`label-edited-${msg.id}`}>(edited)</span>}
+                {msg.editedAt && (
+                  isAdminUser ? (
+                    <button
+                      onClick={() => onShowHistory(msg.id)}
+                      className="ml-1 italic underline decoration-dotted underline-offset-2 cursor-pointer"
+                      data-testid={`label-edited-${msg.id}`}
+                      title="View edit history"
+                    >
+                      (edited)
+                    </button>
+                  ) : (
+                    <span className="ml-1 italic" data-testid={`label-edited-${msg.id}`}>(edited)</span>
+                  )
+                )}
               </p>
               {canEdit && !isEditing && (
                 <button
@@ -933,6 +1011,8 @@ export default function CommunityChatPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  // Message whose edit history is open in the admin-only history dialog.
+  const [historyMessageId, setHistoryMessageId] = useState<string | null>(null);
   // Reply target: quote chip in the composer + replyToId on send.
   const [replyTarget, setReplyTarget] = useState<{ id: string; username: string; content: string; hasImage: boolean } | null>(null);
   const replyTargetRef = useRef<typeof replyTarget>(null);
@@ -1565,6 +1645,7 @@ export default function CommunityChatPage() {
                   onStartEdit={handleStartEdit}
                   onCancelEdit={handleCancelEdit}
                   onSaveEdit={handleSaveEdit}
+                  onShowHistory={setHistoryMessageId}
                 />
               );
             })}
@@ -1842,6 +1923,10 @@ export default function CommunityChatPage() {
         onBan={handleBanUser}
         onReply={handleReply}
         onProfile={handleProfileClick}
+      />
+      <EditHistoryDialog
+        messageId={historyMessageId}
+        onOpenChange={(o) => { if (!o) setHistoryMessageId(null); }}
       />
     </div>
   );

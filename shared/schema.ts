@@ -708,6 +708,20 @@ export const communityMessages = pgTable("community_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// One row per edit of a community chat message, storing the wording that was
+// replaced. Soft reference to community_messages (rows are pruned when the
+// message is deleted). Ordered by createdAt = full prior-version history.
+export const communityMessageEdits = pgTable("community_message_edits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  messageId: varchar("message_id").notNull(),
+  previousContent: text("previous_content").notNull(),
+  editedBy: varchar("edited_by").notNull(),
+  editedByUsername: text("edited_by_username").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  messageIdx: index("community_message_edits_message_id_idx").on(table.messageId),
+}));
+
 export const polls = pgTable("polls", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   parentType: text("parent_type").notNull(),
@@ -769,6 +783,10 @@ export const communityReactions = pgTable("community_reactions", {
 export const insertCommunityMessageSchema = createInsertSchema(communityMessages).omit({ id: true, createdAt: true });
 export type InsertCommunityMessage = z.infer<typeof insertCommunityMessageSchema>;
 export type CommunityMessage = typeof communityMessages.$inferSelect;
+
+export const insertCommunityMessageEditSchema = createInsertSchema(communityMessageEdits).omit({ id: true, createdAt: true });
+export type InsertCommunityMessageEdit = z.infer<typeof insertCommunityMessageEditSchema>;
+export type CommunityMessageEdit = typeof communityMessageEdits.$inferSelect;
 
 export const insertCommunityReactionSchema = createInsertSchema(communityReactions).omit({ id: true, createdAt: true });
 export type InsertCommunityReaction = z.infer<typeof insertCommunityReactionSchema>;
