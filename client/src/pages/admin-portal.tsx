@@ -38,7 +38,7 @@ import { BillingSummaryView, type BillingSummary } from "@/components/billing-su
 import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
 import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical, Star, Package } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
-import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
+import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, AlertDraft, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { RichTextContent } from "@/components/rich-text-content";
@@ -1451,7 +1451,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
   );
 }
 
-function AlertsTab({ canManage = true }: { canManage?: boolean }) {
+export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -1478,9 +1478,15 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [editUpdateRemoveImage, setEditUpdateRemoveImage] = useState(false);
   const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
   const [expandedAlertCardId, setExpandedAlertCardId] = useState<string | null>(null);
+  // Draft currently being acted on (Review & publish / Post update / Resolve):
+  // when the underlying alert action succeeds, the draft is marked published.
+  const [activeDraft, setActiveDraft] = useState<AlertDraft | null>(null);
 
   const { data: alerts, isLoading } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
+  });
+  const { data: pendingDrafts } = useQuery<AlertDraft[]>({
+    queryKey: ["/api/admin/alert-drafts?status=pending"],
   });
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -1506,10 +1512,15 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       if (alertImageFile) formData.append("image", alertImageFile);
       const res = await uploadRequest("POST", "/api/admin/alerts", formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to create alert");
+      return (await res.json()) as ServiceAlert;
     },
-    onSuccess: (_data, vars) => {
+    onSuccess: (created, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
+      if (activeDraft && created?.id) {
+        markDraftMutation.mutate({ id: activeDraft.id, status: "published", relatedAlertId: created.id });
+        setActiveDraft(null);
+      }
       setDialogOpen(false);
       form.reset();
       setAlertImageFile(null);
@@ -1530,6 +1541,10 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
       if (selectedAlertId) queryClient.invalidateQueries({ queryKey: ["/api/alerts", selectedAlertId, "updates"] });
+      if (activeDraft) {
+        markDraftMutation.mutate({ id: activeDraft.id, status: "published" });
+        setActiveDraft(null);
+      }
       setUpdateDialogOpen(false);
       updateForm.reset();
       setUpdateImageFile(null);
@@ -1573,6 +1588,10 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
+      if (activeDraft) {
+        markDraftMutation.mutate({ id: activeDraft.id, status: "published" });
+        setActiveDraft(null);
+      }
       setResolveDialogOpen(false);
       setResolveAlertId(null);
       setResolveMessage("");
@@ -1613,6 +1632,58 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  // Draft lifecycle mutations: publishing an alert/update/resolve marks the
+  // acting draft "published"; Dismiss marks it "dismissed". Never auto-posts.
+  const markDraftMutation = useMutation({
+    mutationFn: async ({ id, status, relatedAlertId }: { id: string; status: "published" | "dismissed"; relatedAlertId?: string }) => {
+      await apiRequest("PATCH", `/api/admin/alert-drafts/${id}`, relatedAlertId ? { status, relatedAlertId } : { status });
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/alert-drafts?status=pending"] });
+      if (vars.status === "dismissed") toast({ title: "Suggestion dismissed" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const openDraftReview = (draft: AlertDraft) => {
+    setActiveDraft(draft);
+    form.reset({
+      title: draft.suggestedTitle,
+      description: draft.suggestedDescription,
+      severity: draft.suggestedSeverity,
+      status: "investigating",
+      serviceImpact: draft.suggestedServiceImpact,
+      serviceIds: draft.serviceId ? [draft.serviceId] : [],
+      sendPush: true,
+      sendEmail: true,
+      silent: false,
+    });
+    setDialogOpen(true);
+  };
+
+  const openDraftUpdate = (draft: AlertDraft) => {
+    if (!draft.relatedAlertId) return;
+    setActiveDraft(draft);
+    setSelectedAlertId(draft.relatedAlertId);
+    updateForm.reset({
+      message: draft.suggestedDescription,
+      status: "monitoring",
+      serviceImpact: "no_change",
+      sendPush: true,
+      sendEmail: true,
+      silent: false,
+    });
+    setUpdateDialogOpen(true);
+  };
+
+  const openDraftResolve = (draft: AlertDraft) => {
+    if (!draft.relatedAlertId) return;
+    setActiveDraft(draft);
+    setResolveAlertId(draft.relatedAlertId);
+    setResolveMessage(draft.suggestedDescription);
+    setResolveDialogOpen(true);
+  };
+
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
 
   const openEditAlert = (alert: ServiceAlertWithServices) => {
@@ -1628,9 +1699,42 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   return (
     <div className="space-y-4">
+      {canManage && (pendingDrafts?.length || 0) > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3" data-testid="section-suggested-drafts">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <h4 className="font-semibold text-sm">Suggested drafts</h4>
+            <Badge variant="secondary" data-testid="badge-draft-count">{pendingDrafts!.length}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">Monitoring detected changes. Review and publish — nothing is posted automatically.</p>
+          {pendingDrafts!.map((draft) => (
+            <div key={draft.id} className="rounded-md border bg-background p-3 space-y-2" data-testid={`card-alert-draft-${draft.id}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant={draft.kind === "outage" ? "destructive" : "secondary"} data-testid={`badge-draft-kind-${draft.id}`}>
+                  {draft.kind === "outage" ? "Outage detected" : "Recovery detected"}
+                </Badge>
+                {draft.serviceId && <span className="text-xs text-muted-foreground">{serviceMap.get(draft.serviceId) || "Unknown service"}</span>}
+              </div>
+              <p className="text-sm font-medium" data-testid={`text-draft-title-${draft.id}`}>{draft.suggestedTitle}</p>
+              <p className="text-xs text-muted-foreground line-clamp-2">{draft.suggestedDescription}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {draft.kind === "outage" ? (
+                  <Button size="sm" onClick={() => openDraftReview(draft)} data-testid={`button-review-draft-${draft.id}`}>Review & publish</Button>
+                ) : (
+                  <>
+                    <Button size="sm" onClick={() => openDraftUpdate(draft)} disabled={!draft.relatedAlertId} data-testid={`button-draft-update-${draft.id}`}>Post update</Button>
+                    <Button size="sm" variant="outline" onClick={() => openDraftResolve(draft)} disabled={!draft.relatedAlertId} data-testid={`button-draft-resolve-${draft.id}`}>Resolve alert</Button>
+                  </>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => markDraftMutation.mutate({ id: draft.id, status: "dismissed" })} disabled={markDraftMutation.isPending} data-testid={`button-dismiss-draft-${draft.id}`}>Dismiss</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="font-semibold">Alerts ({alerts?.length || 0})</h3>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setAlertImageFile(null); }}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setAlertImageFile(null); setActiveDraft(null); } }}>
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-alert"><Plus className="w-4 h-4 mr-1" /> Create Alert</Button>
           </DialogTrigger>}
@@ -1738,7 +1842,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </Dialog>
       </div>
 
-      <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) setUpdateImageFile(null); }}>
+      <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) { setUpdateImageFile(null); setActiveDraft(null); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Post Update</DialogTitle></DialogHeader>
           <Form {...updateForm}>
@@ -1871,7 +1975,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); setResolveSilent(false); } }}>
+      <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); setResolveSilent(false); setActiveDraft(null); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader><DialogTitle>Resolve Alert</DialogTitle></DialogHeader>
           <div className="space-y-3">

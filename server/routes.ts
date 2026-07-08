@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { registerAlertRoutes } from "./alert-routes";
+import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft } from "./alert-drafts";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { resolveKbAttachmentForSender } from "./message-attachments";
@@ -3138,6 +3139,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       notifyServiceSubscribers,
     },
   );
+
+  // Monitor-driven alert-draft suggestion routes (list + dismiss/publish).
+  // Publishing itself flows through the alert routes above; these only manage
+  // draft lifecycle and never fan out to customers.
+  registerAlertDraftRoutes(app, { requirePermission }, { storage });
 
   app.get("/api/service-updates", requireAuth, async (req, res) => {
     try {
@@ -8010,6 +8016,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         });
         await notifyAdminsMonitorDown(monitor, failureReason);
         await storage.updateMonitorIncident(incident.id, { notifiedDown: true });
+        // Suggest a DRAFT service alert for admins to review — never auto-posts.
+        try {
+          await onMonitorDownCreateDraft(monitor, incident, now, { storage, notifyAdminsDraftReady });
+        } catch (err) {
+          console.error(`Alert draft (outage) error for ${monitor.name}:`, err);
+        }
       }
     }
 
@@ -8030,7 +8042,44 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           notifiedUp: true,
         });
       }
+      if (prevStatus === "down") {
+        // Supersede stale outage drafts / suggest a DRAFT recovery update.
+        const downtimeSeconds = openIncidents.length > 0
+          ? Math.round((now.getTime() - new Date(openIncidents[0].startedAt).getTime()) / 1000)
+          : 0;
+        try {
+          await onMonitorUpCreateRecoveryDraft(monitor, downtimeSeconds, now, { storage, notifyAdminsDraftReady });
+        } catch (err) {
+          console.error(`Alert draft (recovery) error for ${monitor.name}:`, err);
+        }
+      }
     }
+  }
+
+  // Draft-ready ping: reuses the admin_monitor_down push category (admins who
+  // opted into monitor-down pushes get the draft prompt too) and deep-links to
+  // the Alerts tab where the suggestion card lives. Admin-only; no customer
+  // channel is ever touched here.
+  async function notifyAdminsDraftReady(draft: { id: string; kind: string }, monitor: { id: string; name: string }) {
+    const allUsers = await storage.getAllUsers();
+    const admins = allUsers.filter(u => u.role === "admin" || u.role === "master_admin");
+    const isOutage = draft.kind === "outage";
+    for (const admin of admins) {
+      if (!adminWantsPush(admin, "admin_monitor_down")) continue;
+      void sendPushToUser(admin.id, {
+        title: isOutage ? `Draft outage alert ready: ${monitor.name}` : `Draft recovery update ready: ${monitor.name}`,
+        body: isOutage
+          ? "Monitoring detected an outage. Review and publish the suggested alert."
+          : "The service recovered. Review the suggested update/resolve for the related alert.",
+        url: "/admin?tab=alerts",
+        tag: `alert-draft-${draft.id}`,
+      }, { type: "monitor_down", referenceType: "url_monitor", referenceId: monitor.id });
+    }
+    logActivity("monitoring", isOutage ? "alert_draft_suggested" : "recovery_draft_suggested", {
+      targetId: draft.id,
+      targetType: "alert_draft",
+      summary: `${isOutage ? "Outage" : "Recovery"} alert draft suggested for monitor ${monitor.name}`,
+    });
   }
 
   async function runMonitoringLoop() {

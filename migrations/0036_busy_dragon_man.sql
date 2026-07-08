@@ -1,0 +1,4 @@
+ALTER TABLE "alert_drafts" ADD CONSTRAINT "alert_drafts_monitor_id_url_monitors_id_fk" FOREIGN KEY ("monitor_id") REFERENCES "public"."url_monitors"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "alert_drafts" ADD CONSTRAINT "alert_drafts_monitor_incident_id_monitor_incidents_id_fk" FOREIGN KEY ("monitor_incident_id") REFERENCES "public"."monitor_incidents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "alert_drafts" ADD CONSTRAINT "alert_drafts_service_id_services_id_fk" FOREIGN KEY ("service_id") REFERENCES "public"."services"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "alert_drafts" ADD CONSTRAINT "alert_drafts_related_alert_id_service_alerts_id_fk" FOREIGN KEY ("related_alert_id") REFERENCES "public"."service_alerts"("id") ON DELETE set null ON UPDATE no action;

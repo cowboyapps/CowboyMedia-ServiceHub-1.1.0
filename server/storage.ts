@@ -31,6 +31,7 @@ import {
   type TotpBackupCode,
   type UrlMonitor, type InsertUrlMonitor,
   type MonitorIncident, type InsertMonitorIncident,
+  type AlertDraft, type InsertAlertDraft,
   type MessageThread, type InsertMessageThread,
   type ThreadMessage, type InsertThreadMessage,
   type UserNotification, type InsertUserNotification,
@@ -76,7 +77,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
+  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, alertDrafts, messageThreads, threadMessages, userNotifications, communityMessages, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import {
@@ -335,6 +336,15 @@ export interface IStorage {
   createMonitorIncident(data: InsertMonitorIncident): Promise<MonitorIncident>;
   updateMonitorIncident(id: string, data: Partial<MonitorIncident>): Promise<MonitorIncident | undefined>;
   getMonitorsByService(serviceId: string): Promise<UrlMonitor[]>;
+
+  getAlertDrafts(status?: string): Promise<AlertDraft[]>;
+  getAlertDraft(id: string): Promise<AlertDraft | undefined>;
+  getAlertDraftsForMonitor(monitorId: string): Promise<AlertDraft[]>;
+  createAlertDraft(data: InsertAlertDraft): Promise<AlertDraft>;
+  updateAlertDraft(id: string, data: Partial<AlertDraft>): Promise<AlertDraft | undefined>;
+  serviceHasActiveAlert(serviceId: string): Promise<boolean>;
+  getActiveAlertIdForService(serviceId: string): Promise<string | null>;
+  isAlertActive(alertId: string): Promise<boolean>;
 
   createServiceSubscriber(data: InsertServiceSubscriber): Promise<ServiceSubscriber>;
   getServiceSubscriberByToken(token: string): Promise<ServiceSubscriber | undefined>;
@@ -1872,6 +1882,56 @@ export class DatabaseStorage implements IStorage {
 
   async getMonitorsByService(serviceId: string): Promise<UrlMonitor[]> {
     return db.select().from(urlMonitors).where(eq(urlMonitors.serviceId, serviceId));
+  }
+
+  async getAlertDrafts(status?: string): Promise<AlertDraft[]> {
+    if (status) {
+      return db.select().from(alertDrafts).where(eq(alertDrafts.status, status)).orderBy(desc(alertDrafts.createdAt));
+    }
+    return db.select().from(alertDrafts).orderBy(desc(alertDrafts.createdAt));
+  }
+
+  async getAlertDraft(id: string): Promise<AlertDraft | undefined> {
+    const [d] = await db.select().from(alertDrafts).where(eq(alertDrafts.id, id));
+    return d;
+  }
+
+  async getAlertDraftsForMonitor(monitorId: string): Promise<AlertDraft[]> {
+    return db.select().from(alertDrafts).where(eq(alertDrafts.monitorId, monitorId)).orderBy(desc(alertDrafts.createdAt));
+  }
+
+  async createAlertDraft(data: InsertAlertDraft): Promise<AlertDraft> {
+    const [d] = await db.insert(alertDrafts).values(data).returning();
+    return d;
+  }
+
+  async updateAlertDraft(id: string, data: Partial<AlertDraft>): Promise<AlertDraft | undefined> {
+    const [d] = await db.update(alertDrafts).set(data).where(eq(alertDrafts.id, id)).returning();
+    return d;
+  }
+
+  async serviceHasActiveAlert(serviceId: string): Promise<boolean> {
+    return (await this.getActiveAlertIdForService(serviceId)) !== null;
+  }
+
+  async getActiveAlertIdForService(serviceId: string): Promise<string | null> {
+    const [row] = await db
+      .select({ alertId: alertServices.alertId })
+      .from(alertServices)
+      .innerJoin(serviceAlerts, eq(alertServices.alertId, serviceAlerts.id))
+      .where(and(eq(alertServices.serviceId, serviceId), ne(serviceAlerts.status, "resolved")))
+      .orderBy(desc(serviceAlerts.createdAt))
+      .limit(1);
+    return row?.alertId ?? null;
+  }
+
+  async isAlertActive(alertId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: serviceAlerts.id })
+      .from(serviceAlerts)
+      .where(and(eq(serviceAlerts.id, alertId), ne(serviceAlerts.status, "resolved")))
+      .limit(1);
+    return !!row;
   }
 
   async createServiceSubscriber(data: InsertServiceSubscriber): Promise<ServiceSubscriber> {

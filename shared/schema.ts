@@ -591,6 +591,33 @@ export const insertMonitorIncidentSchema = createInsertSchema(monitorIncidents).
 export type InsertMonitorIncident = z.infer<typeof insertMonitorIncidentSchema>;
 export type MonitorIncident = typeof monitorIncidents.$inferSelect;
 
+// Suggested (never auto-posted) service-alert drafts created when a URL monitor
+// detects an outage or recovery. A human admin always reviews + publishes via
+// the existing alert routes; the draft rows only track suggestion lifecycle.
+export const alertDrafts = pgTable("alert_drafts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  monitorId: varchar("monitor_id").notNull().references(() => urlMonitors.id, { onDelete: "cascade" }),
+  monitorIncidentId: varchar("monitor_incident_id").references(() => monitorIncidents.id, { onDelete: "set null" }),
+  serviceId: varchar("service_id").references(() => services.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(), // "outage" | "recovery"
+  suggestedTitle: text("suggested_title").notNull(),
+  suggestedDescription: text("suggested_description").notNull(),
+  suggestedSeverity: text("suggested_severity").notNull().default("critical"),
+  suggestedServiceImpact: text("suggested_service_impact").notNull().default("outage"),
+  relatedAlertId: varchar("related_alert_id").references(() => serviceAlerts.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("pending"), // pending | published | dismissed | superseded
+  actedByUserId: varchar("acted_by_user_id"),
+  actedAt: timestamp("acted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  monitorIdx: index("alert_drafts_monitor_id_idx").on(table.monitorId),
+  statusIdx: index("alert_drafts_status_idx").on(table.status),
+}));
+
+export const insertAlertDraftSchema = createInsertSchema(alertDrafts).omit({ id: true, createdAt: true, actedByUserId: true, actedAt: true });
+export type InsertAlertDraft = z.infer<typeof insertAlertDraftSchema>;
+export type AlertDraft = typeof alertDrafts.$inferSelect;
+
 // Public status-page email subscribers (no login required).
 export const serviceSubscribers = pgTable("service_subscribers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
