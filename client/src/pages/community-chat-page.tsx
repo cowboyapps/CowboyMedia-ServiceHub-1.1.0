@@ -42,7 +42,7 @@ type ReactionGroup = { emoji: string; userIds: string[] };
 // Snippet of the message being replied to. `null` = original was deleted
 // (degrade gracefully); absent/undefined = not a reply at all.
 type ReplySnippet = { id: string; chatUsername: string; content: string; hasImage: boolean } | null;
-type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet };
+type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet; hasEditHistory?: boolean };
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
@@ -954,7 +954,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
               <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                 {format(msgDate, "h:mm a")}
                 {msg.editedAt && (
-                  isAdminUser ? (
+                  isAdminUser && msg.hasEditHistory ? (
                     <button
                       onClick={() => onShowHistory(msg.id)}
                       className="ml-1 italic underline decoration-dotted underline-offset-2 cursor-pointer"
@@ -1150,7 +1150,7 @@ export default function CommunityChatPage() {
               ["/api/community-chat/messages"],
               cached.map((m) =>
                 m.id === data.messageId
-                  ? { ...m, content: data.content ?? m.content, editedAt: data.editedAt ?? m.editedAt }
+                  ? { ...m, content: data.content ?? m.content, editedAt: data.editedAt ?? m.editedAt, hasEditHistory: data.hasEditHistory === true ? true : m.hasEditHistory }
                   : m,
               ),
             );

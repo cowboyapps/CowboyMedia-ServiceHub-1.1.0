@@ -149,6 +149,25 @@ const OTHER_MSG = {
   isAdmin: false,
 };
 
+// Two edited messages: one edited before the history feature shipped (no
+// recorded rows → hasEditHistory false) and one with real history rows. The
+// "(edited)" label must only be a tappable button for admins when history
+// actually exists.
+const EDITED_NO_HISTORY_MSG = {
+  ...OTHER_MSG,
+  id: "msg-2",
+  content: "Edited long ago",
+  editedAt: ISO,
+  hasEditHistory: false,
+};
+const EDITED_WITH_HISTORY_MSG = {
+  ...OTHER_MSG,
+  id: "msg-3",
+  content: "Edited recently",
+  editedAt: ISO,
+  hasEditHistory: true,
+};
+
 const PARTICIPANTS = [{ username: "OtherCustomer", isAdmin: false }];
 
 // Set per-test before mounting so /api/auth/me returns the right identity.
@@ -170,7 +189,7 @@ g.fetch = async (input: unknown): Promise<Response> => {
     return currentUser ? jsonResponse(currentUser) : jsonResponse(null, 401);
   }
   if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
-  if (pathname === "/api/community-chat/messages") return jsonResponse([OTHER_MSG]);
+  if (pathname === "/api/community-chat/messages") return jsonResponse([OTHER_MSG, EDITED_NO_HISTORY_MSG, EDITED_WITH_HISTORY_MSG]);
   if (pathname === "/api/community-chat/participants") return jsonResponse(PARTICIPANTS);
   if (/^\/api\/users\/[^/]+\/profile$/.test(pathname)) {
     return jsonResponse({
@@ -310,6 +329,34 @@ test("admin in community chat sees the KB-link and poll composer tools", async (
     assert.ok(has("button-attach-community-image"), "admin has the photo attach button");
     assert.ok(has("button-attach-kb-article"), "admin sees the KB-link button");
     assert.ok(has("button-open-poll-composer"), "admin sees the poll composer button");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// --- "(edited)" label gating ----------------------------------------------
+
+function editedLabelTag(id: string): string | null {
+  const el = window.document.body.querySelector(`[data-testid="label-edited-${id}"]`);
+  return el ? el.tagName : null;
+}
+
+test("admin sees a tappable (edited) label only when edit history exists", async () => {
+  const h = await mountChat(ADMIN_USER);
+  try {
+    assert.equal(editedLabelTag(EDITED_WITH_HISTORY_MSG.id), "BUTTON", "history exists → tappable button");
+    assert.equal(editedLabelTag(EDITED_NO_HISTORY_MSG.id), "SPAN", "no history rows → plain label");
+    assert.equal(editedLabelTag(OTHER_MSG.id), null, "unedited message shows no label");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("customer never sees a tappable (edited) label", async () => {
+  const h = await mountChat(CUSTOMER_USER);
+  try {
+    assert.equal(editedLabelTag(EDITED_WITH_HISTORY_MSG.id), "SPAN", "history exists but customer gets plain label");
+    assert.equal(editedLabelTag(EDITED_NO_HISTORY_MSG.id), "SPAN", "no history → plain label");
   } finally {
     h.cleanup();
   }

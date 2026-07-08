@@ -5685,6 +5685,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // degrade to null (client shows "Message deleted").
       const replyIds = [...new Set(messages.map(m => m.replyToId).filter((id): id is string => !!id))];
       const replyOriginals = await storage.getCommunityMessagesByIds(replyIds);
+      // Edit-history presence flag: messages edited before the history feature
+      // shipped show "(edited)" but have no recorded rows — the client uses
+      // this flag to only make the label tappable when history actually exists.
+      const editedIds = messages.filter(m => m.editedAt).map(m => m.id);
+      const idsWithEdits = new Set(await storage.getCommunityMessageIdsWithEdits(editedIds));
       const replyById = new Map(replyOriginals.map(o => [o.id, o]));
       const replySnippet = (id: string | null) => {
         if (!id) return undefined;
@@ -5704,6 +5709,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         avatarUrl: usersMap.get(m.userId)?.avatarUrl || null,
         kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
         replyTo: replySnippet(m.replyToId),
+        hasEditHistory: idsWithEdits.has(m.id),
       }));
       enriched.reverse();
       res.json(enriched);
@@ -5934,6 +5940,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // Preserve the wording that was just replaced so admins can review the
       // full edit history. Only record when the text actually changed;
       // best-effort — a history hiccup must not fail the edit itself.
+      let historyRecorded = false;
       if (existing && existing.content !== trimmedContent) {
         try {
           await storage.recordCommunityMessageEdit({
@@ -5942,6 +5949,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             editedBy: user.id,
             editedByUsername: user.chatUsername || user.username,
           });
+          historyRecorded = true;
         } catch (histErr) {
           console.error("Community chat edit-history record error:", histErr);
         }
@@ -5951,6 +5959,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         messageId: updated.id,
         content: updated.content,
         editedAt: updated.editedAt,
+        // Only flips clients to "history exists" when a row was actually
+        // written; omitted/false leaves their existing flag untouched.
+        hasEditHistory: historyRecorded || undefined,
       });
       res.json(updated);
     } catch (e) {

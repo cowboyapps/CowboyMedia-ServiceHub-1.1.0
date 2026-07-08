@@ -389,6 +389,7 @@ export interface IStorage {
   updateCommunityMessageContent(id: string, content: string, editedAt: Date): Promise<CommunityMessage | undefined>;
   recordCommunityMessageEdit(edit: InsertCommunityMessageEdit): Promise<CommunityMessageEdit>;
   getCommunityMessageEditHistory(messageId: string): Promise<CommunityMessageEdit[]>;
+  getCommunityMessageIdsWithEdits(messageIds: string[]): Promise<string[]>;
   deleteCommunityMessage(id: string): Promise<void>;
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
   toggleCommunityReaction(messageId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
@@ -2208,6 +2209,14 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(communityMessageEdits)
       .where(eq(communityMessageEdits.messageId, messageId))
       .orderBy(desc(communityMessageEdits.createdAt));
+  }
+
+  async getCommunityMessageIdsWithEdits(messageIds: string[]): Promise<string[]> {
+    if (messageIds.length === 0) return [];
+    const rows = await db.selectDistinct({ messageId: communityMessageEdits.messageId })
+      .from(communityMessageEdits)
+      .where(inArray(communityMessageEdits.messageId, messageIds));
+    return rows.map(r => r.messageId);
   }
 
   async deleteCommunityMessage(id: string): Promise<void> {
