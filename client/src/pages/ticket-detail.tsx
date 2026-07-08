@@ -28,6 +28,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Zap, ArrowRightLeft, FileText, Film, Download, RefreshCw, Clock, MoreVertical, ChevronDown, AlertCircle, RotateCcw, AlertTriangle, Lock, Pencil, Trash2, Check } from "lucide-react";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest, uploadRequest, TimeoutError } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
@@ -485,25 +486,7 @@ export default function TicketDetail() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
 
-  const [keyboardInset, setKeyboardInset] = useState(0);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const onResize = () => {
-      const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      const inset = offset > 80 ? offset : 0;
-      setKeyboardInset(inset);
-    };
-    vv.addEventListener("resize", onResize);
-    vv.addEventListener("scroll", onResize);
-    onResize();
-    return () => {
-      vv.removeEventListener("resize", onResize);
-      vv.removeEventListener("scroll", onResize);
-    };
-  }, []);
+  const keyboardInset = useKeyboardInset();
 
   const { data: ticket, isLoading, isError, error, refetch, isFetching } = useQuery<Ticket>({
     queryKey: ["/api/tickets", params.id],

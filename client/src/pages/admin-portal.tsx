@@ -28,6 +28,7 @@ import AdminDashboard from "./admin-dashboard";
 import { ImageCropDialog, type CropAspectKey } from "@/components/image-crop-dialog";
 import { format, formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { useGlobalSocket } from "@/contexts/global-socket-context";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
@@ -5990,6 +5991,10 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Shrink the chat container while the on-screen keyboard is open so the
+  // composer stays visible above the keyboard on mobile (iOS especially).
+  const keyboardInset = useKeyboardInset();
+
   const sendTypingEvent = () => {
     const now = Date.now();
     if (now - lastTypingSentRef.current < 2000) return;
@@ -6011,7 +6016,18 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
   const showMessages = !isMobile || !!activeThreadId;
 
   return (
-    <div className={`flex ${isMobile ? "h-[calc(100dvh-12rem)]" : "h-[600px]"} rounded-lg border overflow-hidden`} data-testid="admin-chat-container">
+    <div
+      className={`flex ${isMobile ? "" : "h-[600px]"} rounded-lg border overflow-hidden`}
+      style={
+        isMobile
+          ? {
+              height: `calc(100dvh - 12rem - ${keyboardInset}px)`,
+              transition: "height 150ms ease-out",
+            }
+          : undefined
+      }
+      data-testid="admin-chat-container"
+    >
       {showThreadList && (
       <div className={`${isMobile ? "w-full" : "w-1/3"} border-r flex flex-col`}>
         <div className="p-3 border-b flex justify-between items-center">

@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +19,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check, Bold, Italic, Strikethrough, Code } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check, Bold, Italic, Strikethrough, Code, Plus } from "lucide-react";
 import { ChatMessageContent } from "@/components/chat-message-content";
 import { computeNewArrivals } from "@/lib/chat-unread";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
@@ -1579,11 +1581,29 @@ export default function CommunityChatPage() {
 
   const typingNames = useMemo(() => Array.from(typingUsers.values()), [typingUsers]);
 
+  // Keep the composer pinned above the iOS on-screen keyboard: pad the page by
+  // the keyboard height so the content shrinks instead of the page scrolling.
+  const keyboardInset = useKeyboardInset();
+  useEffect(() => {
+    if (keyboardInset > 0 && isNearBottomRef.current) {
+      const t = setTimeout(() => scrollToBottom("auto"), 50);
+      return () => clearTimeout(t);
+    }
+  }, [keyboardInset, scrollToBottom]);
+
   const isAdminUser = user?.role === "admin" || user?.role === "master_admin";
   const isBanned = user?.chatBanned === true;
 
   return (
-    <div className="flex flex-col h-full" data-testid="community-chat-page">
+    <div
+      className="flex flex-col h-full"
+      style={{
+        overscrollBehavior: "none",
+        paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined,
+        transition: "padding-bottom 150ms ease-out",
+      }}
+      data-testid="community-chat-page"
+    >
       <div className="flex items-center gap-2 p-2 sm:p-3 border-b flex-shrink-0">
         <Users className="w-5 h-5 text-primary flex-shrink-0" />
         <div className="flex-1 min-w-0">
@@ -1879,6 +1899,50 @@ export default function CommunityChatPage() {
                 selectedIndex={mentionIndex}
               />
             )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="flex-shrink-0 h-9 w-9"
+                  data-testid="button-composer-attach-menu"
+                  title="Add attachment"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    // Defer past Radix's close/focus-restore so the programmatic
+                    // click on the hidden file input isn't swallowed.
+                    setTimeout(() => imageFileInputRef.current?.click(), 0);
+                  }}
+                  data-testid="button-attach-community-image"
+                >
+                  <ImagePlus className="w-4 h-4 mr-2" />
+                  Attach an image
+                </DropdownMenuItem>
+                {isAdminUser && (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={() => setKbPickerOpen(true)}
+                      data-testid="button-attach-kb-article"
+                    >
+                      <BookOpen className="w-4 h-4 mr-2" />
+                      Link a KB article
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setPollDialogOpen(true)}
+                      data-testid="button-open-poll-composer"
+                    >
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      Post a poll
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Textarea
               ref={messageInputRef}
               value={message}
@@ -1944,40 +2008,6 @@ export default function CommunityChatPage() {
               rows={1}
               data-testid="input-community-message"
             />
-            <Button
-              size="icon"
-              variant="outline"
-              className="flex-shrink-0 h-9 w-9"
-              onClick={() => imageFileInputRef.current?.click()}
-              data-testid="button-attach-community-image"
-              title="Attach an image"
-            >
-              <ImagePlus className="w-4 h-4" />
-            </Button>
-            {isAdminUser && (
-              <>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="flex-shrink-0 h-9 w-9"
-                  onClick={() => setKbPickerOpen(true)}
-                  data-testid="button-attach-kb-article"
-                  title="Link a knowledge base article"
-                >
-                  <BookOpen className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="flex-shrink-0 h-9 w-9"
-                  onClick={() => setPollDialogOpen(true)}
-                  data-testid="button-open-poll-composer"
-                  title="Post a poll"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                </Button>
-              </>
-            )}
             <Button
               size="icon"
               className="flex-shrink-0 h-9 w-9"

@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Mail, ArrowLeft, Send, Shield, User as UserIcon, Clock, ChevronDown, Inbox, Paperclip, X, Download, BookOpen, ChevronRight, MessageSquare, Trash2, Users } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import type { MessageThread, ThreadMessage, PrivateMessage, User } from "@shared/schema";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
@@ -336,8 +337,26 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
 
   const otherName = isAdmin ? thread?.customerName : thread?.adminName;
 
+  // Keep the composer pinned above the iOS on-screen keyboard: pad the view by
+  // the keyboard height so the content shrinks instead of the page scrolling.
+  const keyboardInset = useKeyboardInset();
+  useEffect(() => {
+    if (keyboardInset > 0 && isNearBottomRef.current) {
+      const t = setTimeout(() => scrollToBottom("auto"), 50);
+      return () => clearTimeout(t);
+    }
+  }, [keyboardInset, scrollToBottom]);
+
   return (
-    <div className="flex flex-col h-full" data-testid="thread-chat-view">
+    <div
+      className="flex flex-col h-full"
+      style={{
+        overscrollBehavior: "none",
+        paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined,
+        transition: "padding-bottom 150ms ease-out",
+      }}
+      data-testid="thread-chat-view"
+    >
       <div className="flex items-center gap-2 p-2 sm:p-3 border-b flex-shrink-0">
         <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={onBack} data-testid="button-thread-back">
           <ArrowLeft className="w-4 h-4" />

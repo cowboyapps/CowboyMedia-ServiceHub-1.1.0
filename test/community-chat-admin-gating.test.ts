@@ -318,17 +318,38 @@ async function clickTestId(id: string): Promise<void> {
 
 // --- Composer tools ------------------------------------------------------
 
-test("customer in community chat sees the photo attach button but NOT the KB-link or poll tools", async () => {
+// The attach tools live inside a "+" dropdown menu (Radix). Open it the way a
+// real pointer does: a mouse-pointerType pointerdown on the trigger.
+async function openAttachMenu(): Promise<void> {
+  const trigger = window.document.body.querySelector(
+    `[data-testid="button-composer-attach-menu"]`,
+  );
+  assert.ok(trigger instanceof window.HTMLElement, "attach menu trigger present");
+  await act(async () => {
+    trigger.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerType: "mouse",
+        button: 0,
+      }),
+    );
+  });
+  await flush();
+}
+
+test("customer in community chat sees the photo attach tool but NOT the KB-link or poll tools", async () => {
   const h = await mountChat(CUSTOMER_USER);
   try {
     assert.ok(has("community-chat-page"), "community chat page rendered");
     assert.ok(has(`community-message-${OTHER_MSG.id}`), "message rendered");
 
-    // Customer keeps the photo attach button...
-    assert.ok(has("button-attach-community-image"), "customer keeps the photo attach button");
+    await openAttachMenu();
+    // Customer keeps the photo attach tool...
+    assert.ok(has("button-attach-community-image"), "customer keeps the photo attach tool");
     // ...but the admin-only composer tools must be absent.
-    assert.equal(has("button-attach-kb-article"), false, "no KB-link button for customer");
-    assert.equal(has("button-open-poll-composer"), false, "no poll composer button for customer");
+    assert.equal(has("button-attach-kb-article"), false, "no KB-link tool for customer");
+    assert.equal(has("button-open-poll-composer"), false, "no poll composer tool for customer");
   } finally {
     h.cleanup();
   }
@@ -338,9 +359,10 @@ test("admin in community chat sees the KB-link and poll composer tools", async (
   const h = await mountChat(ADMIN_USER);
   try {
     assert.ok(has("community-chat-page"), "community chat page rendered");
-    assert.ok(has("button-attach-community-image"), "admin has the photo attach button");
-    assert.ok(has("button-attach-kb-article"), "admin sees the KB-link button");
-    assert.ok(has("button-open-poll-composer"), "admin sees the poll composer button");
+    await openAttachMenu();
+    assert.ok(has("button-attach-community-image"), "admin has the photo attach tool");
+    assert.ok(has("button-attach-kb-article"), "admin sees the KB-link tool");
+    assert.ok(has("button-open-poll-composer"), "admin sees the poll composer tool");
   } finally {
     h.cleanup();
   }
