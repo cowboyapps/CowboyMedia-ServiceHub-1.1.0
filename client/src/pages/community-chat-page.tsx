@@ -1080,7 +1080,39 @@ export default function CommunityChatPage() {
           }
         }
         if (data.type === "community_reaction") {
-          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          const cached = queryClient.getQueryData<EnrichedMessage[]>(["/api/community-chat/messages"]);
+          if (data.messageId && data.userId && data.emoji && cached && cached.some((m) => m.id === data.messageId)) {
+            queryClient.setQueryData<EnrichedMessage[]>(
+              ["/api/community-chat/messages"],
+              cached.map((m) => {
+                if (m.id !== data.messageId) return m;
+                const groups = m.reactions ?? [];
+                const existing = groups.find((g) => g.emoji === data.emoji);
+                let reactions: ReactionGroup[];
+                if (data.added) {
+                  if (existing) {
+                    if (existing.userIds.includes(data.userId)) return m;
+                    reactions = groups.map((g) =>
+                      g.emoji === data.emoji ? { ...g, userIds: [...g.userIds, data.userId] } : g,
+                    );
+                  } else {
+                    reactions = [...groups, { emoji: data.emoji, userIds: [data.userId] }];
+                  }
+                } else {
+                  if (!existing || !existing.userIds.includes(data.userId)) return m;
+                  reactions = groups
+                    .map((g) =>
+                      g.emoji === data.emoji ? { ...g, userIds: g.userIds.filter((id) => id !== data.userId) } : g,
+                    )
+                    .filter((g) => g.userIds.length > 0);
+                }
+                return { ...m, reactions };
+              }),
+            );
+          } else {
+            // Message not in cache (older page, or no cache yet) — refetch.
+            queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          }
         }
         if (data.type === "poll_vote" || data.type === "poll_deleted") {
           if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
