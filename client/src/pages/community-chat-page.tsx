@@ -17,7 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { queryClient, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check } from "lucide-react";
+import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check, Bold, Italic, Strikethrough, Code } from "lucide-react";
 import { ChatMessageContent } from "@/components/chat-message-content";
 import { computeNewArrivals } from "@/lib/chat-unread";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
@@ -755,6 +755,7 @@ interface CommunityRowProps {
   onCancelEdit: () => void;
   onSaveEdit: (id: string, content: string) => Promise<boolean>;
   onShowHistory: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 
 const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRowProps) {
@@ -765,7 +766,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
     showUnreadDivider, isEditing,
     onProfileClick, onAdminMenu, onToggleEmojiPicker, onCloseEmojiPicker,
     onReact, onPollDeleted, onJumpToMessage, onStartEdit, onCancelEdit, onSaveEdit,
-    onShowHistory,
+    onShowHistory, onDelete,
   } = props;
   const animClass = isNewSinceMount ? " chat-msg-enter" : "";
   const [editText, setEditText] = useState(msg.content);
@@ -976,6 +977,16 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                   title="Edit message"
                 >
                   <Pencil className="w-3 h-3" />
+                </button>
+              )}
+              {isAdminUser && !isEditing && (
+                <button
+                  onClick={() => onDelete(msg.id)}
+                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-red-300" : "text-muted-foreground/50 hover:text-destructive"}`}
+                  data-testid={`button-delete-${msg.id}`}
+                  title="Delete message"
+                >
+                  <Trash2 className="w-3 h-3" />
                 </button>
               )}
               <div className="relative flex-shrink-0">
@@ -1410,6 +1421,34 @@ export default function CommunityChatPage() {
     }
   }, [toast]);
 
+  // Trash icon on each row for admins: confirm first — it's a one-tap
+  // permanent delete, unlike the buried moderation-menu path.
+  const handleDeleteWithConfirm = useCallback((messageId: string) => {
+    if (window.confirm("Delete this message for everyone?")) {
+      handleDeleteMessage(messageId);
+    }
+  }, [handleDeleteMessage]);
+
+  // Formatting toolbar: wraps the current selection in the composer with the
+  // given markers, or inserts them and places the caret between.
+  const applyFormat = useCallback((prefix: string, suffix: string = prefix) => {
+    const el = messageInputRef.current;
+    const start = el?.selectionStart ?? message.length;
+    const end = el?.selectionEnd ?? start;
+    const selected = message.slice(start, end);
+    const next = message.slice(0, start) + prefix + selected + suffix + message.slice(end);
+    setMessage(next);
+    setTimeout(() => {
+      const input = messageInputRef.current;
+      if (!input) return;
+      input.focus();
+      const caret = selected
+        ? end + prefix.length + suffix.length
+        : start + prefix.length;
+      input.setSelectionRange(caret, caret);
+    }, 0);
+  }, [message]);
+
   const handleUsernameComplete = useCallback((newUsername: string, notifPref: string) => {
     setChatUsername(newUsername);
     setChatNotifPref(notifPref);
@@ -1663,6 +1702,7 @@ export default function CommunityChatPage() {
                   onCancelEdit={handleCancelEdit}
                   onSaveEdit={handleSaveEdit}
                   onShowHistory={setHistoryMessageId}
+                  onDelete={handleDeleteWithConfirm}
                 />
               );
             })}
@@ -1791,6 +1831,44 @@ export default function CommunityChatPage() {
               pendingImageRef.current = file;
             }}
           />
+          <div className="flex items-center gap-0.5 mb-1" data-testid="toolbar-formatting">
+            <button
+              type="button"
+              onClick={() => applyFormat("**")}
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              data-testid="button-format-bold"
+              title="Bold"
+            >
+              <Bold className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => applyFormat("*")}
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              data-testid="button-format-italic"
+              title="Italic"
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => applyFormat("~~")}
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              data-testid="button-format-strike"
+              title="Strikethrough"
+            >
+              <Strikethrough className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => applyFormat("`")}
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              data-testid="button-format-code"
+              title="Code"
+            >
+              <Code className="w-3.5 h-3.5" />
+            </button>
+          </div>
           <div className="flex items-end gap-2 relative">
             {mentionQuery !== null && participants && (
               <MentionAutocomplete
