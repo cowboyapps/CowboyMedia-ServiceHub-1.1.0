@@ -159,6 +159,7 @@ const EDITED_NO_HISTORY_MSG = {
   content: "Edited long ago",
   editedAt: ISO,
   hasEditHistory: false,
+  editCount: 0,
 };
 const EDITED_WITH_HISTORY_MSG = {
   ...OTHER_MSG,
@@ -166,6 +167,7 @@ const EDITED_WITH_HISTORY_MSG = {
   content: "Edited recently",
   editedAt: ISO,
   hasEditHistory: true,
+  editCount: 3,
 };
 
 const PARTICIPANTS = [{ username: "OtherCustomer", isAdmin: false }];
@@ -341,11 +343,18 @@ function editedLabelTag(id: string): string | null {
   return el ? el.tagName : null;
 }
 
+function editedLabelText(id: string): string | null {
+  const el = window.document.body.querySelector(`[data-testid="label-edited-${id}"]`);
+  return el ? (el.textContent ?? "").trim() : null;
+}
+
 test("admin sees a tappable (edited) label only when edit history exists", async () => {
   const h = await mountChat(ADMIN_USER);
   try {
     assert.equal(editedLabelTag(EDITED_WITH_HISTORY_MSG.id), "BUTTON", "history exists → tappable button");
+    assert.equal(editedLabelText(EDITED_WITH_HISTORY_MSG.id), "(edited ×3)", "admin sees the edit count at a glance");
     assert.equal(editedLabelTag(EDITED_NO_HISTORY_MSG.id), "SPAN", "no history rows → plain label");
+    assert.equal(editedLabelText(EDITED_NO_HISTORY_MSG.id), "(edited)", "no recorded rows → plain (edited)");
     assert.equal(editedLabelTag(OTHER_MSG.id), null, "unedited message shows no label");
   } finally {
     h.cleanup();
@@ -356,6 +365,7 @@ test("customer never sees a tappable (edited) label", async () => {
   const h = await mountChat(CUSTOMER_USER);
   try {
     assert.equal(editedLabelTag(EDITED_WITH_HISTORY_MSG.id), "SPAN", "history exists but customer gets plain label");
+    assert.equal(editedLabelText(EDITED_WITH_HISTORY_MSG.id), "(edited)", "customer never sees the count");
     assert.equal(editedLabelTag(EDITED_NO_HISTORY_MSG.id), "SPAN", "no history → plain label");
   } finally {
     h.cleanup();

@@ -5685,11 +5685,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       // degrade to null (client shows "Message deleted").
       const replyIds = [...new Set(messages.map(m => m.replyToId).filter((id): id is string => !!id))];
       const replyOriginals = await storage.getCommunityMessagesByIds(replyIds);
-      // Edit-history presence flag: messages edited before the history feature
+      // Edit-history counts: messages edited before the history feature
       // shipped show "(edited)" but have no recorded rows — the client uses
-      // this flag to only make the label tappable when history actually exists.
+      // hasEditHistory to only make the label tappable when history actually
+      // exists, and editCount to show admins "(edited ×N)" at a glance.
       const editedIds = messages.filter(m => m.editedAt).map(m => m.id);
-      const idsWithEdits = new Set(await storage.getCommunityMessageIdsWithEdits(editedIds));
+      const editCounts = await storage.getCommunityMessageEditCounts(editedIds);
       const replyById = new Map(replyOriginals.map(o => [o.id, o]));
       const replySnippet = (id: string | null) => {
         if (!id) return undefined;
@@ -5709,7 +5710,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         avatarUrl: usersMap.get(m.userId)?.avatarUrl || null,
         kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
         replyTo: replySnippet(m.replyToId),
-        hasEditHistory: idsWithEdits.has(m.id),
+        hasEditHistory: (editCounts.get(m.id) ?? 0) > 0,
+        editCount: editCounts.get(m.id) ?? 0,
       }));
       enriched.reverse();
       res.json(enriched);

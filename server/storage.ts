@@ -389,7 +389,7 @@ export interface IStorage {
   updateCommunityMessageContent(id: string, content: string, editedAt: Date): Promise<CommunityMessage | undefined>;
   recordCommunityMessageEdit(edit: InsertCommunityMessageEdit): Promise<CommunityMessageEdit>;
   getCommunityMessageEditHistory(messageId: string): Promise<CommunityMessageEdit[]>;
-  getCommunityMessageIdsWithEdits(messageIds: string[]): Promise<string[]>;
+  getCommunityMessageEditCounts(messageIds: string[]): Promise<Map<string, number>>;
   deleteCommunityMessage(id: string): Promise<void>;
   getCommunityReactions(messageIds: string[]): Promise<CommunityReaction[]>;
   toggleCommunityReaction(messageId: string, userId: string, emoji: string): Promise<{ added: boolean }>;
@@ -2211,12 +2211,16 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(communityMessageEdits.createdAt));
   }
 
-  async getCommunityMessageIdsWithEdits(messageIds: string[]): Promise<string[]> {
-    if (messageIds.length === 0) return [];
-    const rows = await db.selectDistinct({ messageId: communityMessageEdits.messageId })
+  async getCommunityMessageEditCounts(messageIds: string[]): Promise<Map<string, number>> {
+    if (messageIds.length === 0) return new Map();
+    const rows = await db.select({
+      messageId: communityMessageEdits.messageId,
+      count: sql<number>`count(*)::int`,
+    })
       .from(communityMessageEdits)
-      .where(inArray(communityMessageEdits.messageId, messageIds));
-    return rows.map(r => r.messageId);
+      .where(inArray(communityMessageEdits.messageId, messageIds))
+      .groupBy(communityMessageEdits.messageId);
+    return new Map(rows.map(r => [r.messageId, r.count]));
   }
 
   async deleteCommunityMessage(id: string): Promise<void> {

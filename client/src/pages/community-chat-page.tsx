@@ -42,7 +42,7 @@ type ReactionGroup = { emoji: string; userIds: string[] };
 // Snippet of the message being replied to. `null` = original was deleted
 // (degrade gracefully); absent/undefined = not a reply at all.
 type ReplySnippet = { id: string; chatUsername: string; content: string; hasImage: boolean } | null;
-type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet; hasEditHistory?: boolean };
+type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet; hasEditHistory?: boolean; editCount?: number };
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
@@ -961,7 +961,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                       data-testid={`label-edited-${msg.id}`}
                       title="View edit history"
                     >
-                      (edited)
+                      {(msg.editCount ?? 0) > 1 ? `(edited ×${msg.editCount})` : "(edited)"}
                     </button>
                   ) : (
                     <span className="ml-1 italic" data-testid={`label-edited-${msg.id}`}>(edited)</span>
@@ -1150,7 +1150,14 @@ export default function CommunityChatPage() {
               ["/api/community-chat/messages"],
               cached.map((m) =>
                 m.id === data.messageId
-                  ? { ...m, content: data.content ?? m.content, editedAt: data.editedAt ?? m.editedAt, hasEditHistory: data.hasEditHistory === true ? true : m.hasEditHistory }
+                  ? {
+                      ...m,
+                      content: data.content ?? m.content,
+                      editedAt: data.editedAt ?? m.editedAt,
+                      hasEditHistory: data.hasEditHistory === true ? true : m.hasEditHistory,
+                      // A recorded edit means one more history row exists.
+                      editCount: data.hasEditHistory === true ? (m.editCount ?? 0) + 1 : m.editCount,
+                    }
                   : m,
               ),
             );
