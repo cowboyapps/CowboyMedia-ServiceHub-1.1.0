@@ -1140,7 +1140,17 @@ export default function CommunityChatPage() {
           }
         }
         if (data.type === "community_message_deleted") {
-          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          // Remove the deleted message from the cached list in place.
+          const cached = queryClient.getQueryData<EnrichedMessage[]>(["/api/community-chat/messages"]);
+          if (data.messageId && cached && cached.some((m) => m.id === data.messageId)) {
+            queryClient.setQueryData<EnrichedMessage[]>(
+              ["/api/community-chat/messages"],
+              cached.filter((m) => m.id !== data.messageId),
+            );
+          } else {
+            // Message not in cache (older page, no cache yet) or malformed payload — refetch.
+            queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+          }
         }
         if (data.type === "community_message_edited") {
           // In-place patch of the edited message's content/editedAt.

@@ -383,6 +383,32 @@ test("new-message and edit WS events patch the cached list in place; malformed/u
       ["msg-a", "msg-b"],
       "fallback refetch replaced the cache with the server list",
     );
+
+    // 6. Delete removes the cached row in place — no refetch.
+    const fetchesBeforeDelete = messagesFetchCount;
+    await fireEvent(socket, { type: "community_message_deleted", messageId: "msg-a" });
+    assert.deepEqual(
+      getCachedMessages(queryClient).map((m) => m.id),
+      ["msg-b"],
+      "deleted message removed from the cached list in place",
+    );
+    assert.equal(messagesFetchCount, fetchesBeforeDelete,
+      "no full-list refetch for a cached delete event");
+
+    // 7. Delete for a message NOT in the cache falls back to invalidate.
+    await fireEvent(socket, { type: "community_message_deleted", messageId: "msg-not-cached" });
+    assert.equal(messagesFetchCount, fetchesBeforeDelete + 1,
+      "uncached delete falls back to an invalidate/refetch");
+    assert.deepEqual(
+      getCachedMessages(queryClient).map((m) => m.id),
+      ["msg-a", "msg-b"],
+      "delete fallback refetch replaced the cache with the server list",
+    );
+
+    // 8. Malformed delete payload (no messageId) also falls back to invalidate.
+    await fireEvent(socket, { type: "community_message_deleted" });
+    assert.equal(messagesFetchCount, fetchesBeforeDelete + 2,
+      "malformed delete payload falls back to an invalidate/refetch");
   } finally {
     h.cleanup();
   }
