@@ -1564,7 +1564,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const resolveMutation = useMutation({
     mutationFn: async ({ id, message, imageFile, silent }: { id: string; message: string; imageFile: File | null; silent: boolean }) => {
       const formData = new FormData();
-      if (message) formData.append("message", message);
+      if (message && stripHtml(message).trim()) formData.append("message", message);
       if (imageFile) formData.append("image", imageFile);
       if (silent) formData.append("silent", "true");
       const res = await uploadRequest("PATCH", `/api/admin/alerts/${id}/resolve`, formData);
@@ -1877,7 +1877,7 @@ function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           <div className="space-y-3">
             <div className="space-y-2">
               <Label>Resolve Message (optional)</Label>
-              <Textarea value={resolveMessage} onChange={(e) => setResolveMessage(e.target.value)} placeholder="Issue has been resolved." rows={3} data-testid="input-resolve-message" />
+              <RichTextEditor value={resolveMessage} onChange={setResolveMessage} placeholder="Issue has been resolved." testIdPrefix="input-resolve-message" hideImage />
             </div>
             <div className="space-y-2">
               <Label>Attach Image (optional)</Label>
