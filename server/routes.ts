@@ -5,7 +5,7 @@ import { registerAlertRoutes } from "./alert-routes";
 import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft, sweepAlertDrafts } from "./alert-drafts";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
-import { checkCommunityMessageEdit } from "./community-chat-edit";
+import { createCommunityMessageEditHandler, createCommunityMessageHistoryHandler, type CommunityEditDeps } from "./community-chat-edit";
 import { stripChatFormatting } from "@shared/chat-markdown";
 import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getParam } from "./http-params";
@@ -5900,94 +5900,22 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   // Edit a message's text. Author-only within a 15-minute window; admins may
   // edit any message at any time. Word filter and @everyone gating re-apply.
-  app.patch("/api/community-chat/messages/:id", requireAuth, async (req, res) => {
-    try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      if (user.chatBanned) {
-        return res.status(403).json({ error: "You have been banned from community chat" });
-      }
-      const isAdminUser = user.role === "admin" || user.role === "master_admin";
-      const existing = await storage.getCommunityMessage(getParam(req, "id"));
-      const rawContent = typeof req.body?.content === "string" ? req.body.content : "";
-      const guard = checkCommunityMessageEdit({
-        message: existing,
-        requesterId: user.id,
-        isAdmin: isAdminUser,
-        newContent: rawContent,
-        hasImage: !!existing?.imageUrl,
-        hasKbArticle: !!existing?.kbArticleSlug,
-      });
-      if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const communityEditDeps: CommunityEditDeps = {
+    getUser: (id) => storage.getUser(id),
+    getCommunityMessage: (id) => storage.getCommunityMessage(id),
+    getAllWordFilters: () => storage.getAllWordFilters(),
+    updateCommunityMessageContent: (id, content, editedAt) =>
+      storage.updateCommunityMessageContent(id, content, editedAt),
+    recordCommunityMessageEdit: (edit) => storage.recordCommunityMessageEdit(edit),
+    getCommunityMessageEditHistory: (messageId) => storage.getCommunityMessageEditHistory(messageId),
+    broadcast,
+  };
 
-      let trimmedContent = rawContent.trim();
-      const hasEveryone = /@everyone\b/i.test(trimmedContent);
-      if (hasEveryone && !isAdminUser) {
-        return res.status(403).json({ error: "Only admins can use @everyone" });
-      }
-      const wordFilters = await storage.getAllWordFilters();
-      for (const filter of wordFilters) {
-        const pattern = new RegExp(filter.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-        trimmedContent = trimmedContent.replace(pattern, (match: string) => {
-          if (match.length <= 3) return match[0] + "*".repeat(match.length - 1);
-          return match[0] + "*".repeat(match.length - 2) + match[match.length - 1];
-        });
-      }
-
-      const editedAt = new Date();
-      const updated = await storage.updateCommunityMessageContent(getParam(req, "id"), trimmedContent, editedAt);
-      if (!updated) return res.status(404).json({ error: "Message not found" });
-      // Preserve the wording that was just replaced so admins can review the
-      // full edit history. Only record when the text actually changed;
-      // best-effort — a history hiccup must not fail the edit itself.
-      let historyRecorded = false;
-      if (existing && existing.content !== trimmedContent) {
-        try {
-          await storage.recordCommunityMessageEdit({
-            messageId: updated.id,
-            previousContent: existing.content,
-            editedBy: user.id,
-            editedByUsername: user.chatUsername || user.username,
-          });
-          historyRecorded = true;
-        } catch (histErr) {
-          console.error("Community chat edit-history record error:", histErr);
-        }
-      }
-      broadcast({
-        type: "community_message_edited",
-        messageId: updated.id,
-        content: updated.content,
-        editedAt: updated.editedAt,
-        // Only flips clients to "history exists" when a row was actually
-        // written; omitted/false leaves their existing flag untouched.
-        hasEditHistory: historyRecorded || undefined,
-      });
-      res.json(updated);
-    } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
-    }
-  });
+  app.patch("/api/community-chat/messages/:id", requireAuth, createCommunityMessageEditHandler(communityEditDeps));
 
   // Full prior-version history of an edited message. Admin-only (first cut):
   // moderation tooling, not exposed to regular members.
-  app.get("/api/community-chat/messages/:id/history", requireAuth, async (req, res) => {
-    try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      const isAdminUser = user.role === "admin" || user.role === "master_admin";
-      if (!isAdminUser) return res.status(403).json({ error: "Only admins can view edit history" });
-      const message = await storage.getCommunityMessage(getParam(req, "id"));
-      if (!message) return res.status(404).json({ error: "Message not found" });
-      const edits = await storage.getCommunityMessageEditHistory(message.id);
-      res.json({
-        current: { content: message.content, editedAt: message.editedAt },
-        edits,
-      });
-    } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
-    }
-  });
+  app.get("/api/community-chat/messages/:id/history", requireAuth, createCommunityMessageHistoryHandler(communityEditDeps));
 
   app.post("/api/community-chat/messages/:id/reactions", requireAuth, bypassRateLimitForAdmins, createCommunityChatReactionLimiter(), async (req, res) => {
     try {
