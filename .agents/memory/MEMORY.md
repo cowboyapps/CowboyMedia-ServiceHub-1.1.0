@@ -36,4 +36,5 @@
 - [My Services page test deps](my-services-page-test-deps.md) — page-rendering jsdom tests must track new providers (AuthProvider) + catalogue fields (images:[]) in lockstep; stale "sort resets" assertions encode retired behavior.
 - [WHMCS added-service detection](whmcs-added-service-detection.md) — "added" (direct WHMCS order, first sighting, no marker) vs "ready" (store order, pending->active); "added" consumes the matching pending order so neither double-notifies; per-customer baseline gate.
 - [Idempotency client-abort semantics](idempotency-client-abort.md) — money-write idempotency must NOT free a claimed key on early socket close (client timeout); handler keeps running, abandoning lets a retry double-charge.
+- [jsdom calc() serialization](jsdom-calc-serialization.md) — cssstyle re-emits calc() (e.g. "- 2rem" → "+ 2rem"); round-trip expected strings through a scratch element, don't assert literals.
 - [Idempotency async-store listener timing](idempotency-async-store-listener-timing.md) — when the dedup store goes DB-backed (async), attach res close/finish listeners synchronously before the claim or a fast abort is missed → stale pending → permanent 409.
