@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { queryClient, apiRequest, uploadRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { z } from "zod";
 import { AlertTriangle, Film, Bug, CheckCircle, Clock, Paperclip, X } from "lucide-react";
 import { format } from "date-fns";
@@ -54,6 +55,20 @@ export default function ReportRequestPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The report dialogs are fixed-centered; when the on-screen keyboard opens
+  // on mobile the vertical center can land under the keyboard. Shift the
+  // dialog up by half the keyboard inset and cap its height so every field
+  // stays reachable while typing.
+  const keyboardInset = useKeyboardInset();
+  const dialogKeyboardStyle =
+    keyboardInset > 0
+      ? {
+          top: `calc(50% - ${Math.round(keyboardInset / 2)}px)`,
+          maxHeight: `calc(100dvh - ${keyboardInset}px - 2rem)`,
+          overflowY: "auto" as const,
+          transition: "top 150ms ease-out",
+        }
+      : undefined;
 
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -196,7 +211,7 @@ export default function ReportRequestPage() {
       </div>
 
       <Dialog open={activeForm === "content_issue"} onOpenChange={(open) => { if (!open) setActiveForm(null); }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" style={dialogKeyboardStyle}>
           <DialogHeader>
             <DialogTitle>Report Content Issue</DialogTitle>
             <DialogDescription className="sr-only">Report a content issue with a service</DialogDescription>
@@ -244,7 +259,7 @@ export default function ReportRequestPage() {
       </Dialog>
 
       <Dialog open={activeForm === "movie_request"} onOpenChange={(open) => { if (!open) setActiveForm(null); }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" style={dialogKeyboardStyle}>
           <DialogHeader>
             <DialogTitle>Request Movie/Series</DialogTitle>
             <DialogDescription className="sr-only">Submit a request for a movie or series</DialogDescription>
@@ -292,7 +307,7 @@ export default function ReportRequestPage() {
       </Dialog>
 
       <Dialog open={activeForm === "app_issue"} onOpenChange={(open) => { if (!open) { setActiveForm(null); setSelectedFile(null); } }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" style={dialogKeyboardStyle}>
           <DialogHeader>
             <DialogTitle>Report App Issue / Feature Request</DialogTitle>
             <DialogDescription className="sr-only">Report a bug or suggest a feature</DialogDescription>

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -348,6 +349,8 @@ export function WhmcsTicketThread({
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Keep the reply composer visible above the on-screen keyboard on mobile.
+  const keyboardInset = useKeyboardInset();
 
   const addFiles = (incoming: FileList | null) => {
     if (!incoming || incoming.length === 0) return;
@@ -502,11 +505,20 @@ export function WhmcsTicketThread({
           )}
         </div>
       ) : (
-        <div className="space-y-2 border-t pt-3" data-testid="whmcs-thread-composer">
+        <div
+          className="space-y-2 border-t pt-3"
+          style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
+          data-testid="whmcs-thread-composer"
+        >
           {replyHint && <p className="text-xs text-muted-foreground">{replyHint}</p>}
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onFocus={(e) => {
+              // Scroll-flow page (not a full-height chat): make sure the reply
+              // box is brought above the on-screen keyboard when focused.
+              setTimeout(() => e.target.scrollIntoView({ block: "center", behavior: "smooth" }), 250);
+            }}
             placeholder={context === "admin" ? "Reply to this customer's billing ticket…" : "Write a reply…"}
             className="min-h-[90px]"
             data-testid="input-whmcs-reply"
