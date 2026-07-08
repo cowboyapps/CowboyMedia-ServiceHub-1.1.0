@@ -86,7 +86,7 @@ import {
   type RolloverActions,
 } from "@shared/changelog-rollover";
 import { db } from "./db";
-import { eq, desc, asc, and, isNull, isNotNull, sql, inArray, gte, ne } from "drizzle-orm";
+import { eq, desc, asc, and, isNull, isNotNull, sql, inArray, gte, lt, ne } from "drizzle-orm";
 import { invalidatePublicStatusCache } from "./public-status-cache";
 
 export type DashboardMetrics = {
@@ -342,6 +342,8 @@ export interface IStorage {
   getAlertDraftsForMonitor(monitorId: string): Promise<AlertDraft[]>;
   createAlertDraft(data: InsertAlertDraft): Promise<AlertDraft>;
   updateAlertDraft(id: string, data: Partial<AlertDraft>): Promise<AlertDraft | undefined>;
+  expireStalePendingAlertDrafts(cutoff: Date, now: Date): Promise<number>;
+  purgeOldAlertDrafts(cutoff: Date): Promise<number>;
   serviceHasActiveAlert(serviceId: string): Promise<boolean>;
   getActiveAlertIdForService(serviceId: string): Promise<string | null>;
   isAlertActive(alertId: string): Promise<boolean>;
@@ -1908,6 +1910,23 @@ export class DatabaseStorage implements IStorage {
   async updateAlertDraft(id: string, data: Partial<AlertDraft>): Promise<AlertDraft | undefined> {
     const [d] = await db.update(alertDrafts).set(data).where(eq(alertDrafts.id, id)).returning();
     return d;
+  }
+
+  async expireStalePendingAlertDrafts(cutoff: Date, now: Date): Promise<number> {
+    const rows = await db
+      .update(alertDrafts)
+      .set({ status: "expired", actedAt: now })
+      .where(and(eq(alertDrafts.status, "pending"), lt(alertDrafts.createdAt, cutoff)))
+      .returning({ id: alertDrafts.id });
+    return rows.length;
+  }
+
+  async purgeOldAlertDrafts(cutoff: Date): Promise<number> {
+    const rows = await db
+      .delete(alertDrafts)
+      .where(and(ne(alertDrafts.status, "pending"), lt(alertDrafts.createdAt, cutoff)))
+      .returning({ id: alertDrafts.id });
+    return rows.length;
   }
 
   async serviceHasActiveAlert(serviceId: string): Promise<boolean> {

@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { registerAlertRoutes } from "./alert-routes";
-import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft } from "./alert-drafts";
+import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft, sweepAlertDrafts } from "./alert-drafts";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { resolveKbAttachmentForSender } from "./message-attachments";
@@ -8082,6 +8082,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     });
   }
 
+  // Alert-draft retention: expire stale pending suggestions, purge old
+  // non-pending rows. Throttled to roughly hourly (the loop runs every 15s).
+  let lastDraftSweepAt = 0;
+  const DRAFT_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
   async function runMonitoringLoop() {
     try {
       const monitors = await storage.getAllUrlMonitors();
@@ -8090,6 +8095,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           await checkSingleMonitor(monitor);
         } catch (err) {
           console.error(`Monitor check error for ${monitor.name}:`, err);
+        }
+      }
+      if (Date.now() - lastDraftSweepAt >= DRAFT_SWEEP_INTERVAL_MS) {
+        lastDraftSweepAt = Date.now();
+        try {
+          const { expired, purged } = await sweepAlertDrafts(new Date(), storage);
+          if (expired > 0 || purged > 0) {
+            console.log(`[alert-drafts] retention sweep: expired ${expired}, purged ${purged}`);
+          }
+        } catch (err) {
+          console.error("Alert draft sweep error:", err);
         }
       }
     } catch (err) {

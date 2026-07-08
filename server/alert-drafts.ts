@@ -140,6 +140,48 @@ export async function onMonitorUpCreateRecoveryDraft(
 }
 
 // ---------------------------------------------------------------------------
+// Retention sweep
+// ---------------------------------------------------------------------------
+
+// Pending drafts older than this are auto-expired (a suggestion about a blip
+// from a week ago is noise, not signal).
+export const PENDING_DRAFT_EXPIRY_DAYS = 7;
+// Non-pending rows (dismissed / superseded / published / expired) are purged
+// after this long — the published alert itself lives in service_alerts.
+export const DRAFT_PURGE_DAYS = 90;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface AlertDraftSweepStorage {
+  // Set status='expired' + actedAt on pending drafts created before the
+  // cutoff; returns the number of rows changed.
+  expireStalePendingAlertDrafts(cutoff: Date, now: Date): Promise<number>;
+  // Delete non-pending drafts created before the cutoff; returns row count.
+  purgeOldAlertDrafts(cutoff: Date): Promise<number>;
+}
+
+/**
+ * Retention sweep: expire stale pending drafts, purge old non-pending rows.
+ * Pure bookkeeping — never touches alerts or customer channels.
+ */
+export async function sweepAlertDrafts(
+  now: Date,
+  storage: AlertDraftSweepStorage,
+  opts?: { pendingExpiryDays?: number; purgeDays?: number },
+): Promise<{ expired: number; purged: number }> {
+  const pendingDays = opts?.pendingExpiryDays ?? PENDING_DRAFT_EXPIRY_DAYS;
+  const purgeDays = opts?.purgeDays ?? DRAFT_PURGE_DAYS;
+  // Purge BEFORE expiring so a draft that expires in this pass is not deleted
+  // in the same breath — it stays visible (as expired) until a later sweep.
+  const purged = await storage.purgeOldAlertDrafts(new Date(now.getTime() - purgeDays * DAY_MS));
+  const expired = await storage.expireStalePendingAlertDrafts(
+    new Date(now.getTime() - pendingDays * DAY_MS),
+    now,
+  );
+  return { expired, purged };
+}
+
+// ---------------------------------------------------------------------------
 // Admin routes
 // ---------------------------------------------------------------------------
 

@@ -605,7 +605,7 @@ export const alertDrafts = pgTable("alert_drafts", {
   suggestedSeverity: text("suggested_severity").notNull().default("critical"),
   suggestedServiceImpact: text("suggested_service_impact").notNull().default("outage"),
   relatedAlertId: varchar("related_alert_id").references(() => serviceAlerts.id, { onDelete: "set null" }),
-  status: text("status").notNull().default("pending"), // pending | published | dismissed | superseded
+  status: text("status").notNull().default("pending"), // pending | published | dismissed | superseded | expired
   actedByUserId: varchar("acted_by_user_id"),
   actedAt: timestamp("acted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

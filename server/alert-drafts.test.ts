@@ -6,7 +6,11 @@ import {
   onMonitorDownCreateDraft,
   onMonitorUpCreateRecoveryDraft,
   registerAlertDraftRoutes,
+  sweepAlertDrafts,
+  PENDING_DRAFT_EXPIRY_DAYS,
+  DRAFT_PURGE_DAYS,
   type AlertDraftStorage,
+  type AlertDraftSweepStorage,
 } from "./alert-drafts";
 import { createRequirePermission } from "./require-permission";
 
@@ -212,6 +216,87 @@ test("up: an existing pending recovery draft blocks a duplicate", async () => {
   const rec2 = await onMonitorUpCreateRecoveryDraft(MONITOR, 60, NOW, { storage: mem.storage });
   assert.ok(rec1);
   assert.equal(rec2, null);
+});
+
+// ---------- retention sweep ----------
+
+const DAY = 24 * 60 * 60 * 1000;
+
+// In-memory mirror of the real SQL semantics: expire = pending AND older than
+// cutoff; purge = non-pending AND older than cutoff.
+function makeSweepStorage(drafts: Map<string, AlertDraft>): AlertDraftSweepStorage {
+  return {
+    async expireStalePendingAlertDrafts(cutoff, now) {
+      let n = 0;
+      for (const [id, d] of drafts) {
+        if (d.status === "pending" && d.createdAt < cutoff) {
+          drafts.set(id, { ...d, status: "expired", actedAt: now });
+          n++;
+        }
+      }
+      return n;
+    },
+    async purgeOldAlertDrafts(cutoff) {
+      let n = 0;
+      for (const [id, d] of drafts) {
+        if (d.status !== "pending" && d.createdAt < cutoff) {
+          drafts.delete(id);
+          n++;
+        }
+      }
+      return n;
+    },
+  };
+}
+
+test("sweep: expires pending drafts older than the window, keeps fresh ones pending", async () => {
+  const mem = makeMemoryStorage();
+  const stale = await onMonitorDownCreateDraft(MONITOR, { id: "inc-1" }, NOW, { storage: mem.storage });
+  mem.drafts.set(stale!.id, { ...mem.drafts.get(stale!.id)!, createdAt: new Date(NOW.getTime() - (PENDING_DRAFT_EXPIRY_DAYS + 1) * DAY) });
+  const fresh = await onMonitorDownCreateDraft({ ...MONITOR, id: "mon-2" }, { id: "inc-2" }, NOW, { storage: mem.storage });
+
+  const res = await sweepAlertDrafts(NOW, makeSweepStorage(mem.drafts));
+  assert.equal(res.expired, 1);
+  assert.equal(res.purged, 0);
+  assert.equal(mem.drafts.get(stale!.id)!.status, "expired");
+  assert.deepEqual(mem.drafts.get(stale!.id)!.actedAt, NOW);
+  assert.equal(mem.drafts.get(fresh!.id)!.status, "pending");
+});
+
+test("sweep: purges old non-pending drafts but never old pending or recent non-pending ones", async () => {
+  const mem = makeMemoryStorage();
+  const oldDismissed = await onMonitorDownCreateDraft(MONITOR, { id: "inc-1" }, NOW, { storage: mem.storage });
+  mem.drafts.set(oldDismissed!.id, {
+    ...mem.drafts.get(oldDismissed!.id)!,
+    status: "dismissed",
+    createdAt: new Date(NOW.getTime() - (DRAFT_PURGE_DAYS + 1) * DAY),
+  });
+  const recentPublished = await onMonitorDownCreateDraft({ ...MONITOR, id: "mon-2" }, { id: "inc-2" }, NOW, { storage: mem.storage });
+  mem.drafts.set(recentPublished!.id, { ...mem.drafts.get(recentPublished!.id)!, status: "published" });
+  // Old-but-pending is handled by the expire step (this run), not deleted.
+  const oldPending = await onMonitorDownCreateDraft({ ...MONITOR, id: "mon-3" }, { id: "inc-3" }, NOW, { storage: mem.storage });
+  mem.drafts.set(oldPending!.id, { ...mem.drafts.get(oldPending!.id)!, createdAt: new Date(NOW.getTime() - (DRAFT_PURGE_DAYS + 1) * DAY) });
+
+  const res = await sweepAlertDrafts(NOW, makeSweepStorage(mem.drafts));
+  assert.equal(res.purged, 1);
+  assert.equal(mem.drafts.has(oldDismissed!.id), false);
+  assert.equal(mem.drafts.get(recentPublished!.id)!.status, "published");
+  // Expired this run; a later run (once past the purge window from now) purges it.
+  assert.equal(mem.drafts.get(oldPending!.id)!.status, "expired");
+});
+
+test("sweep: honors custom windows and does nothing when everything is fresh", async () => {
+  const mem = makeMemoryStorage();
+  const d = await onMonitorDownCreateDraft(MONITOR, { id: "inc-1" }, NOW, { storage: mem.storage });
+  mem.drafts.set(d!.id, { ...mem.drafts.get(d!.id)!, createdAt: new Date(NOW.getTime() - 2 * DAY) });
+
+  const noop = await sweepAlertDrafts(NOW, makeSweepStorage(mem.drafts));
+  assert.deepEqual(noop, { expired: 0, purged: 0 });
+  assert.equal(mem.drafts.get(d!.id)!.status, "pending");
+
+  const tight = await sweepAlertDrafts(NOW, makeSweepStorage(mem.drafts), { pendingExpiryDays: 1 });
+  assert.equal(tight.expired, 1);
+  assert.equal(mem.drafts.get(d!.id)!.status, "expired");
 });
 
 // ---------- routes ----------
