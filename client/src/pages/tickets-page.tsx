@@ -177,11 +177,15 @@ export default function TicketsPage() {
   const [, setLocation] = useLocation();
   const isMobile = useIsMobile();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [warnOpen, setWarnOpen] = useState(false);
-  const [kbHintOpen, setKbHintOpen] = useState(false);
+  // Fresh after-hours status captured at the moment "New Ticket" is clicked, so
+  // the inline notice inside the flow can't show stale. null = within hours (or
+  // status disabled / fetch failed → fail open).
+  const [afterHoursNotice, setAfterHoursNotice] = useState<BusinessHoursStatus | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
 
-  const { data: bhStatus } = useQuery<BusinessHoursStatus>({
+  // Warm the business-hours cache in the background so the first "New Ticket"
+  // click resolves instantly; the click still refetches to gate reliably.
+  useQuery<BusinessHoursStatus>({
     queryKey: ["/api/business-hours/status"],
     enabled: !isAdmin,
     staleTime: 30_000,
@@ -334,103 +338,73 @@ export default function TicketsPage() {
           <Button
             data-testid="button-new-ticket"
             onClick={async () => {
-              // Always gate on a fresh status fetch so the warning is reliable
-              // even on the very first click (before useQuery has resolved).
+              // Always gate on a fresh status fetch so the after-hours notice is
+              // reliable even on the very first click (before useQuery has
+              // resolved). The notice now renders inline inside the flow instead
+              // of as a separate blocking dialog.
               try {
                 const fresh = await queryClient.ensureQueryData<BusinessHoursStatus>({
                   queryKey: ["/api/business-hours/status"],
                   staleTime: 30_000,
                 });
-                if (fresh?.enabled && !fresh.isOpen) {
-                  setWarnOpen(true);
-                  return;
-                }
+                setAfterHoursNotice(fresh?.enabled && !fresh.isOpen ? fresh : null);
               } catch {
-                // If the status fetch fails, fail open and let the user submit.
+                // If the status fetch fails, fail open — no notice, let them submit.
+                setAfterHoursNotice(null);
               }
-              setKbHintOpen(true);
+              setDialogOpen(true);
             }}
           >
             <Plus className="w-4 h-4 mr-1" /> New Ticket
           </Button>
 
-          <AlertDialog open={kbHintOpen} onOpenChange={setKbHintOpen}>
-            <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-kb-hint">
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-primary" />
-                  Check the Knowledge Base first?
-                </AlertDialogTitle>
-                <AlertDialogDescription className="space-y-2">
-                  <span className="block">
-                    Before opening a support ticket, you may find a faster answer in our knowledge base. Many common questions are already documented there.
-                  </span>
-                  <span className="block">
-                    Otherwise, feel free to continue and our team will get back to you.
-                  </span>
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction
-                  onClick={() => {
-                    setKbHintOpen(false);
-                    setLocation("/knowledge");
-                  }}
-                  data-testid="button-kb-hint-browse"
-                >
-                  <BookOpen className="w-4 h-4 mr-1.5" />
-                  Browse Knowledge Base
-                </AlertDialogAction>
-                <AlertDialogCancel
-                  onClick={() => {
-                    setKbHintOpen(false);
-                    setDialogOpen(true);
-                  }}
-                  data-testid="button-kb-hint-continue"
-                >
-                  Continue
-                </AlertDialogCancel>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          <AlertDialog open={warnOpen} onOpenChange={setWarnOpen}>
-            <AlertDialogContent
-              className="w-[calc(100vw-2rem)] sm:max-w-md border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40"
-              data-testid="dialog-after-hours-warning"
-            >
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                  Outside business hours
-                </AlertDialogTitle>
-                <AlertDialogDescription className="text-amber-900/90 dark:text-amber-100/90 space-y-2">
-                  <span className="block" data-testid="text-after-hours-message">{bhStatus?.message}</span>
-                  {bhStatus?.nextOpenAt && (
-                    <span className="block font-medium" data-testid="text-after-hours-next-open">
-                      We reopen {formatNextOpen(bhStatus.nextOpenAt, bhStatus.timezone)}.
-                    </span>
-                  )}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel data-testid="button-after-hours-cancel">Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => {
-                    setWarnOpen(false);
-                    setKbHintOpen(true);
-                  }}
-                  data-testid="button-after-hours-continue"
-                >
-                  Continue Anyway
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
           {(() => {
             const ticketForm = (
               <Form {...form}>
+                {afterHoursNotice && (
+                  <div
+                    className="mb-3 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 flex gap-2 items-start"
+                    data-testid="notice-after-hours"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-amber-900 dark:text-amber-100 space-y-1">
+                      <p className="font-medium">Outside business hours</p>
+                      <p data-testid="text-after-hours-message">{afterHoursNotice.message}</p>
+                      {afterHoursNotice.nextOpenAt && (
+                        <p className="font-medium" data-testid="text-after-hours-next-open">
+                          We reopen {formatNextOpen(afterHoursNotice.nextOpenAt, afterHoursNotice.timezone)}.
+                        </p>
+                      )}
+                      <p className="text-amber-800/80 dark:text-amber-200/80">
+                        You can still open the ticket — we'll respond once we're back.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div
+                  className="mb-3 rounded-md border border-primary/40 bg-primary/5 p-3 flex items-center justify-between gap-3 flex-wrap"
+                  data-testid="notice-kb-hint"
+                >
+                  <div className="flex items-start gap-2">
+                    <BookOpen className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-muted-foreground">
+                      Many common questions are answered in our Knowledge Base — you may find a faster fix there.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setDialogOpen(false);
+                      setLocation("/knowledge");
+                    }}
+                    data-testid="button-kb-hint-browse"
+                  >
+                    <BookOpen className="w-4 h-4 mr-1.5" />
+                    Browse
+                  </Button>
+                </div>
                 <SupportAwayBanner />
                 <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
                   <FormField
@@ -562,7 +536,7 @@ export default function TicketsPage() {
             }
             return (
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-new-ticket">
+                <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto" data-testid="dialog-new-ticket">
                   <DialogHeader>
                     <DialogTitle>Open a Support Ticket</DialogTitle>
                     <DialogDescription className="sr-only">Fill out the form to submit a support ticket</DialogDescription>
