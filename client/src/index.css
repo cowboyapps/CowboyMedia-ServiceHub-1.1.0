@@ -82,6 +82,16 @@ body {
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
+  /* Motion system — shared durations & easings for app-wide transitions.
+     Consumed by the reusable animate and stagger utilities below so timing
+     and feel stay consistent everywhere (route changes, lists, cards). */
+  --motion-fast: 140ms;
+  --motion-med: 220ms;
+  --motion-slow: 320ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-stagger-step: 45ms;
+
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -242,6 +252,37 @@ body {
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .animate-shimmer {
   background: linear-gradient(
     90deg,
@@ -288,16 +329,45 @@ body {
 }
 
 .animate-page-enter {
-  animation: page-enter 0.2s ease-out;
+  animation: page-enter var(--motion-med) var(--motion-ease);
 }
 
 .animate-slide-in-right {
-  animation: slide-in-right 0.2s ease-out;
+  animation: slide-in-right var(--motion-med) var(--motion-ease);
 }
 
 .animate-slide-in-left {
-  animation: slide-in-left 0.2s ease-out;
+  animation: slide-in-left var(--motion-med) var(--motion-ease);
 }
+
+.animate-fade-in {
+  animation: fade-in var(--motion-med) var(--motion-ease) both;
+}
+
+.animate-slide-up {
+  animation: slide-up var(--motion-med) var(--motion-ease) both;
+}
+
+.animate-scale-in {
+  animation: scale-in var(--motion-fast) var(--motion-ease) both;
+}
+
+/* List / card-grid stagger. Add .stagger-item to each direct child of a list
+   or grid; children ease in bottom-up with a small compounding delay. The delay
+   is capped past the 10th item so long lists don't stay hidden for too long. */
+.stagger-item {
+  animation: slide-up var(--motion-med) var(--motion-ease) both;
+}
+.stagger-item:nth-child(1) { animation-delay: 0ms; }
+.stagger-item:nth-child(2) { animation-delay: calc(1 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(3) { animation-delay: calc(2 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(4) { animation-delay: calc(3 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(5) { animation-delay: calc(4 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(6) { animation-delay: calc(5 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(7) { animation-delay: calc(6 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(8) { animation-delay: calc(7 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(9) { animation-delay: calc(8 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(n+10) { animation-delay: calc(9 * var(--motion-stagger-step)); }
 
 .tap-interactive {
   transition: transform 0.1s ease-in-out;
@@ -324,6 +394,12 @@ body {
     animation: none;
   }
   .animate-slide-in-left {
+    animation: none;
+  }
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-scale-in,
+  .stagger-item {
     animation: none;
   }
   .tap-interactive:active {

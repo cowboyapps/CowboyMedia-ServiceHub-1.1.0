@@ -77,7 +77,7 @@ export default function NewsPage() {
       ) : (
         <div className="flex flex-col gap-5">
           {news.map((story) => (
-            <Link key={story.id} href={`/news/${story.id}`} className="block">
+            <Link key={story.id} href={`/news/${story.id}`} className="stagger-item block">
               <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-news-${story.id}`}>
                 <CardContent className="flex gap-4 p-4">
                   {story.imageUrl && (

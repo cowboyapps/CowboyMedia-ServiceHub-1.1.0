@@ -61,7 +61,7 @@ export default function DownloadsPage() {
           {downloads.map((dl) => (
             <Card
               key={dl.id}
-              className="cursor-pointer hover:bg-accent/50 active:scale-[0.98] transition-all"
+              className="stagger-item cursor-pointer hover:bg-accent/50 active:scale-[0.98] transition-all"
               onClick={() => { setSelectedDownload(dl); setCopied(false); }}
               data-testid={`card-download-${dl.id}`}
             >

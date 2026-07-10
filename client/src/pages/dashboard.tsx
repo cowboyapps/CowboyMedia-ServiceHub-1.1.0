@@ -76,7 +76,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Link href="/services" data-testid="link-stat-services">
+        <Link href="/services" data-testid="link-stat-services" className="stagger-item block">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
               <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
@@ -89,7 +89,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/alerts" data-testid="link-stat-alerts">
+        <Link href="/alerts" data-testid="link-stat-alerts" className="stagger-item block">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
               <div className="w-10 h-10 rounded-md bg-destructive/10 flex items-center justify-center">
@@ -102,7 +102,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/tickets" data-testid="link-stat-tickets">
+        <Link href="/tickets" data-testid="link-stat-tickets" className="stagger-item block">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
               <div className="w-10 h-10 rounded-md bg-chart-5/10 flex items-center justify-center">
@@ -115,7 +115,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/news" data-testid="link-stat-news">
+        <Link href="/news" data-testid="link-stat-news" className="stagger-item block">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
               <div className="w-10 h-10 rounded-md bg-chart-2/10 flex items-center justify-center">
@@ -128,7 +128,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/service-updates" data-testid="link-stat-service-updates">
+        <Link href="/service-updates" data-testid="link-stat-service-updates" className="stagger-item block">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
               <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">

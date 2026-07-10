@@ -119,7 +119,7 @@ export default function AlertsPage() {
             </Card>
           ) : (
             activeAlerts.map((alert) => (
-              <Link key={alert.id} href={`/alerts/${alert.id}`}>
+              <Link key={alert.id} href={`/alerts/${alert.id}`} className="stagger-item block">
                 <Card className="hover-elevate cursor-pointer" data-testid={`card-alert-${alert.id}`}>
                   <CardContent className="flex items-start justify-between gap-3 p-4">
                     <div className="flex items-start gap-3">
@@ -157,7 +157,7 @@ export default function AlertsPage() {
             </Card>
           ) : (
             resolvedAlerts.map((alert) => (
-              <Link key={alert.id} href={`/alerts/${alert.id}`}>
+              <Link key={alert.id} href={`/alerts/${alert.id}`} className="stagger-item block">
                 <Card className="hover-elevate cursor-pointer opacity-80" data-testid={`card-alert-resolved-${alert.id}`}>
                   <CardContent className="flex items-start justify-between gap-3 p-4">
                     <div className="flex items-start gap-3">

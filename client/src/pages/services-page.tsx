@@ -113,7 +113,7 @@ export default function ServicesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {services.map((service) => (
-            <Link key={service.id} href={`/services/${service.id}`}>
+            <Link key={service.id} href={`/services/${service.id}`} className="stagger-item block">
               <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-service-${service.id}`}>
                 <CardContent className="flex items-start gap-3 p-4">
                   <div className="mt-0.5">
