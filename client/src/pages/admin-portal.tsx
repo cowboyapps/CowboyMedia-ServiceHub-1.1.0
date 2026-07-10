@@ -336,6 +336,23 @@ const addUpdateSchema = z.object({
   silent: z.boolean().default(false),
 });
 
+// Alert incident lifecycle. Active statuses progress investigating → identified
+// → monitoring; "resolved" is a terminal state reached via the dedicated Resolve
+// action (single obvious control), not this list.
+const ALERT_ACTIVE_STATUSES = ["investigating", "identified", "monitoring"] as const;
+const ALERT_STATUS_LABELS: Record<string, string> = {
+  investigating: "Investigating",
+  identified: "Identified",
+  monitoring: "Monitoring",
+  resolved: "Resolved",
+};
+const ALERT_STATUS_COLORS: Record<string, string> = {
+  investigating: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+  identified: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  monitoring: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  resolved: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+};
+
 const createNewsSchema = z.object({
   title: z.string().min(1, "Title is required"),
   content: z.string().min(1, "Content is required").refine(
@@ -1477,11 +1494,13 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const [editUpdateMessage, setEditUpdateMessage] = useState("");
   const [editUpdateImageFile, setEditUpdateImageFile] = useState<File | null>(null);
   const [editUpdateRemoveImage, setEditUpdateRemoveImage] = useState(false);
-  const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
   const [expandedAlertCardId, setExpandedAlertCardId] = useState<string | null>(null);
   // Draft currently being acted on (Review & publish / Post update / Resolve):
   // when the underlying alert action succeeds, the draft is marked published.
   const [activeDraft, setActiveDraft] = useState<AlertDraft | null>(null);
+  // Streamlined post-update dialog: impact + notification controls stay collapsed
+  // by default so a status update only needs a status + a message.
+  const [showUpdateAdvanced, setShowUpdateAdvanced] = useState(false);
 
   const { data: alerts, isLoading } = useQuery<ServiceAlertWithServices[]>({
     queryKey: ["/api/alerts"],
@@ -1674,6 +1693,28 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       sendEmail: true,
       silent: false,
     });
+    setUpdateImageFile(null);
+    setShowUpdateAdvanced(false);
+    setUpdateDialogOpen(true);
+  };
+
+  // Inline status control: open the streamlined post-update dialog pre-set to a
+  // chosen status (message stays empty so the admin just types the essentials).
+  // Goes through the same addUpdateMutation → same backend route, so status
+  // recompute/broadcast + notifications + permission checks are all preserved.
+  const openUpdateWithStatus = (alertId: string, status: string) => {
+    setActiveDraft(null);
+    setSelectedAlertId(alertId);
+    updateForm.reset({
+      message: "",
+      status,
+      serviceImpact: "no_change",
+      sendPush: true,
+      sendEmail: true,
+      silent: false,
+    });
+    setUpdateImageFile(null);
+    setShowUpdateAdvanced(false);
     setUpdateDialogOpen(true);
   };
 
@@ -1843,7 +1884,7 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </Dialog>
       </div>
 
-      <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) { setUpdateImageFile(null); setActiveDraft(null); } }}>
+      <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) { setUpdateImageFile(null); setActiveDraft(null); setShowUpdateAdvanced(false); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Post Update</DialogTitle></DialogHeader>
           <Form {...updateForm}>
@@ -1861,49 +1902,57 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                   </Select>
                 <FormMessage /></FormItem>
               )} />
-              <FormField control={updateForm.control} name="serviceImpact" render={({ field }) => (
-                <FormItem><FormLabel>Service Impact</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger data-testid="select-update-service-impact"><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="no_change">No Change</SelectItem>
-                      <SelectItem value="operational">Operational</SelectItem>
-                      <SelectItem value="degraded">Degraded Performance</SelectItem>
-                      <SelectItem value="outage">Full Outage</SelectItem>
-                      <SelectItem value="maintenance">Maintenance</SelectItem>
-                    </SelectContent>
-                  </Select>
-                <FormMessage /></FormItem>
-              )} />
               <FormField control={updateForm.control} name="message" render={({ field }) => (
                 <FormItem><FormLabel>Message</FormLabel><FormControl><RichTextEditor value={field.value} onChange={field.onChange} placeholder="What's the latest?" testIdPrefix="input-update-message" hideImage /></FormControl><FormMessage /></FormItem>
               )} />
-              <div className="space-y-2">
-                <Label>Attach Image (optional)</Label>
-                <Input type="file" accept="image/*" onChange={(e) => setUpdateImageFile(e.target.files?.[0] || null)} data-testid="input-update-image" />
-                {updateImageFile && <img src={URL.createObjectURL(updateImageFile)} alt="Preview" className="max-h-24 rounded-md" />}
-              </div>
-              <FormField control={updateForm.control} name="sendPush" render={({ field }) => (
-                <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                  <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
-                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-push" /></FormControl>
-                </FormItem>
-              )} />
-              <FormField control={updateForm.control} name="sendEmail" render={({ field }) => (
-                <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                  <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
-                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-email" /></FormControl>
-                </FormItem>
-              )} />
-              <FormField control={updateForm.control} name="silent" render={({ field }) => (
-                <FormItem className="flex items-start justify-between gap-3 rounded-lg border p-3">
-                  <div className="space-y-0.5">
-                    <FormLabel className="text-sm font-medium">Send silently (no notifications)</FormLabel>
-                    <p className="text-xs text-muted-foreground">Post this update without sending any push, email, Discord, Telegram or in-app notifications.</p>
+              <Button type="button" variant="ghost" size="sm" className="w-full justify-between px-2 text-muted-foreground" onClick={() => setShowUpdateAdvanced((v) => !v)} data-testid="button-toggle-update-advanced">
+                <span className="text-xs">Impact &amp; notification options</span>
+                {showUpdateAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </Button>
+              {showUpdateAdvanced && (
+                <div className="space-y-3 rounded-lg border p-3" data-testid="section-update-advanced">
+                  <FormField control={updateForm.control} name="serviceImpact" render={({ field }) => (
+                    <FormItem><FormLabel>Service Impact</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl><SelectTrigger data-testid="select-update-service-impact"><SelectValue /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="no_change">No Change</SelectItem>
+                          <SelectItem value="operational">Operational</SelectItem>
+                          <SelectItem value="degraded">Degraded Performance</SelectItem>
+                          <SelectItem value="outage">Full Outage</SelectItem>
+                          <SelectItem value="maintenance">Maintenance</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    <FormMessage /></FormItem>
+                  )} />
+                  <div className="space-y-2">
+                    <Label>Attach Image (optional)</Label>
+                    <Input type="file" accept="image/*" onChange={(e) => setUpdateImageFile(e.target.files?.[0] || null)} data-testid="input-update-image" />
+                    {updateImageFile && <img src={URL.createObjectURL(updateImageFile)} alt="Preview" className="max-h-24 rounded-md" />}
                   </div>
-                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-silent" /></FormControl>
-                </FormItem>
-              )} />
+                  <FormField control={updateForm.control} name="sendPush" render={({ field }) => (
+                    <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                      <FormLabel className="text-sm font-medium">Send Push Notification</FormLabel>
+                      <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-push" /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={updateForm.control} name="sendEmail" render={({ field }) => (
+                    <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                      <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
+                      <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-email" /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={updateForm.control} name="silent" render={({ field }) => (
+                    <FormItem className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-sm font-medium">Send silently (no notifications)</FormLabel>
+                        <p className="text-xs text-muted-foreground">Post this update without sending any push, email, Discord, Telegram or in-app notifications.</p>
+                      </div>
+                      <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-silent" /></FormControl>
+                    </FormItem>
+                  )} />
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={addUpdateMutation.isPending} data-testid="button-submit-update">
                 {addUpdateMutation.isPending ? "Posting..." : updateForm.watch("silent") ? "Post Silently" : "Post Update"}
               </Button>
@@ -2051,13 +2100,38 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] capitalize">{alert.severity}</Badge>
-                    <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-[10px] capitalize">{alert.status}</Badge>
+                    <Badge variant="outline" className={`text-[10px] font-semibold ${ALERT_STATUS_COLORS[alert.status] || ""}`} data-testid={`badge-alert-status-${alert.id}`}>{ALERT_STATUS_LABELS[alert.status] || alert.status}</Badge>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap pl-6">
                   {alert.serviceIds?.map((sid) => serviceMap.get(sid) && <Badge key={sid} variant="secondary" className="text-[10px]" data-testid={`badge-alert-service-${sid}`}>{serviceMap.get(sid)}</Badge>)}
                   <span className="text-[10px] text-muted-foreground">{format(new Date(alert.createdAt), "MMM d, yyyy h:mm a")}</span>
                 </div>
+                {canManage && alert.status !== "resolved" && (
+                  <div className="flex items-center gap-2 flex-wrap pl-6" onClick={(e) => e.stopPropagation()} data-testid={`inline-status-controls-${alert.id}`}>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Set status</span>
+                    <div className="inline-flex rounded-md border overflow-hidden">
+                      {ALERT_ACTIVE_STATUSES.map((st) => {
+                        const active = alert.status === st;
+                        return (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => openUpdateWithStatus(alert.id, st)}
+                            className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                            data-testid={`button-set-status-${st}-${alert.id}`}
+                            aria-pressed={active}
+                          >
+                            {ALERT_STATUS_LABELS[st]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <Button size="sm" variant="outline" className="h-7 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" onClick={() => { setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-inline-${alert.id}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Resolve
+                    </Button>
+                  </div>
+                )}
                 {expandedAlertCardId === alert.id && (
                   <div className="space-y-2 pt-1 pl-6">
                     <RichTextContent content={alert.description} className="text-xs text-muted-foreground" testId={`text-admin-alert-desc-${alert.id}`} />
@@ -2067,16 +2141,6 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditAlert(alert); }} data-testid={`button-edit-alert-${alert.id}`}>
                           <Edit className="w-3 h-3 mr-1" /> Edit
                         </Button>
-                      )}
-                      {canManage && alert.status !== "resolved" && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setSelectedAlertId(alert.id); setUpdateDialogOpen(true); }} data-testid={`button-update-alert-${alert.id}`}>
-                            Update
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-alert-${alert.id}`}>
-                            Resolve
-                          </Button>
-                        </>
                       )}
                       {canManage && <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -2096,10 +2160,10 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                         </AlertDialogContent>
                       </AlertDialog>}
                     </div>
-                    <Button variant="ghost" size="sm" className="text-xs" onClick={(e) => { e.stopPropagation(); setExpandedAlertId(expandedAlertId === alert.id ? null : alert.id); }} data-testid={`button-toggle-updates-${alert.id}`}>
-                      {expandedAlertId === alert.id ? "Hide Updates" : "Show Updates"}
-                    </Button>
-                    {expandedAlertId === alert.id && <AlertUpdatesList alertId={alert.id} canManage={canManage} onEditUpdate={(update) => { setEditingAlertUpdate({ alertId: alert.id, update }); setEditUpdateMessage(update.message); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); setEditUpdateDialogOpen(true); }} />}
+                    <div className="pt-1">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Update timeline</p>
+                      <AlertUpdatesList alertId={alert.id} canManage={canManage} onEditUpdate={(update) => { setEditingAlertUpdate({ alertId: alert.id, update }); setEditUpdateMessage(update.message); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); setEditUpdateDialogOpen(true); }} />
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -2120,24 +2184,38 @@ function AlertUpdatesList({ alertId, canManage, onEditUpdate }: { alertId: strin
   if (!updates || updates.length === 0) return <p className="text-xs text-muted-foreground text-center py-2">No updates yet</p>;
 
   return (
-    <div className="space-y-2 border-t pt-2">
-      {updates.map((update) => (
-        <div key={update.id} className="flex items-start justify-between gap-2 p-2 rounded bg-muted/50" data-testid={`alert-update-entry-${update.id}`}>
-          <div className="space-y-1 min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-xs capitalize">{update.status}</Badge>
-              <span className="text-xs text-muted-foreground">{format(new Date(update.createdAt), "MMM d, h:mm a")}</span>
+    <div className="border-t pt-2 pl-1">
+      {updates.map((update, idx) => {
+        const isLast = idx === updates.length - 1;
+        const dotColor = update.status === "resolved"
+          ? "bg-emerald-500"
+          : update.status === "monitoring"
+            ? "bg-blue-500"
+            : update.status === "identified"
+              ? "bg-amber-500"
+              : "bg-red-500";
+        return (
+          <div key={update.id} className="relative flex gap-3 pb-3 last:pb-0" data-testid={`alert-update-entry-${update.id}`}>
+            <div className="flex flex-col items-center flex-shrink-0">
+              <span className={`w-2.5 h-2.5 rounded-full mt-1 ${dotColor}`} aria-hidden="true" />
+              {!isLast && <span className="w-px flex-1 bg-border mt-1" aria-hidden="true" />}
             </div>
-            <RichTextContent content={update.message} className="text-xs" testId={`text-alert-update-message-${update.id}`} />
-            {update.imageUrl && <ClickableImage src={update.imageUrl} alt="Update image" className="max-h-20 rounded-md mt-1" />}
+            <div className="min-w-0 flex-1 -mt-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className={`text-[10px] font-semibold capitalize ${ALERT_STATUS_COLORS[update.status] || ""}`} data-testid={`badge-alert-update-status-${update.id}`}>{ALERT_STATUS_LABELS[update.status] || update.status}</Badge>
+                <span className="text-xs text-muted-foreground">{format(new Date(update.createdAt), "MMM d, h:mm a")}</span>
+                {canManage && (
+                  <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto flex-shrink-0" onClick={() => onEditUpdate(update)} data-testid={`button-edit-update-${update.id}`}>
+                    <Edit className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+              <RichTextContent content={update.message} className="text-xs mt-1" testId={`text-alert-update-message-${update.id}`} />
+              {update.imageUrl && <ClickableImage src={update.imageUrl} alt="Update image" className="max-h-20 rounded-md mt-1" />}
+            </div>
           </div>
-          {canManage && (
-            <Button size="icon" variant="ghost" className="flex-shrink-0" onClick={() => onEditUpdate(update)} data-testid={`button-edit-update-${update.id}`}>
-              <Edit className="w-3.5 h-3.5" />
-            </Button>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
