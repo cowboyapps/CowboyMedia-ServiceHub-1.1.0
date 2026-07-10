@@ -6464,7 +6464,7 @@ const TILE_MANAGE_MAP: Record<string, string> = {
 
 const NO_LINK_VALUE = "__none__";
 
-function KnowledgeBaseTab() {
+export function KnowledgeBaseTab() {
   const { toast } = useToast();
   const [tab, setTab] = useState<"articles" | "categories">("articles");
 
@@ -6488,6 +6488,7 @@ function KnowledgeBaseTab() {
   const [artTags, setArtTags] = useState("");
   const [artPublished, setArtPublished] = useState(true);
   const [artSortOrder, setArtSortOrder] = useState(0);
+  const [artFilter, setArtFilter] = useState<"all" | "published" | "draft">("all");
 
   const { data: categories = [], isLoading: catsLoading } = useQuery<KbCategory[]>({ queryKey: ["/api/admin/kb/categories"] });
   const { data: articles = [], isLoading: artsLoading } = useQuery<KbArticle[]>({ queryKey: ["/api/admin/kb/articles"] });
@@ -6508,7 +6509,7 @@ function KnowledgeBaseTab() {
     setArtSummary("");
     setArtBodyHtml("");
     setArtTags("");
-    setArtPublished(true);
+    setArtPublished(false);
     setArtSortOrder(0);
   };
 
@@ -6546,14 +6547,14 @@ function KnowledgeBaseTab() {
     description: catDescription.trim() || null,
     sortOrder: Number(catSortOrder) || 0,
   });
-  const artPayload = () => ({
+  const artPayload = (publishedOverride?: boolean) => ({
     title: artTitle.trim(),
     slug: (artSlug.trim() || slugify(artTitle)).toLowerCase(),
     categoryId: artCategoryId,
     summary: artSummary.trim() || null,
     bodyHtml: artBodyHtml,
     tags: artTags.split(",").map(t => t.trim()).filter(Boolean),
-    published: artPublished,
+    published: publishedOverride ?? artPublished,
     sortOrder: Number(artSortOrder) || 0,
   });
 
@@ -6593,7 +6594,7 @@ function KnowledgeBaseTab() {
   });
 
   const createArtMutation = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/admin/kb/articles", artPayload())).json(),
+    mutationFn: async (published: boolean) => (await apiRequest("POST", "/api/admin/kb/articles", artPayload(published))).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] });
@@ -6604,9 +6605,9 @@ function KnowledgeBaseTab() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
   const updateArtMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (published: boolean) => {
       if (!editingArt) return;
-      return (await apiRequest("PATCH", `/api/admin/kb/articles/${editingArt.id}`, artPayload())).json();
+      return (await apiRequest("PATCH", `/api/admin/kb/articles/${editingArt.id}`, artPayload(published))).json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/kb/articles"] });
@@ -6627,6 +6628,15 @@ function KnowledgeBaseTab() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const publishedCount = articles.filter((a) => a.published).length;
+  const draftCount = articles.length - publishedCount;
+  const filteredArticles =
+    artFilter === "all"
+      ? articles
+      : articles.filter((a) => (artFilter === "published" ? a.published : !a.published));
+  const artSaveDisabled =
+    !artTitle.trim() || !artCategoryId || !artBodyHtml.trim() || createArtMutation.isPending || updateArtMutation.isPending;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -6639,7 +6649,26 @@ function KnowledgeBaseTab() {
         </TabsList>
 
         <TabsContent value="articles" className="space-y-3 mt-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            {articles.length > 0 ? (
+              <div className="flex items-center gap-1" data-testid="kb-article-filter">
+                {([
+                  ["all", "All", articles.length],
+                  ["published", "Published", publishedCount],
+                  ["draft", "Drafts", draftCount],
+                ] as const).map(([key, label, count]) => (
+                  <Button
+                    key={key}
+                    size="sm"
+                    variant={artFilter === key ? "default" : "outline"}
+                    onClick={() => setArtFilter(key)}
+                    data-testid={`filter-kb-articles-${key}`}
+                  >
+                    {label} ({count})
+                  </Button>
+                ))}
+              </div>
+            ) : <div />}
             <Button onClick={openCreateArt} disabled={categories.length === 0} data-testid="button-create-kb-article">
               <Plus className="w-4 h-4 mr-1" /> New Article
             </Button>
@@ -6651,9 +6680,13 @@ function KnowledgeBaseTab() {
             <Skeleton className="h-24" />
           ) : articles.length === 0 ? (
             <p className="text-sm text-muted-foreground">No articles yet.</p>
+          ) : filteredArticles.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-kb-articles-empty-filter">
+              No {artFilter === "draft" ? "draft" : "published"} articles.
+            </p>
           ) : (
             <div className="space-y-2">
-              {articles.map((a) => {
+              {filteredArticles.map((a) => {
                 const cat = categories.find((c) => c.id === a.categoryId);
                 return (
                   <Card key={a.id} data-testid={`card-admin-kb-article-${a.id}`}>
@@ -6661,12 +6694,21 @@ function KnowledgeBaseTab() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-medium text-sm">{a.title}</p>
-                          {!a.published && <Badge variant="outline" className="text-[10px]">Draft</Badge>}
+                          {a.published ? (
+                            <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-600 dark:text-green-400" data-testid={`badge-kb-status-${a.id}`}>Published</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400" data-testid={`badge-kb-status-${a.id}`}>Draft</Badge>
+                          )}
                           {cat && <Badge variant="secondary" className="text-[10px]">{cat.name}</Badge>}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">/{a.slug} · {a.viewCount} views · 👍 {a.helpfulCount} 👎 {a.unhelpfulCount}</p>
                       </div>
                       <div className="flex gap-1">
+                        <a href={`/knowledge/${a.slug}`} target="_blank" rel="noopener noreferrer" data-testid={`link-preview-kb-article-${a.id}`}>
+                          <Button size="sm" variant="ghost" title="Preview" data-testid={`button-preview-kb-article-${a.id}`}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </a>
                         <Button size="sm" variant="ghost" onClick={() => openEditArt(a)} data-testid={`button-edit-kb-article-${a.id}`}>
                           <Edit className="w-4 h-4" />
                         </Button>
@@ -6823,9 +6865,17 @@ function KnowledgeBaseTab() {
               <Input value={artTags} onChange={(e) => setArtTags(e.target.value)} data-testid="input-kb-article-tags" />
             </div>
             <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <Switch checked={artPublished} onCheckedChange={setArtPublished} data-testid="switch-kb-article-published" />
-                <Label>Published</Label>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Status:</span>
+                {editingArt ? (
+                  editingArt.published ? (
+                    <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-600 dark:text-green-400" data-testid="badge-kb-dialog-status">Published</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400" data-testid="badge-kb-dialog-status">Draft</Badge>
+                  )
+                ) : (
+                  <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400" data-testid="badge-kb-dialog-status">New draft</Badge>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Sort order</Label>
@@ -6835,11 +6885,19 @@ function KnowledgeBaseTab() {
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setArtDialogOpen(false)}>Cancel</Button>
               <Button
-                onClick={() => editingArt ? updateArtMutation.mutate() : createArtMutation.mutate()}
-                disabled={!artTitle.trim() || !artCategoryId || !artBodyHtml.trim() || createArtMutation.isPending || updateArtMutation.isPending}
-                data-testid="button-save-kb-article"
+                variant="outline"
+                onClick={() => editingArt ? updateArtMutation.mutate(false) : createArtMutation.mutate(false)}
+                disabled={artSaveDisabled}
+                data-testid="button-save-kb-article-draft"
               >
-                {editingArt ? "Save" : "Create"}
+                Save as Draft
+              </Button>
+              <Button
+                onClick={() => editingArt ? updateArtMutation.mutate(true) : createArtMutation.mutate(true)}
+                disabled={artSaveDisabled}
+                data-testid="button-publish-kb-article"
+              >
+                Publish
               </Button>
             </div>
           </div>
