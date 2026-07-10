@@ -37,6 +37,8 @@ import { format } from "date-fns";
 import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscription } from "@/lib/push-notifications";
 import { BrandLogo } from "@/components/brand-logo";
 import { PullToRefresh } from "@/components/pull-to-refresh";
+import { PwaInstallBanner } from "@/components/pwa-install-banner";
+import { setSetupReminderOpen } from "@/lib/setup-reminder-state";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
@@ -307,6 +309,13 @@ function SetupReminderDialog() {
     };
     checkSetup();
   }, [user]);
+
+  // Publish open state so the PWA install banner can hold off while this modal
+  // reminder is up (they must never stack — see setup-reminder-state.ts).
+  useEffect(() => {
+    setSetupReminderOpen(showReminder);
+    return () => setSetupReminderOpen(false);
+  }, [showReminder]);
 
   const handleDismissPermanently = async () => {
     setDismissing(true);
@@ -1242,6 +1251,7 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
       <VersionWelcomeDialog />
       <ChangelogPublishPrompt />
       <SetupReminderDialog />
+      <PwaInstallBanner />
       <PrivateMessagePopup />
       <AnnouncementPopup />
       <NewServicePopup />

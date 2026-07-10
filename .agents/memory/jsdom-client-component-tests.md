@@ -108,6 +108,16 @@ gc timers separately (see the mutation-gc note above) or the file hangs again.
   its own subprocess, so globals don't leak and a purely additive file can't
   regress others.
 
+## Components reading bare `localStorage`/`sessionStorage` need it as a global
+A component that calls bare `localStorage.getItem/setItem` (not `window.localStorage`)
+resolves the free identifier against `globalThis`. jsdom exposes storage only on
+`window`, so under `tsx --test` those calls hit `undefined` and — if wrapped in a
+`try/catch` (the usual pattern) — **silently no-op**. Symptom: a dismiss/cool-off
+persists in the browser but the test reads back `null` and the "stays hidden next
+visit" assertion fails. **Fix in the test:** `globalThis.localStorage = window.localStorage`
+(and `sessionStorage` likewise) alongside the other global shims. Precedent:
+`test/pwa-install-banner.test.ts`.
+
 ## Page WS handlers patch the SINGLETON queryClient
 Community-chat (and similar) pages import `queryClient` from `@/lib/queryClient`
 inside their WebSocket `onMessage` handlers while the rendered tree reads from
