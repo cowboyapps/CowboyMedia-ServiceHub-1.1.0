@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Bell, X, Mail, MessageSquare, AlertTriangle, Newspaper, Activity, FileText, RefreshCw, CheckCheck, UserPlus, MonitorX, MonitorCheck } from "lucide-react";
+import { Bell, X, Mail, MessageSquare, AlertTriangle, Newspaper, Activity, FileText, RefreshCw, CheckCheck, UserPlus, MonitorX, MonitorCheck, ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -65,8 +65,9 @@ function invalidateBadgesForTypes(types: Iterable<string>) {
   }
 }
 
-function NotificationList({ onNavigate }: { onNavigate: (url: string) => void }) {
+export function NotificationList({ onNavigate }: { onNavigate: (url: string) => void }) {
   const [hasSyncedBadges, setHasSyncedBadges] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { data: notifications = [], isLoading } = useQuery<UserNotification[]>({
     queryKey: ["/api/notifications"],
@@ -180,14 +181,38 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
     invalidateBadgesForTypes(group.notifications.map((n) => n.type));
   };
 
+  const openNotification = (notif: UserNotification) => {
+    dismissMutation.mutate([notif.id]);
+    invalidateBadgesForTypes([notif.type]);
+    if (notif.url) {
+      onNavigate(notif.url);
+    }
+  };
+
   const handleTapGroup = (group: GroupedNotification) => {
     hapticLight();
-    const ids = group.notifications.map((n) => n.id);
-    dismissMutation.mutate(ids);
-    invalidateBadgesForTypes(group.notifications.map((n) => n.type));
-    if (group.latest.url) {
-      onNavigate(group.latest.url);
+    if (group.count > 1) {
+      setExpandedKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(group.key)) next.delete(group.key);
+        else next.add(group.key);
+        return next;
+      });
+      return;
     }
+    openNotification(group.latest);
+  };
+
+  const handleOpenItem = (notif: UserNotification) => {
+    hapticLight();
+    openNotification(notif);
+  };
+
+  const handleDismissItem = (e: React.MouseEvent, notif: UserNotification) => {
+    e.stopPropagation();
+    hapticLight();
+    dismissMutation.mutate([notif.id]);
+    invalidateBadgesForTypes([notif.type]);
   };
 
   return (
@@ -220,6 +245,8 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
                 const notif = group.latest;
                 const Icon = getIcon(notif.type);
                 const isUnread = group.notifications.some(n => !n.readAt);
+                const isExpandable = group.count > 1;
+                const isExpanded = isExpandable && expandedKeys.has(group.key);
                 return (
                   <motion.div
                     key={group.key}
@@ -232,6 +259,7 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
                     <div
                       role="button"
                       tabIndex={0}
+                      aria-expanded={isExpandable ? isExpanded : undefined}
                       onClick={() => handleTapGroup(group)}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTapGroup(group); } }}
                       className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${isUnread ? "bg-primary/5" : ""}`}
@@ -260,14 +288,71 @@ function NotificationList({ onNavigate }: { onNavigate: (url: string) => void })
                           {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
                         </p>
                       </div>
+                      {isExpandable && (
+                        <ChevronDown
+                          className={`flex-shrink-0 w-4 h-4 text-muted-foreground mt-1 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                          data-testid={`chevron-group-${group.key}`}
+                        />
+                      )}
                       <button
                         onClick={(e) => handleDismissGroup(e, group)}
                         className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
                         data-testid={`button-dismiss-${group.key}`}
+                        aria-label="Dismiss all"
                       >
                         <X className="w-3.5 h-3.5 text-muted-foreground" />
                       </button>
                     </div>
+                    <AnimatePresence initial={false}>
+                      {isExpanded && (
+                        <motion.div
+                          key={`${group.key}-items`}
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                          style={{ overflow: "hidden" }}
+                          className="bg-muted/20"
+                        >
+                          <div className="divide-y divide-border/50">
+                            {group.notifications.map(item => {
+                              const ItemIcon = getIcon(item.type);
+                              const itemUnread = !item.readAt;
+                              return (
+                                <div
+                                  key={item.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => handleOpenItem(item)}
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleOpenItem(item); } }}
+                                  className={`flex items-start gap-3 w-full pl-10 pr-4 py-2.5 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${itemUnread ? "bg-primary/5" : ""}`}
+                                  data-testid={`notification-subitem-${item.id}`}
+                                >
+                                  <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${itemUnread ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                                    <ItemIcon className="w-3 h-3" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-xs leading-tight ${itemUnread ? "font-medium" : "text-muted-foreground"}`}>{item.title}</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.body}</p>
+                                    <p className="text-[10px] text-muted-foreground/60 mt-1">
+                                      {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={(e) => handleDismissItem(e, item)}
+                                    className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
+                                    data-testid={`button-dismiss-item-${item.id}`}
+                                    aria-label="Dismiss notification"
+                                  >
+                                    <X className="w-3 h-3 text-muted-foreground" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </motion.div>
                 );
               })}
