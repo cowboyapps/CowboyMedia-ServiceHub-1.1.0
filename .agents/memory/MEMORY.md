@@ -40,3 +40,4 @@
 - [iOS keyboard-inset vs viewport pan](ios-keyboard-inset-pan.md) — detect keyboard as innerHeight - vv.height only; subtracting offsetTop cancels detection exactly when iOS pans; un-pan via scrollTo(0,0).
 - [Idempotency async-store listener timing](idempotency-async-store-listener-timing.md) — when the dedup store goes DB-backed (async), attach res close/finish listeners synchronously before the claim or a fast abort is missed → stale pending → permanent 409.
 - [Radix menu → popover handoff](radix-menu-to-popover-handoff.md) — opening a Popover from a DropdownMenuItem via setTimeout(0) races the menu's focus restore; open it in onCloseAutoFocus + preventDefault.
+- [Wouter route exit animations](wouter-route-exit-animations.md) — don't remount the outgoing route in a 2nd Router (re-fires mount POSTs); use View Transitions on a single tree pinned to renderedLocation w/ the real navigate.

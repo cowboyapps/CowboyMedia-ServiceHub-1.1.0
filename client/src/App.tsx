@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { flushSync } from "react-dom";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { GlobalSocketProvider, useGlobalSocket } from "@/contexts/global-socket-context";
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, Router, useLocation } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -73,34 +74,64 @@ import { ChangelogPublishPrompt } from "@/components/changelog-publish-prompt";
 import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
 import { useModalSlot } from "@/lib/modal-queue";
 
-function getRouteDepth(path: string): number {
-  if (path === "/") return 0;
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length >= 2) return 2;
-  return 1;
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return reduced;
 }
 
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (callback: () => void) => unknown;
+};
+
+/**
+ * Wraps the routed page area and crossfades between routes using the browser's
+ * View Transitions API — the outgoing page eases out while the incoming page
+ * eases in. Crucially there is NO second React tree and NO remount: the route
+ * swaps exactly once (identical to a plain navigation), so no page's mount
+ * effects run twice and behavior is unchanged. The rendered content is pinned
+ * to `renderedLocation` and only advanced inside the transition callback (via
+ * `flushSync`) so the browser can snapshot the old frame before the DOM
+ * updates. Navigation still flows through the real browser location hook, so
+ * in-page links keep working normally. Falls back to an instant swap when the
+ * API is unavailable or the user prefers reduced motion — nothing can ever get
+ * stuck and interaction is never delayed.
+ */
 function PageTransition({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
-  const prevDepthRef = useRef(getRouteDepth(location));
-  const [animClass, setAnimClass] = useState("animate-page-enter");
+  const [location, navigate] = useLocation();
+  const prefersReduced = usePrefersReducedMotion();
+  const [renderedLocation, setRenderedLocation] = useState(location);
 
   useEffect(() => {
-    const newDepth = getRouteDepth(location);
-    const prevDepth = prevDepthRef.current;
-    if (newDepth > prevDepth) {
-      setAnimClass("animate-slide-in-right");
-    } else if (newDepth < prevDepth) {
-      setAnimClass("animate-slide-in-left");
-    } else {
-      setAnimClass("animate-page-enter");
+    if (location === renderedLocation) return;
+    const swap = () => setRenderedLocation(location);
+    const doc = typeof document !== "undefined" ? (document as ViewTransitionDocument) : undefined;
+    if (prefersReduced || !doc || typeof doc.startViewTransition !== "function") {
+      swap();
+      return;
     }
-    prevDepthRef.current = newDepth;
-  }, [location]);
+    doc.startViewTransition(() => flushSync(swap));
+  }, [location, renderedLocation, prefersReduced]);
+
+  const routerHook = useCallback(
+    () => [renderedLocation, navigate] as [string, typeof navigate],
+    [renderedLocation, navigate]
+  );
 
   return (
-    <div key={location} className={`${animClass} flex-1 min-h-0 flex flex-col`}>
-      {children}
+    <div className="flex-1 min-h-0 flex flex-col">
+      <Router hook={routerHook}>{children}</Router>
     </div>
   );
 }

@@ -219,39 +219,6 @@ body {
   }
 }
 
-@keyframes page-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slide-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(8%);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slide-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-8%);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -328,16 +295,14 @@ body {
   animation: status-pulse-down 1.5s ease-in-out infinite;
 }
 
-.animate-page-enter {
-  animation: page-enter var(--motion-med) var(--motion-ease);
-}
-
-.animate-slide-in-right {
-  animation: slide-in-right var(--motion-med) var(--motion-ease);
-}
-
-.animate-slide-in-left {
-  animation: slide-in-left var(--motion-med) var(--motion-ease);
+/* Route transitions use the browser View Transitions API (see PageTransition in
+   App.tsx). The persistent app chrome (sidebar / nav) is visually identical
+   before and after navigation, so cross-fading the whole root snapshot only
+   surfaces motion on the page content that actually changed. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-med);
+  animation-timing-function: var(--motion-ease);
 }
 
 .animate-fade-in {
@@ -387,14 +352,9 @@ body {
   .animate-status-glow {
     animation: none;
   }
-  .animate-page-enter {
-    animation: none;
-  }
-  .animate-slide-in-right {
-    animation: none;
-  }
-  .animate-slide-in-left {
-    animation: none;
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
   }
   .animate-fade-in,
   .animate-slide-up,
