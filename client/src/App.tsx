@@ -360,7 +360,13 @@ function SetupReminderDialog() {
     }
   };
 
-  if (!showReminder) return null;
+  // Claim a modal slot so the reminder never stacks on top of another
+  // focus-trapping surface (onboarding tour, version-welcome, message popup).
+  // It sits below the tour (70) and version-welcome (50) so those present
+  // first, then the reminder appears cleanly once they release.
+  const isMine = useModalSlot("setup-reminder", 45, showReminder);
+
+  if (!showReminder || !isMine) return null;
 
   return (
     <Dialog open={showReminder} onOpenChange={setShowReminder}>
@@ -440,7 +446,12 @@ function PrivateMessagePopupInner({ userId }: { userId: string }) {
     },
   });
 
-  if (!popupMessage) return null;
+  // Lowest onboarding-band priority: a real-time message must never stack on
+  // top of the tour, setup reminder, or any welcome dialog. It stays queued
+  // (state preserved) and presents once the higher surfaces release.
+  const isMine = useModalSlot("private-message", 40, !!popupMessage);
+
+  if (!popupMessage || !isMine) return null;
   return <PrivateMessageDialog popupMessage={popupMessage} setPopupMessage={setPopupMessage} />;
 }
 

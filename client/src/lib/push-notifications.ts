@@ -22,12 +22,34 @@ export async function getNotificationPermission(): Promise<NotificationPermissio
   return Notification.permission;
 }
 
+// Clear, platform-specific guidance for when notifications are blocked at the
+// browser/device level. A blocked permission can't be re-prompted — the user
+// has to flip it back on manually — so a generic "try again" is useless here.
+// We tailor the steps to where the toggle actually lives on each platform.
+export function blockedNotificationsHelp(): string {
+  if (isIOS()) {
+    return "Notifications are blocked. Open your device Settings, find ServiceHub (under Notifications), turn Allow Notifications on, then come back and try again.";
+  }
+  if (isAndroid()) {
+    return "Notifications are blocked. Tap the lock icon next to the address bar (or your browser's Site settings), set Notifications to Allow, then reload and try again.";
+  }
+  return "Notifications are blocked for this site. Click the lock or site-info icon in your browser's address bar, set Notifications to Allow, then reload the page and try again.";
+}
+
 function isIOS(): boolean {
   try {
     return (
       /iP(hone|ad|od)/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1)
     );
+  } catch {
+    return false;
+  }
+}
+
+function isAndroid(): boolean {
+  try {
+    return /Android/i.test(navigator.userAgent);
   } catch {
     return false;
   }
@@ -404,7 +426,7 @@ export async function subscribeToPush(): Promise<PushResult> {
           ok: false,
           code: denied ? "denied" : "dismissed",
           reason: denied
-            ? "Notifications are blocked for this app. Allow them in your device Settings, then try again."
+            ? blockedNotificationsHelp()
             : "The permission prompt was dismissed. Tap to try again and choose Allow.",
         };
       }
