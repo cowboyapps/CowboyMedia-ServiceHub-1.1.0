@@ -76,10 +76,14 @@ function jsonResponse(body: unknown, status = 200) {
 // defaults (these drive customer notification fan-out + status recompute).
 interface CapturedPost { url: string; body: FormData }
 let capturedUpdatePost: CapturedPost | null = null;
+// The one-tap Resolve dialog PATCHes a separate endpoint; capture it too so we
+// can assert it notifies customers (does NOT go silent) by default.
+let capturedResolvePost: CapturedPost | null = null;
 // Read through a function so control-flow analysis keeps the declared union type
 // after the test resets the module-level variable to null (the fetch closure
 // reassigns it out of band).
 const getCapturedUpdatePost = (): CapturedPost | null => capturedUpdatePost;
+const getCapturedResolvePost = (): CapturedPost | null => capturedResolvePost;
 // GET refetches must resolve to an array — the tab maps over updates/alerts.
 g.fetch = (async (input: unknown, init?: { method?: string; body?: unknown }) => {
   const url = typeof input === "string" ? input : String(input);
@@ -87,6 +91,9 @@ g.fetch = (async (input: unknown, init?: { method?: string; body?: unknown }) =>
   const isFormData = !!body && typeof body.append === "function" && typeof body.get === "function";
   if (isFormData && /\/api\/admin\/alerts\/.+\/updates$/.test(url)) {
     capturedUpdatePost = { url, body: body! };
+  }
+  if (isFormData && /\/api\/admin\/alerts\/.+\/resolve$/.test(url)) {
+    capturedResolvePost = { url, body: body! };
   }
   return jsonResponse([]);
 }) as unknown as typeof fetch;
@@ -332,6 +339,40 @@ test("submitting the streamlined update (advanced collapsed) POSTs the notify-on
     assert.equal(body.get("sendEmail"), "true", "subscriber emails on by default");
     assert.equal(body.get("serviceImpact"), "no_change", "service impact left unchanged by default");
     assert.equal(body.get("silent"), "false", "not silent — customers are notified");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("submitting the one-tap Resolve dialog notifies customers by default (not silent)", async () => {
+  const c = await mountAlertsTab([activeAlert()]);
+  capturedResolvePost = null;
+  try {
+    // One-tap Resolve: open the resolve dialog from the inline control.
+    await act(async () => {
+      byTestId(c.container, "button-resolve-inline-alert-1")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // The "Resolve silently" switch defaults to off — submit the dialog as-is,
+    // exactly as an admin does when they just want to mark the incident over.
+    const silentSwitch = window.document.querySelector('[data-testid="switch-resolve-silent"]') as HTMLElement | null;
+    assert.ok(silentSwitch, "resolve dialog opened with the silent switch");
+    assert.notEqual(silentSwitch!.getAttribute("aria-checked"), "true", "silent is off by default");
+
+    await act(async () => {
+      (window.document.querySelector('[data-testid="button-confirm-resolve"]') as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    const captured = getCapturedResolvePost();
+    assert.ok(captured, "resolve submit PATCHed to the resolve endpoint");
+    assert.match(captured!.url, /\/api\/admin\/alerts\/alert-1\/resolve$/, "hits the per-alert resolve route");
+    // The resolve dialog only appends silent=true when the admin opts in, so by
+    // default customers get the incident-over notification (push/email/Discord/
+    // Telegram fan-out + status recompute to operational). A regression that
+    // flips the default to silent would set silent=true here and fail the build.
+    assert.notEqual(captured!.body.get("silent"), "true", "not silent — customers are told the incident is over");
   } finally {
     c.cleanup();
   }
