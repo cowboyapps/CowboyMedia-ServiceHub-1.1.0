@@ -72,6 +72,8 @@ const SLOT_PRIORITIES: Record<string, number> = {
   ...extractSlots("client/src/components/version-welcome-dialog.tsx"),
   ...extractSlots("client/src/components/welcome-v7-dialog.tsx"),
   ...extractSlots("client/src/components/changelog-publish-prompt.tsx"),
+  ...extractSlots("client/src/components/setup-reminder-dialog.tsx"),
+  ...extractSlots("client/src/components/private-message-popup.tsx"),
 };
 
 const React = await import("react");

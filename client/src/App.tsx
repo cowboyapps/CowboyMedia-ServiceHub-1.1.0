@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { flushSync } from "react-dom";
-import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { GlobalSocketProvider, useGlobalSocket } from "@/contexts/global-socket-context";
 import { Switch, Route, Router, useLocation } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
@@ -26,7 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Smartphone, BellRing, Settings, Mail, CheckCircle, Activity, Megaphone, ArrowRightLeft, Home, PackagePlus } from "lucide-react";
+import { Smartphone, BellRing, Settings, CheckCircle, Activity, Megaphone, ArrowRightLeft, Home, PackagePlus } from "lucide-react";
 import DOMPurify from "dompurify";
 import type { Announcement } from "@shared/schema";
 import { NotificationCenter } from "@/components/notification-center";
@@ -39,7 +38,6 @@ import { subscribeToPush, isPushSupported, isSubscribedToPush, syncPushSubscript
 import { BrandLogo } from "@/components/brand-logo";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
-import { setSetupReminderOpen } from "@/lib/setup-reminder-state";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
@@ -72,6 +70,8 @@ import { ServicesPickerWizard } from "@/pages/services-picker-wizard";
 import { VersionWelcomeDialog } from "@/components/version-welcome-dialog";
 import { ChangelogPublishPrompt } from "@/components/changelog-publish-prompt";
 import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
+import { SetupReminderDialog } from "@/components/setup-reminder-dialog";
+import { PrivateMessagePopup } from "@/components/private-message-popup";
 import { useModalSlot } from "@/lib/modal-queue";
 
 function usePrefersReducedMotion() {
@@ -306,188 +306,6 @@ function AuthenticatedLayout() {
         </div>
       </div>
     </SidebarProvider>
-  );
-}
-
-function SetupReminderDialog() {
-  const { user } = useAuth();
-  const [showReminder, setShowReminder] = useState(false);
-  const [missingPush, setMissingPush] = useState(false);
-  const [missingServices, setMissingServices] = useState(false);
-  const [dismissing, setDismissing] = useState(false);
-
-  useEffect(() => {
-    if (!user || user.role === "admin" || user.role === "master_admin") return;
-    if (user.setupReminderDismissed) return;
-    if (sessionStorage.getItem("setupReminderShown") === "true") return;
-    if (sessionStorage.getItem("showWelcome") === "true") return;
-    // Wait for the onboarding tour to finish before showing the setup reminder.
-    // Otherwise the Radix Dialog's focus trap blocks tour interactions (pressing
-    // Start does nothing) and the two popups stack on top of each other.
-    if (user.role === "customer" && !user.onboardingTourCompletedAt) return;
-
-    const checkSetup = async () => {
-      const { isSubscribedToPush } = await import("@/lib/push-notifications");
-      const hasPush = await isSubscribedToPush();
-      const hasServices = (user.subscribedServices?.length ?? 0) > 0;
-
-      if (!hasPush || !hasServices) {
-        setMissingPush(!hasPush);
-        setMissingServices(!hasServices);
-        setShowReminder(true);
-        sessionStorage.setItem("setupReminderShown", "true");
-      }
-    };
-    checkSetup();
-  }, [user]);
-
-  // Publish open state so the PWA install banner can hold off while this modal
-  // reminder is up (they must never stack — see setup-reminder-state.ts).
-  useEffect(() => {
-    setSetupReminderOpen(showReminder);
-    return () => setSetupReminderOpen(false);
-  }, [showReminder]);
-
-  const handleDismissPermanently = async () => {
-    setDismissing(true);
-    try {
-      const { apiRequest } = await import("@/lib/queryClient");
-      await apiRequest("PATCH", "/api/auth/settings", { setupReminderDismissed: true });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-    } catch {} finally {
-      setDismissing(false);
-      setShowReminder(false);
-    }
-  };
-
-  // Claim a modal slot so the reminder never stacks on top of another
-  // focus-trapping surface (onboarding tour, version-welcome, message popup).
-  // It sits below the tour (70) and version-welcome (50) so those present
-  // first, then the reminder appears cleanly once they release.
-  const isMine = useModalSlot("setup-reminder", 45, showReminder);
-
-  if (!showReminder || !isMine) return null;
-
-  return (
-    <Dialog open={showReminder} onOpenChange={setShowReminder}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-setup-reminder">
-        <DialogHeader>
-          <div className="flex justify-center mb-2">
-            <BrandLogo className="h-16" />
-          </div>
-          <DialogTitle className="text-center text-xl" data-testid="text-setup-reminder-title">Quick Reminder</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 text-sm text-muted-foreground">
-          <p className="text-center">
-            It looks like you haven't finished setting up your account. To get the most out of ServiceHub, please visit your <strong className="text-foreground">Settings</strong> page to:
-          </p>
-          {missingPush && (
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <BellRing className="w-4 h-4 text-primary" />
-              </div>
-              <p>
-                <strong className="text-foreground">Enable push notifications</strong> so you receive instant alerts about service issues and ticket updates.
-              </p>
-            </div>
-          )}
-          {missingServices && (
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Settings className="w-4 h-4 text-primary" />
-              </div>
-              <p>
-                <strong className="text-foreground">Select the services</strong> you want to receive notifications for, so you stay informed about the things that matter to you.
-              </p>
-            </div>
-          )}
-        </div>
-        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-          <Button className="w-full" data-testid="button-reminder-go-settings" onClick={() => { setShowReminder(false); window.location.href = "/settings"; }}>
-            Go to Settings
-          </Button>
-          <Button variant="outline" className="w-full" data-testid="button-reminder-dismiss" onClick={() => setShowReminder(false)}>
-            Remind Me Later
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full text-muted-foreground"
-            disabled={dismissing}
-            onClick={handleDismissPermanently}
-            data-testid="button-reminder-dont-remind"
-          >
-            {dismissing ? "Saving..." : "Don't Remind Me Again"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function PrivateMessagePopupInner({ userId }: { userId: string }) {
-  const [popupMessage, setPopupMessage] = useState<{ subject: string; body: string } | null>(null);
-
-  useReconnectingWebSocket({
-    path: "/ws",
-    deps: [userId],
-    onMessage: (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "private_message" && data.recipientId === userId) {
-          setPopupMessage({ subject: data.subject, body: "You have a new private message. Open your Message Center to read it." });
-          queryClient.invalidateQueries({ queryKey: ["/api/private-messages"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/private-messages/unread-count"] });
-        }
-        if (data.type === "thread_message" && data.message) {
-          queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
-        }
-      } catch {}
-    },
-  });
-
-  // Lowest onboarding-band priority: a real-time message must never stack on
-  // top of the tour, setup reminder, or any welcome dialog. It stays queued
-  // (state preserved) and presents once the higher surfaces release.
-  const isMine = useModalSlot("private-message", 40, !!popupMessage);
-
-  if (!popupMessage || !isMine) return null;
-  return <PrivateMessageDialog popupMessage={popupMessage} setPopupMessage={setPopupMessage} />;
-}
-
-function PrivateMessagePopup() {
-  const { user } = useAuth();
-  if (!user || user.role === "admin" || user.role === "master_admin") return null;
-  return <PrivateMessagePopupInner userId={user.id} />;
-}
-
-function PrivateMessageDialog({ popupMessage, setPopupMessage }: { popupMessage: { subject: string; body: string }; setPopupMessage: (v: null) => void }) {
-  if (!popupMessage) return null;
-
-  return (
-    <Dialog open={!!popupMessage} onOpenChange={(open) => { if (!open) setPopupMessage(null); }}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-private-message-popup">
-        <DialogHeader>
-          <div className="flex justify-center mb-2">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Mail className="w-6 h-6 text-primary" />
-            </div>
-          </div>
-          <DialogTitle className="text-center text-lg" data-testid="text-popup-subject">New Message: {popupMessage.subject}</DialogTitle>
-        </DialogHeader>
-        <div className="text-sm text-muted-foreground whitespace-pre-wrap text-center" data-testid="text-popup-body">
-          {popupMessage.body}
-        </div>
-        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-          <Button className="w-full" data-testid="button-popup-view-messages" onClick={() => { setPopupMessage(null); window.location.href = "/messages"; }}>
-            View Messages
-          </Button>
-          <Button variant="outline" className="w-full" data-testid="button-popup-dismiss" onClick={() => setPopupMessage(null)}>
-            Dismiss
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
