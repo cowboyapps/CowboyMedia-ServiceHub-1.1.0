@@ -500,6 +500,60 @@ test("route PATCH /api/admin/alerts/:id/resolve with silent off fires every noti
 });
 
 // ---------------------------------------------------------------------------
+// Self-exclusion guard test.
+//
+// The resolve fan-out filters the acting admin out of the notification audience
+// with `u.id !== req.session.userId` before firing push/email/in-app — so the
+// admin who just clicked "resolve" never gets a redundant "it's fixed" ping about
+// their own action. This is currently unguarded; a refactor that dropped the
+// self-exclusion would notify the resolver. This pins it: getAllUsers returns the
+// acting admin (same id the harness sets as req.session.userId) subscribed to a
+// covered service, and asserts that admin receives ZERO push/email/in-app on a
+// non-silent resolve, while a separate subscribed customer still does. Needs no DB.
+// ---------------------------------------------------------------------------
+test("route PATCH /api/admin/alerts/:id/resolve does not notify the acting admin about their own resolution", async () => {
+  const pushedIds: string[] = [];
+  const emailedTo: string[] = [];
+  let inAppIds: string[] = [];
+  const { app } = routeHarness(
+    {
+      updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+      // The acting admin ("admin-user" — the id requirePermission stamps onto
+      // req.session.userId) is subscribed to the same covered service as cust-1.
+      getAllUsers: async () => [
+        { id: "admin-user", role: "admin", email: "admin@example.com", fullName: "Acting Admin", subscribedServices: ["s1"] },
+        { id: "cust-1", role: "customer", email: "c@example.com", fullName: "Cust One", subscribedServices: ["s1"] },
+      ],
+      createContentNotificationBulk: async (ids: string[]) => {
+        inAppIds = ids;
+      },
+    },
+    {
+      depsOverrides: {
+        ...wantsEverythingDeps,
+        sendPushToUser: async (id: string) => {
+          pushedIds.push(id);
+        },
+        sendTemplatedEmail: async (to: string) => {
+          emailedTo.push(to);
+        },
+      },
+    },
+  );
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+
+  assert.equal(res.status, 200);
+  // The acting admin (same id as req.session.userId) is excluded from every channel.
+  assert.ok(!pushedIds.includes("admin-user"), "the resolving admin gets no push about their own action");
+  assert.ok(!emailedTo.includes("admin@example.com"), "the resolving admin gets no email about their own action");
+  assert.ok(!inAppIds.includes("admin-user"), "the resolving admin gets no in-app notification about their own action");
+  // ...while the separate subscribed customer still gets notified on every channel.
+  assert.deepEqual(pushedIds, ["cust-1"], "the separate subscribed customer still gets a push");
+  assert.deepEqual(emailedTo, ["c@example.com"], "the separate subscribed customer still gets an email");
+  assert.deepEqual(inAppIds, ["cust-1"], "the separate subscribed customer still gets an in-app notification");
+});
+
+// ---------------------------------------------------------------------------
 // Silent-create guard tests.
 //
 // The create route mirrors the resolve route's "silent" mode: it still persists
