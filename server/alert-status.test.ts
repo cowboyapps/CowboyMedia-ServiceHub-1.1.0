@@ -554,6 +554,65 @@ test("route PATCH /api/admin/alerts/:id/resolve does not notify the acting admin
 });
 
 // ---------------------------------------------------------------------------
+// Per-customer opt-out guard tests (non-silent resolve).
+//
+// A resolve that is NOT silent still respects each subscriber's own service_alert
+// notification preference: push fires only when customerWantsPush is true, email
+// only when customerWantsEmail is true. The silent-off test above proves the
+// "wants everything" direction; these prove the inverse — a subscribed customer
+// who muted service_alert notifications is NOT pushed/emailed on a normal resolve,
+// while the resolve itself still succeeds and recompute/broadcast still fire.
+// This is the regression guard: if the resolve path ever ignored the per-customer
+// opt-out, it would spam muted customers and only these tests would catch it.
+// They need no DB.
+// ---------------------------------------------------------------------------
+
+test("route PATCH /api/admin/alerts/:id/resolve does NOT push/email a subscriber who muted service_alert notifications", async () => {
+  // routeHarness's default deps return false for customerWantsPush/Email, so the
+  // subscribing customer is opted out of both channels on a non-silent resolve.
+  const { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications } =
+    routeHarness(subscriberStorage);
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+
+  assert.equal(res.status, 200, "the resolve still succeeds");
+  // The resolve's non-notification side effects still fire.
+  assert.deepEqual(recomputed, ["s1", "s2"], "resolve still recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "resolve still broadcasts service_updated");
+  assert.ok(otherBroadcasts.includes("alert_resolved"), "resolve still broadcasts the realtime alert_resolved refresh");
+  // ...but the muted customer receives neither a push nor an email.
+  assert.equal(notifications.push, 0, "no push to a customer who opted out of service_alert push");
+  assert.equal(notifications.email, 0, "no email to a customer who opted out of service_alert email");
+});
+
+test("route PATCH /api/admin/alerts/:id/resolve pushes but does NOT email a subscriber who wants push only", async () => {
+  const { app, notifications } = routeHarness(subscriberStorage, {
+    depsOverrides: {
+      customerWantsPush: () => true,
+      customerWantsEmail: () => false,
+    },
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+
+  assert.equal(res.status, 200, "the resolve still succeeds");
+  assert.equal(notifications.push, 1, "the push-only subscriber gets a push");
+  assert.equal(notifications.email, 0, "the push-only subscriber gets no email");
+});
+
+test("route PATCH /api/admin/alerts/:id/resolve emails but does NOT push a subscriber who wants email only", async () => {
+  const { app, notifications } = routeHarness(subscriberStorage, {
+    depsOverrides: {
+      customerWantsPush: () => false,
+      customerWantsEmail: () => true,
+    },
+  });
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1/resolve", { message: "Fixed" });
+
+  assert.equal(res.status, 200, "the resolve still succeeds");
+  assert.equal(notifications.push, 0, "the email-only subscriber gets no push");
+  assert.equal(notifications.email, 1, "the email-only subscriber gets an email");
+});
+
+// ---------------------------------------------------------------------------
 // Silent-create guard tests.
 //
 // The create route mirrors the resolve route's "silent" mode: it still persists
