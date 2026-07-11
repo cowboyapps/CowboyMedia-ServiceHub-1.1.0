@@ -1,6 +1,7 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { setupComponentTestTeardown } from "./helpers/component-test-teardown";
 
 // React render coverage for the streamlined alert-status flow in the AlertsTab
 // (client/src/pages/admin-portal.tsx): active alerts surface a prominent,
@@ -71,8 +72,24 @@ function jsonResponse(body: unknown, status = 200) {
     clone() { return this; },
   };
 }
+// Capture the streamlined post-update write so we can assert its payload
+// defaults (these drive customer notification fan-out + status recompute).
+interface CapturedPost { url: string; body: FormData }
+let capturedUpdatePost: CapturedPost | null = null;
+// Read through a function so control-flow analysis keeps the declared union type
+// after the test resets the module-level variable to null (the fetch closure
+// reassigns it out of band).
+const getCapturedUpdatePost = (): CapturedPost | null => capturedUpdatePost;
 // GET refetches must resolve to an array — the tab maps over updates/alerts.
-g.fetch = (async () => jsonResponse([])) as unknown as typeof fetch;
+g.fetch = (async (input: unknown, init?: { method?: string; body?: unknown }) => {
+  const url = typeof input === "string" ? input : String(input);
+  const body = init?.body as FormData | undefined;
+  const isFormData = !!body && typeof body.append === "function" && typeof body.get === "function";
+  if (isFormData && /\/api\/admin\/alerts\/.+\/updates$/.test(url)) {
+    capturedUpdatePost = { url, body: body! };
+  }
+  return jsonResponse([]);
+}) as unknown as typeof fetch;
 w.fetch = g.fetch;
 
 const React = await import("react");
@@ -85,12 +102,13 @@ const { QueryClientProvider } = await import("@tanstack/react-query");
 const { queryClient } = await import("../client/src/lib/queryClient");
 const { AlertsTab } = await import("../client/src/pages/admin-portal");
 
-after(() => {
-  try {
-    queryClient.clear();
-    window.close();
-  } catch {}
-});
+// One of the tests fires a real useMutation (POST) and unmounts; React Query's
+// mutation gc timer would otherwise pin the event loop until the watchdog kills
+// the file. The shared teardown always collapses mutation gcTime to 0 to fix
+// that. Query gcTime is left alone (collapseQueryGcTime:false): the timeline
+// test seeds the per-alert updates cache and reads it back before the expanded
+// query mounts an observer, so gcTime:0 would GC that seed prematurely.
+setupComponentTestTeardown({ queryClient, window, collapseQueryGcTime: false });
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -106,6 +124,15 @@ async function flushFrames(): Promise<void> {
 
 function byTestId(root: ParentNode, id: string): HTMLElement | null {
   return root.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+}
+
+// Drive the TipTap message editor: writing the DOM + firing an input event makes
+// ProseMirror's observer flush, so the form's message field (required) is filled.
+function typeIntoEditor(testId: string, html: string): void {
+  const ce = window.document.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+  if (!ce) throw new Error(`editor "${testId}" not found`);
+  ce.innerHTML = html;
+  ce.dispatchEvent(new window.InputEvent("input", { bubbles: true }));
 }
 
 const SERVICES = [{ id: "svc-1", name: "API", status: "operational", description: "", icon: null, sortOrder: 0 }];
@@ -264,6 +291,47 @@ test("expanded alert shows a readable update timeline (status + message per entr
     assert.ok(entry1 && entry2, "both timeline entries render");
     assert.match(byTestId(c.container, "badge-alert-update-status-u-2")!.textContent ?? "", /Monitoring/);
     assert.match(byTestId(c.container, "text-alert-update-message-u-2")!.textContent ?? "", /Fix applied, monitoring/);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("submitting the streamlined update (advanced collapsed) POSTs the notify-on defaults", async () => {
+  const c = await mountAlertsTab([activeAlert()]);
+  capturedUpdatePost = null;
+  try {
+    // One-tap: click the "Identified" status pill to open the streamlined dialog.
+    await act(async () => {
+      byTestId(c.container, "button-set-status-identified-alert-1")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // We deliberately never open the "Impact & notification options" section —
+    // this asserts the defaults that apply when an admin just taps + posts.
+    assert.equal(window.document.querySelector('[data-testid="section-update-advanced"]'), null, "advanced options stay collapsed");
+
+    // Fill the required message, then submit exactly as-is.
+    await act(async () => {
+      typeIntoEditor("input-update-message-content", "<p>Fix deployed, monitoring recovery.</p>");
+    });
+    await flushFrames();
+
+    await act(async () => {
+      (window.document.querySelector('[data-testid="button-submit-update"]') as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    const captured = getCapturedUpdatePost();
+    assert.ok(captured, "streamlined submit POSTed to the updates endpoint");
+    assert.match(captured!.url, /\/api\/admin\/alerts\/alert-1\/updates$/, "hits the per-alert updates route");
+    const body = captured!.body;
+    // These four defaults are what actually notify customers + recompute service
+    // status during an incident; a silent UI regression here must fail the build.
+    assert.equal(body.get("status"), "identified", "status = clicked pill's status");
+    assert.equal(body.get("sendPush"), "true", "push notifications on by default");
+    assert.equal(body.get("sendEmail"), "true", "subscriber emails on by default");
+    assert.equal(body.get("serviceImpact"), "no_change", "service impact left unchanged by default");
+    assert.equal(body.get("silent"), "false", "not silent — customers are notified");
   } finally {
     c.cleanup();
   }
