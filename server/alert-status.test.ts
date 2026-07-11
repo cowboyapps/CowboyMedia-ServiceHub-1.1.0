@@ -792,6 +792,80 @@ test("route POST /api/admin/alerts with silent off fires every notification chan
 });
 
 // ---------------------------------------------------------------------------
+// Per-customer opt-out guard tests (non-silent create).
+//
+// A create that is NOT silent still respects each subscriber's own service_alert
+// notification preference: push fires only when customerWantsPush is true, email
+// only when customerWantsEmail is true. The silent-off test above proves the
+// "wants everything" direction; these prove the inverse — a subscribed customer
+// who muted service_alert notifications is NOT pushed/emailed on a normal create,
+// while the create itself still succeeds and recompute/broadcast still fire.
+// This is the regression guard: if the create path ever ignored the per-customer
+// opt-out, it would spam muted customers and only these tests would catch it.
+// They need no DB.
+// ---------------------------------------------------------------------------
+
+test("route POST /api/admin/alerts does NOT push/email a subscriber who muted service_alert notifications", async () => {
+  // routeHarness's default deps return false for customerWantsPush/Email, so the
+  // subscribing customer is opted out of both channels on a non-silent create.
+  const { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications } =
+    routeHarness(subscriberStorageCreate);
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+
+  assert.equal(res.status, 200, "the create still succeeds");
+  // The create's non-notification side effects still fire.
+  assert.deepEqual(recomputed, ["s1", "s2"], "create still recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "create still broadcasts service_updated");
+  assert.ok(otherBroadcasts.includes("new_alert"), "create still broadcasts the realtime new_alert refresh");
+  // ...but the muted customer receives neither a push nor an email.
+  assert.equal(notifications.push, 0, "no push to a customer who opted out of service_alert push");
+  assert.equal(notifications.email, 0, "no email to a customer who opted out of service_alert email");
+});
+
+test("route POST /api/admin/alerts pushes but does NOT email a subscriber who wants push only", async () => {
+  const { app, notifications } = routeHarness(subscriberStorageCreate, {
+    depsOverrides: {
+      customerWantsPush: () => true,
+      customerWantsEmail: () => false,
+    },
+  });
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+
+  assert.equal(res.status, 200, "the create still succeeds");
+  assert.equal(notifications.push, 1, "the push-only subscriber gets a push");
+  assert.equal(notifications.email, 0, "the push-only subscriber gets no email");
+});
+
+test("route POST /api/admin/alerts emails but does NOT push a subscriber who wants email only", async () => {
+  const { app, notifications } = routeHarness(subscriberStorageCreate, {
+    depsOverrides: {
+      customerWantsPush: () => false,
+      customerWantsEmail: () => true,
+    },
+  });
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+
+  assert.equal(res.status, 200, "the create still succeeds");
+  assert.equal(notifications.push, 0, "the email-only subscriber gets no push");
+  assert.equal(notifications.email, 1, "the email-only subscriber gets an email");
+});
+
+// ---------------------------------------------------------------------------
 // Silent-update guard tests.
 //
 // The add-update route's "silent" mode overrides even the resolve-forces-notify
@@ -857,6 +931,77 @@ test("route POST /api/admin/alerts/:id/updates with silent off fires every notif
   assert.equal(notifications.telegram, 1, "Telegram is notified on a normal resolve update");
   // notifyServiceSubscribers (follower email) fires once per covered service on resolve.
   assert.equal(notifications.followerEmail, 2, "follower emails fire once per covered service on a normal resolve update");
+});
+
+// ---------------------------------------------------------------------------
+// Per-customer opt-out guard tests (non-silent, non-resolved status update).
+//
+// A NON-resolved status update (e.g. "monitoring") that is NOT silent still
+// respects each subscriber's own service_alert notification preference: push
+// fires only when customerWantsPush is true, email only when customerWantsEmail
+// is true. (The resolved path force-notifies regardless of opt-in, so these use
+// a non-resolved status to exercise the per-customer gate.) The silent-off test
+// above proves the "wants everything" direction; these prove the inverse — a
+// subscribed customer who muted service_alert notifications is NOT pushed/emailed
+// on a normal status update, while the update itself still succeeds and
+// recompute/broadcast still fire. This is the regression guard: if the update
+// path ever ignored the per-customer opt-out, it would spam muted customers and
+// only these tests would catch it. They need no DB.
+// ---------------------------------------------------------------------------
+
+test("route POST /api/admin/alerts/:id/updates does NOT push/email a subscriber who muted service_alert notifications", async () => {
+  // routeHarness's default deps return false for customerWantsPush/Email, so the
+  // subscribing customer is opted out of both channels on a non-silent update.
+  // status=monitoring (non-resolved) so the resolve force-notify doesn't apply.
+  const { app, recomputed, serviceUpdatedBroadcasts, otherBroadcasts, notifications } =
+    routeHarness(subscriberStorageUpdate);
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    message: "Investigating",
+  });
+
+  assert.equal(res.status, 200, "the update still succeeds");
+  // The update's non-notification side effects still fire.
+  assert.deepEqual(recomputed, ["s1", "s2"], "update still recomputes every covered service");
+  assert.deepEqual(serviceUpdatedBroadcasts, ["s1", "s2"], "update still broadcasts service_updated");
+  assert.ok(otherBroadcasts.includes("alert_update"), "update still broadcasts the realtime alert_update refresh");
+  // ...but the muted customer receives neither a push nor an email.
+  assert.equal(notifications.push, 0, "no push to a customer who opted out of service_alert push");
+  assert.equal(notifications.email, 0, "no email to a customer who opted out of service_alert email");
+});
+
+test("route POST /api/admin/alerts/:id/updates pushes but does NOT email a subscriber who wants push only", async () => {
+  const { app, notifications } = routeHarness(subscriberStorageUpdate, {
+    depsOverrides: {
+      customerWantsPush: () => true,
+      customerWantsEmail: () => false,
+    },
+  });
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    message: "Investigating",
+  });
+
+  assert.equal(res.status, 200, "the update still succeeds");
+  assert.equal(notifications.push, 1, "the push-only subscriber gets a push");
+  assert.equal(notifications.email, 0, "the push-only subscriber gets no email");
+});
+
+test("route POST /api/admin/alerts/:id/updates emails but does NOT push a subscriber who wants email only", async () => {
+  const { app, notifications } = routeHarness(subscriberStorageUpdate, {
+    depsOverrides: {
+      customerWantsPush: () => false,
+      customerWantsEmail: () => true,
+    },
+  });
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    message: "Investigating",
+  });
+
+  assert.equal(res.status, 200, "the update still succeeds");
+  assert.equal(notifications.push, 0, "the email-only subscriber gets no push");
+  assert.equal(notifications.email, 1, "the email-only subscriber gets an email");
 });
 
 // ---------------------------------------------------------------------------
