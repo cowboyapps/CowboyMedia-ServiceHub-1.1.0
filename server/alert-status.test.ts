@@ -553,6 +553,114 @@ test("route PATCH /api/admin/alerts/:id/resolve does not notify the acting admin
   assert.deepEqual(inAppIds, ["cust-1"], "the separate subscribed customer still gets an in-app notification");
 });
 
+// The create route applies the same `u.id !== req.session.userId` self-exclusion
+// as resolve (server/alert-routes.ts) so the admin who just posted a brand-new
+// alert never gets a push/email/in-app about their own action. This is currently
+// unguarded at the route boundary; a refactor dropping the filter would notify
+// the creator. Mirrors the resolve self-exclusion test: getAllUsers returns the
+// acting admin subscribed to a covered service, and asserts that admin receives
+// ZERO push/email/in-app on a non-silent create, while a separate subscribed
+// customer still does. Needs no DB.
+test("route POST /api/admin/alerts does not notify the acting admin about their own new alert", async () => {
+  const pushedIds: string[] = [];
+  const emailedTo: string[] = [];
+  let inAppIds: string[] = [];
+  const { app } = routeHarness(
+    {
+      // The acting admin ("admin-user" — the id requirePermission stamps onto
+      // req.session.userId) is subscribed to the same covered service as cust-1.
+      getAllUsers: async () => [
+        { id: "admin-user", role: "admin", email: "admin@example.com", fullName: "Acting Admin", subscribedServices: ["s1"] },
+        { id: "cust-1", role: "customer", email: "c@example.com", fullName: "Cust One", subscribedServices: ["s1"] },
+      ],
+      createContentNotificationBulk: async (ids: string[]) => {
+        inAppIds = ids;
+      },
+    },
+    {
+      depsOverrides: {
+        ...wantsEverythingDeps,
+        sendPushToUser: async (id: string) => {
+          pushedIds.push(id);
+        },
+        sendTemplatedEmail: async (to: string) => {
+          emailedTo.push(to);
+        },
+      },
+    },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts", {
+    title: "t",
+    description: "d",
+    serviceImpact: "outage",
+    serviceIds: ["s1", "s2"],
+  });
+
+  assert.equal(res.status, 200);
+  // The acting admin (same id as req.session.userId) is excluded from every channel.
+  assert.ok(!pushedIds.includes("admin-user"), "the creating admin gets no push about their own new alert");
+  assert.ok(!emailedTo.includes("admin@example.com"), "the creating admin gets no email about their own new alert");
+  assert.ok(!inAppIds.includes("admin-user"), "the creating admin gets no in-app notification about their own new alert");
+  // ...while the separate subscribed customer still gets notified on every channel.
+  assert.deepEqual(pushedIds, ["cust-1"], "the separate subscribed customer still gets a push");
+  assert.deepEqual(emailedTo, ["c@example.com"], "the separate subscribed customer still gets an email");
+  assert.deepEqual(inAppIds, ["cust-1"], "the separate subscribed customer still gets an in-app notification");
+});
+
+// The add-update route applies the same `u.id !== req.session.userId`
+// self-exclusion as resolve/create so the admin who just posted a timeline
+// update never gets a push/email/in-app about their own action. This is
+// currently unguarded at the route boundary; a refactor dropping the filter
+// would notify the poster. Mirrors the resolve self-exclusion test: getAlert
+// reports the covered services, getAllUsers returns the acting admin subscribed
+// to a covered service, and asserts that admin receives ZERO push/email/in-app
+// on a non-silent update, while a separate subscribed customer still does.
+// Needs no DB.
+test("route POST /api/admin/alerts/:id/updates does not notify the acting admin about their own update", async () => {
+  const pushedIds: string[] = [];
+  const emailedTo: string[] = [];
+  let inAppIds: string[] = [];
+  const { app } = routeHarness(
+    {
+      getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+      // The acting admin ("admin-user" — the id requirePermission stamps onto
+      // req.session.userId) is subscribed to the same covered service as cust-1.
+      getAllUsers: async () => [
+        { id: "admin-user", role: "admin", email: "admin@example.com", fullName: "Acting Admin", subscribedServices: ["s1"] },
+        { id: "cust-1", role: "customer", email: "c@example.com", fullName: "Cust One", subscribedServices: ["s1"] },
+      ],
+      createContentNotificationBulk: async (ids: string[]) => {
+        inAppIds = ids;
+      },
+    },
+    {
+      depsOverrides: {
+        ...wantsEverythingDeps,
+        sendPushToUser: async (id: string) => {
+          pushedIds.push(id);
+        },
+        sendTemplatedEmail: async (to: string) => {
+          emailedTo.push(to);
+        },
+      },
+    },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    status: "monitoring",
+    message: "Investigating",
+  });
+
+  assert.equal(res.status, 200);
+  // The acting admin (same id as req.session.userId) is excluded from every channel.
+  assert.ok(!pushedIds.includes("admin-user"), "the posting admin gets no push about their own update");
+  assert.ok(!emailedTo.includes("admin@example.com"), "the posting admin gets no email about their own update");
+  assert.ok(!inAppIds.includes("admin-user"), "the posting admin gets no in-app notification about their own update");
+  // ...while the separate subscribed customer still gets notified on every channel.
+  assert.deepEqual(pushedIds, ["cust-1"], "the separate subscribed customer still gets a push");
+  assert.deepEqual(emailedTo, ["c@example.com"], "the separate subscribed customer still gets an email");
+  assert.deepEqual(inAppIds, ["cust-1"], "the separate subscribed customer still gets an in-app notification");
+});
+
 // ---------------------------------------------------------------------------
 // Per-customer opt-out guard tests (non-silent resolve).
 //
