@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, LogOut, Download, Users, BookOpen, CreditCard, Server } from "lucide-react";
+import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, LogOut, Download, Users, BookOpen, CreditCard, Server, ChevronRight } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useAuth } from "@/lib/auth";
@@ -78,15 +78,15 @@ export function BottomNav() {
   };
 
   const overflowItems = [
-    { title: "Service Updates", url: "/service-updates", icon: RefreshCw, badge: contentCounts["service-updates"] ?? 0 },
-    { title: "Messages", url: "/messages", icon: Mail, badge: unreadMessageCount },
-    { title: "Community Chat", url: "/community", icon: Users, badge: 0 },
-    { title: "Report/Request", url: "/report-request", icon: FileText, badge: unreadReportCount },
-    { title: "Downloads", url: "/downloads", icon: Download, badge: 0 },
-    { title: "Knowledge Base", url: "/knowledge", icon: BookOpen, badge: 0 },
-    { title: "My Services", url: "/my-services", icon: Server, badge: 0 },
-    { title: "Billing", url: "/billing", icon: CreditCard, badge: 0 },
-    { title: "Settings", url: "/settings", icon: Settings, badge: 0 },
+    { title: "Service Updates", url: "/service-updates", icon: RefreshCw, badge: contentCounts["service-updates"] ?? 0, chip: "bg-sky-500/15 text-sky-600 dark:text-sky-400" },
+    { title: "Messages", url: "/messages", icon: Mail, badge: unreadMessageCount, chip: "bg-violet-500/15 text-violet-600 dark:text-violet-400" },
+    { title: "Community Chat", url: "/community", icon: Users, badge: 0, chip: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+    { title: "Report/Request", url: "/report-request", icon: FileText, badge: unreadReportCount, chip: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
+    { title: "Downloads", url: "/downloads", icon: Download, badge: 0, chip: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400" },
+    { title: "Knowledge Base", url: "/knowledge", icon: BookOpen, badge: 0, chip: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400" },
+    { title: "My Services", url: "/my-services", icon: Server, badge: 0, chip: "bg-primary/15 text-primary" },
+    { title: "Billing", url: "/billing", icon: CreditCard, badge: 0, chip: "bg-green-500/15 text-green-600 dark:text-green-400" },
+    { title: "Settings", url: "/settings", icon: Settings, badge: 0, chip: "bg-muted text-muted-foreground" },
   ];
 
   /* The Admin Portal is a separate PWA at /admin and is intentionally NOT
@@ -169,7 +169,9 @@ export function BottomNav() {
 
           <div className="w-10 h-1 rounded-full bg-muted-foreground/30 mx-auto mb-4" />
 
-          <div className="space-y-1">
+          {/* iOS-settings-style grouped list: one rounded card, full-width
+              rows with colored icon chips, divider-separated, chevron cue. */}
+          <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60">
             {overflowItems.map((item) => {
               const Icon = item.icon;
               const active = location === item.url || location.startsWith(item.url);
@@ -177,16 +179,19 @@ export function BottomNav() {
                 <button
                   key={item.title}
                   onClick={() => handleSheetNav(item.url)}
-                  className={`flex items-center gap-3 w-full px-3 py-3 rounded-lg tap-interactive transition-colors ${active ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
+                  className={`flex items-center gap-3 w-full px-3 py-2 tap-interactive transition-colors text-left ${active ? "bg-primary/10" : "active:bg-accent/70 hover:bg-accent/50"}`}
                   data-testid={`sheet-nav-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}
                 >
-                  <Icon className="w-5 h-5 flex-shrink-0" />
-                  <span className="flex-1 text-left text-sm font-medium">{item.title}</span>
+                  <div className={`rounded-lg p-1.5 shrink-0 ${item.chip}`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <span className={`flex-1 min-w-0 text-sm font-medium truncate ${active ? "text-primary" : ""}`}>{item.title}</span>
                   {item.badge > 0 && (
-                    <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-sheet-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}>
+                    <Badge variant="destructive" className="shrink-0 text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-sheet-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}>
                       {item.badge}
                     </Badge>
                   )}
+                  <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground/50" />
                 </button>
               );
             })}

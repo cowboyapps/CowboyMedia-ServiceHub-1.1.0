@@ -29,9 +29,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("theme");
       if (stored === "light" || stored === "dark" || stored === "system") return stored;
-      return "system";
+      // Brand decision: the app defaults to dark mode regardless of the OS
+      // setting; customers can switch to light (persisted) if they prefer.
+      return "dark";
     }
-    return "system";
+    return "dark";
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(theme));

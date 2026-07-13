@@ -1,4 +1,4 @@
-import lightBgLogo from "@assets/CowboyMedia_LightBG_Wordmark_1784000000000.png";
+import lightBgLogo from "@assets/CowboyMedia_NewLogo_LightBG_1784100000001.png";
 import darkBgLogo from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
 
 interface BrandLogoProps {
