@@ -22,8 +22,8 @@ export function ForYou() {
           <div className="h-14 w-14 rounded-full bg-green-500/20 flex items-center justify-center mb-4">
             <CheckCircle2 className="text-green-600 h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2 tracking-tight">You're all caught up!</h1>
-          <p className="text-sm text-muted-foreground max-w-[250px]">All systems are running smoothly right now.</p>
+          <h1 className="text-2xl font-bold text-foreground mb-2 tracking-tight">All systems running smoothly</h1>
+          <p className="text-sm text-muted-foreground max-w-[250px]">Every service is working as it should.</p>
         </div>
 
         {/* Compact Services List */}
@@ -52,33 +52,18 @@ export function ForYou() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2 tracking-tight">
                 <TicketIcon className="h-5 w-5 text-[#f97316]" />
-                We're on it
+                Your support tickets
               </h2>
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="bg-card border border-border p-4 rounded-xl shadow-sm relative overflow-hidden active:scale-[0.98] transition-transform cursor-pointer">
-                <div className="absolute top-0 left-0 w-1 h-full bg-[#f97316]"></div>
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-xs font-medium text-muted-foreground">#1042</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#f97316] bg-[#f97316]/10 px-2 py-1 rounded-md">
-                    Awaiting Reply
-                  </span>
-                </div>
-                <h3 className="font-semibold text-foreground text-sm mb-1 pr-4">Email not syncing on iPhone</h3>
-                <p className="text-xs text-muted-foreground">Updated today, 9:41 AM</p>
-              </div>
-
-              <div className="bg-card border border-border p-4 rounded-xl shadow-sm relative overflow-hidden active:scale-[0.98] transition-transform cursor-pointer">
-                <div className="absolute top-0 left-0 w-1 h-full bg-border"></div>
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-xs font-medium text-muted-foreground">#1038</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted px-2 py-1 rounded-md">
-                    In Progress
-                  </span>
-                </div>
-                <h3 className="font-semibold text-foreground text-sm mb-1 pr-4">Website loading slowly</h3>
-                <p className="text-xs text-muted-foreground">Updated yesterday, 2:15 PM</p>
-              </div>
+            <div className="bg-card border border-border p-5 rounded-xl shadow-sm flex flex-col items-center text-center">
+              <p className="font-semibold text-foreground text-sm mb-1">No open support tickets</p>
+              <p className="text-xs text-muted-foreground mb-4 max-w-[240px]">
+                Need a hand with something? We're happy to help.
+              </p>
+              <button className="inline-flex items-center gap-2 rounded-lg bg-[#f97316] px-4 py-2 text-sm font-semibold text-white shadow-sm active:scale-[0.98] transition-transform">
+                Open a ticket
+                <ArrowRight className="h-4 w-4" />
+              </button>
             </div>
           </section>
 
