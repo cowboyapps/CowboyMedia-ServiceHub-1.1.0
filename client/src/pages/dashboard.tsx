@@ -1,36 +1,193 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import { Activity, AlertTriangle, Bell, CheckCircle, Clock, Newspaper, Ticket } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Bell,
+  CheckCircle,
+  ChevronRight,
+  Clock,
+  Newspaper,
+  Ticket,
+  XCircle,
+} from "lucide-react";
 import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType } from "@shared/schema";
-import { format } from "date-fns";
-import { LazyImage } from "@/components/lazy-image";
-import { stripHtml } from "@/components/rich-text-editor";
+import { format, formatDistanceToNow } from "date-fns";
 import { QueryErrorState } from "@/components/query-error-state";
 
-function StatusIndicator({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    operational: "bg-status-online",
-    degraded: "bg-status-away",
-    outage: "bg-status-busy",
-    maintenance: "bg-status-offline",
-  };
-  const isActive = status !== "operational";
-  return <span className={`inline-block w-2.5 h-2.5 rounded-full ${colors[status] || "bg-status-offline"} ${isActive ? "animate-status-pulse" : ""}`} />;
+type DailyStatus = "up" | "partial" | "down" | "unknown";
+interface UptimeData {
+  uptime30d: number | null;
+  dailyBuckets: { date: string; status: DailyStatus; downtimeSeconds: number }[];
+  hasMonitor: boolean;
 }
 
-function SeverityBadge({ severity }: { severity: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    critical: "destructive",
-    warning: "default",
-    info: "secondary",
-  };
-  return <Badge variant={variants[severity] || "secondary"} className="text-xs">{severity}</Badge>;
+/* ---------- Cockpit hero ---------- */
+
+function HealthHero({
+  services,
+  loading,
+  isError,
+}: {
+  services: Service[];
+  loading: boolean;
+  isError: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="stagger-item">
+        <div className="flex flex-col items-center justify-center rounded-2xl border bg-card px-6 py-8">
+          <Skeleton className="h-12 w-12 rounded-full mb-5" />
+          <Skeleton className="h-7 w-44 mb-2" />
+          <Skeleton className="h-4 w-56" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="stagger-item">
+        <div
+          className="relative flex flex-col items-center justify-center overflow-hidden rounded-2xl border bg-card px-6 py-8 text-center"
+          data-testid="hero-health-banner"
+        >
+          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <Activity className="h-6 w-6" strokeWidth={2.5} />
+          </div>
+          <h1 className="mb-1 text-2xl font-bold tracking-tight text-muted-foreground" data-testid="text-dashboard-title">
+            Status Unavailable
+          </h1>
+          <p className="max-w-[280px] text-sm text-muted-foreground sm:max-w-md" data-testid="text-health-summary">
+            We couldn't load your service status. Check the Service Health section below to retry.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const issues = services.filter((s) => s.status !== "operational");
+  const hasOutage = issues.some((s) => s.status === "outage");
+  const issueNames = issues.map((s) => s.name);
+
+  let tone: { text: string; iconBg: string; iconFg: string; border: string; glow: string; shadow: string };
+  let Icon = CheckCircle;
+  let headline = "All Systems Go";
+  let subline = "Every service is operational. Nothing needs your attention.";
+
+  if (issues.length === 0) {
+    tone = {
+      text: "text-status-online",
+      iconBg: "bg-status-online",
+      iconFg: "text-white",
+      border: "border-green-500/20",
+      glow: "bg-green-500/10",
+      shadow: "shadow-green-500/5",
+    };
+  } else if (hasOutage) {
+    Icon = XCircle;
+    headline = issues.length === 1 ? "1 Service Down" : `${issues.length} Issues Detected`;
+    subline = `${issueNames.join(", ")} ${issues.length === 1 ? "is" : "are"} currently affected. We're on it.`;
+    tone = {
+      text: "text-red-500",
+      iconBg: "bg-red-500",
+      iconFg: "text-red-950",
+      border: "border-red-500/20",
+      glow: "bg-red-500/10",
+      shadow: "shadow-red-500/5",
+    };
+  } else {
+    Icon = AlertTriangle;
+    headline = issues.length === 1 ? "1 Issue Detected" : `${issues.length} Issues Detected`;
+    subline = `${issueNames.join(", ")} ${issues.length === 1 ? "is" : "are"} experiencing degraded performance. Other services are operational.`;
+    tone = {
+      text: "text-amber-500",
+      iconBg: "bg-amber-500",
+      iconFg: "text-amber-950",
+      border: "border-amber-500/20",
+      glow: "bg-amber-500/10",
+      shadow: "shadow-amber-500/5",
+    };
+  }
+
+  return (
+    <div className="stagger-item">
+      <div
+        className={`relative flex flex-col items-center justify-center overflow-hidden rounded-2xl border bg-card px-6 py-8 text-center shadow-lg ${tone.border} ${tone.shadow}`}
+        data-testid="hero-health-banner"
+      >
+        <div
+          className={`pointer-events-none absolute top-0 left-1/2 h-[100px] w-[200%] -translate-x-1/2 blur-[50px] ${tone.glow}`}
+        />
+        <div className={`hero-health-indicator mb-5 ${tone.text}`}>
+          <div
+            className={`z-10 flex h-12 w-12 items-center justify-center rounded-full ${tone.iconBg} ${tone.iconFg}`}
+          >
+            <Icon className="h-6 w-6" strokeWidth={2.5} />
+          </div>
+        </div>
+        <h1 className={`mb-1 text-2xl font-bold tracking-tight ${tone.text}`} data-testid="text-dashboard-title">
+          {headline}
+        </h1>
+        <p className="max-w-[280px] text-sm text-muted-foreground sm:max-w-md" data-testid="text-health-summary">
+          {subline}
+        </p>
+      </div>
+    </div>
+  );
 }
+
+/* ---------- Service health strip ---------- */
+
+function ServiceHealthCard({ service }: { service: Service }) {
+  const { data } = useQuery<UptimeData>({
+    queryKey: ["/api/services", service.id, "uptime"],
+  });
+
+  const buckets = data?.hasMonitor ? data.dailyBuckets.slice(-14) : [];
+
+  return (
+    <Link href={`/services/${service.id}`} data-testid={`card-service-health-${service.id}`}>
+      <div className="hover-elevate tap-interactive h-full w-[150px] flex-shrink-0 cursor-pointer snap-start rounded-xl border bg-card p-3 lg:w-auto">
+        <div className="mb-3 flex items-center gap-2">
+          <span
+            className={`inline-block h-2 w-2 flex-shrink-0 rounded-full ${
+              service.status === "operational"
+                ? "bg-status-online"
+                : service.status === "outage"
+                  ? "bg-status-busy animate-status-pulse"
+                  : "bg-status-away animate-status-pulse"
+            }`}
+          />
+          <span className="truncate text-sm font-medium leading-none">{service.name}</span>
+        </div>
+        {buckets.length > 0 ? (
+          <div className="space-y-1.5">
+            <div className="uptime-bar">
+              {buckets.map((b) => (
+                <div
+                  key={b.date}
+                  className={`uptime-segment ${b.status !== "up" ? b.status : ""}`}
+                  style={{ height: b.status === "up" ? "100%" : b.status === "partial" ? "60%" : b.status === "down" ? "35%" : "20%" }}
+                />
+              ))}
+            </div>
+            {data?.uptime30d != null && (
+              <p className="text-[10px] text-muted-foreground">{data.uptime30d.toFixed(2)}% · 30d</p>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs capitalize text-muted-foreground">{service.status}</p>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+/* ---------- Page ---------- */
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -51,7 +208,7 @@ export default function Dashboard() {
     queryKey: ["/api/tickets"],
   });
 
-  const { data: contentNotifData, isLoading: contentNotifLoading } = useQuery<Record<string, number>>({
+  const { data: contentNotifData } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
     refetchInterval: 15000,
     enabled: !!user,
@@ -66,204 +223,172 @@ export default function Dashboard() {
   const displayServices = subscribedServices.length > 0 ? subscribedServices : services || [];
   const myTickets = tickets?.filter((t) => t.status === "open") || [];
 
+  // Merge alerts + open tickets into one prioritized "Needs attention" list:
+  // critical alerts → warning alerts → open tickets → info alerts.
+  const severityRank: Record<string, number> = { critical: 0, warning: 1, info: 3 };
+  type AttentionItem = {
+    key: string;
+    href: string;
+    title: string;
+    meta: string;
+    time: Date;
+    rank: number;
+    icon: typeof AlertTriangle;
+    iconColor: string;
+    iconBg: string;
+  };
+  const attentionItems: AttentionItem[] = [
+    ...activeAlerts.map((alert) => {
+      const rank = severityRank[alert.severity] ?? 3;
+      return {
+        key: `alert-${alert.id}`,
+        href: `/alerts/${alert.id}`,
+        title: alert.title,
+        meta: (alert.serviceIds || []).map((sid) => serviceMap.get(sid)).filter(Boolean).join(", ") || "Service alert",
+        time: new Date(alert.createdAt),
+        rank,
+        icon: alert.severity === "critical" ? XCircle : alert.severity === "warning" ? AlertTriangle : Activity,
+        iconColor: alert.severity === "critical" ? "text-destructive" : alert.severity === "warning" ? "text-amber-500" : "text-muted-foreground",
+        iconBg: alert.severity === "critical" ? "bg-destructive/10" : alert.severity === "warning" ? "bg-amber-500/10" : "bg-muted",
+      };
+    }),
+    ...myTickets.map((ticket) => ({
+      key: `ticket-${ticket.id}`,
+      href: `/tickets/${ticket.id}`,
+      title: ticket.subject,
+      meta: "Open ticket",
+      time: new Date(ticket.createdAt),
+      rank: 2,
+      icon: Ticket,
+      iconColor: "text-primary",
+      iconBg: "bg-primary/10",
+    })),
+  ]
+    .sort((a, b) => a.rank - b.rank || b.time.getTime() - a.time.getTime())
+    .slice(0, 5);
+
+  const attentionLoading = alertsLoading || ticketsLoading;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-dashboard-title">
-          Welcome, {user?.fullName}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">Here's an overview of your services and recent activity</p>
-      </div>
+      <p className="text-sm text-muted-foreground" data-testid="text-dashboard-welcome">
+        Welcome back, {user?.fullName}
+      </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Link href="/services" data-testid="link-stat-services" className="stagger-item block">
-          <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-                <Activity className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-services-count">{servicesLoading ? "-" : displayServices.length}</p>
-                <p className="text-xs text-muted-foreground">Services</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/alerts" data-testid="link-stat-alerts" className="stagger-item block">
-          <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-destructive/10 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-destructive" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-alerts-count">{alertsLoading ? "-" : activeAlerts.length}</p>
-                <p className="text-xs text-muted-foreground">Active Alerts</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/tickets" data-testid="link-stat-tickets" className="stagger-item block">
-          <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-chart-5/10 flex items-center justify-center">
-                <Ticket className="w-5 h-5 text-chart-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-tickets-count">{ticketsLoading ? "-" : myTickets.length}</p>
-                <p className="text-xs text-muted-foreground">Open Tickets</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/news" data-testid="link-stat-news" className="stagger-item block">
-          <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-chart-2/10 flex items-center justify-center">
-                <Newspaper className="w-5 h-5 text-chart-2" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-news-count">{newsLoading ? "-" : (news?.length || 0)}</p>
-                <p className="text-xs text-muted-foreground">News Stories</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/service-updates" data-testid="link-stat-service-updates" className="stagger-item block">
-          <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-chart-4/15 flex items-center justify-center">
-                <Bell className="w-5 h-5 text-chart-4" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold" data-testid="text-service-updates-count">{contentNotifLoading ? "-" : newServiceUpdatesCount}</p>
-                <p className="text-xs text-muted-foreground">New Service Updates</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+      <HealthHero services={displayServices} loading={servicesLoading} isError={servicesError} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Service Status</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {servicesLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 py-1.5">
-                  <div className="flex items-center gap-2.5">
-                    <Skeleton className="w-3 h-3 rounded-full" />
-                    <Skeleton className="h-4 w-28" />
-                  </div>
-                  <Skeleton className="h-5 w-16 rounded-full" />
-                </div>
-              ))
-            ) : servicesError ? (
-              <QueryErrorState
-                error={servicesErrorObj}
-                onRetry={() => refetchServices()}
-                isRetrying={servicesFetching}
-                resourceName="services"
-                className="py-6"
-                data-testid="error-dashboard-services"
-              />
-            ) : displayServices.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No services to display</p>
-            ) : (
-              displayServices.map((service) => (
-                <div key={service.id} className="flex items-center justify-between gap-2 py-1.5" data-testid={`service-row-${service.id}`}>
-                  <div className="flex items-center gap-2.5">
-                    <StatusIndicator status={service.status} />
-                    <span className="text-sm font-medium">{service.name}</span>
-                  </div>
-                  <Badge variant="secondary" className="text-xs capitalize">{service.status}</Badge>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-base">Active Alerts</CardTitle>
-            <Link href="/alerts">
-              <Button variant="ghost" size="sm" data-testid="link-view-all-alerts">View All</Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {alertsLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex items-start justify-between gap-2 py-1.5">
-                  <div className="space-y-1.5">
-                    <Skeleton className="h-4 w-36" />
-                    <Skeleton className="h-3 w-24" />
-                  </div>
-                  <Skeleton className="h-5 w-16 rounded-full" />
-                </div>
-              ))
-            ) : alertsError ? (
-              <QueryErrorState
-                error={alertsErrorObj}
-                onRetry={() => refetchAlerts()}
-                isRetrying={alertsFetching}
-                resourceName="alerts"
-                className="py-6"
-                data-testid="error-dashboard-alerts"
-              />
-            ) : activeAlerts.length === 0 ? (
-              <div className="text-center py-6">
-                <CheckCircle className="w-8 h-8 text-status-online animate-status-glow mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">All systems operational</p>
-              </div>
-            ) : (
-              activeAlerts.slice(0, 4).map((alert) => (
-                <Link key={alert.id} href={`/alerts/${alert.id}`}>
-                  <div className="flex items-start justify-between gap-2 py-1.5 hover-elevate tap-interactive rounded-md px-2 -mx-2 cursor-pointer" data-testid={`alert-row-${alert.id}`}>
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{alert.title}</p>
-                      {alert.serviceIds && alert.serviceIds.length > 0 && (
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {alert.serviceIds.map((sid) => serviceMap.get(sid) && (
-                            <Badge key={sid} variant="secondary" className="text-[10px]">{serviceMap.get(sid)}</Badge>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(alert.createdAt), "MMM d, h:mm a")}
-                      </p>
-                    </div>
-                    <SeverityBadge severity={alert.severity} />
-                  </div>
-                </Link>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-          <CardTitle className="text-base">Latest News</CardTitle>
-          <Link href="/news">
-            <Button variant="ghost" size="sm" data-testid="link-view-all-news">View All</Button>
+      {/* Service health strip */}
+      <div className="stagger-item">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Service Health</h2>
+          <Link href="/services">
+            <Button variant="ghost" size="sm" data-testid="link-view-all-services">
+              View All
+            </Button>
           </Link>
-        </CardHeader>
-        <CardContent>
-          {newsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <div key={i} className="flex items-start gap-3 py-2">
-                  <Skeleton className="w-16 h-12 rounded-md flex-shrink-0" />
-                  <div className="space-y-1.5 flex-1">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-20" />
-                  </div>
-                </div>
+        </div>
+        {servicesLoading ? (
+          <div className="flex gap-3 overflow-hidden">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 w-[150px] flex-shrink-0 rounded-xl" />
+            ))}
+          </div>
+        ) : servicesError ? (
+          <QueryErrorState
+            error={servicesErrorObj}
+            onRetry={() => refetchServices()}
+            isRetrying={servicesFetching}
+            resourceName="services"
+            className="py-6"
+            data-testid="error-dashboard-services"
+          />
+        ) : displayServices.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">No services to display</p>
+        ) : (
+          <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible xl:grid-cols-5">
+            {displayServices.map((service) => (
+              <ServiceHealthCard key={service.id} service={service} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Needs attention */}
+        <div className="stagger-item">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Needs Attention</h2>
+            <Link href="/alerts">
+              <Button variant="ghost" size="sm" data-testid="link-view-all-alerts">
+                View All
+              </Button>
+            </Link>
+          </div>
+          {attentionLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 rounded-xl" />
               ))}
             </div>
+          ) : alertsError ? (
+            <QueryErrorState
+              error={alertsErrorObj}
+              onRetry={() => refetchAlerts()}
+              isRetrying={alertsFetching}
+              resourceName="alerts"
+              className="py-6"
+              data-testid="error-dashboard-alerts"
+            />
+          ) : attentionItems.length === 0 ? (
+            <div className="rounded-xl border bg-card py-8 text-center">
+              <CheckCircle className="mx-auto mb-2 h-8 w-8 text-status-online animate-status-glow" />
+              <p className="text-sm text-muted-foreground">All clear — nothing needs your attention</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {attentionItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link key={item.key} href={item.href}>
+                    <div
+                      className="hover-elevate tap-interactive flex cursor-pointer items-start gap-3 rounded-xl border bg-card p-3"
+                      data-testid={`attention-row-${item.key}`}
+                    >
+                      <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${item.iconBg}`}>
+                        <Icon className={`h-4 w-4 ${item.iconColor}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="mb-1 text-sm font-medium leading-tight">{item.title}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="truncate">{item.meta}</span>
+                          <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
+                          <span className="flex shrink-0 items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {formatDistanceToNow(item.time, { addSuffix: true })}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 self-center text-muted-foreground/50" />
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Updates & news */}
+        <div className="stagger-item">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Updates &amp; News</h2>
+            <Link href="/news">
+              <Button variant="ghost" size="sm" data-testid="link-view-all-news">
+                View All
+              </Button>
+            </Link>
+          </div>
+          {newsLoading ? (
+            <Skeleton className="h-40 rounded-xl" />
           ) : newsError ? (
             <QueryErrorState
               error={newsErrorObj}
@@ -273,28 +398,46 @@ export default function Dashboard() {
               className="py-6"
               data-testid="error-dashboard-news"
             />
-          ) : !news || news.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No news stories yet</p>
           ) : (
-            <div className="space-y-3">
-              {news.slice(0, 3).map((story) => (
-                <Link key={story.id} href={`/news/${story.id}`}>
-                  <div className="flex items-start gap-3 py-2 hover-elevate tap-interactive rounded-md px-2 -mx-2 cursor-pointer" data-testid={`news-row-${story.id}`}>
-                    {story.imageUrl && (
-                      <LazyImage src={story.imageUrl} alt="" className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
-                    )}
-                    <div className="space-y-0.5 min-w-0">
-                      <p className="text-sm font-medium truncate">{story.title}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(story.content)}</p>
-                      <p className="text-xs text-muted-foreground">{format(new Date(story.createdAt), "MMM d, yyyy")}</p>
-                    </div>
+            <div className="overflow-hidden rounded-xl border bg-card">
+              {newServiceUpdatesCount > 0 && (
+                <Link href="/service-updates">
+                  <div
+                    className="tap-interactive flex cursor-pointer items-center gap-3 border-b p-3 transition-colors hover:bg-muted/50"
+                    data-testid="row-service-updates"
+                  >
+                    <Bell className="h-4 w-4 shrink-0 text-primary" />
+                    <p className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {newServiceUpdatesCount} new service update{newServiceUpdatesCount === 1 ? "" : "s"}
+                    </p>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                   </div>
                 </Link>
-              ))}
+              )}
+              {!news || news.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No news stories yet</p>
+              ) : (
+                news.slice(0, 4).map((story, i, arr) => (
+                  <Link key={story.id} href={`/news/${story.id}`}>
+                    <div
+                      className={`tap-interactive flex cursor-pointer items-center gap-3 p-3 transition-colors hover:bg-muted/50 ${
+                        i !== arr.length - 1 ? "border-b" : ""
+                      }`}
+                      data-testid={`news-row-${story.id}`}
+                    >
+                      <Newspaper className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <p className="min-w-0 flex-1 truncate text-sm">{story.title}</p>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {format(new Date(story.createdAt), "MMM d")}
+                      </span>
+                    </div>
+                  </Link>
+                ))
+              )}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
