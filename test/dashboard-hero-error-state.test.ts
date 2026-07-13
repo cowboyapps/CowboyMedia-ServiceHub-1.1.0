@@ -8,8 +8,8 @@ import { JSDOM } from "jsdom";
 // render the neutral "Status Unavailable" state instead, and the strip below
 // still swaps to the shared QueryErrorState. Also proves the happy paths in
 // both directions so a future edit can't invert the branch:
-//   - all services operational  -> green "All Systems Go"
-//   - a service in outage       -> red "1 Service Down"
+//   - all services operational  -> green "All systems running smoothly"
+//   - a service in outage       -> red "<name> is down"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
@@ -67,6 +67,8 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 // touches (alerts, news, tickets, per-service uptime) returns benign empties.
 type ServicesMode = "error" | "operational" | "outage";
 let servicesMode: ServicesMode = "error";
+let ticketsMode: "ok" | "error" = "ok";
+let updatesMode: "ok" | "error" = "ok";
 
 const SVC_ID = "svc-hero-test-1";
 function servicesPayload() {
@@ -100,6 +102,13 @@ const fetchStub = (async (url: unknown) => {
   if (/\/api\/services\/[^/]+\/uptime/.test(u)) {
     return jsonResponse({ hasMonitor: false, uptime30d: null, dailyBuckets: [] });
   }
+  if (u.includes("/api/service-updates")) {
+    return updatesMode === "error"
+      ? jsonResponse("Internal Server Error", 500)
+      : jsonResponse([]);
+  }
+  if (u.includes("/api/content-notifications/counts")) return jsonResponse({});
+  if (/\/api\/alerts\/[^/]+\/updates/.test(u)) return jsonResponse([]);
   if (u.includes("/api/services")) {
     if (servicesMode === "error") {
       return jsonResponse("Internal Server Error", 500);
@@ -111,7 +120,11 @@ const fetchStub = (async (url: unknown) => {
   }
   if (u.includes("/api/alerts")) return jsonResponse([]);
   if (u.includes("/api/news")) return jsonResponse([]);
-  if (u.includes("/api/tickets")) return jsonResponse([]);
+  if (u.includes("/api/tickets")) {
+    return ticketsMode === "error"
+      ? jsonResponse("Internal Server Error", 500)
+      : jsonResponse([]);
+  }
   return jsonResponse({});
 }) as unknown as typeof fetch;
 g.fetch = fetchStub;
@@ -215,7 +228,7 @@ test("hero never shows a green all-clear when the services read fails", async ()
     assert.ok(title, "hero title renders");
     assert.doesNotMatch(
       title!.textContent ?? "",
-      /all systems go/i,
+      /all systems (go|running smoothly)/i,
       "must not claim all-clear on a failed services read",
     );
     assert.match(
@@ -238,12 +251,52 @@ test("hero shows the green all-clear when every service is operational", async (
   try {
     const title = findByTestId(c.container, "text-dashboard-title");
     assert.ok(title, "hero title renders");
-    assert.match(title!.textContent ?? "", /all systems go/i);
+    assert.match(title!.textContent ?? "", /all systems running smoothly/i);
     assert.ok(
       findByTestId(c.container, `card-service-health-${SVC_ID}`),
       "the service card renders in the strip",
     );
   } finally {
+    c.cleanup();
+  }
+});
+
+test("a failed tickets read shows the error state, not a fake empty state", async () => {
+  servicesMode = "operational";
+  ticketsMode = "error";
+  const c = await mountDashboard();
+  try {
+    assert.equal(
+      findByTestId(c.container, "text-no-open-tickets"),
+      null,
+      "must not claim 'No open support tickets' when the tickets read failed",
+    );
+    assert.ok(
+      findByTestId(c.container, "error-dashboard-tickets"),
+      "renders the shared error state for tickets",
+    );
+  } finally {
+    ticketsMode = "ok";
+    c.cleanup();
+  }
+});
+
+test("a failed service-updates read shows the error state, not a fake empty state", async () => {
+  servicesMode = "operational";
+  updatesMode = "error";
+  const c = await mountDashboard();
+  try {
+    assert.doesNotMatch(
+      c.container.textContent ?? "",
+      /no service updates yet/i,
+      "must not claim there are no updates when the read failed",
+    );
+    assert.ok(
+      findByTestId(c.container, "error-dashboard-service-updates"),
+      "renders the shared error state for service updates",
+    );
+  } finally {
+    updatesMode = "ok";
     c.cleanup();
   }
 });
@@ -254,11 +307,11 @@ test("hero reports the outage when a service is down", async () => {
   try {
     const title = findByTestId(c.container, "text-dashboard-title");
     assert.ok(title, "hero title renders");
-    assert.doesNotMatch(title!.textContent ?? "", /all systems go/i);
+    assert.doesNotMatch(title!.textContent ?? "", /all systems (go|running smoothly)/i);
     assert.match(
       title!.textContent ?? "",
-      /1 service down/i,
-      "names the outage count",
+      /hero test service is down/i,
+      "names the affected service",
     );
   } finally {
     c.cleanup();
