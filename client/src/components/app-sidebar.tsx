@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, Shield, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink, CreditCard, Server } from "lucide-react";
+import { LayoutDashboard, Activity, AlertTriangle, Newspaper, MessageSquare, Settings as SettingsIcon, LogOut, Mail, FileText, RefreshCw, Download, Users, BookOpen, Globe, ExternalLink, CreditCard, Server } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 import { APP_VERSION } from "@shared/version";
 
@@ -26,11 +26,10 @@ const categoryMap: Record<string, string> = {
   "Alerts": "alerts",
   "News": "news",
   "Service Updates": "service-updates",
-  "Admin Portal": "admin-reports",
 };
 
 export function AppSidebar() {
-  const { user, logout, isAdmin, hasPermission } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -62,20 +61,6 @@ export function AppSidebar() {
   });
   const contentCounts = contentNotifData ?? {};
 
-  const { data: errorLogData } = useQuery<{ count: number }>({
-    queryKey: ["/api/admin/error-logs/unresolved-count"],
-    refetchInterval: 60000,
-    enabled: !!user && isAdmin && hasPermission("error_log.view"),
-  });
-  const unresolvedErrorCount = errorLogData?.count ?? 0;
-
-  const { data: awayStatus } = useQuery<{ isActive: boolean }>({
-    queryKey: ["/api/support-away/status"],
-    refetchInterval: 60000,
-    enabled: !!user && isAdmin,
-  });
-  const awayActive = !!awayStatus?.isActive;
-
   const handleNavClick = () => {
     if (isMobile) {
       requestAnimationFrame(() => {
@@ -88,7 +73,6 @@ export function AppSidebar() {
     if (title === "Tickets") return unreadTicketCount;
     if (title === "Messages") return unreadCount;
     if (title === "Report/Request") return unreadReportCount;
-    if (title === "Admin Portal") return (contentCounts["admin-reports"] ?? 0) + (contentCounts["admin-users"] ?? 0) + unresolvedErrorCount;
     const cat = categoryMap[title];
     if (cat) return contentCounts[cat] ?? 0;
     return 0;
@@ -111,8 +95,9 @@ export function AppSidebar() {
     { title: "Settings", url: "/settings", icon: SettingsIcon },
   ];
 
+  /* The Admin Portal is a separate PWA at /admin and is intentionally NOT
+     linked from the customer shell — staff open/install it directly. */
   const adminItems = [
-    { title: "Admin Portal", url: "/admin", icon: Shield },
     { title: "Public Status Page", url: "/status", icon: Globe, external: true },
   ];
 
@@ -157,38 +142,15 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {adminItems.map((item) => {
-                  const badge = getBadgeCount(item.title);
                   const testId = `nav-${item.title.toLowerCase().replace(/\s/g, "-")}`;
                   return (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild isActive={!item.external && (location === item.url || location.startsWith(item.url))}>
-                        {item.external ? (
-                          <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={handleNavClick} data-testid={testId}>
-                            <item.icon className="w-4 h-4" />
-                            <span className="flex-1">{item.title}</span>
-                            <ExternalLink className="w-3 h-3 opacity-60" />
-                          </a>
-                        ) : (
-                          /* The Admin Portal is a separate PWA at /admin — a plain
-                             anchor forces the full page load its HTML entry needs. */
-                          <a href={item.url} onClick={handleNavClick} data-testid={testId}>
-                            <item.icon className="w-4 h-4" />
-                            <span className="flex-1">{item.title}</span>
-                            {item.title === "Admin Portal" && awayActive && (
-                              <Badge
-                                className="ml-auto text-[10px] h-5 px-1.5 bg-orange-500 hover:bg-orange-500 text-white"
-                                data-testid="badge-sidebar-away-active"
-                              >
-                                Away
-                              </Badge>
-                            )}
-                            {badge > 0 && (
-                              <Badge variant="destructive" className="ml-auto text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid="badge-unread-admin-reports">
-                                {badge}
-                              </Badge>
-                            )}
-                          </a>
-                        )}
+                      <SidebarMenuButton asChild>
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={handleNavClick} data-testid={testId}>
+                          <item.icon className="w-4 h-4" />
+                          <span className="flex-1">{item.title}</span>
+                          <ExternalLink className="w-3 h-3 opacity-60" />
+                        </a>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );

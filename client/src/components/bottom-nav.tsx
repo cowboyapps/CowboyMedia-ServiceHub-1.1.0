@@ -1,11 +1,10 @@
 import { useState, useEffect, Fragment } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut, Download, Users, BookOpen, CreditCard, Server } from "lucide-react";
+import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, LogOut, Download, Users, BookOpen, CreditCard, Server } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useAuth } from "@/lib/auth";
-import { navigateAcrossApps } from "@/lib/admin-nav";
 import { hapticLight } from "@/lib/haptics";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,7 +15,7 @@ import { APP_VERSION } from "@shared/version";
 export function BottomNav() {
   const isMobile = useIsMobile();
   const [location, navigate] = useLocation();
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   // Hide the nav while the on-screen keyboard is open: on iOS the fixed bar
   // would otherwise float mid-screen above the keyboard.
@@ -54,13 +53,11 @@ export function BottomNav() {
   const contentCounts = contentNotifData ?? {};
   const unreadMessageCount = messageData?.count ?? 0;
   const unreadReportCount = reportNotifData?.count ?? 0;
-  const adminBadgeCount = (contentCounts["admin-reports"] ?? 0) + (contentCounts["admin-users"] ?? 0);
 
   const overflowBadgeCount =
     unreadMessageCount +
     unreadReportCount +
-    (contentCounts["service-updates"] ?? 0) +
-    (isAdmin ? adminBadgeCount : 0);
+    (contentCounts["service-updates"] ?? 0);
 
   if (!isMobile || keyboardInset > 0) return null;
 
@@ -72,7 +69,7 @@ export function BottomNav() {
     { label: "More", icon: Menu, path: null, badge: overflowBadgeCount },
   ];
 
-  const overflowRoutes = ["/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings", "/admin"];
+  const overflowRoutes = ["/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings"];
 
   const isActive = (path: string | null) => {
     if (path === null) return overflowRoutes.some((r) => location === r || location.startsWith(r + "/"));
@@ -92,13 +89,11 @@ export function BottomNav() {
     { title: "Settings", url: "/settings", icon: Settings, badge: 0 },
   ];
 
-  const adminItems = isAdmin
-    ? [{ title: "Admin Portal", url: "/admin", icon: Shield, badge: adminBadgeCount }]
-    : [];
-
+  /* The Admin Portal is a separate PWA at /admin and is intentionally NOT
+     linked from the customer shell — staff open/install it directly. */
   const handleSheetNav = (url: string) => {
     setMoreOpen(false);
-    navigateAcrossApps(url, navigate);
+    navigate(url);
   };
 
   return (
@@ -175,7 +170,7 @@ export function BottomNav() {
           <div className="w-10 h-1 rounded-full bg-muted-foreground/30 mx-auto mb-4" />
 
           <div className="space-y-1">
-            {[...overflowItems, ...adminItems].map((item) => {
+            {overflowItems.map((item) => {
               const Icon = item.icon;
               const active = location === item.url || location.startsWith(item.url);
               return (

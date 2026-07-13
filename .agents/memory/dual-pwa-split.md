@@ -10,7 +10,7 @@ The app ships as TWO separately-installable PWAs from one repo: customer app at 
 **Why:** each app is its own Vite entry with its own router; the customer SPA no longer contains AdminPortal, and `/admin*` inside the customer router only exists as a `window.location.replace` redirect.
 
 **How to apply:**
-- New admin entry points in customer UI → use `navigateAcrossApps`; tests can stub via `__setAssignForTests`.
+- The customer shell must NOT advertise the admin app at all: no sidebar/bottom-nav entries, no command-palette quick actions into `/admin` (guarded by `test/no-admin-entries-in-customer-nav.test.ts`). The only sanctioned cross-links are the auth-page staff redirect and the changelog "Review in Admin Portal" prompt — both via `navigateAcrossApps` (test seam `__setAssignForTests`).
 - One shared `client/public/sw.js` serves both scopes — it derives app identity from `self.registration.scope` (admin scope → `servicehub-admin-*` caches, `/admin` shell fallback, `adminApp: true` in stale-deploy messages). Never fork it into two SW files, and never hardcode `/` paths in it.
 - Push subscriptions are per-scope: admin entry calls `configurePushScope('/admin')` before SW registration.
 - Server must serve admin.html for every `/admin*` path in BOTH dev (`server/vite.ts`) and prod (`server/static.ts`) fallbacks.
