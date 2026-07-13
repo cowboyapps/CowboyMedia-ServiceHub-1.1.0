@@ -118,9 +118,14 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 // --- Test fixtures + a fetch stub that serves the page's queries ----------
 const CUSTOMER_USER = { id: "cust-1", role: "customer", fullName: "Casey Customer", username: "casey", email: "casey@example.com" };
 const ADMIN_USER = { id: "admin-1", role: "master_admin", fullName: "Avery Admin", username: "avery", email: "avery@example.com" };
+const LIMITED_ADMIN_USER = { id: "admin-2", role: "admin", fullName: "Lena Limited", username: "lena", email: "lena@example.com" };
 
 // Set per-test before mounting so /api/auth/me returns the right identity.
-let currentUser: typeof CUSTOMER_USER | typeof ADMIN_USER | null = null;
+let currentUser: typeof CUSTOMER_USER | typeof ADMIN_USER | typeof LIMITED_ADMIN_USER | null = null;
+
+// Permissions served by /api/admin/my-permissions (only fetched for role
+// "admin" — master_admin bypasses it client-side). Set per-test.
+let currentPermissions: string[] = [];
 
 // When set, the /api/auth/me handler awaits this promise before responding,
 // letting a test hold the auth query in its unresolved (loading) state across
@@ -143,7 +148,7 @@ g.fetch = async (input: unknown): Promise<Response> => {
     if (authGate) await authGate;
     return currentUser ? jsonResponse(currentUser) : jsonResponse(null, 401);
   }
-  if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
+  if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: currentPermissions });
   if (pathname === "/api/content-notifications/counts") return jsonResponse({});
   if (pathname === "/api/admin/chat/unread-count") return jsonResponse({ count: 0 });
 
@@ -193,7 +198,7 @@ interface MountResult {
 
 async function mountAdmin(
   path: string,
-  user: typeof CUSTOMER_USER | typeof ADMIN_USER,
+  user: typeof CUSTOMER_USER | typeof ADMIN_USER | typeof LIMITED_ADMIN_USER,
   search = "",
   { seed = true }: { seed?: boolean } = {},
 ): Promise<MountResult> {
@@ -302,6 +307,51 @@ test("admin at /admin sees the management tiles including Knowledge Base and New
     assert.ok(has("nav-rail-users"), "admin sees the Users nav-rail entry");
     assert.ok(has("nav-rail-knowledge-base"), "admin sees the Knowledge Base nav-rail entry");
   } finally {
+    h.cleanup();
+  }
+});
+
+// --- Role-limited admin sees ONLY the sections their permissions allow ----
+// The tile menu and the desktop nav rail both filter `allSections` through
+// TILE_PERM_MAP + hasPermission. A partial-permission admin (role "admin"
+// whose /api/admin/my-permissions grants only a couple of sections) must see
+// exactly those sections in both surfaces — everything else permission-mapped
+// stays hidden, as do the master-only sections.
+
+test("role-limited admin sees only permitted sections in tile menu and nav rail", async () => {
+  currentPermissions = ["news.view", "knowledge_base"];
+  const h = await mountAdmin("/admin", LIMITED_ADMIN_USER, "tab=_menu");
+  try {
+    assert.equal(has("text-admin-access-denied"), false, "limited admin is not blocked");
+    assert.ok(has("admin-menu-grouped"), "limited admin sees the tile menu");
+    assert.ok(has("admin-nav-rail"), "limited admin sees the desktop nav rail");
+
+    // Granted sections appear in BOTH the tile menu and the nav rail.
+    for (const key of ["news", "knowledge-base"]) {
+      assert.ok(has(`tile-admin-${key}`), `granted section "${key}" shows as a tile`);
+      assert.ok(has(`nav-rail-${key}`), `granted section "${key}" shows in the nav rail`);
+    }
+
+    // Every other permission-mapped section is hidden from both surfaces.
+    const denied = [
+      "overview", "users", "services", "alerts", "messages",
+      "quick-responses", "service-updates", "reports-requests",
+      "email-templates", "notification-templates", "downloads",
+      "support-tickets", "admin-chat", "chat-admin", "monitoring",
+      "logs", "error-log", "announcements", "billing-dashboard",
+    ];
+    for (const key of denied) {
+      assert.equal(has(`tile-admin-${key}`), false, `denied section "${key}" has no tile`);
+      assert.equal(has(`nav-rail-${key}`), false, `denied section "${key}" is not in the nav rail`);
+    }
+
+    // Master-only sections never show for a role-limited admin.
+    for (const key of ["admin-management", "deploy", "changelog"]) {
+      assert.equal(has(`tile-admin-${key}`), false, `master-only section "${key}" has no tile`);
+      assert.equal(has(`nav-rail-${key}`), false, `master-only section "${key}" is not in the nav rail`);
+    }
+  } finally {
+    currentPermissions = [];
     h.cleanup();
   }
 });
