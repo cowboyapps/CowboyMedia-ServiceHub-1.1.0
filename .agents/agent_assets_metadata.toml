@@ -35,3 +35,9 @@ id = "2lr9ca-QiWCioUDj52WQh"
 uri = "file://.local/changelog-restore/restore_v52_on_vps.sh.txt"
 type = "text"
 title = "VPS one-shot restore script (rename to .sh before running)"
+
+[[outputs]]
+id = "QcmAoKK8G6rmBF54ZJ_oh"
+uri = "file://client/public/icons/admin/icon-512.png"
+type = "image"
+title = "Admin app icon (current)"
