@@ -41,3 +41,9 @@ id = "QcmAoKK8G6rmBF54ZJ_oh"
 uri = "file://client/public/icons/admin/icon-512.png"
 type = "image"
 title = "Admin app icon (current)"
+
+[[outputs]]
+id = "sRlpFL3NUCbenIeqg_Zjj"
+uri = "file://client/public/icons/icon-512.png"
+type = "image"
+title = "Customer app icon (current)"
