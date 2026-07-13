@@ -1,4 +1,4 @@
-import lightBgLogo from "@assets/CowboyApps_New_LightBG_1778505839226.png";
+import lightBgLogo from "@assets/CowboyMedia_LightBG_Wordmark_1784000000000.png";
 import darkBgLogo from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
 
 interface BrandLogoProps {
@@ -23,7 +23,7 @@ export function BrandLogo({
           src={darkBgLogo}
           alt={alt}
           loading="eager"
-          className={`block ${className ?? ""}`}
+          className={`block max-w-full object-contain ${className ?? ""}`}
         />
       </span>
     );
@@ -34,13 +34,13 @@ export function BrandLogo({
         src={lightBgLogo}
         alt={alt}
         loading="eager"
-        className={`block dark:hidden ${className ?? ""}`}
+        className={`block max-w-full object-contain dark:hidden ${className ?? ""}`}
       />
       <img
         src={darkBgLogo}
         alt={alt}
         loading="eager"
-        className={`hidden dark:block ${className ?? ""}`}
+        className={`hidden max-w-full object-contain dark:block ${className ?? ""}`}
       />
     </span>
   );

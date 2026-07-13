@@ -33,7 +33,7 @@ body {
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  /* Brand-forward palette: warm neutrals + CowboyApps orange. The sidebar
+  /* Brand-forward palette: warm neutrals + CowboyMedia orange. The sidebar
      tokens are dark charcoal in BOTH modes — the app shell (sidebar, header,
      bottom nav) is intentionally dark so the orange brand accent pops. */
   --background: 30 25% 97%;
@@ -560,7 +560,7 @@ body {
    ADMIN PWA THEME — intentionally NO token overrides.
    client/src/admin-main.tsx adds `admin-app` on <html>, but the admin app
    now inherits the customer app's full brand palette (warm charcoal +
-   CowboyApps orange, Plus Jakarta Sans, .75rem radius) from :root / .dark
+   CowboyMedia orange, Plus Jakarta Sans, .75rem radius) from :root / .dark
    above, so the two apps always stay visually in sync. If the admin app
    ever needs its own identity again, re-add `html.admin-app` /
    `html.admin-app.dark` blocks here.

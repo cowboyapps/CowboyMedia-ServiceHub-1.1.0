@@ -103,7 +103,7 @@ function AdminLoginPage() {
 
   return (
     // Full-bleed dark charcoal backdrop with soft brand-orange glows — the
-    // admin app shares the customer app's CowboyApps branding, in both themes.
+    // admin app shares the customer app's CowboyMedia branding, in both themes.
     <div className="relative min-h-dvh flex items-center justify-center p-6 bg-sidebar overflow-hidden">
       <div aria-hidden className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-sidebar-primary/15 blur-3xl pointer-events-none" />
       <div aria-hidden className="absolute -bottom-40 -left-24 w-96 h-96 rounded-full bg-sidebar-primary/10 blur-3xl pointer-events-none" />
