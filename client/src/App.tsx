@@ -259,7 +259,7 @@ function AuthenticatedLayout() {
               <NotificationCenter />
             </div>
           </header>
-          <PullToRefresh ref={scrollRef} id="app-scroll-container" className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(3.5rem+var(--sab,env(safe-area-inset-bottom,0px)))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
+          <PullToRefresh ref={scrollRef} id="app-scroll-container" className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(4.5rem+var(--sab,env(safe-area-inset-bottom,0px)))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
             <main className={isFullHeightChat ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>
