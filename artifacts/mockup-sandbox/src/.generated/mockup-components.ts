@@ -4,6 +4,7 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard/Current.tsx": () => import("../components/mockups/dashboard/Current.tsx"),
   "./components/mockups/dashboard/FeedFirst.tsx": () => import("../components/mockups/dashboard/FeedFirst.tsx"),
   "./components/mockups/dashboard/ForYou.tsx": () => import("../components/mockups/dashboard/ForYou.tsx"),
+  "./components/mockups/dashboard/ForYouAlert.tsx": () => import("../components/mockups/dashboard/ForYouAlert.tsx"),
   "./components/mockups/dashboard/GlanceHealth.tsx": () => import("../components/mockups/dashboard/GlanceHealth.tsx"),
   "./components/mockups/dashboard/PersonalHub.tsx": () => import("../components/mockups/dashboard/PersonalHub.tsx"),
   "./components/mockups/dashboard/Scorecard.tsx": () => import("../components/mockups/dashboard/Scorecard.tsx"),
