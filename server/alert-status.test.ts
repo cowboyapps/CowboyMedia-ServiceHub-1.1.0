@@ -304,6 +304,62 @@ test("route PATCH /api/admin/alerts/:id recomputes the union of previous and new
   assert.deepEqual(new Set(serviceUpdatedBroadcasts), new Set(["s1", "s2", "s3"]));
 });
 
+// ---------------------------------------------------------------------------
+// Silent-edit guard test.
+//
+// Editing an alert's core details (title/description/severity/covered services)
+// is a CORRECTION action and is intentionally silent: unlike create / add-update
+// / resolve, it must fire ZERO customer-facing notifications (push/email/in-app/
+// Discord/Telegram/follower email). The rationale is documented above the handler
+// in server/alert-routes.ts — re-pinging every subscriber on a typo fix would be
+// spam. A refactor that accidentally added a notification fan-out to the edit
+// path (or moved code in from another handler) would silently start spamming
+// customers on every wording tweak. This pins the contract: a subscribed customer
+// who wants every channel receives NOTHING when the alert is edited, while the
+// recompute + realtime broadcast side effects (already covered by the union test
+// above) still fire. Needs no DB.
+// ---------------------------------------------------------------------------
+test("route PATCH /api/admin/alerts/:id edit is silent — recomputes/broadcasts but notifies nobody", async () => {
+  const { app, recomputed, serviceUpdatedBroadcasts, notifications } = routeHarness(
+    {
+      // A subscribed customer who wants every channel — so any accidental
+      // notification fan-out on the edit path would bump a counter below.
+      ...subscriberStorage,
+      updateAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
+      getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s3"], title: "t", description: "d", severity: "minor" }),
+    },
+    { depsOverrides: wantsEverythingDeps },
+  );
+  // Edit every core field: title, description, severity, and covered services.
+  const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1", {
+    title: "Fixed a typo in the title",
+    description: "Reworded description",
+    severity: "major",
+    serviceIds: ["s1", "s3"],
+  });
+
+  assert.equal(res.status, 200);
+  // The non-notification side effects still fire: coverage change recomputes the
+  // union of dropped (s2), kept (s1), and added (s3) services and broadcasts each.
+  assert.deepEqual(
+    new Set(recomputed),
+    new Set(["s1", "s2", "s3"]),
+    "edit still recomputes every affected service",
+  );
+  assert.deepEqual(
+    new Set(serviceUpdatedBroadcasts),
+    new Set(["s1", "s2", "s3"]),
+    "edit still broadcasts service_updated for every affected service",
+  );
+  // ...but NOT ONE customer-facing notification channel fires on an edit.
+  assert.equal(notifications.push, 0, "no push notifications on an edit");
+  assert.equal(notifications.email, 0, "no emails on an edit");
+  assert.equal(notifications.inApp, 0, "no in-app notifications on an edit");
+  assert.equal(notifications.discord, 0, "no Discord post on an edit");
+  assert.equal(notifications.telegram, 0, "no Telegram post on an edit");
+  assert.equal(notifications.followerEmail, 0, "no follower emails on an edit");
+});
+
 test("route POST /api/admin/alerts/:id/updates recomputes + broadcasts every covered service", async () => {
   const { app, recomputed, serviceUpdatedBroadcasts } = routeHarness({
     getAlert: async (id: string) => ({ id, serviceIds: ["s1", "s2"], title: "t", description: "d", severity: "minor" }),
