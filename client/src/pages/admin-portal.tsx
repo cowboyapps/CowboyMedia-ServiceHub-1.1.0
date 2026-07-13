@@ -11081,7 +11081,12 @@ export default function AdminPortal() {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
                   {g.label}
                 </h2>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-3">
+                {/* One markup, two looks: below sm the group renders as an
+                    iOS-settings-style card of full-width tappable rows
+                    (icon chip · label · badge · chevron, divider-separated);
+                    from sm up it reverts to the tile grid. Same test-ids in
+                    both, so jsdom tests are viewport-agnostic. */}
+                <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60 sm:rounded-none sm:border-0 sm:bg-transparent sm:shadow-none sm:overflow-visible sm:divide-y-0 sm:grid sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 sm:gap-3">
                   {items.map((s) => {
                     const Icon = s.icon;
                     const badgeCategory = tileBadgeMap[s.key];
@@ -11095,18 +11100,19 @@ export default function AdminPortal() {
                           if (s.navigateTo) navigate(s.navigateTo);
                           else goToSection(s.key);
                         }}
-                        className="relative flex flex-col items-center justify-center gap-2 p-3 sm:p-3.5 rounded-xl border border-card-border bg-card shadow-sm hover:bg-accent/50 hover:shadow-md transition-all duration-150 active:scale-[0.96] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[92px]"
+                        className="relative w-full flex items-center gap-3 px-3 py-2.5 text-left bg-card hover:bg-accent/50 transition-all duration-150 active:bg-accent/70 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset sm:flex-col sm:justify-center sm:gap-2 sm:p-3.5 sm:rounded-xl sm:border sm:border-card-border sm:shadow-sm sm:hover:shadow-md sm:active:scale-[0.96] sm:text-center sm:min-h-[92px]"
                         data-testid={`tile-admin-${s.key}`}
                       >
+                        <div className={`rounded-lg p-2 sm:rounded-xl sm:p-2.5 ${s.bg}`}>
+                          <Icon className={`w-5 h-5 ${s.color}`} />
+                        </div>
+                        <span className="flex-1 min-w-0 font-medium text-sm leading-tight line-clamp-2 sm:flex-none sm:w-full sm:text-[13px]">{s.label}</span>
                         {badgeCount > 0 && (
-                          <Badge variant="destructive" className="absolute top-1.5 right-1.5 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center shadow-sm" data-testid={`badge-tile-${s.key}`}>
+                          <Badge variant="destructive" className="shrink-0 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center shadow-sm sm:absolute sm:top-1.5 sm:right-1.5" data-testid={`badge-tile-${s.key}`}>
                             {badgeCount}
                           </Badge>
                         )}
-                        <div className={`rounded-xl p-2.5 ${s.bg}`}>
-                          <Icon className={`w-5 h-5 ${s.color}`} />
-                        </div>
-                        <span className="font-medium text-xs sm:text-[13px] leading-tight line-clamp-2">{s.label}</span>
+                        <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground/50 sm:hidden" />
                       </button>
                     );
                   })}
