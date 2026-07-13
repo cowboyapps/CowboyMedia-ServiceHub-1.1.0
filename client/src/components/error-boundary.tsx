@@ -27,6 +27,7 @@ export class AppErrorBoundary extends Component<Props, State> {
       serviceWorker: "serviceWorker" in navigator ? navigator.serviceWorker : undefined,
       caches: "caches" in window ? caches : undefined,
       reload: () => window.location.reload(),
+      adminApp: window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/"),
     });
   };
 

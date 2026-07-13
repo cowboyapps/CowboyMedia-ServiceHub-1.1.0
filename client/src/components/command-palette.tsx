@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
+import { navigateAcrossApps } from "@/lib/admin-nav";
 import {
   MessageSquare,
   BookOpen,
@@ -284,7 +285,8 @@ export function CommandPalette() {
       window.location.href = url;
       return;
     }
-    setLocation(url);
+    // /admin URLs belong to the separate admin PWA — needs a full page load.
+    navigateAcrossApps(url, setLocation);
   };
 
   const [recents, setRecents] = useState<RecentVisit[]>([]);

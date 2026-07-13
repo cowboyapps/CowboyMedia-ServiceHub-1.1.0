@@ -5,6 +5,7 @@ import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mai
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useAuth } from "@/lib/auth";
+import { navigateAcrossApps } from "@/lib/admin-nav";
 import { hapticLight } from "@/lib/haptics";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -97,7 +98,7 @@ export function BottomNav() {
 
   const handleSheetNav = (url: string) => {
     setMoreOpen(false);
-    navigate(url);
+    navigateAcrossApps(url, navigate);
   };
 
   return (

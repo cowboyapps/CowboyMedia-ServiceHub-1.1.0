@@ -16,6 +16,10 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        main: path.resolve(import.meta.dirname, "client", "index.html"),
+        admin: path.resolve(import.meta.dirname, "client", "admin.html"),
+      },
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;

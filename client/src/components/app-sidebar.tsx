@@ -169,7 +169,9 @@ export function AppSidebar() {
                             <ExternalLink className="w-3 h-3 opacity-60" />
                           </a>
                         ) : (
-                          <Link href={item.url} onClick={handleNavClick} data-testid={testId}>
+                          /* The Admin Portal is a separate PWA at /admin — a plain
+                             anchor forces the full page load its HTML entry needs. */
+                          <a href={item.url} onClick={handleNavClick} data-testid={testId}>
                             <item.icon className="w-4 h-4" />
                             <span className="flex-1">{item.title}</span>
                             {item.title === "Admin Portal" && awayActive && (
@@ -185,7 +187,7 @@ export function AppSidebar() {
                                 {badge}
                               </Badge>
                             )}
-                          </Link>
+                          </a>
                         )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>

@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
+import { navigateAcrossApps } from "@/lib/admin-nav";
 import { useToast } from "@/hooks/use-toast";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -379,7 +380,7 @@ export function NotificationCenter() {
 
   const handleNavigate = (url: string) => {
     setOpen(false);
-    navigate(url);
+    navigateAcrossApps(url, navigate);
   };
 
   const bellButton = (

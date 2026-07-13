@@ -2,6 +2,33 @@ import { apiRequest } from "./queryClient";
 
 export type PushResult = { ok: true } | { ok: false; code: string; reason: string };
 
+// Which service-worker scope this bundle manages. The customer app (main.tsx)
+// leaves it unset → default scope "/". The admin PWA entry (admin-main.tsx)
+// calls configurePushScope("/admin") before anything registers, so BOTH apps
+// share the same /sw.js script but hold two independent registrations —
+// separate caches, separate push subscriptions, separate lifecycles. All
+// helpers below (register, self-heal, resync gate) operate strictly on their
+// own scope so neither app can clobber the other's registration.
+let swScope: string | null = null;
+
+export function configurePushScope(scope: string): void {
+  swScope = scope;
+}
+
+function scopePathname(): string {
+  return swScope || "/";
+}
+
+function isOwnRegistration(reg: ServiceWorkerRegistration): boolean {
+  try {
+    const p = new URL(reg.scope).pathname;
+    const own = scopePathname();
+    return p === own || p === `${own}/`;
+  } catch {
+    return true;
+  }
+}
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -131,15 +158,19 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     lastSwRegisterError = "no serviceWorker in navigator";
     return null;
   }
+  // The customer app registers with NO explicit scope: the script lives at the
+  // site root, so its default scope is already "/" — exactly the coverage we
+  // want, and no Service-Worker-Allowed header is even required. The admin PWA
+  // registers the SAME script with the NARROWER scope "/admin" — narrowing
+  // below the default max scope is always allowed, so no header is needed
+  // there either. (Note: the iOS failure that produced "SecurityError: Scope
+  // URL should start with the given script URL" was NOT caused by this call —
+  // it was a DUPLICATED Service-Worker-Allowed header on the /sw.js response,
+  // set by both nginx and Express in production; see server/index.ts and
+  // .agents/memory/ios-pwa-push-diagnostics.md.)
+  const registerOpts = swScope ? { scope: swScope } : undefined;
   try {
-    // Register with NO explicit scope. The script lives at the site root, so its
-    // default scope is already "/" — exactly the coverage we want, and no
-    // Service-Worker-Allowed header is even required. (Note: the iOS failure that
-    // produced "SecurityError: Scope URL should start with the given script URL"
-    // was NOT caused by this call — it was a DUPLICATED Service-Worker-Allowed
-    // header on the /sw.js response, set by both nginx and Express in production;
-    // see server/index.ts and .agents/memory/ios-pwa-push-diagnostics.md.)
-    const registration = await navigator.serviceWorker.register("/sw.js");
+    const registration = await navigator.serviceWorker.register("/sw.js", registerOpts);
     lastSwRegisterError = "";
     lastSwFetchProbe = "";
     return registration;
@@ -149,12 +180,13 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     console.error("SW registration failed:", e, "| /sw.js probe:", lastSwFetchProbe);
     // Self-heal: a stale/corrupt registration from a previous install can also
     // reject register() (its recorded script URL no longer lines up). Tear down
-    // any existing registrations and retry once from a clean slate.
+    // any existing registrations FOR THIS APP'S SCOPE ONLY (the other app's
+    // registration must survive) and retry once from a clean slate.
     try {
-      const regs = await navigator.serviceWorker.getRegistrations();
+      const regs = (await navigator.serviceWorker.getRegistrations()).filter(isOwnRegistration);
       if (regs.length > 0) {
         await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
-        const retry = await navigator.serviceWorker.register("/sw.js");
+        const retry = await navigator.serviceWorker.register("/sw.js", registerOpts);
         lastSwRegisterError = "";
         return retry;
       }
@@ -265,7 +297,8 @@ function swSnapshot(
 // On failure the thrown error carries a `.swState` snapshot for diagnosis.
 async function getActiveRegistration(timeoutMs: number): Promise<ServiceWorkerRegistration> {
   const registered = await registerServiceWorker();
-  const reg = registered || (await navigator.serviceWorker.getRegistration()) || null;
+  const fallback = registered ? null : (await navigator.serviceWorker.getRegistration(scopePathname())) || null;
+  const reg = registered || (fallback && isOwnRegistration(fallback) ? fallback : null);
   if (reg?.active) return reg;
 
   // This promise only ever RESOLVES (on activation) — it never rejects. A
@@ -290,14 +323,22 @@ async function getActiveRegistration(timeoutMs: number): Promise<ServiceWorkerRe
   });
 
   try {
+    // `ready` resolves for whichever registration controls the CURRENT page —
+    // on an /admin page that may briefly be the customer app's root-scope
+    // worker (before the /admin registration activates). Guard it so a
+    // wrong-scope registration can never win the race and mis-scope the push
+    // subscription we're about to mint.
+    const readyOwn = navigator.serviceWorker.ready.then((r) =>
+      isOwnRegistration(r) ? r : activated,
+    );
     return await withTimeout(
-      Promise.race([activated, navigator.serviceWorker.ready]),
+      Promise.race([activated, readyOwn]),
       timeoutMs,
       "serviceWorker activation",
     );
   } catch (e) {
-    const latest = await navigator.serviceWorker.getRegistration();
-    if (latest?.active) return latest;
+    const latest = await navigator.serviceWorker.getRegistration(scopePathname());
+    if (latest?.active && isOwnRegistration(latest)) return latest;
     const err = new Error(describeError(e)) as Error & { swState?: string };
     err.swState = swSnapshot(registered, latest || reg);
     throw err;
@@ -468,7 +509,12 @@ export async function isSubscribedToPush(): Promise<boolean> {
   }
 }
 
-const PUSH_RESYNC_KEY = "sh-push-resync-v1";
+// Scoped per app so the one-time forced resync runs independently for the
+// customer app ("/") and the admin PWA ("/admin") — they hold separate
+// push subscriptions.
+function pushResyncKey(): string {
+  return swScope ? `sh-push-resync-v1:${swScope}` : "sh-push-resync-v1";
+}
 
 /**
  * Self-healing push subscription sync. Runs silently on app open for users
@@ -487,14 +533,14 @@ export async function syncPushSubscription(): Promise<void> {
 
     const registration = await getActiveRegistration(10000);
 
-    if (typeof localStorage !== "undefined" && !localStorage.getItem(PUSH_RESYNC_KEY)) {
+    if (typeof localStorage !== "undefined" && !localStorage.getItem(pushResyncKey())) {
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
         const oldEndpoint = existing.endpoint;
         try { await existing.unsubscribe(); } catch {}
         try { await apiRequest("POST", "/api/push/unsubscribe", { endpoint: oldEndpoint }); } catch {}
       }
-      try { localStorage.setItem(PUSH_RESYNC_KEY, "1"); } catch {}
+      try { localStorage.setItem(pushResyncKey(), "1"); } catch {}
     }
 
     // Share the single in-flight subscribe promise with any concurrent caller

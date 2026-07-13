@@ -53,7 +53,6 @@ import WhmcsTicketDetail from "@/pages/whmcs-ticket-detail";
 import SettingsPage from "@/pages/settings-page";
 import BillingPage from "@/pages/billing-page";
 import MyServicesPage from "@/pages/my-services-page";
-const AdminPortal = lazy(() => import("@/pages/admin-portal"));
 import MessagesPage from "@/pages/messages-page";
 import ReportRequestPage from "@/pages/report-request-page";
 import ServiceUpdatesPage from "@/pages/service-updates-page";
@@ -73,6 +72,7 @@ import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
 import { SetupReminderDialog } from "@/components/setup-reminder-dialog";
 import { PrivateMessagePopup } from "@/components/private-message-popup";
 import { useModalSlot } from "@/lib/modal-queue";
+import { BroadcastAlertPopup, TicketTransferPopup, LocationPresenceSync } from "@/components/shared-shell";
 
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -136,6 +136,18 @@ function PageTransition({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AdminAppRedirect() {
+  useEffect(() => {
+    window.location.replace(window.location.pathname + window.location.search);
+  }, []);
+  return (
+    <div className="p-6 space-y-3">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
+
 function AppRouter() {
   return (
     <PageTransition>
@@ -162,66 +174,15 @@ function AppRouter() {
         <Route path="/knowledge" component={KnowledgePage} />
         <Route path="/knowledge/:slug" component={KnowledgePage} />
         <Route path="/whats-new" component={WhatsNewPage} />
-        <Route path="/admin">
-          <Suspense fallback={<div className="p-6 space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>}>
-            <AdminPortal />
-          </Suspense>
-        </Route>
+        {/* The Admin Portal is now its own PWA served at /admin. If an
+            in-SPA navigation ever lands here (stale link, old bookmark
+            handled client-side), escape with a full page load so the server
+            can serve the admin app's HTML entry. */}
+        <Route path="/admin" component={AdminAppRedirect} />
+        <Route path="/admin/*" component={AdminAppRedirect} />
         <Route component={NotFound} />
       </Switch>
     </PageTransition>
-  );
-}
-
-type AdminAwayStatus = {
-  enabled: boolean;
-  isActive: boolean;
-  startAt: string | null;
-  endAt: string | null;
-  message: string;
-};
-
-function useSupportAwayStatus() {
-  const { user } = useAuth();
-  return useQuery<AdminAwayStatus>({
-    queryKey: ["/api/support-away/status"],
-    enabled: !!user,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
-    staleTime: 30_000,
-  });
-}
-
-function AdminAwayBanner() {
-  const { user } = useAuth();
-  const { data } = useSupportAwayStatus();
-  if (!user || (user.role !== "admin" && user.role !== "master_admin")) return null;
-  if (!data?.isActive) return null;
-  const endLabel = data.endAt
-    ? new Date(data.endAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-    : null;
-  return (
-    <div
-      className="flex items-start gap-2 px-3 py-2 border-b bg-orange-500/15 dark:bg-orange-500/20 text-xs"
-      data-testid="banner-admin-away-active"
-    >
-      <span className="inline-flex items-center rounded-sm bg-orange-500 text-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide flex-shrink-0 mt-0.5">
-        Away
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="text-orange-900 dark:text-orange-100">
-          <span className="font-medium">Support away message is active.</span>{" "}
-          New tickets receive the away auto-reply{endLabel ? ` until ${endLabel}` : ""}.
-        </p>
-      </div>
-      <Link
-        href="/admin?tab=support-away"
-        className="text-orange-900 dark:text-orange-100 underline whitespace-nowrap"
-        data-testid="link-admin-away-manage"
-      >
-        Manage
-      </Link>
-    </div>
   );
 }
 
@@ -262,7 +223,6 @@ function AuthenticatedLayout() {
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <OfflineBanner />
-          <AdminAwayBanner />
           <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
             <div className="z-10">
               {isMobile ? (
@@ -306,113 +266,6 @@ function AuthenticatedLayout() {
         </div>
       </div>
     </SidebarProvider>
-  );
-}
-
-interface BroadcastMsg {
-  id: string;
-  title: string;
-  message: string;
-  senderId: string;
-  createdAt: string;
-}
-
-function BroadcastAlertPopup() {
-  const { user } = useAuth();
-  const { subscribe } = useGlobalSocket();
-  const [queue, setQueue] = useState<BroadcastMsg[]>([]);
-  const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
-
-  const { data: unreadBroadcasts } = useQuery<BroadcastMsg[]>({
-    queryKey: ["/api/broadcasts/unread"],
-    enabled: !!user,
-    refetchOnWindowFocus: true,
-  });
-
-  useEffect(() => {
-    if (!unreadBroadcasts) return;
-    setQueue(prev => {
-      const existingIds = new Set(prev.map(b => b.id));
-      const newFromApi = unreadBroadcasts.filter(b => !existingIds.has(b.id) && !acknowledgedIds.has(b.id));
-      const stillUnread = prev.filter(b => unreadBroadcasts.some(u => u.id === b.id) || !acknowledgedIds.has(b.id));
-      const merged = [...stillUnread];
-      for (const b of newFromApi) {
-        if (!merged.some(m => m.id === b.id)) merged.push(b);
-      }
-      return merged.filter(b => !acknowledgedIds.has(b.id));
-    });
-  }, [unreadBroadcasts, acknowledgedIds]);
-
-  useEffect(() => {
-    if (!user) return;
-    const handleWs = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "broadcast_alert" && data.recipientIds?.includes(user.id)) {
-          const newBroadcast = { id: data.broadcastId, title: data.title, message: data.message, senderId: "", createdAt: new Date().toISOString() };
-          setQueue(prev => prev.some(b => b.id === newBroadcast.id) ? prev : [...prev, newBroadcast]);
-        }
-      } catch {}
-    };
-    return subscribe(handleWs);
-  }, [user, subscribe]);
-
-  const acknowledgeMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await apiRequest("POST", `/api/broadcasts/${id}/acknowledge`);
-      return id;
-    },
-    onSuccess: (id: string) => {
-      setAcknowledgedIds(prev => new Set([...prev, id]));
-      setQueue(prev => prev.filter(b => b.id !== id));
-      queryClient.invalidateQueries({ queryKey: ["/api/broadcasts/unread"] });
-    },
-  });
-
-  const current = queue[0];
-  if (!current) return null;
-
-  return (
-    <Dialog open={true} onOpenChange={() => {}}>
-      <DialogContent
-        className="w-[calc(100vw-2rem)] sm:max-w-md [&>button]:hidden"
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        data-testid="dialog-broadcast-alert"
-      >
-        <DialogHeader>
-          <div className="flex justify-center mb-2">
-            <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
-              <Megaphone className="w-7 h-7 text-destructive" />
-            </div>
-          </div>
-          <DialogTitle className="text-center text-xl" data-testid="text-broadcast-title">
-            Urgent Admin Alert
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2 py-2">
-          <p className="font-semibold text-center" data-testid="text-broadcast-subtitle">{current.title}</p>
-          <div className="text-sm text-muted-foreground whitespace-pre-wrap text-center" data-testid="text-broadcast-message">
-            {current.message}
-          </div>
-        </div>
-        {queue.length > 1 && (
-          <p className="text-xs text-muted-foreground text-center">
-            {queue.length - 1} more alert{queue.length - 1 > 1 ? "s" : ""} remaining
-          </p>
-        )}
-        <DialogFooter className="flex flex-col sm:flex-col">
-          <Button
-            className="w-full"
-            onClick={() => acknowledgeMutation.mutate(current.id)}
-            disabled={acknowledgeMutation.isPending}
-            data-testid="button-broadcast-acknowledge"
-          >
-            {acknowledgeMutation.isPending ? "Acknowledging..." : "Acknowledge"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -572,187 +425,6 @@ function WelcomeDialog() {
         <DialogFooter>
           <Button className="w-full" data-testid="button-welcome-dismiss" onClick={() => setShowWelcome(false)}>
             Get Started
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-interface TransferData {
-  id: number;
-  ticketId: string;
-  fromAdminId: number;
-  toAdminId: number;
-  reason: string;
-  status: string;
-  createdAt: string;
-  ticket: {
-    id: number;
-    subject: string;
-    description: string;
-    priority: string;
-    serviceName?: string;
-    categoryName?: string;
-    createdAt: string;
-  };
-  customer: {
-    fullName: string;
-    email: string;
-    username: string;
-  };
-  fromAdmin: {
-    fullName: string;
-  };
-}
-
-function TicketTransferPopup() {
-  const { user } = useAuth();
-  const { subscribe } = useGlobalSocket();
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const [queue, setQueue] = useState<TransferData[]>([]);
-  const [open, setOpen] = useState(true);
-
-  const { data: pendingTransfers } = useQuery<TransferData[]>({
-    queryKey: ["/api/ticket-transfers/pending"],
-    enabled: !!user,
-    refetchInterval: 30000,
-    refetchOnWindowFocus: true,
-  });
-
-  useEffect(() => {
-    if (!pendingTransfers) return;
-    setQueue(prev => {
-      const existingIds = new Set(prev.map(t => t.id));
-      const newFromApi = pendingTransfers.filter(t => !existingIds.has(t.id));
-      const merged = [...prev];
-      for (const t of newFromApi) {
-        if (!merged.some(m => m.id === t.id)) merged.push(t);
-      }
-      return merged.filter(t => pendingTransfers.some(p => p.id === t.id));
-    });
-  }, [pendingTransfers]);
-
-  useEffect(() => {
-    if (!user) return;
-    const handleWs = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "ticket_transfer" && data.transfer?.toAdminId === user.id) {
-          const newTransfer: TransferData = {
-            id: data.transfer.id,
-            ticketId: data.transfer.ticketId,
-            fromAdminId: data.transfer.fromAdminId,
-            toAdminId: data.transfer.toAdminId,
-            reason: data.transfer.reason,
-            status: data.transfer.status,
-            createdAt: data.transfer.createdAt,
-            ticket: data.ticket,
-            customer: data.customer,
-            fromAdmin: data.fromAdmin,
-          };
-          setQueue(prev => prev.some(t => t.id === newTransfer.id) ? prev : [...prev, newTransfer]);
-          setOpen(true);
-          queryClient.invalidateQueries({ queryKey: ["/api/ticket-transfers/pending"] });
-        }
-      } catch {}
-    };
-    return subscribe(handleWs);
-  }, [user, subscribe]);
-
-  useEffect(() => {
-    if (queue.length > 0) setOpen(true);
-  }, [queue.length]);
-
-  const claimMutation = useMutation({
-    mutationFn: async (ticketId: string) => {
-      await apiRequest("POST", `/api/tickets/${ticketId}/claim`);
-    },
-    onSuccess: (_data, ticketId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/ticket-transfers/pending"] });
-      setQueue(prev => prev.filter(t => t.ticketId !== ticketId));
-      setOpen(false);
-      setLocation(`/tickets/${ticketId}`);
-    },
-    onError: (e: Error) => {
-      toast({ title: "Failed to claim ticket", description: serverActionErrorMessage(e, "Couldn't claim this ticket. Please try again."), variant: "destructive" });
-    },
-  });
-
-  const current = queue[0];
-  if (!current || !open || !current.ticket || !current.customer || !current.fromAdmin) return null;
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-ticket-transfer">
-        <DialogHeader>
-          <div className="flex justify-center mb-2">
-            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-              <ArrowRightLeft className="w-7 h-7 text-primary" />
-            </div>
-          </div>
-          <DialogTitle className="text-center text-xl">Ticket Transfer Request</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <p className="text-sm text-muted-foreground text-center">
-            From: <span className="font-semibold text-foreground">{current.fromAdmin.fullName}</span>
-          </p>
-          <div className="bg-muted rounded-md p-3 text-sm">
-            <span className="font-medium">Reason:</span> {current.reason}
-          </div>
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-foreground">Customer Info</p>
-            <p className="text-muted-foreground">Full Name: {current.customer.fullName}</p>
-            <p className="text-muted-foreground">Email: {current.customer.email}</p>
-            <p className="text-muted-foreground">Username: {current.customer.username}</p>
-          </div>
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-foreground">Ticket Info</p>
-            <p className="text-muted-foreground">Subject: {current.ticket.subject}</p>
-            <p className="text-muted-foreground">Description: {(current.ticket.description || "").length > 100 ? current.ticket.description.slice(0, 100) + "..." : current.ticket.description || "N/A"}</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-muted-foreground">Priority:</span>
-              <Badge variant="outline" className="text-xs">{current.ticket.priority}</Badge>
-            </div>
-            {current.ticket.serviceName && (
-              <p className="text-muted-foreground">Service: {current.ticket.serviceName}</p>
-            )}
-            {current.ticket.categoryName && (
-              <p className="text-muted-foreground">Category: {current.ticket.categoryName}</p>
-            )}
-            <p className="text-muted-foreground">Created: {format(new Date(current.ticket.createdAt), "MMM d, yyyy h:mm a")}</p>
-          </div>
-        </div>
-        {queue.length > 1 && (
-          <p className="text-xs text-muted-foreground text-center">
-            ({queue.length - 1} more pending)
-          </p>
-        )}
-        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-          <Button
-            className="w-full"
-            data-testid="button-accept-claim"
-            disabled={claimMutation.isPending}
-            onClick={() => claimMutation.mutate(current.ticketId)}
-          >
-            {claimMutation.isPending ? "Claiming..." : "Accept & Claim"}
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            data-testid="button-view-ticket"
-            onClick={() => {
-              setOpen(false);
-              setQueue(prev => prev.filter(t => t.id !== current.id));
-              setLocation(`/tickets/${current.ticketId}`);
-            }}
-          >
-            View Ticket
-          </Button>
-          <Button variant="ghost" className="w-full" onClick={() => setOpen(false)}>
-            Dismiss
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1035,14 +707,6 @@ function AppContent() {
   return (
     <AppContentInner user={user} isLoading={isLoading} isAdmin={isAdmin} location={location} />
   );
-}
-
-function LocationPresenceSync({ location }: { location: string }) {
-  const { sendMessage } = useGlobalSocket();
-  useEffect(() => {
-    sendMessage({ type: "current_page", page: location });
-  }, [location, sendMessage]);
-  return null;
 }
 
 function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; isLoading: boolean; isAdmin: boolean; location: string }) {

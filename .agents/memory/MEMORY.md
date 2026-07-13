@@ -42,3 +42,4 @@
 - [Radix menu → popover handoff](radix-menu-to-popover-handoff.md) — opening a Popover from a DropdownMenuItem via setTimeout(0) races the menu's focus restore; open it in onCloseAutoFocus + preventDefault.
 - [Wouter route exit animations](wouter-route-exit-animations.md) — don't remount the outgoing route in a 2nd Router (re-fires mount POSTs); use View Transitions on a single tree pinned to renderedLocation w/ the real navigate.
 - [TipTap typing in jsdom tests](tiptap-jsdom-typing.md) — fill a ProseMirror field by setting innerHTML + dispatching InputEvent("input"); such mutation-firing tests need setupComponentTestTeardown (mutation gcTime:0).
+- [Dual-PWA split](dual-pwa-split.md) — customer (/) and admin (/admin) are separate installable apps; cross-app links must be hard navigations; one scope-parametrized sw.js serves both.

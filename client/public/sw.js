@@ -2,16 +2,43 @@
 // per-deploy id so the cache version automatically rotates on every deploy.
 // In dev (no replacement), it falls back to a stable string.
 const CACHE_VERSION = '__BUILD_ID__'.startsWith('__') ? 'dev' : '__BUILD_ID__';
-const SHELL_CACHE = `servicehub-shell-${CACHE_VERSION}`;
-const ASSETS_CACHE = `servicehub-assets-${CACHE_VERSION}`;
-const API_CACHE = `servicehub-api-${CACHE_VERSION}`;
-const STATIC_PRECACHE = [
-  '/',
-  '/manifest.json',
-  '/favicon.png',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-];
+
+// This one script backs TWO independent registrations: the customer app at
+// scope "/" and the admin PWA at scope "/admin" (registered by admin-main.tsx).
+// Everything scope-dependent — cache names, the app-shell path, precache list,
+// notification icons — derives from self.registration.scope so the two workers
+// never read or write each other's caches.
+const SCOPE_PATH = (() => {
+  try {
+    return new URL(self.registration.scope).pathname;
+  } catch {
+    return '/';
+  }
+})();
+const IS_ADMIN_APP = SCOPE_PATH === '/admin' || SCOPE_PATH.startsWith('/admin/');
+const APP_PREFIX = IS_ADMIN_APP ? 'servicehub-admin' : 'servicehub';
+// The navigation fallback document for this app ("app shell").
+const APP_SHELL = IS_ADMIN_APP ? '/admin' : '/';
+const NOTIFICATION_ICON = IS_ADMIN_APP ? '/icons/admin/icon-192.png' : '/icons/icon-192.png';
+const NOTIFICATION_BADGE = IS_ADMIN_APP ? '/icons/admin/badge-96.png' : '/icons/badge-96.png';
+
+const SHELL_CACHE = `${APP_PREFIX}-shell-${CACHE_VERSION}`;
+const ASSETS_CACHE = `${APP_PREFIX}-assets-${CACHE_VERSION}`;
+const API_CACHE = `${APP_PREFIX}-api-${CACHE_VERSION}`;
+const STATIC_PRECACHE = IS_ADMIN_APP
+  ? [
+      '/admin',
+      '/admin-manifest.json',
+      '/icons/admin/icon-192.png',
+      '/icons/admin/icon-512.png',
+    ]
+  : [
+      '/',
+      '/manifest.json',
+      '/favicon.png',
+      '/icons/icon-192.png',
+      '/icons/icon-512.png',
+    ];
 
 const NAV_TIMEOUT_MS = 2500;
 
@@ -41,9 +68,19 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   const allowed = new Set([SHELL_CACHE, ASSETS_CACHE, API_CACHE]);
+  // Only sweep caches that belong to THIS app. The customer worker must never
+  // delete `servicehub-admin-*` caches and vice versa — both workers run this
+  // cleanup on every deploy. (`servicehub-admin-` also starts with
+  // `servicehub-`, hence the explicit exclusion on the customer side.)
+  const ownsCache = (k) =>
+    IS_ADMIN_APP
+      ? k.startsWith('servicehub-admin-')
+      : k.startsWith('servicehub-') && !k.startsWith('servicehub-admin-');
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => !allowed.has(k)).map((k) => caches.delete(k)))
+      Promise.all(
+        keys.filter((k) => ownsCache(k) && !allowed.has(k)).map((k) => caches.delete(k))
+      )
     ).then(() => self.clients.claim())
   );
 });
@@ -85,14 +122,16 @@ async function handleNavigation(request) {
     ]);
     if (fresh && fresh.ok) {
       const clone = fresh.clone();
-      caches.open(SHELL_CACHE).then((cache) => cache.put('/', clone)).catch(() => {});
+      caches.open(SHELL_CACHE).then((cache) => cache.put(APP_SHELL, clone)).catch(() => {});
       return fresh;
     }
     if (fresh) return fresh;
   } catch {
     // network failed or timed out — fall through to cached shell
   }
-  const cached = (await caches.match(request)) || (await caches.match('/'));
+  const cached =
+    (await caches.match(request, { cacheName: SHELL_CACHE })) ||
+    (await caches.match(APP_SHELL, { cacheName: SHELL_CACHE }));
   if (cached) return cached;
   return new Response(
     '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:system-ui;padding:2rem;text-align:center"><h1>Offline</h1><p>Please reconnect and try again.</p></body>',
@@ -226,7 +265,11 @@ self.buildRollup = function buildRollup(data, prevCount) {
 };
 
 self.addEventListener('push', (event) => {
-  let data = { title: 'ServiceHub', body: 'You have a new notification', url: '/' };
+  let data = {
+    title: IS_ADMIN_APP ? 'ServiceHub Admin' : 'ServiceHub',
+    body: 'You have a new notification',
+    url: APP_SHELL,
+  };
   try {
     data = event.data.json();
   } catch (e) {
@@ -262,11 +305,11 @@ self.addEventListener('push', (event) => {
         const rolled = self.buildRollup(data, prevCount);
         const options = {
           body: rolled.body,
-          icon: '/icons/icon-192.png',
-          badge: '/icons/badge-96.png',
+          icon: NOTIFICATION_ICON,
+          badge: NOTIFICATION_BADGE,
           vibrate: [200, 100, 200],
           data: {
-            url: data.url || '/',
+            url: data.url || APP_SHELL,
             notificationId: data.notificationId || null,
             tag,
             rollupCount: rolled.total,
@@ -340,7 +383,7 @@ self.addEventListener('notificationclick', (event) => {
   }
 
   event.notification.close();
-  const url = data.url || '/';
+  const url = data.url || APP_SHELL;
   // Absolute, cross-origin targets (e.g. a WHMCS invoice pay page) must open in
   // their own window — navigating an already-open same-origin ServiceHub tab to
   // an external URL would hijack the PWA away from itself.
