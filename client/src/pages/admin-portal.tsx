@@ -11095,15 +11095,15 @@ export default function AdminPortal() {
                           if (s.navigateTo) navigate(s.navigateTo);
                           else goToSection(s.key);
                         }}
-                        className="relative flex flex-col items-center justify-center gap-1.5 p-3 sm:p-3.5 rounded-lg border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[88px]"
+                        className="relative flex flex-col items-center justify-center gap-2 p-3 sm:p-3.5 rounded-xl border border-card-border bg-card shadow-sm hover:bg-accent/50 hover:shadow-md transition-all duration-150 active:scale-[0.96] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[92px]"
                         data-testid={`tile-admin-${s.key}`}
                       >
                         {badgeCount > 0 && (
-                          <Badge variant="destructive" className="absolute top-1 right-1 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center" data-testid={`badge-tile-${s.key}`}>
+                          <Badge variant="destructive" className="absolute top-1.5 right-1.5 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center shadow-sm" data-testid={`badge-tile-${s.key}`}>
                             {badgeCount}
                           </Badge>
                         )}
-                        <div className={`rounded-full p-2 ${s.bg}`}>
+                        <div className={`rounded-xl p-2.5 ${s.bg}`}>
                           <Icon className={`w-5 h-5 ${s.color}`} />
                         </div>
                         <span className="font-medium text-xs sm:text-[13px] leading-tight line-clamp-2">{s.label}</span>

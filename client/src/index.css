@@ -557,86 +557,11 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   ADMIN PWA TOKEN OVERRIDES — the admin app's own visual identity.
-   client/src/admin-main.tsx adds `admin-app` on <html>. The admin PWA is a
-   dense, cool-toned ops tool: electric blue accent on slate surfaces, Inter
-   type, tighter radius. Deliberately distinct from the customer app's warm
-   charcoal + orange. The sidebar tokens are deep slate in BOTH modes — the
-   admin shell (header, desktop nav rail) is always dark so the blue accent
-   carries the identity. Dark mode is first-class, not an inversion.
+   ADMIN PWA THEME — intentionally NO token overrides.
+   client/src/admin-main.tsx adds `admin-app` on <html>, but the admin app
+   now inherits the customer app's full brand palette (warm charcoal +
+   CowboyApps orange, Plus Jakarta Sans, .75rem radius) from :root / .dark
+   above, so the two apps always stay visually in sync. If the admin app
+   ever needs its own identity again, re-add `html.admin-app` /
+   `html.admin-app.dark` blocks here.
    ------------------------------------------------------------------------- */
-html.admin-app {
-  --background: 220 20% 97%;
-  --foreground: 222 40% 11%;
-  --border: 220 14% 87%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 40% 11%;
-  --card-border: 220 14% 91%;
-  --sidebar: 222 38% 10%;
-  --sidebar-foreground: 215 25% 90%;
-  --sidebar-border: 221 30% 17%;
-  --sidebar-primary: 214 95% 56%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 30% 18%;
-  --sidebar-accent-foreground: 213 85% 86%;
-  --sidebar-ring: 214 95% 56%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 40% 11%;
-  --popover-border: 220 14% 87%;
-  --primary: 214 90% 45%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 15% 90%;
-  --secondary-foreground: 222 35% 14%;
-  --muted: 220 15% 92%;
-  --muted-foreground: 220 10% 42%;
-  --accent: 214 60% 94%;
-  --accent-foreground: 216 65% 25%;
-  --destructive: 0 78% 42%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 220 12% 77%;
-  --ring: 214 90% 45%;
-  --chart-1: 214 90% 48%;
-  --chart-2: 190 70% 38%;
-  --chart-3: 262 60% 55%;
-  --chart-4: 35 90% 45%;
-  --chart-5: 150 55% 35%;
-  --font-sans: Inter, sans-serif;
-  --radius: .5rem;
-}
-
-html.admin-app.dark {
-  --background: 222 30% 7%;
-  --foreground: 214 20% 93%;
-  --border: 220 20% 16%;
-  --card: 222 26% 10%;
-  --card-foreground: 214 20% 93%;
-  --card-border: 221 22% 13%;
-  --sidebar: 223 32% 8%;
-  --sidebar-foreground: 215 20% 88%;
-  --sidebar-border: 221 24% 14%;
-  --sidebar-primary: 214 95% 62%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 219 28% 16%;
-  --sidebar-accent-foreground: 213 85% 86%;
-  --sidebar-ring: 214 95% 62%;
-  --popover: 222 26% 11%;
-  --popover-foreground: 214 20% 93%;
-  --popover-border: 220 20% 17%;
-  --primary: 214 95% 58%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 18% 19%;
-  --secondary-foreground: 214 20% 93%;
-  --muted: 220 18% 15%;
-  --muted-foreground: 217 12% 66%;
-  --accent: 216 30% 17%;
-  --accent-foreground: 213 80% 86%;
-  --destructive: 0 72% 48%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 220 15% 26%;
-  --ring: 214 95% 58%;
-  --chart-1: 214 95% 62%;
-  --chart-2: 190 70% 52%;
-  --chart-3: 262 65% 68%;
-  --chart-4: 35 90% 55%;
-  --chart-5: 150 55% 48%;
-}
