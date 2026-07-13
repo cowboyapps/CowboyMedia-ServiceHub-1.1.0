@@ -41,3 +41,5 @@ let a hang be killed + reported without stalling the whole suite.
   was refactored and the strings no longer match (2 failing tests). These are
   real stale-test failures surfaced once the suite stopped OOMing — fix the
   assertions (or restore the wiring), don't paper over them.
+
+**Resumable walk vs the 120s shell limit:** a `--resume` run whose next files are heavy jsdom tests can blow past the agent-shell 2-minute cap with ZERO output (the run is killed mid-file; that file records no progress, so retries loop forever). Recovery: read `node_modules/.cache/servicehub-test-progress.json` (`.passed` keys), diff against all `*.test.ts` files to list the remainder, then run the leftovers directly in ~3-file batches: `tsx script/run-tests.ts <file1> <file2> <file3>`.

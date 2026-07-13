@@ -102,8 +102,12 @@ function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-dvh flex items-center justify-center p-6">
-      <Card className="w-full max-w-md">
+    // Full-bleed deep-slate backdrop with soft electric-blue glows: the admin
+    // app's identity is visible from the very first screen, in both themes.
+    <div className="relative min-h-dvh flex items-center justify-center p-6 bg-sidebar overflow-hidden">
+      <div aria-hidden className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-sidebar-primary/15 blur-3xl pointer-events-none" />
+      <div aria-hidden className="absolute -bottom-40 -left-24 w-96 h-96 rounded-full bg-sidebar-primary/10 blur-3xl pointer-events-none" />
+      <Card className="relative w-full max-w-md">
         <CardHeader className="text-center">
           <BrandLogo className="mx-auto h-24 mb-3" />
           <div className="flex items-center justify-center gap-1.5 text-primary">
@@ -211,8 +215,9 @@ function NotStaffScreen() {
   };
 
   return (
-    <div className="min-h-dvh flex items-center justify-center p-6">
-      <Card className="w-full max-w-md">
+    <div className="relative min-h-dvh flex items-center justify-center p-6 bg-sidebar overflow-hidden">
+      <div aria-hidden className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-sidebar-primary/15 blur-3xl pointer-events-none" />
+      <Card className="relative w-full max-w-md">
         <CardContent className="pt-6 text-center space-y-4">
           <div className="w-14 h-14 mx-auto rounded-full bg-destructive/10 flex items-center justify-center">
             <ShieldAlert className="w-7 h-7 text-destructive" />
@@ -283,10 +288,13 @@ function AdminShell() {
       >
         <OfflineBanner />
         <AdminAwayBanner />
-        <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
+        {/* Deep-slate ops header — dark in BOTH modes (mirrors the customer
+            app's dark shell convention, but cool slate + electric blue so the
+            two apps are instantly tell-apart-able). */}
+        <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground min-h-[3rem]">
           <div className="z-10 flex items-center gap-2">
-            <BrandLogo className="h-8" />
-            <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary px-2 py-0.5 text-xs font-semibold uppercase tracking-wide">
+            <BrandLogo onDark className="h-8" />
+            <span className="inline-flex items-center gap-1 rounded-md bg-sidebar-primary/15 text-sidebar-primary border border-sidebar-primary/25 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide">
               <Shield className="w-3.5 h-3.5" />
               Admin
             </span>
@@ -296,7 +304,7 @@ function AdminShell() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-9 gap-2 px-2 sm:px-3 text-muted-foreground hover:text-foreground"
+              className="h-9 gap-2 px-2 sm:px-3 text-sidebar-foreground/70 hover:text-sidebar-foreground"
               onClick={handleLogout}
               data-testid="button-admin-logout"
               aria-label="Sign out"

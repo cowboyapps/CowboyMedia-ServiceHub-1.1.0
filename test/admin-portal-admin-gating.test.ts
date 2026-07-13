@@ -276,6 +276,8 @@ test("customer navigating to /admin is blocked and never sees the admin tooling"
     assert.equal(has("tile-admin-knowledge-base"), false, "no Knowledge Base admin tile for customer");
     assert.equal(has("tile-admin-news"), false, "no News admin tile for customer");
     assert.equal(has("tile-admin-users"), false, "no Users admin tile for customer");
+    assert.equal(has("admin-nav-rail"), false, "no desktop nav rail for customer");
+    assert.equal(has("nav-rail-users"), false, "no Users nav-rail entry for customer");
   } finally {
     h.cleanup();
   }
@@ -294,6 +296,11 @@ test("admin at /admin sees the management tiles including Knowledge Base and New
     assert.ok(has("tile-admin-knowledge-base"), "admin sees the Knowledge Base tile");
     assert.ok(has("tile-admin-news"), "admin sees the News tile");
     assert.ok(has("tile-admin-users"), "admin sees the Users tile");
+    // Desktop nav rail mirrors the tile menu's permission filtering (jsdom
+    // ignores the lg: media query, so the rail renders here too).
+    assert.ok(has("admin-nav-rail"), "admin sees the desktop nav rail");
+    assert.ok(has("nav-rail-users"), "admin sees the Users nav-rail entry");
+    assert.ok(has("nav-rail-knowledge-base"), "admin sees the Knowledge Base nav-rail entry");
   } finally {
     h.cleanup();
   }
