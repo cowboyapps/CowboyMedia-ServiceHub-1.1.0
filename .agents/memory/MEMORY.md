@@ -44,3 +44,4 @@
 - [TipTap typing in jsdom tests](tiptap-jsdom-typing.md) — fill a ProseMirror field by setting innerHTML + dispatching InputEvent("input"); such mutation-firing tests need setupComponentTestTeardown (mutation gcTime:0).
 - [Shared stylesheet across customer + admin PWAs](shared-stylesheet-two-pwas.md) — both apps import index.css; token changes leak into admin unless mirrored in the html.admin-app override block; tailwind config values can't be scoped.
 - [Dual-PWA split](dual-pwa-split.md) — customer (/) and admin (/admin) are separate installable apps; cross-app links must be hard navigations; one scope-parametrized sw.js serves both.
+- [PWA icon regeneration](pwa-icon-regeneration.md) — compose icon masters with ImageMagick (exact hex canvas + label: wordmark); AI text + remove-bg leave remnants; badge fill needs forced sRGB white.
