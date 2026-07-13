@@ -33,44 +33,47 @@ body {
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
-  --border: 0 0% 90%;
-  --card: 0 0% 98%;
-  --card-foreground: 0 0% 9%;
-  --card-border: 0 0% 94%;
-  --sidebar: 0 0% 96%;
-  --sidebar-foreground: 0 0% 9%;
-  --sidebar-border: 0 0% 92%;
-  --sidebar-primary: 217 91% 35%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 217 8% 88%;
-  --sidebar-accent-foreground: 0 0% 15%;
-  --sidebar-ring: 217 91% 35%;
-  --popover: 0 0% 94%;
-  --popover-foreground: 0 0% 9%;
-  --popover-border: 0 0% 90%;
-  --primary: 217 91% 35%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 88%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 217 6% 90%;
-  --muted-foreground: 0 0% 40%;
-  --accent: 217 8% 92%;
-  --accent-foreground: 0 0% 9%;
-  --destructive: 0 84% 35%;
+  /* Brand-forward palette: warm neutrals + CowboyApps orange. The sidebar
+     tokens are dark charcoal in BOTH modes — the app shell (sidebar, header,
+     bottom nav) is intentionally dark so the orange brand accent pops. */
+  --background: 30 25% 97%;
+  --foreground: 20 14% 10%;
+  --border: 28 15% 87%;
+  --card: 0 0% 100%;
+  --card-foreground: 20 14% 10%;
+  --card-border: 28 18% 91%;
+  --sidebar: 20 12% 11%;
+  --sidebar-foreground: 30 15% 92%;
+  --sidebar-border: 20 10% 18%;
+  --sidebar-primary: 25 95% 53%;
+  --sidebar-primary-foreground: 20 15% 8%;
+  --sidebar-accent: 22 12% 19%;
+  --sidebar-accent-foreground: 30 20% 95%;
+  --sidebar-ring: 25 95% 53%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 14% 10%;
+  --popover-border: 28 15% 88%;
+  --primary: 24 90% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 28 18% 89%;
+  --secondary-foreground: 20 14% 12%;
+  --muted: 28 16% 91%;
+  --muted-foreground: 24 8% 40%;
+  --accent: 26 55% 93%;
+  --accent-foreground: 22 60% 22%;
+  --destructive: 0 78% 42%;
   --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 75%;
-  --ring: 217 91% 35%;
-  --chart-1: 217 91% 35%;
-  --chart-2: 185 62% 32%;
-  --chart-3: 280 65% 38%;
-  --chart-4: 27 87% 35%;
-  --chart-5: 142 76% 28%;
-  --font-sans: Open Sans, sans-serif;
+  --input: 28 12% 76%;
+  --ring: 24 90% 45%;
+  --chart-1: 24 90% 48%;
+  --chart-2: 185 55% 34%;
+  --chart-3: 340 60% 45%;
+  --chart-4: 45 90% 38%;
+  --chart-5: 150 55% 30%;
+  --font-sans: Plus Jakarta Sans, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
-  --radius: .5rem;
+  --font-mono: JetBrains Mono, Menlo, monospace;
+  --radius: .75rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
@@ -127,40 +130,42 @@ body {
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
-  --background: 0 0% 9%;
-  --foreground: 0 0% 98%;
-  --border: 0 0% 18%;
-  --card: 0 0% 11%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 0 0% 14%;
-  --sidebar: 0 0% 13%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 0 0% 16%;
-  --sidebar-primary: 217 91% 50%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 217 8% 18%;
-  --sidebar-accent-foreground: 0 0% 85%;
-  --sidebar-ring: 217 91% 50%;
-  --popover: 0 0% 15%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 0 0% 18%;
-  --primary: 217 91% 35%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 20%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 217 6% 18%;
-  --muted-foreground: 0 0% 65%;
-  --accent: 217 8% 16%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 84% 35%;
+  /* Dark mode: warm charcoal, not cold gray — a first-class variant of the
+     brand direction. Orange lifts a touch for contrast on dark surfaces. */
+  --background: 20 12% 8%;
+  --foreground: 30 15% 95%;
+  --border: 20 9% 17%;
+  --card: 20 10% 11%;
+  --card-foreground: 30 15% 95%;
+  --card-border: 20 8% 15%;
+  --sidebar: 20 13% 9%;
+  --sidebar-foreground: 30 15% 92%;
+  --sidebar-border: 20 9% 15%;
+  --sidebar-primary: 25 95% 58%;
+  --sidebar-primary-foreground: 20 15% 8%;
+  --sidebar-accent: 22 12% 18%;
+  --sidebar-accent-foreground: 30 20% 95%;
+  --sidebar-ring: 25 95% 58%;
+  --popover: 20 10% 13%;
+  --popover-foreground: 30 15% 95%;
+  --popover-border: 20 9% 18%;
+  --primary: 25 95% 55%;
+  --primary-foreground: 20 15% 8%;
+  --secondary: 20 8% 20%;
+  --secondary-foreground: 30 15% 95%;
+  --muted: 22 9% 16%;
+  --muted-foreground: 28 10% 66%;
+  --accent: 24 18% 17%;
+  --accent-foreground: 30 20% 93%;
+  --destructive: 0 72% 45%;
   --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 30%;
-  --ring: 217 91% 50%;
-  --chart-1: 217 91% 60%;
-  --chart-2: 185 62% 55%;
-  --chart-3: 280 65% 65%;
-  --chart-4: 27 87% 60%;
-  --chart-5: 142 76% 55%;
+  --input: 20 8% 28%;
+  --ring: 25 95% 58%;
+  --chart-1: 25 95% 60%;
+  --chart-2: 185 55% 55%;
+  --chart-3: 340 65% 65%;
+  --chart-4: 45 90% 55%;
+  --chart-5: 150 55% 50%;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
@@ -549,4 +554,87 @@ body {
   .chat-jump-highlight {
     animation: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   ADMIN PWA TOKEN OVERRIDES
+   The admin app (client/src/admin-main.tsx adds `admin-app` on <html>) is out
+   of scope for the customer brand redesign. These blocks pin the admin back to
+   its original neutral/blue palette so the global token rewrite above does not
+   restyle it. Keep in sync with the pre-redesign values.
+   ------------------------------------------------------------------------- */
+html.admin-app {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
+  --border: 0 0% 90%;
+  --card: 0 0% 98%;
+  --card-foreground: 0 0% 9%;
+  --card-border: 0 0% 94%;
+  --sidebar: 0 0% 96%;
+  --sidebar-foreground: 0 0% 9%;
+  --sidebar-border: 0 0% 92%;
+  --sidebar-primary: 217 91% 35%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 217 8% 88%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-ring: 217 91% 35%;
+  --popover: 0 0% 94%;
+  --popover-foreground: 0 0% 9%;
+  --popover-border: 0 0% 90%;
+  --primary: 217 91% 35%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 88%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 217 6% 90%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 217 8% 92%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 84% 35%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 0 0% 75%;
+  --ring: 217 91% 35%;
+  --chart-1: 217 91% 35%;
+  --chart-2: 185 62% 32%;
+  --chart-3: 280 65% 38%;
+  --chart-4: 27 87% 35%;
+  --chart-5: 142 76% 28%;
+  --font-sans: Open Sans, sans-serif;
+  --radius: .5rem;
+}
+
+html.admin-app.dark {
+  --background: 0 0% 9%;
+  --foreground: 0 0% 98%;
+  --border: 0 0% 18%;
+  --card: 0 0% 11%;
+  --card-foreground: 0 0% 98%;
+  --card-border: 0 0% 14%;
+  --sidebar: 0 0% 13%;
+  --sidebar-foreground: 0 0% 98%;
+  --sidebar-border: 0 0% 16%;
+  --sidebar-primary: 217 91% 50%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 217 8% 18%;
+  --sidebar-accent-foreground: 0 0% 85%;
+  --sidebar-ring: 217 91% 50%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 98%;
+  --popover-border: 0 0% 18%;
+  --primary: 217 91% 35%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 217 6% 18%;
+  --muted-foreground: 0 0% 65%;
+  --accent: 217 8% 16%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 84% 35%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 0 0% 30%;
+  --ring: 217 91% 50%;
+  --chart-1: 217 91% 60%;
+  --chart-2: 185 62% 55%;
+  --chart-3: 280 65% 65%;
+  --chart-4: 27 87% 60%;
+  --chart-5: 142 76% 55%;
 }

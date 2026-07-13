@@ -99,7 +99,7 @@ export function BottomNav() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-muted border-t"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-sidebar border-t border-sidebar-border"
         style={{ paddingBottom: "var(--sab, env(safe-area-inset-bottom, 0px))" }}
         data-testid="nav-bottom"
       >
@@ -108,7 +108,7 @@ export function BottomNav() {
             const active = isActive(tab.path);
             const Icon = tab.icon;
             const separator = index < tabs.length - 1 ? (
-              <div className="w-px h-[60%] bg-foreground/10 self-center flex-shrink-0" />
+              <div className="w-px h-[60%] bg-sidebar-foreground/10 self-center flex-shrink-0" />
             ) : null;
 
             if (tab.path === null) {
@@ -124,12 +124,12 @@ export function BottomNav() {
                     data-testid="button-bottom-nav-more"
                   >
                     <div className="relative">
-                      <Icon className={`w-5 h-5 ${moreHighlighted ? "text-primary" : "text-muted-foreground"}`} />
+                      <Icon className={`w-5 h-5 ${moreHighlighted ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />
                       {(tab.badge ?? 0) > 0 && (
                         <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-destructive rounded-full" data-testid="badge-bottom-nav-more" />
                       )}
                     </div>
-                    <span className={`text-[10px] mt-0.5 ${moreHighlighted ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
+                    <span className={`text-[10px] mt-0.5 ${moreHighlighted ? "text-sidebar-primary font-medium" : "text-sidebar-foreground/60"}`}>{tab.label}</span>
                   </button>
                   {separator}
                 </Fragment>
@@ -145,14 +145,14 @@ export function BottomNav() {
                   data-testid={`link-bottom-nav-${tab.label.toLowerCase()}`}
                 >
                   <div className="relative">
-                    <Icon className={`w-5 h-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                    <Icon className={`w-5 h-5 ${active ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />
                     {(tab.badge ?? 0) > 0 && (
                       <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1" data-testid={`badge-bottom-nav-${tab.label.toLowerCase()}`}>
                         {tab.badge}
                       </span>
                     )}
                   </div>
-                  <span className={`text-[10px] mt-0.5 ${active ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
+                  <span className={`text-[10px] mt-0.5 ${active ? "text-sidebar-primary font-medium" : "text-sidebar-foreground/60"}`}>{tab.label}</span>
                 </Link>
                 {separator}
               </Fragment>

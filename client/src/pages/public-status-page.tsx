@@ -280,7 +280,7 @@ export default function PublicStatusPage() {
     <div className="min-h-dvh bg-background">
       <header className="border-b">
         <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold" data-testid="text-public-status-title">Service Status</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-public-status-title">Service Status</h1>
           <a href="/" className="text-sm text-primary hover:underline" data-testid="link-signin">Sign in</a>
         </div>
       </header>
@@ -406,9 +406,9 @@ export default function PublicStatusPage() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <Megaphone className="h-4 w-4 text-blue-500" />
+                          <Megaphone className="h-4 w-4 text-primary" />
                           <span className="font-medium">{u.title}</span>
-                          <span className="inline-flex items-center rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                          <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
                             Update
                           </span>
                         </div>

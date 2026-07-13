@@ -156,7 +156,7 @@ export default function ReportRequestPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-report-request-title">Report / Request</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-report-request-title">Report / Request</h1>
         <p className="text-sm text-muted-foreground mt-1">Report content issues, request movies, or report app problems</p>
       </div>
 
@@ -190,8 +190,8 @@ export default function ReportRequestPage() {
           className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
           data-testid="button-request-movie"
         >
-          <div className="rounded-full p-4 bg-blue-500/10">
-            <Film className="w-8 h-8 text-blue-500" />
+          <div className="rounded-full p-4 bg-primary/10">
+            <Film className="w-8 h-8 text-primary" />
           </div>
           <span className="font-semibold">Request Movie/Series</span>
           <span className="text-xs text-muted-foreground text-center">Request a movie or series to be added</span>

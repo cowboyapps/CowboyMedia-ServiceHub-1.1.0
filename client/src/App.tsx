@@ -223,34 +223,36 @@ function AuthenticatedLayout() {
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <OfflineBanner />
-          <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
+          {/* Charcoal brand header — dark in both light and dark modes, matching
+              the sidebar, so the orange accent and logo carry the identity. */}
+          <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground min-h-[3rem]">
             <div className="z-10">
               {isMobile ? (
-                <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-lg px-2.5 py-1.5 bg-primary hover:bg-primary/90 transition-colors" data-testid="link-header-dashboard">
-                  <Home className="w-4 h-4 text-primary-foreground" />
-                  <span className="text-xs font-semibold text-primary-foreground">Dashboard</span>
+                <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-lg px-2.5 py-1.5 bg-sidebar-primary hover:bg-sidebar-primary/90 transition-colors" data-testid="link-header-dashboard">
+                  <Home className="w-4 h-4 text-sidebar-primary-foreground" />
+                  <span className="text-xs font-semibold text-sidebar-primary-foreground">Dashboard</span>
                 </Link>
               ) : (
-                <SidebarTrigger className="h-10 w-10 min-h-[40px] min-w-[40px] [&_svg]:!h-5 [&_svg]:!w-5" data-testid="button-sidebar-toggle" />
+                <SidebarTrigger className="h-10 w-10 min-h-[40px] min-w-[40px] [&_svg]:!h-5 [&_svg]:!w-5 text-sidebar-foreground/80 hover:text-sidebar-foreground" data-testid="button-sidebar-toggle" />
               )}
             </div>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <Link href="/" className="pointer-events-auto" data-testid="link-header-home">
-                <BrandLogo className="h-20 md:h-8 cursor-pointer" />
+                <BrandLogo onDark className="h-20 md:h-8 cursor-pointer" />
               </Link>
             </div>
             <div className="z-10 ml-auto flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-9 gap-2 px-2 sm:px-3 text-muted-foreground hover:text-foreground"
+                className="h-9 gap-2 px-2 sm:px-3 text-sidebar-foreground/70 hover:text-sidebar-foreground"
                 onClick={() => window.dispatchEvent(new Event("open-command-palette"))}
                 data-testid="button-open-command-palette"
                 aria-label="Open search"
               >
                 <Search className="w-4 h-4" />
                 <span className="hidden md:inline text-xs">Search</span>
-                <kbd className="hidden md:inline ml-1 pointer-events-none h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+                <kbd className="hidden md:inline ml-1 pointer-events-none h-5 select-none items-center gap-1 rounded border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium opacity-100">
                   ⌘K
                 </kbd>
               </Button>

@@ -1191,7 +1191,7 @@ export default function TicketDetail() {
           <Button
             variant="outline"
             size="sm"
-            className="w-full text-xs gap-1.5 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40"
+            className="w-full text-xs gap-1.5 border-primary/30 text-primary bg-primary/5 hover:bg-primary/10"
             onClick={() => {
               setLocation(`/tickets/${originTicketId}`);
             }}

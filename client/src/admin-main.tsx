@@ -14,6 +14,11 @@ import { setupSafeAreaInsets } from "./lib/safe-area";
 // register/getRegistration/subscribe call is scoped to /admin instead of /.
 configurePushScope("/admin");
 
+// The customer app's brand redesign (warm/orange + charcoal shell tokens) is
+// scoped OUT of the admin PWA: this class activates the `html.admin-app`
+// token overrides in index.css that keep the admin on its original palette.
+document.documentElement.classList.add("admin-app");
+
 setupSafeAreaInsets();
 
 if ("serviceWorker" in navigator) {

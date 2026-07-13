@@ -69,7 +69,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-dashboard-title">
           Welcome, {user?.fullName}
         </h1>
         <p className="text-muted-foreground text-sm mt-1">Here's an overview of your services and recent activity</p>
@@ -131,8 +131,8 @@ export default function Dashboard() {
         <Link href="/service-updates" data-testid="link-stat-service-updates" className="stagger-item block">
           <Card className="cursor-pointer hover-elevate tap-interactive transition-shadow">
             <CardContent className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
-                <Bell className="w-5 h-5 text-muted-foreground" />
+              <div className="w-10 h-10 rounded-md bg-chart-4/15 flex items-center justify-center">
+                <Bell className="w-5 h-5 text-chart-4" />
               </div>
               <div>
                 <p className="text-2xl font-bold" data-testid="text-service-updates-count">{contentNotifLoading ? "-" : newServiceUpdatesCount}</p>

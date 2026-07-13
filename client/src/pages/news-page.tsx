@@ -41,7 +41,7 @@ export default function NewsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-news-title">News & Updates</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-news-title">News & Updates</h1>
         <p className="text-sm text-muted-foreground mt-1">Stay up to date with the latest company news</p>
       </div>
 

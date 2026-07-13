@@ -105,7 +105,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2.5">
-          <BrandLogo className="h-28 flex-shrink-0" />
+          <BrandLogo onDark className="h-28 flex-shrink-0" />
         </div>
       </SidebarHeader>
 
@@ -118,7 +118,11 @@ export function AppSidebar() {
                 const badge = getBadgeCount(item.title);
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={location === item.url || (item.url !== "/" && location.startsWith(item.url))}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url || (item.url !== "/" && location.startsWith(item.url))}
+                      className="data-[active=true]:bg-sidebar-primary/15 data-[active=true]:text-sidebar-primary"
+                    >
                       <Link href={item.url} onClick={handleNavClick} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
                         <item.icon className="w-4 h-4" />
                         <span className="flex-1">{item.title}</span>
@@ -164,17 +168,17 @@ export function AppSidebar() {
       <SidebarFooter className="p-4 space-y-2">
         <div className="flex items-center gap-2.5">
           <Avatar className="w-8 h-8">
-            <AvatarFallback className="text-xs">{user?.fullName?.[0] || "U"}</AvatarFallback>
+            <AvatarFallback className="text-xs bg-sidebar-primary text-sidebar-primary-foreground font-semibold">{user?.fullName?.[0] || "U"}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{user?.fullName}</p>
-            <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+            <p className="text-xs text-sidebar-foreground/60 capitalize">{user?.role}</p>
           </div>
-          <Button size="icon" variant="ghost" onClick={logout} data-testid="button-logout">
+          <Button size="icon" variant="ghost" className="text-sidebar-foreground/80 hover:text-sidebar-foreground" onClick={logout} data-testid="button-logout">
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground/60 text-center" data-testid="text-sidebar-version">Version {APP_VERSION}</p>
+        <p className="text-[10px] text-sidebar-foreground/40 text-center" data-testid="text-sidebar-version">Version {APP_VERSION}</p>
       </SidebarFooter>
     </Sidebar>
   );
