@@ -50,6 +50,14 @@ function applyToggle(
   return next;
 }
 
+function SectionIcon({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
 export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushAvailable }: NotificationPreferencesDialogProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -238,8 +246,8 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
     const supportsPush = cat.channels.includes("push");
     const supportsEmail = cat.channels.includes("email");
     return (
-      <div key={cat.key} className="px-3 py-3 sm:px-4 bg-muted/30" data-testid={`row-notif-${cat.key}`}>
-        <div className="mb-2">
+      <div key={cat.key} className="px-5 py-3.5" data-testid={`row-notif-${cat.key}`}>
+        <div className="mb-3">
           <p className="text-sm font-medium leading-snug">{cat.label}</p>
           <p className="text-xs text-muted-foreground leading-snug mt-0.5">{cat.description}</p>
         </div>
@@ -334,20 +342,23 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
         key={group}
         open={isExpanded}
         onOpenChange={(o) => setExpanded((prev) => ({ ...prev, [group]: o }))}
-        className="border rounded-lg overflow-hidden bg-card"
+        className="rounded-xl border border-card-border bg-card overflow-hidden"
       >
-        <div className="px-3 py-3 sm:px-4 flex items-center gap-3">
+        <div className="px-5 py-4 flex items-center gap-3">
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              className="flex-1 flex items-center gap-2 text-left min-h-[44px] hover-elevate active-elevate-2 -mx-2 px-2 rounded-md"
+              className="flex-1 flex items-center gap-3 text-left min-h-[44px] hover-elevate active-elevate-2 -ml-2 px-2 rounded-md"
               data-testid={`button-expand-group-${group}`}
               aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group} details`}
             >
-              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-              <div className="flex flex-col min-w-0">
-                <span className="text-sm font-semibold" data-testid={`heading-group-${group}`}>{group}</span>
-                <span className="text-[11px] text-muted-foreground">
+              <SectionIcon icon={Bell} tone="bg-primary/10 text-primary" />
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="text-sm font-semibold flex items-center gap-2" data-testid={`heading-group-${group}`}>
+                  {group}
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                </span>
+                <span className="text-[11px] text-muted-foreground mt-0.5">
                   {categories.length} {categories.length === 1 ? "type" : "types"}
                   {isMixed && " · Custom"}
                 </span>
@@ -422,7 +433,7 @@ export function NotificationPreferencesDialog({ open, onOpenChange, prefs, pushA
           </div>
         </div>
         <CollapsibleContent>
-          <div className="border-t divide-y">
+          <div className="border-t border-border divide-y divide-border bg-muted/10">
             {categories.map(renderCategoryRow)}
           </div>
         </CollapsibleContent>

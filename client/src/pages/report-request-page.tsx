@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,11 +17,36 @@ import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { z } from "zod";
-import { AlertTriangle, Film, Bug, CheckCircle, Clock, Paperclip, X } from "lucide-react";
+import { AlertTriangle, Film, Bug, CheckCircle, Clock, Paperclip, X, FileText } from "lucide-react";
 import { format } from "date-fns";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { Download } from "lucide-react";
 import type { Service, ReportRequest } from "@shared/schema";
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof Film; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function RowSkeletons({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-4 w-4 rounded shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="h-5 w-16 rounded-full shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 type EnrichedReportRequest = ReportRequest & { serviceName?: string };
 
@@ -175,7 +200,7 @@ export default function ReportRequestPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <button
           onClick={() => { setActiveForm("content_issue"); contentForm.reset(); }}
-          className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border border-card-border bg-card hover-elevate tap-interactive focus:outline-none focus:ring-2 focus:ring-ring"
           data-testid="button-report-content"
         >
           <div className="rounded-full p-4 bg-red-500/10">
@@ -187,7 +212,7 @@ export default function ReportRequestPage() {
 
         <button
           onClick={() => { setActiveForm("movie_request"); movieForm.reset(); }}
-          className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border border-card-border bg-card hover-elevate tap-interactive focus:outline-none focus:ring-2 focus:ring-ring"
           data-testid="button-request-movie"
         >
           <div className="rounded-full p-4 bg-blue-500/10">
@@ -199,7 +224,7 @@ export default function ReportRequestPage() {
 
         <button
           onClick={() => { setActiveForm("app_issue"); appIssueForm.reset(); setSelectedFile(null); }}
-          className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex flex-col items-center justify-center gap-3 p-8 rounded-xl border border-card-border bg-card hover-elevate tap-interactive focus:outline-none focus:ring-2 focus:ring-ring"
           data-testid="button-report-app-issue"
         >
           <div className="rounded-full p-4 bg-orange-500/10">
@@ -361,15 +386,28 @@ export default function ReportRequestPage() {
       </Dialog>
 
       {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
+        <div className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+            <SectionIcon icon={FileText} tone="bg-muted text-muted-foreground" />
+            <div>
+              <h2 className="text-sm font-semibold">My Submissions</h2>
+              <p className="text-xs text-muted-foreground">Recent reports and requests</p>
+            </div>
+          </div>
+          <RowSkeletons />
         </div>
       ) : submissions && submissions.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold" data-testid="text-my-submissions">My Submissions</h2>
-          {submissions.map((sub) => (
-            <Card key={sub.id} data-testid={`card-submission-${sub.id}`}>
-              <CardContent className="p-4">
+        <div className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+            <SectionIcon icon={FileText} tone="bg-primary/10 text-primary" />
+            <div>
+              <h2 className="text-sm font-semibold" data-testid="text-my-submissions">My Submissions</h2>
+              <p className="text-xs text-muted-foreground">Recent reports and requests</p>
+            </div>
+          </div>
+          <div className="divide-y divide-border">
+            {submissions.map((sub) => (
+              <div key={sub.id} className="px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-submission-${sub.id}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -414,9 +452,9 @@ export default function ReportRequestPage() {
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

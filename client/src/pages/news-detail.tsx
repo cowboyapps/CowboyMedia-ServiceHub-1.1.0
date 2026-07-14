@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
-import { ArrowLeft, Calendar } from "lucide-react";
+import { ArrowLeft, Calendar, Newspaper } from "lucide-react";
 import { ClickableImage, ImageLightbox } from "@/components/image-lightbox";
 import { isHtmlContent } from "@/components/rich-text-editor";
 import { NewsReactionsBar } from "@/components/news-reactions-bar";
@@ -49,9 +48,6 @@ export default function NewsDetail() {
       }
       img.style.cursor = "zoom-in";
     });
-  // Keep: the DOM decoration only depends on the rendered HTML, so re-running on
-  // `story.content` is exactly right. Depending on the whole `story` object would
-  // re-run on unrelated refetches without changing what gets decorated.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [story?.content]);
 
@@ -71,9 +67,17 @@ export default function NewsDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 max-w-3xl mx-auto">
         <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-60" />
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="p-6 space-y-4">
+            <Skeleton className="h-8 w-3/4" />
+            <Skeleton className="h-64 rounded-md" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        </section>
       </div>
     );
   }
@@ -83,7 +87,7 @@ export default function NewsDetail() {
       !(error instanceof TimeoutError) && /^(4\d\d):/.test((error as Error)?.message ?? "");
     if (!isNotFound) {
       return (
-        <div className="space-y-4">
+        <div className="space-y-4 max-w-3xl mx-auto">
           <QueryErrorState
             error={error}
             onRetry={() => refetch()}
@@ -103,7 +107,8 @@ export default function NewsDetail() {
 
   if (!story) {
     return (
-      <div className="text-center py-12">
+      <div className="text-center py-12 max-w-3xl mx-auto">
+        <Newspaper className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
         <p className="text-muted-foreground">Story not found</p>
         <Link href="/news">
           <Button variant="ghost" className="mt-2">Back to News</Button>
@@ -123,32 +128,36 @@ export default function NewsDetail() {
         </Button>
       </Link>
 
-      {story.imageUrl && (
-        <ClickableImage
-          src={story.imageUrl}
-          alt={story.title}
-          className="w-full h-64 object-contain rounded-md"
-        />
-      )}
-
-      <div className="space-y-3">
-        <h1 className="text-2xl font-bold" data-testid="text-story-title">{story.title}</h1>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Calendar className="w-4 h-4" />
-          <span>{format(new Date(story.createdAt), "MMMM d, yyyy 'at' h:mm a")}</span>
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        {story.imageUrl && (
+          <div className="border-b border-border">
+            <ClickableImage
+              src={story.imageUrl}
+              alt={story.title}
+              className="w-full h-64 object-cover"
+            />
+          </div>
+        )}
+        
+        <div className="px-6 py-5 border-b border-border bg-card/50">
+          <div className="space-y-3">
+            <h1 className="text-2xl font-bold leading-tight" data-testid="text-story-title">{story.title}</h1>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Calendar className="w-4 h-4" />
+              <span>{format(new Date(story.createdAt), "MMMM d, yyyy 'at' h:mm a")}</span>
+            </div>
+          </div>
         </div>
-      </div>
 
-      {polls && polls.length > 0 && (
-        <div className="space-y-3">
-          {polls.map((p) => (
-            <Poll key={p.id} pollId={p.id} />
-          ))}
-        </div>
-      )}
+        {polls && polls.length > 0 && (
+          <div className="px-6 py-5 border-b border-border bg-muted/20 space-y-4">
+            {polls.map((p) => (
+              <Poll key={p.id} pollId={p.id} />
+            ))}
+          </div>
+        )}
 
-      <Card>
-        <CardContent className="p-6">
+        <div className="p-6">
           {isRich ? (
             <div
               ref={bodyRef}
@@ -183,10 +192,12 @@ export default function NewsDetail() {
             open={lightbox !== null}
             onOpenChange={(o) => { if (!o) setLightbox(null); }}
           />
-        </CardContent>
-      </Card>
-
-      <NewsReactionsBar storyId={story.id} source="detail" />
+        </div>
+        
+        <div className="px-6 py-4 bg-muted/10 border-t border-border">
+          <NewsReactionsBar storyId={story.id} source="detail" />
+        </div>
+      </section>
     </div>
   );
 }

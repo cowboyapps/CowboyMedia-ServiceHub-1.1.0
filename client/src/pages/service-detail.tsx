@@ -1,12 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format } from "date-fns";
-import { ArrowLeft, Activity, CheckCircle, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { ArrowLeft, Activity, CheckCircle2, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 import { stripHtml } from "@/components/rich-text-editor";
 import type { Service, ServiceAlertWithServices } from "@shared/schema";
@@ -19,23 +17,44 @@ interface UptimeData {
   hasMonitor: boolean;
 }
 
+const severityMeta: Record<string, { pill: string }> = {
+  critical: { pill: "bg-status-busy/15 text-status-busy" },
+  warning: { pill: "bg-status-away/15 text-status-away" },
+  info: { pill: "bg-status-away/15 text-status-away" },
+};
+
+const statusPill: Record<string, string> = {
+  investigating: "bg-status-away/15 text-status-away",
+  identified: "bg-status-away/15 text-status-away",
+  monitoring: "bg-primary/15 text-primary",
+  resolved: "bg-status-online/15 text-status-online",
+};
+
+function SectionIcon({ icon: Icon, tone }: { icon: any; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
 function UptimeBlock({ serviceId }: { serviceId: string }) {
   const { data, isLoading } = useQuery<UptimeData>({ queryKey: ["/api/services", serviceId, "uptime"] });
-  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (isLoading) return <Skeleton className="h-24 w-full rounded-xl" />;
   if (!data || !data.hasMonitor) return null;
   const colors: Record<DailyStatus, string> = {
-    up: "bg-emerald-500",
-    partial: "bg-amber-500",
-    down: "bg-red-500",
+    up: "bg-status-online",
+    partial: "bg-status-away",
+    down: "bg-status-busy",
     unknown: "bg-muted",
   };
   return (
-    <Card data-testid="card-service-uptime">
-      <CardContent className="p-4 space-y-3">
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-service-uptime">
+      <div className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">30-day uptime</p>
-            <p className="text-2xl font-bold" data-testid="text-service-uptime-30d">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">30-day uptime</p>
+            <p className="text-2xl font-bold mt-0.5" data-testid="text-service-uptime-30d">
               {data.uptime30d != null ? `${data.uptime30d.toFixed(2)}%` : "—"}
             </p>
           </div>
@@ -51,8 +70,8 @@ function UptimeBlock({ serviceId }: { serviceId: string }) {
             />
           ))}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -61,49 +80,26 @@ function ServiceStatusIcon({ status }: { status: string }) {
   const pulseClass = isActive ? "animate-status-pulse" : "";
   switch (status) {
     case "operational":
-      return <CheckCircle className="w-6 h-6 text-status-online animate-status-glow" />;
+      return <CheckCircle2 className="w-8 h-8 text-status-online animate-status-glow" />;
     case "degraded":
-      return <AlertTriangle className={`w-6 h-6 text-status-away ${pulseClass}`} />;
+      return <AlertTriangle className={`w-8 h-8 text-status-away ${pulseClass}`} />;
     case "outage":
-      return <XCircle className={`w-6 h-6 text-status-busy ${pulseClass}`} />;
+      return <XCircle className={`w-8 h-8 text-status-busy ${pulseClass}`} />;
     case "maintenance":
-      return <Wrench className={`w-6 h-6 text-status-offline ${pulseClass}`} />;
+      return <Wrench className={`w-8 h-8 text-status-offline ${pulseClass}`} />;
     default:
-      return <Activity className="w-6 h-6 text-muted-foreground" />;
+      return <Activity className="w-8 h-8 text-muted-foreground" />;
   }
 }
 
 function ServiceStatusBadge({ status }: { status: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    operational: "secondary",
-    degraded: "default",
-    outage: "destructive",
-    maintenance: "secondary",
+  const styles: Record<string, string> = {
+    operational: "bg-status-online/15 text-status-online",
+    degraded: "bg-status-away/15 text-status-away",
+    outage: "bg-status-busy/15 text-status-busy",
+    maintenance: "bg-status-offline/20 text-muted-foreground",
   };
-  return <Badge variant={variants[status] || "secondary"} className="capitalize text-xs">{status}</Badge>;
-}
-
-function SeverityBadge({ severity }: { severity: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    critical: "destructive",
-    warning: "default",
-    info: "secondary",
-  };
-  return <Badge variant={variants[severity] || "secondary"} className="text-xs capitalize">{severity}</Badge>;
-}
-
-function AlertStatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    investigating: "bg-status-away text-black",
-    identified: "bg-status-away text-black",
-    monitoring: "bg-primary text-primary-foreground",
-    resolved: "bg-status-online text-white",
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium capitalize ${colors[status] || "bg-muted text-muted-foreground"}`}>
-      {status}
-    </span>
-  );
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${styles[status] || "bg-muted text-muted-foreground"}`}>{status}</span>;
 }
 
 export default function ServiceDetail() {
@@ -117,7 +113,6 @@ export default function ServiceDetail() {
   });
 
   const service = services?.find((s) => s.id === params.id);
-  const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
   const alerts = allAlerts?.filter((a) => a.serviceIds?.includes(params.id)) || [];
   const activeAlerts = alerts.filter((a) => a.status !== "resolved");
   const resolvedAlerts = alerts.filter((a) => a.status === "resolved");
@@ -127,9 +122,9 @@ export default function ServiceDetail() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-32" />
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
+        <Skeleton className="h-32 rounded-xl" />
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-40 rounded-xl" />
       </div>
     );
   }
@@ -164,11 +159,12 @@ export default function ServiceDetail() {
             <ArrowLeft className="w-4 h-4 mr-1" /> Back to Services
           </Button>
         </Link>
-        <Card>
-          <CardContent className="py-12 text-center">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="py-12 text-center">
+            <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
             <p className="text-muted-foreground">Service not found</p>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
     );
   }
@@ -181,25 +177,27 @@ export default function ServiceDetail() {
         </Button>
       </Link>
 
-      <Card data-testid="card-service-detail">
-        <CardContent className="flex items-start gap-4 p-5">
-          <div className="mt-0.5">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-service-detail">
+        <div className="flex items-start gap-4 p-5">
+          <div className="mt-1 shrink-0">
             <ServiceStatusIcon status={service.status} />
           </div>
-          <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex-1 min-w-0 space-y-2.5">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold" data-testid="text-service-name">{service.name}</h1>
+              <h1 className="text-2xl font-bold" data-testid="text-service-name">{service.name}</h1>
               <ServiceStatusBadge status={service.status} />
             </div>
             {service.description && (
               <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-service-description">{service.description}</p>
             )}
             {service.category && (
-              <Badge variant="secondary" className="text-xs" data-testid="text-service-category">{service.category}</Badge>
+              <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground" data-testid="text-service-category">
+                {service.category}
+              </span>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <UptimeBlock serviceId={service.id} />
 
@@ -215,79 +213,85 @@ export default function ServiceDetail() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="active" className="mt-4 space-y-3">
-            {activeAlerts.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <CheckCircle className="w-10 h-10 mx-auto mb-3 text-status-online animate-status-glow" />
+          <TabsContent value="active" className="mt-4">
+            <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <h2 className="text-sm font-semibold flex items-center gap-3">
+                  <SectionIcon icon={AlertTriangle} tone="bg-status-away/10 text-status-away" />
+                  Active incidents
+                </h2>
+              </div>
+              {activeAlerts.length === 0 ? (
+                <div className="px-5 py-12 text-center">
+                  <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-status-online animate-status-glow" />
                   <p className="font-medium">All Clear</p>
                   <p className="text-sm text-muted-foreground mt-1">No active incidents for this service</p>
-                </CardContent>
-              </Card>
-            ) : (
-              activeAlerts.map((alert) => (
-                <Link key={alert.id} href={`/alerts/${alert.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-service-alert-${alert.id}`}>
-                    <CardContent className="flex items-start justify-between gap-3 p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="w-5 h-5 text-status-away flex-shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <h3 className="font-semibold text-sm">{alert.title}</h3>
-                          <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <SeverityBadge severity={alert.severity} />
-                            <AlertStatusBadge status={alert.status} />
-                            {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
-                              <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
-                            ))}
+                </div>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {activeAlerts.map((alert) => {
+                    const meta = severityMeta[alert.severity] || severityMeta.info;
+                    return (
+                      <li key={alert.id}>
+                        <Link href={`/alerts/${alert.id}`} className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-service-alert-${alert.id}`}>
+                          <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.pill.split(" ")[0].replace("/15", "")}`} />
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            <h3 className="font-semibold text-sm">{alert.title}</h3>
+                            <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${meta.pill}`}>{alert.severity}</span>
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`}>{alert.status}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {format(new Date(alert.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                          </p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))
-            )}
+                          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
           </TabsContent>
 
-          <TabsContent value="resolved" className="mt-4 space-y-3">
-            {resolvedAlerts.length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-sm text-muted-foreground">No resolved alerts for this service</p>
-                </CardContent>
-              </Card>
-            ) : (
-              resolvedAlerts.map((alert) => (
-                <Link key={alert.id} href={`/alerts/${alert.id}`}>
-                  <Card className="hover-elevate cursor-pointer opacity-80" data-testid={`card-service-alert-resolved-${alert.id}`}>
-                    <CardContent className="flex items-start justify-between gap-3 p-4">
-                      <div className="flex items-start gap-3">
-                        <CheckCircle className="w-5 h-5 text-status-online animate-status-glow flex-shrink-0 mt-0.5" />
-                        <div className="space-y-1">
+          <TabsContent value="resolved" className="mt-4">
+            <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <h2 className="text-sm font-semibold flex items-center gap-3">
+                  <SectionIcon icon={CheckCircle2} tone="bg-status-online/10 text-status-online" />
+                  Resolved incidents
+                </h2>
+              </div>
+              {resolvedAlerts.length === 0 ? (
+                <div className="px-5 py-10 text-center">
+                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">No resolved incidents for this service</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {resolvedAlerts.map((alert) => (
+                    <li key={alert.id}>
+                      <Link href={`/alerts/${alert.id}`} className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80" data-testid={`card-service-alert-resolved-${alert.id}`}>
+                        <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-status-online shrink-0" />
+                        <div className="flex-1 min-w-0 space-y-1.5">
                           <h3 className="font-semibold text-sm">{alert.title}</h3>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <AlertStatusBadge status="resolved" />
-                            {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
-                              <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
-                            ))}
+                            <span className="rounded-full px-2.5 py-0.5 text-xs font-medium capitalize bg-status-online/15 text-status-online">resolved</span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            Resolved {alert.resolvedAt ? format(new Date(alert.resolvedAt), "MMM d, yyyy") : ""}
+                            Resolved {alert.resolvedAt ? formatDistanceToNow(new Date(alert.resolvedAt), { addSuffix: true }) : ""}
                           </p>
                         </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))
-            )}
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </TabsContent>
         </Tabs>
       </div>

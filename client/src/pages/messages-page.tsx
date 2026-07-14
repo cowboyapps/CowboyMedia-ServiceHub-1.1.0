@@ -349,7 +349,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex flex-col h-full bg-card rounded-xl border border-card-border overflow-hidden"
       style={{
         overscrollBehavior: "none",
         paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined,
@@ -357,13 +357,13 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
       }}
       data-testid="thread-chat-view"
     >
-      <div className="flex items-center gap-2 p-2 sm:p-3 border-b flex-shrink-0">
-        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={onBack} data-testid="button-thread-back">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-border flex-shrink-0 bg-card">
+        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 -ml-2" onClick={onBack} data-testid="button-thread-back">
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate" data-testid="text-thread-subject">{thread?.subject || "Loading..."}</p>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mt-0.5">
             {isAdmin ? <UserIcon className="w-3 h-3 text-muted-foreground" /> : <Shield className="w-3 h-3 text-muted-foreground" />}
             <p className="text-xs text-muted-foreground truncate">{otherName || ""}</p>
           </div>
@@ -372,10 +372,10 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
 
       <LiveConnectionBanner status={wsStatus} className="mx-2 sm:mx-3 mt-2" />
 
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1 min-h-0">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-1 min-h-0">
         {messagesLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4" />)}
+          <div className="space-y-4">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4 rounded-2xl" />)}
           </div>
         ) : (
           <>
@@ -424,7 +424,7 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
         </div>
       )}
 
-      <div className="border-t p-2 sm:p-3 flex-shrink-0">
+      <div className="border-t border-border p-3 sm:p-4 flex-shrink-0 bg-card">
         {typingUser && (
           <div className="flex items-center gap-1.5 mb-1.5 px-1">
             <span className="text-xs text-muted-foreground">{typingUser}</span>
@@ -653,7 +653,15 @@ function NewConversationDialog() {
   );
 }
 
-function ThreadCard({ thread, isAdmin, currentUserId, onOpen, onDelete, canManage }: {
+function SectionIcon({ icon: Icon, tone }: { icon: any; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function ThreadRow({ thread, isAdmin, currentUserId, onOpen, onDelete, canManage }: {
   thread: EnrichedThread;
   isAdmin: boolean;
   currentUserId?: string;
@@ -662,44 +670,44 @@ function ThreadCard({ thread, isAdmin, currentUserId, onOpen, onDelete, canManag
   canManage: boolean;
 }) {
   return (
-    <Card
-      className={`cursor-pointer hover-elevate transition-colors ${thread.unreadCount > 0 ? "border-primary/40 bg-primary/5" : ""}`}
+    <li
       onClick={onOpen}
+      className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive cursor-pointer group"
       data-testid={`card-thread-${thread.id}`}
     >
-      <CardContent className="flex items-center gap-3 p-3 sm:p-4">
-        {!isAdmin && (
-          <Avatar className="w-9 h-9 flex-shrink-0">
-            <AvatarFallback className="text-xs">{thread.adminName?.[0] || "A"}</AvatarFallback>
-          </Avatar>
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className={`text-sm font-medium truncate ${thread.unreadCount > 0 ? "text-foreground" : "text-muted-foreground"}`} data-testid={`text-thread-subject-${thread.id}`}>
-              {thread.subject}
-            </p>
-            {thread.unreadCount > 0 && (
-              <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1 flex-shrink-0" data-testid={`badge-thread-unread-${thread.id}`}>
-                {thread.unreadCount}
-              </Badge>
-            )}
-          </div>
-          {!isAdmin && <p className="text-xs text-muted-foreground truncate">{thread.adminName}</p>}
-          {thread.lastMessage && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {thread.lastMessage.senderId === currentUserId ? "You: " : ""}{thread.lastMessage.body}
-            </p>
+      {!isAdmin && (
+        <Avatar className="w-9 h-9 flex-shrink-0">
+          <AvatarFallback className="text-xs">{thread.adminName?.[0] || "A"}</AvatarFallback>
+        </Avatar>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <p className={`text-sm font-medium truncate ${thread.unreadCount > 0 ? "text-foreground" : "text-muted-foreground"}`} data-testid={`text-thread-subject-${thread.id}`}>
+            {thread.subject}
+          </p>
+          {thread.unreadCount > 0 && (
+            <span className="rounded-full bg-status-online/15 text-status-online px-2 py-0.5 text-[10px] font-medium shrink-0" data-testid={`badge-thread-unread-${thread.id}`}>
+              {thread.unreadCount} new
+            </span>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-[10px] text-muted-foreground">
-            {thread.lastMessage ? format(new Date(thread.lastMessage.createdAt), "MMM d") : format(new Date(thread.createdAt), "MMM d")}
-          </span>
-          {isAdmin && canManage && onDelete && (
+        {!isAdmin && <p className="text-xs text-muted-foreground truncate">{thread.adminName}</p>}
+        {thread.lastMessage && (
+          <p className="text-xs text-muted-foreground truncate mt-0.5">
+            {thread.lastMessage.senderId === currentUserId ? "You: " : ""}{thread.lastMessage.body}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-[10px] text-muted-foreground">
+          {thread.lastMessage ? format(new Date(thread.lastMessage.createdAt), "MMM d") : format(new Date(thread.createdAt), "MMM d")}
+        </span>
+        {isAdmin && canManage && onDelete && (
+          <div onClick={(e) => e.stopPropagation()}>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()} data-testid={`button-delete-thread-${thread.id}`}>
-                  <Trash2 className="w-3.5 h-3.5" />
+                <Button size="icon" variant="ghost" className="h-7 w-7 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100" data-testid={`button-delete-thread-${thread.id}`}>
+                  <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm" onClick={(e) => e.stopPropagation()}>
@@ -713,10 +721,11 @@ function ThreadCard({ thread, isAdmin, currentUserId, onOpen, onDelete, canManag
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+        )}
+        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+      </div>
+    </li>
   );
 }
 
@@ -771,37 +780,59 @@ export default function MessagesPage() {
   const renderThreadList = () => {
     if (isLoading) {
       return (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
-        </div>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={MessageSquare} tone="bg-primary/10 text-primary" />
+              Conversations
+            </h2>
+          </div>
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       );
     }
     if (isError) {
       return (
-        <QueryErrorState
-          error={error}
-          onRetry={() => refetch()}
-          isRetrying={isFetching}
-          resourceName="your messages"
-          data-testid="error-messages"
-        />
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden p-6">
+          <QueryErrorState
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            resourceName="your messages"
+            data-testid="error-messages"
+          />
+        </section>
       );
     }
     if (!threads || threads.length === 0) {
       return (
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center py-8">
-              <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground" data-testid="text-no-messages">
-                {isAdmin ? "No conversations yet." : "No messages yet"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {isAdmin ? "Start one using the New Conversation button." : "When a team member sends you a message, it will appear here."}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={MessageSquare} tone="bg-primary/10 text-primary" />
+              Conversations
+            </h2>
+          </div>
+          <div className="px-5 py-8 text-center">
+            <Mail className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground" data-testid="text-no-messages">
+              {isAdmin ? "No conversations yet." : "No messages yet"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {isAdmin ? "Start one using the New Conversation button." : "When a team member sends you a message, it will appear here."}
+            </p>
+          </div>
+        </section>
       );
     }
 
@@ -817,17 +848,17 @@ export default function MessagesPage() {
         return bLatest - aLatest;
       });
       return (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {groups.map(([customerId, customerThreads]) => (
-            <div key={customerId}>
-              <div className="flex items-center gap-2 mb-2">
-                <Users className="w-4 h-4 text-muted-foreground" />
-                <h4 className="text-sm font-medium">{customerThreads[0].customerName}</h4>
-                <Badge variant="outline" className="text-[10px]">{customerThreads.length}</Badge>
+            <section key={customerId} className="rounded-xl border border-card-border bg-card overflow-hidden">
+              <div className="flex items-center px-5 py-4 border-b border-border gap-2">
+                <SectionIcon icon={Users} tone="bg-primary/10 text-primary" />
+                <h4 className="text-sm font-semibold">{customerThreads[0].customerName}</h4>
+                <Badge variant="outline" className="text-[10px] ml-1">{customerThreads.length}</Badge>
               </div>
-              <div className="space-y-2 ml-6">
+              <ul className="divide-y divide-border">
                 {customerThreads.map((t) => (
-                  <ThreadCard
+                  <ThreadRow
                     key={t.id}
                     thread={t}
                     isAdmin
@@ -837,26 +868,34 @@ export default function MessagesPage() {
                     onDelete={() => deleteMutation.mutate(t.id)}
                   />
                 ))}
-              </div>
-            </div>
+              </ul>
+            </section>
           ))}
         </div>
       );
     }
 
     return (
-      <div className="space-y-2">
-        {threads.map((t) => (
-          <ThreadCard
-            key={t.id}
-            thread={t}
-            isAdmin={false}
-            currentUserId={user?.id}
-            canManage={false}
-            onOpen={() => navigate(`/messages/${t.id}`)}
-          />
-        ))}
-      </div>
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={MessageSquare} tone="bg-primary/10 text-primary" />
+            Conversations
+          </h2>
+        </div>
+        <ul className="divide-y divide-border">
+          {threads.map((t) => (
+            <ThreadRow
+              key={t.id}
+              thread={t}
+              isAdmin={false}
+              currentUserId={user?.id}
+              canManage={false}
+              onOpen={() => navigate(`/messages/${t.id}`)}
+            />
+          ))}
+        </ul>
+      </section>
     );
   };
 
@@ -875,49 +914,60 @@ export default function MessagesPage() {
       {renderThreadList()}
 
       {!isAdmin && legacyMessages && legacyMessages.length > 0 && (
-        <div className="space-y-3 mt-6">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Inbox className="w-5 h-5" /> Previous Messages
-          </h2>
-          <p className="text-xs text-muted-foreground">One-way messages received before the conversation system.</p>
-          {legacyMessages.map((msg) => (
-            <Card key={msg.id} data-testid={`card-legacy-message-${msg.id}`}>
-              <CardContent className="p-3 sm:p-4 space-y-1">
-                <div className="flex items-center justify-between gap-2">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden mt-6">
+          <div className="flex items-center px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={Inbox} tone="bg-secondary/20 text-secondary-foreground" />
+              Previous Messages
+            </h2>
+          </div>
+          <div className="px-5 py-3 border-b border-border bg-muted/30">
+            <p className="text-xs text-muted-foreground">One-way messages received before the conversation system.</p>
+          </div>
+          <ul className="divide-y divide-border">
+            {legacyMessages.map((msg) => (
+              <li key={msg.id} className="px-5 py-3.5" data-testid={`card-legacy-message-${msg.id}`}>
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <p className={`text-sm font-medium truncate ${!msg.readAt ? "text-foreground" : "text-muted-foreground"}`}>{msg.subject}</p>
-                  {!msg.readAt && <Badge variant="destructive" className="text-[10px] h-5">New</Badge>}
+                  {!msg.readAt && <span className="rounded-full bg-status-busy/15 text-status-busy px-2 py-0.5 text-[10px] font-medium shrink-0">New</span>}
                 </div>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{msg.body}</p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap mb-2">{msg.body}</p>
                 <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {format(new Date(msg.createdAt), "MMM d, yyyy 'at' h:mm a")}
                 </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {isAdmin && sentMessages && sentMessages.length > 0 && (
-        <div className="space-y-3 mt-6">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Inbox className="w-5 h-5" /> Legacy Sent Messages ({sentMessages.length})
-          </h2>
-          <p className="text-xs text-muted-foreground">One-way messages sent before the conversation system.</p>
-          {sentMessages.map((msg) => (
-            <Card key={msg.id} data-testid={`card-legacy-sent-${msg.id}`}>
-              <CardContent className="p-3 sm:p-4 space-y-1">
-                <p className="text-sm font-medium truncate">{msg.subject}</p>
-                <p className="text-xs text-muted-foreground">To: {userMap.get(msg.recipientId) || "Unknown"}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2">{msg.body}</p>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden mt-6">
+          <div className="flex items-center px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={Inbox} tone="bg-secondary/20 text-secondary-foreground" />
+              Legacy Sent Messages
+            </h2>
+            <Badge variant="outline" className="ml-2">{sentMessages.length}</Badge>
+          </div>
+          <div className="px-5 py-3 border-b border-border bg-muted/30">
+            <p className="text-xs text-muted-foreground">One-way messages sent before the conversation system.</p>
+          </div>
+          <ul className="divide-y divide-border">
+            {sentMessages.map((msg) => (
+              <li key={msg.id} className="px-5 py-3.5" data-testid={`card-legacy-sent-${msg.id}`}>
+                <p className="text-sm font-medium truncate mb-0.5">{msg.subject}</p>
+                <p className="text-xs text-muted-foreground mb-1">To: {userMap.get(msg.recipientId) || "Unknown"}</p>
+                <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{msg.body}</p>
                 <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {format(new Date(msg.createdAt), "MMM d, yyyy 'at' h:mm a")}
                 </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );

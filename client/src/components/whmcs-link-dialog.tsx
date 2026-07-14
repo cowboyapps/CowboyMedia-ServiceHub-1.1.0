@@ -216,16 +216,16 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-whmcs-link">
         {step === "email" && (
           <>
-            <DialogHeader>
-              <div className="flex justify-center mb-2">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <DialogHeader className="pt-2 pb-4">
+              <div className="flex justify-center mb-3">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center ring-1 ring-primary/20">
                   <Link2 className="w-6 h-6 text-primary" />
                 </div>
               </div>
-              <DialogTitle className="text-center" data-testid="text-whmcs-link-title">
+              <DialogTitle className="text-center text-xl" data-testid="text-whmcs-link-title">
                 Link your account
               </DialogTitle>
-              <DialogDescription className="text-center">
+              <DialogDescription className="text-center mt-1.5 leading-relaxed">
                 Please provide the same email address you used to sign up online on our account management
                 system. This will allow ServiceHub to show your account information, invoices, payments,
                 reminders, and more.
@@ -297,16 +297,16 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
 
         {step === "code" && (
           <>
-            <DialogHeader>
-              <div className="flex justify-center mb-2">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <DialogHeader className="pt-2 pb-4">
+              <div className="flex justify-center mb-3">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center ring-1 ring-primary/20">
                   <MailCheck className="w-6 h-6 text-primary" />
                 </div>
               </div>
-              <DialogTitle className="text-center" data-testid="text-whmcs-code-title">
+              <DialogTitle className="text-center text-xl" data-testid="text-whmcs-code-title">
                 Enter your code
               </DialogTitle>
-              <DialogDescription className="text-center">
+              <DialogDescription className="text-center mt-1.5 leading-relaxed">
                 We emailed a 6-digit code to <strong>{email.trim()}</strong>. Enter it below to confirm
                 it's you. The code expires in 10 minutes.
               </DialogDescription>
@@ -388,16 +388,16 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
 
         {step === "conflict" && (
           <>
-            <DialogHeader>
-              <div className="flex justify-center mb-2">
-                <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center">
+            <DialogHeader className="pt-2 pb-4">
+              <div className="flex justify-center mb-3">
+                <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center ring-1 ring-amber-500/20">
                   <AlertCircle className="w-6 h-6 text-amber-500" />
                 </div>
               </div>
-              <DialogTitle className="text-center" data-testid="text-whmcs-conflict-title">
+              <DialogTitle className="text-center text-xl" data-testid="text-whmcs-conflict-title">
                 Account already connected
               </DialogTitle>
-              <DialogDescription className="text-center">
+              <DialogDescription className="text-center mt-1.5 leading-relaxed">
                 This billing account is already connected to another ServiceHub login. If you believe this
                 is a mistake, please contact support and we'll help sort it out.
               </DialogDescription>
@@ -414,16 +414,16 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
 
         {step === "success" && (
           <>
-            <DialogHeader>
-              <div className="flex justify-center mb-2">
-                <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                  <CheckCircle2 className="w-6 h-6 text-green-500" />
+            <DialogHeader className="pt-2 pb-4">
+              <div className="flex justify-center mb-3">
+                <div className="w-12 h-12 rounded-full bg-status-online/10 flex items-center justify-center ring-1 ring-status-online/20">
+                  <CheckCircle2 className="w-6 h-6 text-status-online" />
                 </div>
               </div>
-              <DialogTitle className="text-center" data-testid="text-whmcs-success-title">
+              <DialogTitle className="text-center text-xl" data-testid="text-whmcs-success-title">
                 Account linked!
               </DialogTitle>
-              <DialogDescription className="text-center">
+              <DialogDescription className="text-center mt-1.5 leading-relaxed">
                 Your account is now connected. You can view your invoices, payments, services, and
                 reminders right here in the app.
               </DialogDescription>

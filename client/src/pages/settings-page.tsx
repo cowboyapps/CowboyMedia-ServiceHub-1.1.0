@@ -51,6 +51,31 @@ type SessionRow = {
   current: boolean;
 };
 
+function SectionIcon({ icon: Icon, tone }: { icon: any; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function RowSkeletons({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="h-8 w-20 rounded-md" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProfileEditorCard({ user }: { user: { id: string; fullName: string; avatarUrl: string | null; bio: string | null } }) {
   const { toast } = useToast();
   const [bio, setBio] = useState(user.bio || "");
@@ -548,11 +573,11 @@ export default function SettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">Manage your account and preferences</p>
       </div>
 
-      <Card>
-        <CardContent className="flex items-center gap-4 p-6">
-          <Avatar className="w-16 h-16">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center gap-4 p-5">
+          <Avatar className="w-16 h-16 ring-1 ring-border shadow-sm">
             {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />}
-            <AvatarFallback className="text-lg">{user.fullName[0]}</AvatarFallback>
+            <AvatarFallback className="text-lg bg-muted text-muted-foreground">{user.fullName[0]}</AvatarFallback>
           </Avatar>
           <div className="space-y-0.5">
             <h2 className="font-semibold text-lg" data-testid="text-settings-name">{user.fullName}</h2>
@@ -562,72 +587,75 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               <User className="w-3.5 h-3.5" /> @{user.username}
             </p>
-            <Badge variant="secondary" className="text-xs capitalize mt-1">{user.role}</Badge>
+            <Badge variant="secondary" className="text-[10px] font-medium uppercase tracking-wide mt-1 bg-primary/10 text-primary">{user.role}</Badge>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <ProfileEditorCard user={user} />
       
 
       {installPrompt && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Smartphone className="w-4 h-4" />
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={Smartphone} tone="bg-primary/10 text-primary" />
               Install App
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between gap-4">
+            </h2>
+          </div>
+          <div className="p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium">Add to Home Screen</p>
                 <p className="text-xs text-muted-foreground">Install ServiceHub for a native app experience</p>
               </div>
-              <Button onClick={handleInstallApp} data-testid="button-install-app">
+              <Button onClick={handleInstallApp} data-testid="button-install-app" className="w-full sm:w-auto">
                 <Download className="w-4 h-4 mr-2" />
                 Install
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <User className="w-4 h-4" />
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={User} tone="bg-status-online/10 text-status-online" />
             Update Full Name
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+          </h2>
+        </div>
+        <div className="p-5 space-y-4">
           <Label htmlFor="fullName" className="text-sm">Please enter your full name as it appears on your online account</Label>
-          <Input
-            id="fullName"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            placeholder="Full Name"
-            data-testid="input-full-name"
-          />
-          <Button
-            onClick={() => fullNameMutation.mutate(fullName)}
-            disabled={fullNameMutation.isPending}
-            data-testid="button-save-fullname"
-          >
-            {fullNameMutation.isPending ? "Saving..." : "Save"}
-          </Button>
-        </CardContent>
-      </Card>
+          <div className="flex items-center gap-3">
+            <Input
+              id="fullName"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Full Name"
+              data-testid="input-full-name"
+              className="max-w-xs"
+            />
+            <Button
+              onClick={() => fullNameMutation.mutate(fullName)}
+              disabled={fullNameMutation.isPending}
+              data-testid="button-save-fullname"
+            >
+              {fullNameMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </section>
 
       {whmcsConfigured && (
-        <Card data-testid="card-whmcs-link">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CreditCard className="w-4 h-4" />
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-whmcs-link">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={CreditCard} tone="bg-primary/10 text-primary" />
               {whmcsLinked ? "Account linked" : "Link your account"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+            </h2>
+          </div>
+          <div className="p-5 space-y-4">
             {whmcsLinked ? (
               <div
                 className="flex items-center gap-2 text-sm text-green-600 dark:text-green-500"
@@ -648,38 +676,38 @@ export default function SettingsPage() {
                 </Button>
               </>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <CreditCard className="w-4 h-4" />
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={CreditCard} tone="bg-primary/10 text-primary" />
             Billing &amp; Invoices
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Link href="/billing" data-testid="button-online-account">
+          </h2>
+        </div>
+        <div className="p-5">
+          <Link href="/billing" data-testid="button-online-account" className="inline-block">
             <Button>
               <CreditCard className="w-4 h-4 mr-2" />
               View billing &amp; invoices
             </Button>
           </Link>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <WhmcsLinkDialog open={whmcsLinkOpen} onOpenChange={setWhmcsLinkOpen} />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            {resolvedTheme === "dark" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={resolvedTheme === "dark" ? Moon : Sun} tone="bg-status-away/10 text-status-away" />
             Appearance
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
+          </h2>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={theme === "system" ? "default" : "outline"}
               size="sm"
@@ -694,7 +722,7 @@ export default function SettingsPage() {
               onClick={() => setTheme("light")}
               data-testid="button-theme-light"
             >
-              <Sun className="w-4 h-4 mr-1" /> Light
+              <Sun className="w-4 h-4 mr-1.5" /> Light
             </Button>
             <Button
               variant={theme === "dark" ? "default" : "outline"}
@@ -702,23 +730,23 @@ export default function SettingsPage() {
               onClick={() => setTheme("dark")}
               data-testid="button-theme-dark"
             >
-              <Moon className="w-4 h-4 mr-1" /> Dark
+              <Moon className="w-4 h-4 mr-1.5" /> Dark
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
             {theme === "system" ? "Automatically matches your device settings" : `Using ${theme} theme`}
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Bell className="w-4 h-4" />
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={Bell} tone="bg-status-online/10 text-status-online" />
             Notifications
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </h2>
+        </div>
+        <div className="p-5 space-y-6">
           {pushSupported && (
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -762,7 +790,7 @@ export default function SettingsPage() {
               ? `${qhUser.quietHoursStart || "22:00"}–${qhUser.quietHoursEnd || "07:00"} ${qhUser.quietHoursTimezone || "UTC"}`
               : "Off";
             return (
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Notification preferences</p>
                   <p className="text-xs text-muted-foreground">
@@ -782,43 +810,47 @@ export default function SettingsPage() {
                   size="sm"
                   onClick={handleOpenPrefs}
                   data-testid="button-open-notif-prefs"
+                  className="shrink-0"
                 >
                   <SlidersHorizontal className="w-4 h-4 mr-1.5" /> Manage
                 </Button>
               </div>
             );
           })()}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card id="services" data-testid="card-service-subscriptions">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Bell className="w-4 h-4" />
+      <section id="services" className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-service-subscriptions">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={Bell} tone="bg-primary/10 text-primary" />
             Service notifications
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </h2>
+        </div>
+        <div className="p-5 space-y-4">
           <p className="text-xs text-muted-foreground">Choose which services you want to hear about. We'll only alert you about the ones you pick here.</p>
           {isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
             </div>
           ) : !services || services.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No services available</p>
+            <div className="py-4 text-center">
+              <BellOff className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
+              <p className="text-sm text-muted-foreground">No services available</p>
+            </div>
           ) : (
             <div className="space-y-3">
               {services.map((service) => (
-                <div key={service.id} className="flex items-center gap-3" data-testid={`checkbox-service-${service.id}`}>
+                <div key={service.id} className="flex items-center gap-3 p-3 rounded-lg border bg-background hover-elevate transition-colors" data-testid={`checkbox-service-${service.id}`}>
                   <Checkbox
                     id={service.id}
                     checked={selectedServices.includes(service.id)}
                     onCheckedChange={() => toggleService(service.id)}
                   />
                   <Label htmlFor={service.id} className="text-sm cursor-pointer flex-1">
-                    {service.name}
+                    <span className="font-medium">{service.name}</span>
                     {service.description && (
-                      <span className="text-muted-foreground ml-1">- {service.description}</span>
+                      <span className="text-muted-foreground block text-xs mt-0.5">{service.description}</span>
                     )}
                   </Label>
                 </div>
@@ -828,8 +860,8 @@ export default function SettingsPage() {
           <Button onClick={savePreferences} disabled={updateMutation.isPending} data-testid="button-save-preferences">
             {updateMutation.isPending ? "Saving..." : "Save Preferences"}
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {(user.role === "admin" || user.role === "master_admin") && <TwoFactorSecurityCard />}
 
@@ -873,14 +905,14 @@ export default function SettingsPage() {
       <ActiveSessionsCard />
 
       {user.role === "customer" && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <HelpCircle className="w-4 h-4" />
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={HelpCircle} tone="bg-status-online/10 text-status-online" />
               Help
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h2>
+          </div>
+          <div className="p-5">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm font-medium">Replay onboarding tour</p>
@@ -895,8 +927,8 @@ export default function SettingsPage() {
                 <PlayCircle className="w-4 h-4 mr-1.5" /> Replay
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       <p className="text-center text-xs text-muted-foreground mt-6 mb-1" data-testid="text-app-version">

@@ -1596,7 +1596,7 @@ export default function CommunityChatPage() {
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex flex-col h-full bg-card rounded-xl border border-card-border overflow-hidden"
       style={{
         overscrollBehavior: "none",
         paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined,
@@ -1604,12 +1604,17 @@ export default function CommunityChatPage() {
       }}
       data-testid="community-chat-page"
     >
-      <div className="flex items-center gap-2 p-2 sm:p-3 border-b flex-shrink-0">
-        <Users className="w-5 h-5 text-primary flex-shrink-0" />
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-border flex-shrink-0 bg-card relative">
+        <div className="flex items-center justify-center w-9 h-9 rounded-md bg-primary/10 text-primary flex-shrink-0">
+          <Users className="w-[18px] h-[18px]" />
+        </div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold" data-testid="text-community-title">Community Chat</h1>
-          <p className="text-[10px] text-muted-foreground">
-            Chatting as <span className="font-medium">{chatUsername || "..."}</span>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold" data-testid="text-community-title">Community Chat</h1>
+            <Badge variant="secondary" className="text-[10px] uppercase font-bold" data-testid="badge-community-beta">Beta</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Chatting as <span className="font-medium text-foreground">{chatUsername || "..."}</span>
             {isAdminUser && <Shield className="w-3 h-3 inline ml-1 text-primary" />}
           </p>
         </div>
@@ -1618,10 +1623,18 @@ export default function CommunityChatPage() {
 
       <LiveConnectionBanner status={wsStatus} className="mx-2 sm:mx-3 mt-2" />
 
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-3 space-y-1 min-h-0">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 min-h-0">
         {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-3/4" />)}
+          <div className="space-y-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className={`flex gap-3 ${i % 2 === 0 ? "flex-row-reverse" : ""}`}>
+                <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+                <div className={`space-y-2 ${i % 2 === 0 ? "items-end flex flex-col" : ""}`}>
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-16 w-64 rounded-2xl" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-full">
@@ -1741,14 +1754,14 @@ export default function CommunityChatPage() {
       )}
 
       {isBanned ? (
-        <div className="border-t p-3 flex-shrink-0 text-center" data-testid="text-chat-banned">
+        <div className="border-t border-border p-4 flex-shrink-0 text-center bg-card" data-testid="text-chat-banned">
           <div className="flex items-center justify-center gap-2 text-destructive">
             <Ban className="w-4 h-4" />
             <p className="text-sm font-medium">You have been banned from community chat</p>
           </div>
         </div>
       ) : (
-        <div className="border-t p-2 sm:p-3 flex-shrink-0 ios-input-fix">
+        <div className="border-t border-border p-3 sm:p-4 flex-shrink-0 bg-card ios-input-fix">
           {typingNames.length > 0 && (
             <div className="flex items-center gap-1.5 mb-1.5 px-1" data-testid="text-typing-indicator">
               <span className="text-xs text-muted-foreground italic">

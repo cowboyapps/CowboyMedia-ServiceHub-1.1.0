@@ -3,7 +3,6 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useSearch, useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -79,124 +78,138 @@ export default function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-dvh flex items-center justify-center p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <BrandLogo className="mx-auto h-24 mb-3" />
-            <CardTitle className="text-xl" data-testid="text-reset-invalid-title">Invalid Reset Link</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-center">
-            <div className="flex justify-center">
-              <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
-                <AlertTriangle className="w-8 h-8 text-destructive" />
-              </div>
+      <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-background">
+        <div className="w-full max-w-md space-y-6">
+          <div className="text-center">
+            <BrandLogo className="mx-auto h-24 mb-4" />
+          </div>
+          
+          <div className="rounded-xl border border-card-border bg-card overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-border flex items-center justify-center">
+              <h1 className="text-lg font-bold" data-testid="text-reset-invalid-title">Invalid Reset Link</h1>
             </div>
-            <p className="text-sm text-muted-foreground" data-testid="text-reset-no-token">
-              This password reset link is invalid. Please request a new one.
-            </p>
-            <Link href="/forgot-password">
-              <Button className="w-full" data-testid="button-request-new-link">
-                Request New Reset Link
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+            <div className="p-6 space-y-6 text-center">
+              <div className="flex justify-center">
+                <div className="w-16 h-16 rounded-full bg-status-busy/10 flex items-center justify-center">
+                  <AlertTriangle className="w-8 h-8 text-status-busy" />
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground" data-testid="text-reset-no-token">
+                This password reset link is invalid. Please request a new one.
+              </p>
+              <Link href="/forgot-password">
+                <Button className="w-full" data-testid="button-request-new-link">
+                  Request New Reset Link
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <BrandLogo className="mx-auto h-24 mb-3" />
-          <CardTitle className="text-xl" data-testid="text-reset-password-title">
-            {success ? "Password Reset" : "Set New Password"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {success ? (
-            <div className="space-y-4 text-center">
-              <div className="flex justify-center">
-                <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                  <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+    <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-background">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center">
+          <BrandLogo className="mx-auto h-24 mb-4" />
+        </div>
+        
+        <div className="rounded-xl border border-card-border bg-card overflow-hidden shadow-sm">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-center">
+            <h1 className="text-lg font-bold" data-testid="text-reset-password-title">
+              {success ? "Password Reset" : "Set New Password"}
+            </h1>
+          </div>
+          <div className="p-6">
+            {success ? (
+              <div className="space-y-6 text-center">
+                <div className="flex justify-center">
+                  <div className="w-16 h-16 rounded-full bg-status-online/10 flex items-center justify-center">
+                    <CheckCircle className="w-8 h-8 text-status-online" />
+                  </div>
+                </div>
+                <p className="text-sm text-foreground" data-testid="text-reset-success">
+                  Your password has been successfully reset. Redirecting to sign in{countdown > 0 ? ` in ${countdown}...` : "..."}
+                </p>
+                <Link href="/auth">
+                  <Button className="w-full gap-2 mt-2" data-testid="button-go-to-login">
+                    <ArrowLeft className="w-4 h-4" />
+                    Go to Sign In Now
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <p className="text-sm text-muted-foreground text-center">
+                  Enter your new password below.
+                </p>
+                {error && (
+                  <div className="flex items-center gap-2 p-3 rounded-md bg-status-busy/10 text-status-busy text-sm border border-status-busy/20" data-testid="text-reset-error">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    {error}
+                  </div>
+                )}
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
+                    <FormField
+                      control={form.control}
+                      name="password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>New Password</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="password"
+                              placeholder="At least 6 characters"
+                              data-testid="input-new-password"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="confirmPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Confirm Password</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="password"
+                              placeholder="Re-enter your password"
+                              data-testid="input-confirm-password"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="pt-2">
+                      <Button type="submit" className="w-full gap-2" disabled={isSubmitting} data-testid="button-reset-password">
+                        <Lock className="w-4 h-4" />
+                        {isSubmitting ? "Resetting..." : "Reset Password"}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+                <div className="text-center pt-2">
+                  <Link href="/auth">
+                    <Button variant="ghost" className="w-full gap-2" data-testid="button-back-to-login-reset">
+                      <ArrowLeft className="w-4 h-4" />
+                      Back to Sign In
+                    </Button>
+                  </Link>
                 </div>
               </div>
-              <p className="text-sm text-muted-foreground" data-testid="text-reset-success">
-                Your password has been successfully reset. Redirecting to sign in{countdown > 0 ? ` in ${countdown}...` : "..."}
-              </p>
-              <Link href="/auth">
-                <Button className="w-full gap-2" data-testid="button-go-to-login">
-                  <ArrowLeft className="w-4 h-4" />
-                  Go to Sign In Now
-                </Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground text-center">
-                Enter your new password below.
-              </p>
-              {error && (
-                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm" data-testid="text-reset-error">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                  {error}
-                </div>
-              )}
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>New Password</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            placeholder="At least 6 characters"
-                            data-testid="input-new-password"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="confirmPassword"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Confirm Password</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            placeholder="Re-enter your password"
-                            data-testid="input-confirm-password"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <Button type="submit" className="w-full gap-2" disabled={isSubmitting} data-testid="button-reset-password">
-                    <Lock className="w-4 h-4" />
-                    {isSubmitting ? "Resetting..." : "Reset Password"}
-                  </Button>
-                </form>
-              </Form>
-              <Link href="/auth">
-                <Button variant="ghost" className="w-full gap-2" data-testid="button-back-to-login-reset">
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to Sign In
-                </Button>
-              </Link>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

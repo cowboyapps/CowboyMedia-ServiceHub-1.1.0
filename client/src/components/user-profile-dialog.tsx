@@ -48,21 +48,23 @@ export function UserProfileDialog({ userId, open, onOpenChange }: UserProfileDia
           <DialogTitle data-testid="text-profile-title">Profile</DialogTitle>
         </DialogHeader>
         {isLoading ? (
-          <div className="space-y-3 py-2">
-            <div className="flex items-center gap-3">
-              <Skeleton className="w-16 h-16 rounded-full" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-24" />
+          <div className="space-y-4 py-2">
+            <div className="flex items-start gap-4">
+              <Skeleton className="w-16 h-16 rounded-full shrink-0" />
+              <div className="flex-1 space-y-2 py-1">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-32 mt-2" />
               </div>
             </div>
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-20 w-full rounded-md mt-4" />
           </div>
         ) : error || !data ? (
-          <p className="text-sm text-muted-foreground py-4" data-testid="text-profile-error">
-            Couldn't load profile.
-          </p>
+          <div className="px-5 py-8 text-center border rounded-xl bg-card border-card-border">
+            <p className="text-sm text-muted-foreground" data-testid="text-profile-error">
+              Couldn't load profile.
+            </p>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="flex items-start gap-4">
@@ -93,19 +95,19 @@ export function UserProfileDialog({ userId, open, onOpenChange }: UserProfileDia
             </div>
 
             {data.bio && (
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="text-sm whitespace-pre-wrap break-words" data-testid="text-profile-bio">
+              <div className="rounded-xl border border-card-border bg-card p-4">
+                <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" data-testid="text-profile-bio">
                   {data.bio}
                 </p>
               </div>
             )}
 
             {data.badges.length > 0 && (
-              <div>
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              <div className="rounded-xl border border-card-border bg-card p-4">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                   <Award className="w-3.5 h-3.5" /> Badges
                 </div>
-                <div className="flex flex-wrap gap-1.5" data-testid="list-profile-badges">
+                <div className="flex flex-wrap gap-2" data-testid="list-profile-badges">
                   {data.badges.map((b) => (
                     <BadgeUI
                       key={b.key}

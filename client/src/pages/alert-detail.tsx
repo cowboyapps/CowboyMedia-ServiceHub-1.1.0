@@ -1,27 +1,46 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Activity } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
 import { RichTextContent } from "@/components/rich-text-content";
 import { QueryErrorState } from "@/components/query-error-state";
 import { TimeoutError } from "@/lib/queryClient";
 import type { ServiceAlertWithServices, AlertUpdate, Service } from "@shared/schema";
 
+const severityMeta: Record<string, { pill: string }> = {
+  critical: { pill: "bg-status-busy/15 text-status-busy" },
+  warning: { pill: "bg-status-away/15 text-status-away" },
+  info: { pill: "bg-status-away/15 text-status-away" },
+};
+
+const statusPill: Record<string, string> = {
+  investigating: "bg-status-away/15 text-status-away",
+  identified: "bg-status-away/15 text-status-away",
+  monitoring: "bg-primary/15 text-primary",
+  resolved: "bg-status-online/15 text-status-online",
+};
+
+function SectionIcon({ icon: Icon, tone }: { icon: any; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
     case "resolved":
-      return <CheckCircle className="w-4 h-4 text-status-online animate-status-glow" />;
+      return <CheckCircle className="w-5 h-5 text-status-online animate-status-glow" />;
     case "investigating":
-      return <AlertTriangle className="w-4 h-4 text-status-away" />;
+      return <AlertTriangle className="w-5 h-5 text-status-away" />;
     case "identified":
-      return <Info className="w-4 h-4 text-primary" />;
+      return <Info className="w-5 h-5 text-primary" />;
     default:
-      return <Clock className="w-4 h-4 text-muted-foreground" />;
+      return <Clock className="w-5 h-5 text-muted-foreground" />;
   }
 }
 
@@ -46,10 +65,27 @@ export default function AlertDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-40" />
-        <Skeleton className="h-60" />
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="p-5 space-y-4">
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-20" />
+          </div>
+        </section>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <Skeleton className="h-5 w-40" />
+          </div>
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="px-5 py-3.5 space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-full max-w-lg" />
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     );
   }
@@ -80,6 +116,7 @@ export default function AlertDetail() {
   if (!alert) {
     return (
       <div className="text-center py-12">
+        <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
         <p className="text-muted-foreground">Alert not found</p>
         <Link href="/alerts">
           <Button variant="ghost" className="mt-2">Back to Alerts</Button>
@@ -87,6 +124,8 @@ export default function AlertDetail() {
       </div>
     );
   }
+
+  const severityPillCls = severityMeta[alert.severity]?.pill || severityMeta.info.pill;
 
   return (
     <div className="space-y-6">
@@ -96,83 +135,95 @@ export default function AlertDetail() {
         </Button>
       </Link>
 
-      <Card>
-        <CardHeader className="pb-3">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border bg-card/50">
           <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="space-y-1">
-              <CardTitle className="text-xl" data-testid="text-alert-title">{alert.title}</CardTitle>
+            <div className="space-y-1.5">
+              <h1 className="text-xl font-bold" data-testid="text-alert-title">{alert.title}</h1>
               <div className="flex items-center gap-2 flex-wrap">
-                <Badge
-                  variant={alert.severity === "critical" ? "destructive" : alert.severity === "warning" ? "default" : "secondary"}
-                  className="text-xs capitalize"
-                >
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${severityPillCls}`}>
                   {alert.severity}
-                </Badge>
-                <Badge variant={alert.status === "resolved" ? "secondary" : "default"} className="text-xs capitalize">
+                </span>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`}>
                   {alert.status}
-                </Badge>
-                {alertServiceNames.map((name, i) => <Badge key={i} variant="secondary" className="text-xs" data-testid={`badge-alert-service-${i}`}>{name}</Badge>)}
+                </span>
+                {alertServiceNames.map((name, i) => (
+                  <span key={i} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground" data-testid={`badge-alert-service-${i}`}>
+                    {name}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
+        </div>
+        <div className="px-5 py-4 space-y-4">
           <RichTextContent content={alert.description} className="text-sm" testId="text-alert-description" />
           {alert.imageUrl && (
             <ClickableImage src={alert.imageUrl} alt="Alert attachment" className="max-h-48 rounded-md" />
           )}
-          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-2">
             <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              Created: {format(new Date(alert.createdAt), "MMM d, yyyy 'at' h:mm a")}
+              <Clock className="w-3.5 h-3.5" />
+              Created {format(new Date(alert.createdAt), "MMM d, yyyy 'at' h:mm a")}
             </span>
             {alert.resolvedAt && (
               <span className="flex items-center gap-1">
-                <CheckCircle className="w-3 h-3" />
-                Resolved: {format(new Date(alert.resolvedAt), "MMM d, yyyy 'at' h:mm a")}
+                <CheckCircle className="w-3.5 h-3.5" />
+                Resolved {format(new Date(alert.resolvedAt), "MMM d, yyyy 'at' h:mm a")}
               </span>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Updates Timeline</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {updatesLoading ? (
-            <div className="space-y-4">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
-            </div>
-          ) : !updates || updates.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No updates posted yet</p>
-          ) : (
-            <div className="relative space-y-0">
-              <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
-              {updates.map((update) => (
-                <div key={update.id} className="relative pl-7 pb-6 last:pb-0" data-testid={`alert-update-${update.id}`}>
-                  <div className="absolute left-0 top-1 z-10 bg-background p-0.5 rounded-full">
-                    <StatusIcon status={update.status} />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs capitalize">{update.status}</Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(update.createdAt), "MMM d, h:mm a")}
-                      </span>
-                    </div>
-                    <RichTextContent content={update.message} className="text-sm" testId={`text-alert-update-message-${update.id}`} />
-                    {update.imageUrl && (
-                      <ClickableImage src={update.imageUrl} alt="Update attachment" className="max-h-32 rounded-md mt-1" />
-                    )}
-                  </div>
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={Activity} tone="bg-primary/10 text-primary" />
+            Updates Timeline
+          </h2>
+        </div>
+        
+        {updatesLoading ? (
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="px-5 py-3.5 space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-full max-w-lg" />
+              </div>
+            ))}
+          </div>
+        ) : !updates || updates.length === 0 ? (
+          <div className="px-5 py-8 text-center">
+            <Clock className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No updates posted yet</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {updates.map((update) => (
+              <li key={update.id} className="px-5 py-4 flex gap-4" data-testid={`alert-update-${update.id}`}>
+                <div className="mt-0.5 shrink-0">
+                  <StatusIcon status={update.status} />
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[update.status] || "bg-muted text-muted-foreground"}`}>
+                      {update.status}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(update.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                    </span>
+                  </div>
+                  <RichTextContent content={update.message} className="text-sm" testId={`text-alert-update-message-${update.id}`} />
+                  {update.imageUrl && (
+                    <ClickableImage src={update.imageUrl} alt="Update attachment" className="max-h-32 rounded-md mt-2" />
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

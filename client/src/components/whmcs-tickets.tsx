@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   LifeBuoy,
   ChevronRight,
@@ -22,6 +23,31 @@ import {
   Download,
   AlertTriangle,
 } from "lucide-react";
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof LifeBuoy; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function RowSkeletons({ rows = 2 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="h-5 w-16 rounded-full shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Shared, read-on-demand presentation of WHMCS support tickets. Driven entirely
 // by the locked payloads from the customer routes (/api/whmcs-tickets[...]) and
@@ -168,9 +194,8 @@ function listGuard(
     return {
       kind: "node",
       node: (
-        <div className="space-y-2" data-testid="whmcs-tickets-loading">
-          <Skeleton className="h-16 rounded-lg" />
-          <Skeleton className="h-16 rounded-lg" />
+        <div className="px-5 py-8" data-testid="whmcs-tickets-loading">
+          <RowSkeletons rows={2} />
         </div>
       ),
     };
@@ -237,66 +262,96 @@ export function WhmcsTicketList({ data, isLoading, context = "customer", onOpen,
   const isAdmin = context === "admin";
   const guard = listGuard(data, isLoading, isAdmin);
   if (guard.kind === "hide") return null;
-  if (guard.kind === "node") return guard.node;
 
-  const tickets = data!.tickets;
-  if (tickets.length === 0) {
+  const renderContent = () => {
+    if (guard.kind === "node") {
+      return <div className="px-5 py-8 border-t border-border">{guard.node}</div>;
+    }
+
+    const tickets = data!.tickets;
+    if (tickets.length === 0) {
+      return (
+        <div className="px-5 py-8 border-t border-border flex justify-center">
+          <EmptyState
+            icon={LifeBuoy}
+            title="No billing tickets"
+            description={isAdmin ? "No billing tickets for this customer." : "You don't have any billing or account support tickets."}
+            testid="whmcs-tickets-none"
+          />
+        </div>
+      );
+    }
+
     return (
-      <p className="text-sm text-muted-foreground px-1 py-3" data-testid="whmcs-tickets-none">
-        {isAdmin ? "No billing tickets for this customer." : "You don't have any billing or account support tickets."}
-      </p>
+      <div className="divide-y divide-border border-t border-border" data-testid="whmcs-tickets-list">
+        {tickets.map((t) => {
+          const hasNewReply = !!newReplyIds?.has(t.id);
+          return (
+            <div
+              key={t.id}
+              className={`flex items-center justify-between gap-3 px-5 py-3.5 hover-elevate tap-interactive cursor-pointer ${hasNewReply ? "bg-primary/[0.03]" : ""}`}
+              onClick={() => onOpen(t.id)}
+              data-testid={`card-whmcs-ticket-${t.id}`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${hasNewReply ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                  <LifeBuoy className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <h3 className={`text-sm truncate ${hasNewReply ? "font-bold" : "font-medium"}`} data-testid={`text-whmcs-ticket-subject-${t.id}`}>{t.subject}</h3>
+                  <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                    <span className="font-mono text-[11px] opacity-70">#{t.tid}</span>
+                    <span>·</span>
+                    <Badge variant="outline" className={`h-5 text-[10px] px-1.5 font-medium ${ticketBadgeClass(t.statusKey)}`} data-testid={`badge-whmcs-ticket-status-${t.id}`}>
+                      {ticketStatusLabel(t)}
+                    </Badge>
+                    {hasNewReply && (
+                      <>
+                        <span>·</span>
+                        <span className="text-[10px] font-semibold text-primary uppercase tracking-wide flex items-center gap-1" data-testid={`badge-whmcs-ticket-new-${t.id}`}>
+                          <Send className="w-2.5 h-2.5" /> New reply
+                        </span>
+                      </>
+                    )}
+                    {t.department && (
+                      <>
+                        <span>·</span>
+                        <span>{t.department}</span>
+                      </>
+                    )}
+                    <span>·</span>
+                    <span>{t.lastReply ? `Last reply ${formatTicketDate(t.lastReply)}` : `Opened ${formatTicketDate(t.date)}`}</span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            </div>
+          );
+        })}
+      </div>
     );
-  }
+  };
 
   return (
-    <div className="space-y-2" data-testid="whmcs-tickets-list">
-      {data!.portalUrl && (
-        <div className="flex justify-end">
-          <a href={data!.portalUrl} target="_blank" rel="noopener noreferrer" data-testid="link-whmcs-tickets-portal">
-            <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground">
+    <div className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <SectionIcon icon={CreditCard} tone="bg-amber-500/10 text-amber-600 dark:text-amber-500" />
+          <div>
+            <h2 className="text-sm font-semibold">Billing & Account Support</h2>
+            <p className="text-xs text-muted-foreground">Mirrored from the billing portal</p>
+          </div>
+        </div>
+        {data?.portalUrl && (
+          <a href={data.portalUrl} target="_blank" rel="noopener noreferrer" data-testid="link-whmcs-tickets-portal">
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs w-full sm:w-auto">
               <ExternalLink className="w-3.5 h-3.5" />
-              Open in billing portal
+              Open Portal
             </Button>
           </a>
-        </div>
-      )}
-      {tickets.map((t) => {
-        const hasNewReply = !!newReplyIds?.has(t.id);
-        return (
-        <Card
-          key={t.id}
-          className={`hover-elevate tap-interactive cursor-pointer ${hasNewReply ? "border-primary/50 bg-primary/[0.03]" : ""}`}
-          onClick={() => onOpen(t.id)}
-          data-testid={`card-whmcs-ticket-${t.id}`}
-        >
-          <CardContent className="flex items-start justify-between gap-3 p-3.5">
-            <div className="flex items-start gap-3 min-w-0">
-              <LifeBuoy className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-              <div className="min-w-0 space-y-1">
-                <h3 className={`text-sm truncate ${hasNewReply ? "font-bold" : "font-semibold"}`} data-testid={`text-whmcs-ticket-subject-${t.id}`}>{t.subject}</h3>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline" className={ticketBadgeClass(t.statusKey)} data-testid={`badge-whmcs-ticket-status-${t.id}`}>
-                    {ticketStatusLabel(t)}
-                  </Badge>
-                  {hasNewReply && (
-                    <Badge className="bg-primary text-primary-foreground border-transparent text-xs gap-1" data-testid={`badge-whmcs-ticket-new-${t.id}`}>
-                      <Send className="w-3 h-3" />
-                      New reply
-                    </Badge>
-                  )}
-                  {t.department && <Badge variant="secondary" className="text-xs">{t.department}</Badge>}
-                  <span className="text-xs text-muted-foreground">#{t.tid}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t.lastReply ? `Last reply ${formatTicketDate(t.lastReply)}` : `Opened ${formatTicketDate(t.date)}`}
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-          </CardContent>
-        </Card>
-        );
-      })}
+        )}
+      </div>
+      {renderContent()}
     </div>
   );
 }
@@ -364,20 +419,24 @@ export function WhmcsTicketThread({
 
   if (isLoading) {
     return (
-      <div className="space-y-3" data-testid="whmcs-thread-loading">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-24 rounded-lg" />
+      <div className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="whmcs-thread-loading">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <Skeleton className="h-6 w-1/3" />
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
+        <div className="px-5 py-6">
+          <RowSkeletons rows={3} />
+        </div>
       </div>
     );
   }
 
   if (isError || !ticket) {
     return (
-      <div className="space-y-3">
+      <div className="rounded-xl border border-card-border bg-card overflow-hidden p-6 space-y-4">
         {onBack && (
-          <Button variant="ghost" size="sm" className="gap-1.5 -ml-2" onClick={onBack} data-testid="button-whmcs-thread-back">
-            <ArrowLeft className="w-4 h-4" /> Back
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={onBack} data-testid="button-whmcs-thread-back">
+            <ArrowLeft className="w-4 h-4" /> Back to tickets
           </Button>
         )}
         <EmptyState
@@ -403,54 +462,75 @@ export function WhmcsTicketThread({
   };
 
   return (
-    <div className="space-y-4" data-testid={`whmcs-thread-${ticket.id}`}>
-      <div className="space-y-2">
+    <div className="rounded-xl border border-card-border bg-card overflow-hidden flex flex-col" style={{ minHeight: "50vh" }} data-testid={`whmcs-thread-${ticket.id}`}>
+      <div className="px-5 py-4 border-b border-border flex flex-col gap-3">
         {onBack && (
-          <Button variant="ghost" size="sm" className="gap-1.5 -ml-2" onClick={onBack} data-testid="button-whmcs-thread-back">
-            <ArrowLeft className="w-4 h-4" /> Back to tickets
-          </Button>
+          <div>
+            <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 h-7" onClick={onBack} data-testid="button-whmcs-thread-back">
+              <ArrowLeft className="w-4 h-4" /> Back to tickets
+            </Button>
+          </div>
         )}
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold truncate" data-testid="text-whmcs-thread-subject">{ticket.subject}</h2>
-            <p className="text-xs text-muted-foreground">
-              Ticket #{ticket.tid}
-              {ticket.department ? ` · ${ticket.department}` : ""}
-              {ticket.date ? ` · Opened ${formatTicketDate(ticket.date)}` : ""}
-            </p>
+          <div className="min-w-0 space-y-1">
+            <h2 className="text-base sm:text-lg font-bold truncate" data-testid="text-whmcs-thread-subject">{ticket.subject}</h2>
+            <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+              <Badge variant="outline" className={`h-5 text-[10px] px-1.5 font-medium ${ticketBadgeClass(ticket.statusKey)}`} data-testid="badge-whmcs-thread-status">
+                {ticketStatusLabel(ticket)}
+              </Badge>
+              <span>·</span>
+              <span className="font-mono text-[11px]">#{ticket.tid}</span>
+              {ticket.department && (
+                <>
+                  <span>·</span>
+                  <span>{ticket.department}</span>
+                </>
+              )}
+              {ticket.date && (
+                <>
+                  <span>·</span>
+                  <span>Opened {formatTicketDate(ticket.date)}</span>
+                </>
+              )}
+            </div>
           </div>
-          <Badge variant="outline" className={ticketBadgeClass(ticket.statusKey)} data-testid="badge-whmcs-thread-status">
-            {ticketStatusLabel(ticket)}
-          </Badge>
         </div>
       </div>
 
-      <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2" data-testid="whmcs-thread-banner">
-        <CreditCard className="w-3.5 h-3.5 shrink-0" />
-        This is a billing &amp; account support ticket from our billing system, separate from your support tickets here.
+      <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 px-5 py-2.5 text-xs text-amber-800 dark:text-amber-400 flex items-center gap-2 font-medium" data-testid="whmcs-thread-banner">
+        <CreditCard className="w-4 h-4 shrink-0" />
+        This is a billing &amp; account support ticket. It is separate from your native service tickets.
       </div>
 
-      <div className="space-y-3" data-testid="whmcs-thread-messages">
+      <div className="flex-1 p-5 space-y-6 overflow-y-auto" data-testid="whmcs-thread-messages">
         {ticket.messages.map((m) => {
           const isStaff = m.authorType === "staff";
           return (
-            <div key={m.id} className={`flex gap-2 ${isStaff ? "" : "flex-row-reverse"}`} data-testid={`whmcs-message-${m.id}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isStaff ? "bg-primary/10 text-primary" : "bg-accent text-accent-foreground"}`}>
-                {isStaff ? <Shield className="w-4 h-4" /> : <UserIcon className="w-4 h-4" />}
+            <div key={m.id} className={`flex gap-2 ${!isStaff ? "flex-row-reverse" : ""}`} data-testid={`whmcs-message-${m.id}`}>
+              <div className="flex-shrink-0 mt-0.5">
+                <Avatar className="w-8 h-8 sm:w-10 sm:h-10 border border-border shadow-sm">
+                  <AvatarFallback className={`text-[13px] font-medium ${!isStaff ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                    {isStaff ? <Shield className="w-4 h-4" /> : <UserIcon className="w-4 h-4" />}
+                  </AvatarFallback>
+                </Avatar>
               </div>
-              <div className={`max-w-[85%] min-w-0 space-y-1 ${isStaff ? "" : "items-end"}`}>
-                <div className={`flex items-center gap-1.5 text-xs ${isStaff ? "" : "justify-end"}`}>
+              <div className={`max-w-[85%] sm:max-w-[70%] min-w-0 space-y-0.5 ${!isStaff ? "items-end text-right" : ""}`}>
+                <div className={`text-xs ${!isStaff ? "text-right" : ""}`}>
                   <span className="font-medium">{m.authorName}</span>
-                  {isStaff && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Support</span>}
+                  {isStaff && <span className="ml-1.5 text-[10px] text-muted-foreground">CowboyMedia Support</span>}
                 </div>
                 <div
-                  className={`rounded-lg p-3 text-sm whitespace-pre-wrap overflow-hidden ${isStaff ? "bg-accent" : "bg-primary text-primary-foreground"}`}
+                  className={`rounded-2xl p-3 sm:p-4 text-[15px] leading-relaxed whitespace-pre-wrap overflow-hidden shadow-sm border ${
+                    !isStaff
+                      ? "bg-primary border-transparent text-primary-foreground rounded-tr-sm"
+                      : "bg-card border-card-border text-card-foreground rounded-tl-sm"
+                  }`}
                   style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
                 >
-                  {m.message || <span className="opacity-60">(no message)</span>}
+                  {m.message || <span className="opacity-60 italic">(no message)</span>}
                 </div>
                 {m.attachments.length > 0 && (
-                  <div className={`flex flex-wrap gap-1.5 ${isStaff ? "" : "justify-end"}`} data-testid={`whmcs-message-attachments-${m.id}`}>
+                  <div className={`flex flex-wrap gap-1.5 mt-2 ${!isStaff ? "justify-end" : ""}`} data-testid={`whmcs-message-attachments-${m.id}`}>
                     {m.attachments.map((a) => {
                       const url = buildAttachmentUrl?.(a);
                       const key = `${a.type}-${a.relatedId}-${a.index}`;
@@ -467,7 +547,7 @@ export function WhmcsTicketThread({
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs text-foreground hover-elevate"
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground hover-elevate transition-colors"
                           data-testid={`link-whmcs-attachment-${key}`}
                         >
                           {inner}
@@ -475,7 +555,7 @@ export function WhmcsTicketThread({
                       ) : (
                         <span
                           key={key}
-                          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground"
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background/50 px-2 py-1.5 text-xs text-muted-foreground"
                           data-testid={`text-whmcs-attachment-${key}`}
                         >
                           {inner}
@@ -484,7 +564,9 @@ export function WhmcsTicketThread({
                     })}
                   </div>
                 )}
-                <p className={`text-[10px] text-muted-foreground ${isStaff ? "" : "text-right"}`}>{formatTicketDate(m.date)}</p>
+                <p className={`text-[10px] text-muted-foreground mt-1 ${!isStaff ? "text-right" : ""}`}>
+                  {formatTicketDate(m.date)}
+                </p>
               </div>
             </div>
           );
@@ -492,87 +574,113 @@ export function WhmcsTicketThread({
       </div>
 
       {isClosed ? (
-        <div className="rounded-md border px-3 py-3 text-sm text-muted-foreground text-center" data-testid="whmcs-thread-closed">
+        <div className="bg-muted/30 border-t border-border px-5 py-4 text-sm text-muted-foreground text-center" data-testid="whmcs-thread-closed">
           This ticket is closed.
           {ticket.viewUrl && (
             <>
               {" "}
-              <a href={ticket.viewUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline" data-testid="link-whmcs-thread-reopen">
+              <a href={ticket.viewUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline underline-offset-4 font-medium" data-testid="link-whmcs-thread-reopen">
                 Reopen it in the billing portal
               </a>
-              .
             </>
           )}
         </div>
       ) : (
         <div
-          className="space-y-2 border-t pt-3"
-          style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
+          className="border-t border-border bg-background/50 p-4 sm:p-5"
+          style={keyboardInset > 0 ? { paddingBottom: Math.max(20, keyboardInset) } : undefined}
           data-testid="whmcs-thread-composer"
         >
-          {replyHint && <p className="text-xs text-muted-foreground">{replyHint}</p>}
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onFocus={(e) => {
-              // Scroll-flow page (not a full-height chat): make sure the reply
-              // box is brought above the on-screen keyboard when focused.
-              setTimeout(() => e.target.scrollIntoView({ block: "center", behavior: "smooth" }), 250);
-            }}
-            placeholder={context === "admin" ? "Reply to this customer's billing ticket…" : "Write a reply…"}
-            className="min-h-[90px]"
-            data-testid="input-whmcs-reply"
-          />
-          {files.length > 0 && (
-            <div className="flex flex-wrap gap-1.5" data-testid="whmcs-reply-attachments">
-              {files.map((f, i) => {
-                const oversize = f.size > MAX_REPLY_ATTACHMENT_BYTES;
-                return (
-                  <span
-                    key={`${f.name}-${i}`}
-                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
-                      oversize
-                        ? "border-destructive/50 bg-destructive/10 text-destructive"
-                        : "bg-muted/40"
-                    }`}
-                    data-testid={`chip-whmcs-reply-attachment-${i}`}
-                  >
-                    {oversize ? (
-                      <AlertTriangle className="w-3 h-3 shrink-0" />
-                    ) : (
-                      <Paperclip className="w-3 h-3 shrink-0" />
-                    )}
-                    <span className="truncate max-w-[160px]">{f.name}</span>
+          {replyHint && <p className="text-xs text-muted-foreground mb-3">{replyHint}</p>}
+          <div className="rounded-xl border border-input bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-shadow">
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onFocus={(e) => {
+                setTimeout(() => e.target.scrollIntoView({ block: "center", behavior: "smooth" }), 250);
+              }}
+              placeholder={context === "admin" ? "Reply to this customer's billing ticket…" : "Type your reply..."}
+              className="min-h-[100px] border-0 focus-visible:ring-0 resize-none rounded-none shadow-none"
+              data-testid="input-whmcs-reply"
+            />
+            {files.length > 0 && (
+              <div className="px-3 py-2 border-t border-border bg-muted/20 flex flex-wrap gap-1.5" data-testid="whmcs-reply-attachments">
+                {files.map((f, i) => {
+                  const oversize = f.size > MAX_REPLY_ATTACHMENT_BYTES;
+                  return (
                     <span
-                      className={oversize ? "shrink-0" : "shrink-0 text-muted-foreground"}
-                      data-testid={`text-whmcs-reply-attachment-size-${i}`}
+                      key={`${f.name}-${i}`}
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                        oversize
+                          ? "border-destructive/50 bg-destructive/10 text-destructive"
+                          : "border-border bg-background text-foreground shadow-sm"
+                      }`}
+                      data-testid={`chip-whmcs-reply-attachment-${i}`}
                     >
-                      ({formatFileSize(f.size)})
+                      {oversize ? (
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                      ) : (
+                        <Paperclip className="w-3 h-3 shrink-0" />
+                      )}
+                      <span className="truncate max-w-[160px] font-medium">{f.name}</span>
+                      <span
+                        className={oversize ? "shrink-0 font-medium" : "shrink-0 text-muted-foreground"}
+                        data-testid={`text-whmcs-reply-attachment-size-${i}`}
+                      >
+                        ({formatFileSize(f.size)})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(i)}
+                        disabled={replyPending}
+                        className={`ml-0.5 rounded-full p-0.5 hover:bg-muted ${oversize ? "hover:opacity-70" : "text-muted-foreground hover:text-foreground"}`}
+                        aria-label={`Remove ${f.name}`}
+                        data-testid={`button-whmcs-remove-attachment-${i}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => removeFile(i)}
-                      disabled={replyPending}
-                      className={`ml-0.5 ${oversize ? "hover:opacity-70" : "text-muted-foreground hover:text-foreground"}`}
-                      aria-label={`Remove ${f.name}`}
-                      data-testid={`button-whmcs-remove-attachment-${i}`}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                );
-              })}
+                  );
+                })}
+              </div>
+            )}
+            {hasOversizeFile && (
+              <div
+                className="px-3 py-2 border-t border-destructive/20 bg-destructive/5 flex items-center gap-1.5 text-xs text-destructive font-medium"
+                data-testid="text-whmcs-reply-oversize-warning"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                Each file must be {formatFileSize(MAX_REPLY_ATTACHMENT_BYTES)} or smaller. Remove the flagged file(s) to send.
+              </div>
+            )}
+            <div className="px-3 py-2 border-t border-border bg-muted/10 flex items-center justify-between">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={replyPending || files.length >= MAX_REPLY_ATTACHMENTS}
+                data-testid="button-whmcs-attach"
+              >
+                <Paperclip className="w-4 h-4" />
+                <span className="hidden sm:inline">Attach Files</span>
+              </Button>
+              <Button 
+                onClick={submit} 
+                disabled={replyPending || !draft.trim() || hasOversizeFile} 
+                size="sm"
+                className="h-8 gap-1.5 rounded-full px-4" 
+                data-testid="button-whmcs-reply-send"
+              >
+                {replyPending ? (
+                  <span className="flex items-center gap-1.5"><Skeleton className="w-3 h-3 rounded-full animate-pulse" /> Sending...</span>
+                ) : (
+                  <>Send Reply <Send className="w-3.5 h-3.5" /></>
+                )}
+              </Button>
             </div>
-          )}
-          {hasOversizeFile && (
-            <p
-              className="flex items-center gap-1.5 text-[11px] text-destructive"
-              data-testid="text-whmcs-reply-oversize-warning"
-            >
-              <AlertTriangle className="w-3 h-3 shrink-0" />
-              Each file must be {formatFileSize(MAX_REPLY_ATTACHMENT_BYTES)} or smaller. Remove the flagged file(s) to send.
-            </p>
-          )}
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -581,27 +689,6 @@ export function WhmcsTicketThread({
             onChange={(e) => addFiles(e.target.files)}
             data-testid="input-whmcs-reply-file"
           />
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={replyPending || files.length >= MAX_REPLY_ATTACHMENTS}
-              data-testid="button-whmcs-attach"
-            >
-              <Paperclip className="w-4 h-4" />
-              Attach
-            </Button>
-            <Button onClick={submit} disabled={replyPending || !draft.trim() || hasOversizeFile} className="gap-1.5" data-testid="button-whmcs-reply-send">
-              <Send className="w-4 h-4" />
-              {replyPending ? "Sending…" : "Send reply"}
-            </Button>
-          </div>
-          {files.length >= MAX_REPLY_ATTACHMENTS && (
-            <p className="text-[10px] text-muted-foreground text-right">Up to {MAX_REPLY_ATTACHMENTS} files per reply.</p>
-          )}
         </div>
       )}
     </div>
