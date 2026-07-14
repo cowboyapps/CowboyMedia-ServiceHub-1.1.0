@@ -12,7 +12,7 @@ import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
-import { severityMeta, incidentStatusPill as statusPill, alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
+import { alertSeverityMeta, incidentStatusPill as statusPill, alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
 
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
@@ -23,7 +23,7 @@ function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) 
 }
 
 function SeverityPill({ severity }: { severity: string }) {
-  const meta = severityMeta[severity] || severityMeta.info;
+  const meta = alertSeverityMeta(severity);
   return (
     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>
       {alertSeverityLabel(severity)}
@@ -144,7 +144,7 @@ export default function AlertsPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {activeAlerts.map((alert) => {
-                  const meta = severityMeta[alert.severity] || severityMeta.info;
+                  const meta = alertSeverityMeta(alert.severity);
                   return (
                     <li key={alert.id}>
                       <Link

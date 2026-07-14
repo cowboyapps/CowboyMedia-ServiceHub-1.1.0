@@ -19,6 +19,22 @@ export const severityMeta: Record<string, SeverityMeta> = {
   info: { dot: "bg-primary", pill: "bg-primary/15 text-primary", icon: "text-primary" },
 };
 
+// Neutral styling for severities outside the known set (legacy rows may
+// carry arbitrary strings like "sev_1"). Unknown severities must NOT fall
+// back to the info (blue/primary) pill — that understates urgency by making
+// them look like low-priority notices. They render muted/neutral instead.
+export const unknownSeverityMeta: SeverityMeta = {
+  dot: "bg-muted-foreground/60",
+  pill: "bg-muted text-muted-foreground",
+  icon: "text-muted-foreground",
+};
+
+export function alertSeverityMeta(severity: string | null | undefined): SeverityMeta {
+  const raw = (severity ?? "").trim().toLowerCase();
+  if (!raw) return severityMeta.info;
+  return severityMeta[raw] ?? unknownSeverityMeta;
+}
+
 export const incidentStatusPill: Record<string, string> = {
   investigating: "bg-status-away/15 text-status-away",
   identified: "bg-status-away/15 text-status-away",

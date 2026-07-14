@@ -9,13 +9,7 @@ import { RichTextContent } from "@/components/rich-text-content";
 import { QueryErrorState } from "@/components/query-error-state";
 import { TimeoutError } from "@/lib/queryClient";
 import type { ServiceAlertWithServices, AlertUpdate, Service } from "@shared/schema";
-import { alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
-
-const severityMeta: Record<string, { pill: string }> = {
-  critical: { pill: "bg-status-busy/15 text-status-busy" },
-  warning: { pill: "bg-status-away/15 text-status-away" },
-  info: { pill: "bg-status-away/15 text-status-away" },
-};
+import { alertStatusLabel, alertSeverityLabel, alertSeverityMeta } from "@/lib/status-meta";
 
 const statusPill: Record<string, string> = {
   investigating: "bg-status-away/15 text-status-away",
@@ -126,7 +120,7 @@ export default function AlertDetail() {
     );
   }
 
-  const severityPillCls = severityMeta[alert.severity]?.pill || severityMeta.info.pill;
+  const severityPillCls = alertSeverityMeta(alert.severity).pill;
 
   return (
     <div className="space-y-6">

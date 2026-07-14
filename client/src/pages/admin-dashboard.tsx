@@ -92,10 +92,11 @@ function Stat({ label, value, sub }: { label: string; value: React.ReactNode; su
 }
 
 function severityColor(s: string) {
-  switch (s) {
+  switch ((s ?? "").trim().toLowerCase()) {
     case "critical": return "bg-red-500/10 text-red-600 dark:text-red-400";
     case "warning": return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-    default: return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+    case "info": case "": return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+    default: return "bg-muted text-muted-foreground";
   }
 }
 

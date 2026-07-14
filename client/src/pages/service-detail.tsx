@@ -7,7 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle2, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 import { stripHtml } from "@/components/rich-text-editor";
-import { alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
+import { alertStatusLabel, alertSeverityLabel, alertSeverityMeta } from "@/lib/status-meta";
 import type { Service, ServiceAlertWithServices } from "@shared/schema";
 
 type DailyStatus = "up" | "partial" | "down" | "unknown";
@@ -17,12 +17,6 @@ interface UptimeData {
   dailyBuckets: { date: string; status: DailyStatus; downtimeSeconds: number }[];
   hasMonitor: boolean;
 }
-
-const severityMeta: Record<string, { pill: string }> = {
-  critical: { pill: "bg-status-busy/15 text-status-busy" },
-  warning: { pill: "bg-status-away/15 text-status-away" },
-  info: { pill: "bg-status-away/15 text-status-away" },
-};
 
 const statusPill: Record<string, string> = {
   investigating: "bg-status-away/15 text-status-away",
@@ -231,11 +225,11 @@ export default function ServiceDetail() {
               ) : (
                 <ul className="divide-y divide-border">
                   {activeAlerts.map((alert) => {
-                    const meta = severityMeta[alert.severity] || severityMeta.info;
+                    const meta = alertSeverityMeta(alert.severity);
                     return (
                       <li key={alert.id}>
                         <Link href={`/alerts/${alert.id}`} className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-service-alert-${alert.id}`}>
-                          <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.pill.split(" ")[0].replace("/15", "")}`} />
+                          <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.dot}`} />
                           <div className="flex-1 min-w-0 space-y-1.5">
                             <h3 className="font-semibold text-sm">{alert.title}</h3>
                             <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>

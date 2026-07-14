@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Activity, ListTodo } from "lucide-react";
 import { RichTextContent } from "@/components/rich-text-content";
-import { alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
+import { alertStatusLabel, alertSeverityLabel, alertSeverityMeta } from "@/lib/status-meta";
 
 type PublicIncident = {
   id: string;
@@ -35,12 +35,6 @@ function StatusIcon({ status }: { status: string }) {
       return <Clock className="w-4 h-4 text-muted-foreground" />;
   }
 }
-
-const severityPill: Record<string, string> = {
-  critical: "bg-status-busy/15 text-status-busy",
-  warning: "bg-status-away/15 text-status-away",
-  info: "bg-status-away/15 text-status-away",
-};
 
 const statusPill: Record<string, string> = {
   investigating: "bg-status-away/15 text-status-away",
@@ -244,7 +238,7 @@ export default function PublicIncidentPage() {
                   <h1 className="text-2xl font-bold" data-testid="text-incident-title">{data.title}</h1>
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${severityPill[data.severity] || "bg-status-away/15 text-status-away"}`}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${alertSeverityMeta(data.severity).pill}`}
                       data-testid="badge-severity"
                     >
                       {alertSeverityLabel(data.severity)}
