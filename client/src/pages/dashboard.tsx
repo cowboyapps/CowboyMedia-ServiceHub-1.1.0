@@ -1,3 +1,5 @@
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -18,19 +20,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 
-const statusMeta: Record<string, { label: string; dot: string; pill: string }> = {
-  operational: { label: "Operational", dot: "bg-status-online", pill: "bg-status-online/15 text-status-online" },
-  degraded: { label: "Degraded", dot: "bg-status-away", pill: "bg-status-away/15 text-status-away" },
-  outage: { label: "Outage", dot: "bg-status-busy", pill: "bg-status-busy/15 text-status-busy" },
-  maintenance: { label: "Maintenance", dot: "bg-status-offline", pill: "bg-status-offline/20 text-muted-foreground" },
-};
-
-const ticketStatusPill: Record<string, string> = {
-  open: "bg-status-online/15 text-status-online",
-  waiting: "bg-status-away/15 text-status-away",
-  resolved: "bg-muted text-muted-foreground",
-  closed: "bg-muted text-muted-foreground",
-};
+import { serviceStatusMeta as statusMeta, ticketStatusPill } from "@/lib/status-meta";
 
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
@@ -133,12 +123,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
-          Welcome, {user?.fullName}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">Here's an overview of your services and recent activity</p>
-      </div>
+      <PageHeader title={`Welcome, ${user?.fullName ?? ""}`} subtitle="Here's an overview of your services and recent activity" testId="text-dashboard-title" />
 
       {/* Status hero */}
       {servicesLoading || alertsLoading ? (
@@ -250,11 +235,7 @@ export default function Dashboard() {
             data-testid="error-dashboard-services"
           />
         ) : displayServices.length === 0 ? (
-          <div className="px-5 py-8 text-center">
-            <Sparkles className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No services to display</p>
-            <p className="text-xs text-muted-foreground mt-1">Follow services in Settings to see their status here.</p>
-          </div>
+          <EmptyState icon={Sparkles} title="No services to display" hint="Follow services in Settings to see their status here." />
         ) : (
           <ul className="divide-y divide-border">
             {displayServices.map((service) => {
@@ -411,10 +392,7 @@ export default function Dashboard() {
             data-testid="error-dashboard-news"
           />
         ) : !news || news.length === 0 ? (
-          <div className="px-5 py-8 text-center">
-            <Newspaper className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No news stories yet</p>
-          </div>
+          <EmptyState icon={Newspaper} title="No news stories yet" hint="Company news and updates will appear here." />
         ) : (
           <ul className="divide-y divide-border">
             {news.slice(0, 3).map((story) => (

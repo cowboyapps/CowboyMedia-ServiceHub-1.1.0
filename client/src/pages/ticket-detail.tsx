@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { hapticLight } from "@/lib/haptics";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -833,6 +834,7 @@ export default function TicketDetail() {
 
   const performSend = useCallback(
     (msgText: string, imgFile: File | null, internal: boolean, kb: KbArticleRef | null = null) => {
+      hapticLight();
       composerRef.current?.clear();
       doSendMessage(msgText, imgFile, undefined, internal, kb);
     },

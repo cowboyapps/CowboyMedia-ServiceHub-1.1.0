@@ -1,3 +1,5 @@
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,18 +12,7 @@ import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
-const severityMeta: Record<string, { dot: string; pill: string; icon: string }> = {
-  critical: { dot: "bg-status-busy", pill: "bg-status-busy/15 text-status-busy", icon: "text-status-busy" },
-  warning: { dot: "bg-status-away", pill: "bg-status-away/15 text-status-away", icon: "text-status-away" },
-  info: { dot: "bg-status-away", pill: "bg-status-away/15 text-status-away", icon: "text-status-away" },
-};
-
-const statusPill: Record<string, string> = {
-  investigating: "bg-status-away/15 text-status-away",
-  identified: "bg-status-away/15 text-status-away",
-  monitoring: "bg-primary/15 text-primary",
-  resolved: "bg-status-online/15 text-status-online",
-};
+import { severityMeta, incidentStatusPill as statusPill } from "@/lib/status-meta";
 
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
@@ -108,10 +99,7 @@ export default function AlertsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-alerts-title">Service Alerts</h1>
-        <p className="text-sm text-muted-foreground mt-1">Track incidents and service disruptions</p>
-      </div>
+      <PageHeader title="Service Alerts" subtitle="Track incidents and service disruptions" testId="text-alerts-title" />
 
       {alertsError ? (
         <QueryErrorState
@@ -198,10 +186,7 @@ export default function AlertsPage() {
               </h2>
             </div>
             {resolvedAlerts.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">No resolved incidents yet</p>
-              </div>
+              <EmptyState icon={CheckCircle2} title="No resolved incidents yet" hint="Resolved incidents will be archived here." />
             ) : (
               <ul className="divide-y divide-border">
                 {resolvedAlerts.map((alert) => (

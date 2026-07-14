@@ -1,3 +1,5 @@
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -70,10 +72,7 @@ export default function NewsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-news-title">News &amp; Updates</h1>
-        <p className="text-sm text-muted-foreground mt-1">Stay up to date with the latest company news</p>
-      </div>
+      <PageHeader title="News & Updates" subtitle="Stay up to date with the latest company news" testId="text-news-title" />
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -106,10 +105,7 @@ export default function NewsPage() {
             data-testid="error-news"
           />
         ) : !news || news.length === 0 ? (
-          <div className="px-5 py-12 text-center">
-            <Newspaper className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No news stories published yet</p>
-          </div>
+          <EmptyState icon={Newspaper} title="No news stories published yet" hint="Check back soon for company news and updates." />
         ) : (
           <ul className="divide-y divide-border">
             {news.map((story) => (

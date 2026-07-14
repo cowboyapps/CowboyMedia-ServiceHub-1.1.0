@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { APP_VERSION, versionAnchor } from "@shared/version";
@@ -568,10 +569,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-settings-title">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your account and preferences</p>
-      </div>
+      <PageHeader title="Settings" subtitle="Manage your account and preferences" testId="text-settings-title" />
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex items-center gap-4 p-5">

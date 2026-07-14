@@ -1,3 +1,4 @@
+import { EmptyState } from "@/components/empty-state";
 import { useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -91,9 +92,8 @@ export default function ServicesPage() {
         />
       ) : !isLoading && (!services || services.length === 0) ? (
         <Card>
-          <CardContent className="py-12 text-center">
-            <Activity className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-muted-foreground">No services available yet</p>
+          <CardContent className="py-4">
+            <EmptyState icon={Activity} title="No services available yet" hint="Services will appear here once they're added." />
           </CardContent>
         </Card>
       ) : (

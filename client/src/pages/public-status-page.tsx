@@ -1,3 +1,4 @@
+import { serviceStatusDot, severityMeta, incidentStatusPill as statusPill } from "@/lib/status-meta";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -179,28 +180,7 @@ function FollowDialog({ service, open, onOpenChange }: { service: PublicService;
   );
 }
 
-function statusColor(status: string): string {
-  switch (status) {
-    case "operational": return "bg-status-online";
-    case "degraded": return "bg-status-away";
-    case "outage": return "bg-status-busy";
-    case "maintenance": return "bg-status-offline";
-    default: return "bg-muted";
-  }
-}
-
-const severityPill: Record<string, string> = {
-  critical: "bg-status-busy/15 text-status-busy",
-  warning: "bg-status-away/15 text-status-away",
-  info: "bg-status-away/15 text-status-away",
-};
-
-const statusPill: Record<string, string> = {
-  investigating: "bg-status-away/15 text-status-away",
-  identified: "bg-status-away/15 text-status-away",
-  monitoring: "bg-primary/15 text-primary",
-  resolved: "bg-status-online/15 text-status-online",
-};
+const statusColor = serviceStatusDot;
 
 type Banner = { tone: "ok" | "warn" | "bad"; title: string; icon: typeof ShieldCheck };
 
@@ -289,7 +269,7 @@ export default function PublicStatusPage() {
               <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                 {a.serviceNames && a.serviceNames.length > 0 ? a.serviceNames.join(", ") : a.serviceName}
               </span>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${severityPill[a.severity] || "bg-status-away/15 text-status-away"}`}>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${(severityMeta[a.severity] || severityMeta.info).pill}`}>
                 {a.severity}
               </span>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[a.status] || "bg-muted text-muted-foreground"}`}>

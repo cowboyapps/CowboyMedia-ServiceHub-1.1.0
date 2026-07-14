@@ -323,6 +323,21 @@ body {
   animation-duration: var(--motion-med);
   animation-timing-function: var(--motion-ease);
 }
+/* Incoming page gets a subtle iOS-style upward drift layered on the cross-fade.
+   Uses our own fade keyframes (not the UA-internal name) so it works in every
+   engine that supports view transitions. */
+@keyframes vt-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes vt-slide-in {
+  from { transform: translateY(8px); }
+  to { transform: translateY(0); }
+}
+::view-transition-new(root) {
+  animation-name: vt-fade-in, vt-slide-in;
+  animation-fill-mode: both;
+}
 
 .animate-fade-in {
   animation: fade-in var(--motion-med) var(--motion-ease) both;

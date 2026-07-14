@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { hapticSuccess, hapticError } from "@/lib/haptics";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -142,6 +143,7 @@ export default function ReportRequestPage() {
       return res.json();
     },
     onSuccess: () => {
+      hapticSuccess();
       queryClient.invalidateQueries({ queryKey: ["/api/report-requests"] });
       setActiveForm(null);
       contentForm.reset();
@@ -152,6 +154,7 @@ export default function ReportRequestPage() {
       setTimeout(() => setShowSuccess(false), 4000);
     },
     onError: (e: Error) => {
+      hapticError();
       toast({ title: "Failed to submit", description: serverActionErrorMessage(e, "Failed to submit your request. Please try again."), variant: "destructive" });
     },
   });

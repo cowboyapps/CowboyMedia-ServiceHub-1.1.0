@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { hapticLight } from "@/lib/haptics";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -1336,6 +1337,7 @@ export default function CommunityChatPage() {
     const kbArticle = pendingKbArticleRef.current;
     const reply = replyTargetRef.current;
     if (!content && !file && !kbArticle) return;
+    hapticLight();
     setMessage("");
     setPendingImage(null);
     pendingImageRef.current = null;

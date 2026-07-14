@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -38,10 +39,7 @@ export default function DownloadsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-downloads-title">Downloads</h1>
-        <p className="text-sm text-muted-foreground mt-1">Browse available downloads</p>
-      </div>
+      <PageHeader title="Downloads" subtitle="Browse available downloads" testId="text-downloads-title" />
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">

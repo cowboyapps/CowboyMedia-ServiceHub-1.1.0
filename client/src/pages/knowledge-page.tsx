@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
@@ -261,14 +262,7 @@ function KnowledgeIndex() {
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-kb-title">
-          <BookOpen className="w-6 h-6" /> Knowledge Base
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Browse articles and answers to common questions.
-        </p>
-      </div>
+      <PageHeader title="Knowledge Base" subtitle="Browse articles and answers to common questions." testId="text-kb-title" />
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
