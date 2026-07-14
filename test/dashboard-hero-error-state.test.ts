@@ -69,6 +69,7 @@ type ServicesMode = "error" | "operational" | "outage";
 let servicesMode: ServicesMode = "error";
 let ticketsMode: "ok" | "error" = "ok";
 let updatesMode: "ok" | "error" = "ok";
+let alertsMode: "none" | "activeMonitoring" = "none";
 
 const SVC_ID = "svc-hero-test-1";
 function servicesPayload() {
@@ -118,7 +119,24 @@ const fetchStub = (async (url: unknown) => {
   if (u.includes("/api/auth/me")) {
     return jsonResponse({ id: "u1", username: "hero", fullName: "Hero Tester", role: "customer" });
   }
-  if (u.includes("/api/alerts")) return jsonResponse([]);
+  if (u.includes("/api/alerts")) {
+    if (alertsMode === "activeMonitoring") {
+      return jsonResponse([
+        {
+          id: "alert-monitoring-1",
+          title: "Service Updates",
+          description: "Watching an ongoing issue.",
+          status: "monitoring",
+          severity: "warning",
+          impact: "operational",
+          serviceIds: [SVC_ID],
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+        },
+      ]);
+    }
+    return jsonResponse([]);
+  }
   if (u.includes("/api/news")) return jsonResponse([]);
   if (u.includes("/api/tickets")) {
     return ticketsMode === "error"
@@ -257,6 +275,38 @@ test("hero shows the green all-clear when every service is operational", async (
       "the service card renders in the strip",
     );
   } finally {
+    c.cleanup();
+  }
+});
+
+test("hero acknowledges an open monitored alert instead of claiming a full all-clear", async () => {
+  servicesMode = "operational";
+  alertsMode = "activeMonitoring";
+  const c = await mountDashboard();
+  try {
+    const title = findByTestId(c.container, "text-dashboard-title");
+    assert.ok(title, "hero title renders");
+    assert.doesNotMatch(
+      title!.textContent ?? "",
+      /all systems running smoothly/i,
+      "must not claim the full all-clear while an alert is open",
+    );
+    assert.match(title!.textContent ?? "", /all services are up/i);
+    assert.match(
+      c.container.textContent ?? "",
+      /keeping an eye on 1 ongoing issue/i,
+      "subline mentions the monitored issue",
+    );
+    assert.ok(
+      findByTestId(c.container, "button-hero-see-latest-updates"),
+      "hero links to the latest updates",
+    );
+    assert.ok(
+      findByTestId(c.container, `text-service-monitoring-${SVC_ID}`),
+      "the covered service row shows the Monitoring note",
+    );
+  } finally {
+    alertsMode = "none";
     c.cleanup();
   }
 });

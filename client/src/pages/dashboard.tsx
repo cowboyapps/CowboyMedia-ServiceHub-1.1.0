@@ -40,11 +40,13 @@ function HealthHero({
   loading,
   isError,
   heroHref,
+  monitoringCount,
 }: {
   services: Service[];
   loading: boolean;
   isError: boolean;
   heroHref: string;
+  monitoringCount: number;
 }) {
   if (loading) {
     return (
@@ -89,6 +91,13 @@ function HealthHero({
   let subline = "Every service is working as it should.";
 
   if (issues.length === 0) {
+    if (monitoringCount > 0) {
+      headline = "All services are up";
+      subline =
+        monitoringCount === 1
+          ? "We're keeping an eye on 1 ongoing issue."
+          : `We're keeping an eye on ${monitoringCount} ongoing issues.`;
+    }
     tone = {
       text: "text-status-online",
       iconBg: "bg-status-online",
@@ -163,6 +172,19 @@ function HealthHero({
             </Button>
           </Link>
         )}
+        {issues.length === 0 && monitoringCount > 0 && (
+          <Link href={heroHref}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="z-10 mt-4"
+              data-testid="button-hero-see-latest-updates"
+            >
+              See the latest updates
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </Button>
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -170,7 +192,7 @@ function HealthHero({
 
 /* ---------- Service list row ---------- */
 
-function ServiceRow({ service }: { service: Service }) {
+function ServiceRow({ service, isMonitored }: { service: Service; isMonitored?: boolean }) {
   const { data } = useQuery<UptimeData>({
     queryKey: ["/api/services", service.id, "uptime"],
   });
@@ -210,6 +232,14 @@ function ServiceRow({ service }: { service: Service }) {
             </span>
           ) : (
             <>
+              {isMonitored && (
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"
+                  data-testid={`text-service-monitoring-${service.id}`}
+                >
+                  Monitoring
+                </span>
+              )}
               <span className="text-xs font-semibold uppercase tracking-wider text-status-online">Good</span>
               {data?.hasMonitor && data.uptime30d != null && (
                 <span className="w-14 text-right text-xs font-medium text-muted-foreground">
@@ -389,6 +419,9 @@ export default function Dashboard() {
   const heroHref =
     activeAlerts.length === 1 ? `/alerts/${activeAlerts[0].id}` : activeAlerts.length > 1 ? "/alerts" : "/services";
 
+  const monitoredServiceIds = new Set(activeAlerts.flatMap((a) => a.serviceIds || []));
+  const monitoringCount = alertsLoading || alertsError ? 0 : activeAlerts.length;
+
   const displayUpdates = (serviceUpdates || []).slice(0, 3);
 
   return (
@@ -397,7 +430,13 @@ export default function Dashboard() {
         Welcome back, {user?.fullName}
       </p>
 
-      <HealthHero services={displayServices} loading={servicesLoading} isError={servicesError} heroHref={heroHref} />
+      <HealthHero
+        services={displayServices}
+        loading={servicesLoading}
+        isError={servicesError}
+        heroHref={heroHref}
+        monitoringCount={monitoringCount}
+      />
 
       {/* Service health list */}
       <div className="stagger-item">
@@ -430,7 +469,7 @@ export default function Dashboard() {
           <>
             <div className="divide-y overflow-hidden rounded-xl border bg-card shadow-sm">
               {displayServices.map((service) => (
-                <ServiceRow key={service.id} service={service} />
+                <ServiceRow key={service.id} service={service} isMonitored={monitoredServiceIds.has(service.id)} />
               ))}
             </div>
             <p className="mt-2 px-1 text-[11px] text-muted-foreground">
