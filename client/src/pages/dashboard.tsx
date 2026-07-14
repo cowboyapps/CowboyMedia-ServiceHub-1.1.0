@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Newspaper,
   Plus,
+  Sparkles,
 } from "lucide-react";
 import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType, ServiceUpdate } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
@@ -208,6 +209,24 @@ export default function Dashboard() {
             View all {activeAlerts.length} active alerts →
           </Link>
         </div>
+      )}
+
+      {/* First-run: no followed services yet */}
+      {!servicesLoading && !servicesError && (services?.length || 0) > 0 && subscribedServices.length === 0 && (
+        <Link
+          href="/services"
+          className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4 hover-elevate tap-interactive"
+          data-testid="card-first-run-follow-services"
+        >
+          <SectionIcon icon={Sparkles} tone="bg-primary/10 text-primary" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-semibold">Follow the services you use</span>
+            <span className="block text-xs text-muted-foreground mt-0.5">
+              Pick your services to personalize this dashboard and get notified when something changes.
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        </Link>
       )}
 
       {/* Services */}

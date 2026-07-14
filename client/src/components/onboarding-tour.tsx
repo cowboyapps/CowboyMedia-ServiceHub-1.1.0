@@ -7,7 +7,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Activity, AlertTriangle, BellRing, BookOpen, Download, MessageSquare, Settings as SettingsIcon, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Activity, AlertTriangle, BellRing, BookOpen, Download, LayoutDashboard, MessageSquare, Settings as SettingsIcon, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { isPushSupported, isSubscribedToPush, subscribeToPush } from "@/lib/push-notifications";
 import { useModalSlot } from "@/lib/modal-queue";
 
@@ -39,6 +39,13 @@ const STEPS: TourStep[] = [
     title: "Welcome to ServiceHub!",
     body: "A quick 1-minute tour to show you where everything lives. You can skip anytime.",
     icon: Sparkles,
+  },
+  {
+    key: "dashboard",
+    title: "Your Dashboard",
+    body: "Your home screen leads with a live status banner — green means all systems go. Below it: your services, open tickets, and the latest updates and news, all one tap away.",
+    icon: LayoutDashboard,
+    desktopSelector: '[data-testid="nav-dashboard"]',
   },
   {
     key: "services",

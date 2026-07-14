@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearch } from "wouter";
+import { useModalQueueBusy } from "@/lib/modal-queue";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -142,6 +143,11 @@ export default function ServiceUpdatesPage() {
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
   const appliedHighlightRef = useRef<string | null>(null);
   const scrolledHighlightRef = useRef<string | null>(null);
+  const highlightPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const highlightClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modalBusy = useModalQueueBusy();
+  const modalBusyRef = useRef(modalBusy);
+  modalBusyRef.current = modalBusy;
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -287,14 +293,39 @@ export default function ServiceUpdatesPage() {
       next.add(group.key);
       return next;
     });
-    const frame = requestAnimationFrame(() => {
+    // Wait until the row actually exists in the DOM before scrolling and
+    // starting the clear countdown — on first load (or when overlays like the
+    // onboarding tour delay the list render) the element may not be there yet,
+    // and starting the 6s timer early would burn out the pulse before the
+    // user ever sees it. The pulse also holds while any queued popup
+    // (onboarding tour, welcome dialog, announcements) is claiming the
+    // screen — otherwise the 6s window burns out behind the overlay.
+    // Timers live in refs (cleaned up only on unmount) because `groups`
+    // changes identity on every refetch and an effect cleanup here would
+    // kill the countdown mid-flight.
+    if (highlightPollRef.current) clearInterval(highlightPollRef.current);
+    if (highlightClearRef.current) clearTimeout(highlightClearRef.current);
+    const startedAt = Date.now();
+    highlightPollRef.current = setInterval(() => {
       const el = document.getElementById(`service-update-${activeHighlight}`)
         || document.getElementById(`service-update-${group.head.id}`);
-      el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    const timer = setTimeout(() => setActiveHighlight(null), 3000);
-    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+      if (el && !modalBusyRef.current) {
+        if (highlightPollRef.current) clearInterval(highlightPollRef.current);
+        highlightPollRef.current = null;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        highlightClearRef.current = setTimeout(() => setActiveHighlight(null), 6000);
+      } else if (!el && Date.now() - startedAt > 30000) {
+        if (highlightPollRef.current) clearInterval(highlightPollRef.current);
+        highlightPollRef.current = null;
+        setActiveHighlight(null);
+      }
+    }, 150);
   }, [activeHighlight, groups]);
+
+  useEffect(() => () => {
+    if (highlightPollRef.current) clearInterval(highlightPollRef.current);
+    if (highlightClearRef.current) clearTimeout(highlightClearRef.current);
+  }, []);
 
   const timeRangeLabels: Record<typeof timeFilter, string> = {
     today: "today",

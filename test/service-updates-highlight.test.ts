@@ -196,14 +196,75 @@ test("highlight auto-clears after the pulse window", async () => {
   const c = await mountPage(baseRoutes, `?highlight=${UPDATE_ID}`);
   try {
     await act(async () => {
-      await sleep(3200);
+      await sleep(6300);
     });
     await flushFrames();
     const row = c.container.querySelector(`[data-testid="row-service-update-${UPDATE_ID}"]`) as HTMLElement | null;
     assert.ok(row, "row still rendered");
-    assert.ok(!row!.className.includes("animate-pulse"), "pulse cleared after ~3s");
+    assert.ok(!row!.className.includes("animate-pulse"), "pulse cleared after the window");
   } finally {
     c.cleanup();
+  }
+});
+
+test("highlight waits while a modal claims the queue, then pulses after release", async () => {
+  const { useModalSlot } = await import("../client/src/lib/modal-queue");
+  let releaseModal: (() => void) | null = null;
+  function FakeModal(): null {
+    const [want, setWant] = React.useState(true);
+    releaseModal = () => setWant(false);
+    useModalSlot("test-fake-modal", 100, want);
+    return null;
+  }
+  routes = baseRoutes;
+  window.history.replaceState({}, "", `/service-updates?highlight=${UPDATE_ID}`);
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  let root: Root;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(
+          AuthProvider,
+          null,
+          React.createElement(
+            Router,
+            null,
+            React.createElement(FakeModal),
+            React.createElement(ServiceUpdatesPage),
+          ),
+        ),
+      ),
+    );
+  });
+  await flushFrames();
+  try {
+    // While the modal claims the queue, the 6s clear countdown must NOT
+    // start: after well over the pulse window the row should still pulse.
+    await act(async () => { await sleep(6800); });
+    await flushFrames();
+    let row = container.querySelector(`[data-testid="row-service-update-${UPDATE_ID}"]`) as HTMLElement | null;
+    assert.ok(row, "row rendered while modal is up");
+    assert.ok(
+      row!.className.includes("animate-pulse"),
+      `pulse survives past 6s while the modal queue is busy (got: ${row!.className})`,
+    );
+
+    // Release the modal; the countdown starts and clears the pulse ~6s later.
+    await act(async () => { releaseModal!(); });
+    await act(async () => { await sleep(6800); });
+    await flushFrames();
+    row = container.querySelector(`[data-testid="row-service-update-${UPDATE_ID}"]`) as HTMLElement | null;
+    assert.ok(row, "row still rendered after release");
+    assert.ok(!row!.className.includes("animate-pulse"), "pulse clears ~6s after the modal releases");
+  } finally {
+    act(() => root!.unmount());
+    container.remove();
+    queryClient.clear();
+    routes = {};
   }
 });
 

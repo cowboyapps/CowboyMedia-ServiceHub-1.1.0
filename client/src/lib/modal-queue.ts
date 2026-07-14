@@ -55,6 +55,21 @@ export function useModalSlot(id: string, priority: number, want: boolean): boole
   return want && topSlotId() === id;
 }
 
+// True while ANY popup currently claims a slot (i.e. an overlay is or is
+// about to be on screen). Lets non-modal UI (e.g. the deep-link row pulse)
+// hold off until the user can actually see the page.
+export function useModalQueueBusy(): boolean {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const listener = () => force((n) => n + 1);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
+  return requests.size > 0;
+}
+
 // Test/debug helpers — not used in production code.
 export function _resetModalQueueForTests(): void {
   requests.clear();
