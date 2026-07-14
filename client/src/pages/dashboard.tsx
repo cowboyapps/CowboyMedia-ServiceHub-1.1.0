@@ -155,20 +155,21 @@ export default function Dashboard() {
           />
         </div>
       ) : heroState === "clear" ? (
-        <div
-          className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent p-6 flex items-center gap-4 shadow-sm"
-          data-testid="hero-status"
-        >
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
-            <CheckCircle2 className="h-6 w-6 text-status-online" />
-          </span>
-          <div>
-            <p className="text-lg font-semibold text-status-online">All services are running smoothly</p>
-            <p className="text-sm text-muted-foreground">
-              Every service you're subscribed to is operational. Nothing needs your attention.
-            </p>
+        <Link href="/alerts" className="block" data-testid="hero-status">
+          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent p-6 flex items-center gap-4 shadow-sm hover:ring-status-online/40 transition cursor-pointer">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
+              <CheckCircle2 className="h-6 w-6 text-status-online" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-lg font-semibold text-status-online">All services are running smoothly</p>
+              <p className="text-sm text-muted-foreground">
+                Every service you're subscribed to is operational.{" "}
+                <span data-testid="text-active-alerts-count">0 active alerts</span> · tap to view alert history
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-status-online" />
           </div>
-        </div>
+        </Link>
       ) : (
         <Link href={firstAlert ? `/alerts/${firstAlert.id}` : "/alerts"} className="block" data-testid="hero-status">
           <div
@@ -191,9 +192,22 @@ export default function Dashboard() {
               <p className={`text-lg font-semibold ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`}>{heroTitle}</p>
               <p className="text-sm text-muted-foreground">{heroSubtitle}</p>
             </div>
+            <span
+              className={`hidden sm:inline rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 ${heroState === "outage" ? "bg-status-busy/15 text-status-busy" : "bg-status-away/15 text-status-away"}`}
+              data-testid="text-active-alerts-count"
+            >
+              {activeAlerts.length} active {activeAlerts.length === 1 ? "alert" : "alerts"}
+            </span>
             <ChevronRight className={`h-5 w-5 shrink-0 ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`} />
           </div>
         </Link>
+      )}
+      {heroState !== "clear" && activeAlerts.length > 1 && (
+        <div className="-mt-3 text-right">
+          <Link href="/alerts" className="text-xs font-medium text-muted-foreground hover:text-foreground" data-testid="link-view-all-alerts">
+            View all {activeAlerts.length} active alerts →
+          </Link>
+        </div>
       )}
 
       {/* Services */}
