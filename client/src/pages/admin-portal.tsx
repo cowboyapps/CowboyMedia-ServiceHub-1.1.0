@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryClient, apiRequest, uploadRequest, liveQueryOptions } from "@/lib/queryClient";
+import { alertStatusLabel } from "@/lib/status-meta";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1488,8 +1489,8 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       const isBlank = data.message.replace(/<[^>]*>/g, "").trim().length === 0;
       const severityLabel = data.severity !== "no_change" ? ALERT_SEVERITY_LABELS[data.severity] || data.severity : null;
       const defaultNote = severityLabel
-        ? `<p>Status changed to ${ALERT_STATUS_LABELS[data.status] || data.status}. Severity changed to ${severityLabel}.</p>`
-        : `<p>Status changed to ${ALERT_STATUS_LABELS[data.status] || data.status}.</p>`;
+        ? `<p>Status changed to ${alertStatusLabel(data.status)}. Severity changed to ${severityLabel}.</p>`
+        : `<p>Status changed to ${alertStatusLabel(data.status)}.</p>`;
       const payload = data.silent && isBlank
         ? { ...data, message: defaultNote }
         : data;
@@ -2061,7 +2062,7 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] capitalize font-normal">{alert.severity}</Badge>
-                    <Badge variant="outline" className={`text-[10px] font-semibold bg-background ${ALERT_STATUS_COLORS[alert.status] || ""}`} data-testid={`badge-alert-status-${alert.id}`}>{ALERT_STATUS_LABELS[alert.status] || alert.status}</Badge>
+                    <Badge variant="outline" className={`text-[10px] font-semibold bg-background ${ALERT_STATUS_COLORS[alert.status] || ""}`} data-testid={`badge-alert-status-${alert.id}`}>{alertStatusLabel(alert.status)}</Badge>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap pl-6">
@@ -2163,7 +2164,7 @@ function AlertUpdatesList({ alertId, canManage, onEditUpdate }: { alertId: strin
             </div>
             <div className="min-w-0 flex-1 -mt-0.5">
               <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline" className={`text-[10px] font-semibold capitalize ${ALERT_STATUS_COLORS[update.status] || ""}`} data-testid={`badge-alert-update-status-${update.id}`}>{ALERT_STATUS_LABELS[update.status] || update.status}</Badge>
+                <Badge variant="outline" className={`text-[10px] font-semibold capitalize ${ALERT_STATUS_COLORS[update.status] || ""}`} data-testid={`badge-alert-update-status-${update.id}`}>{alertStatusLabel(update.status)}</Badge>
                 <span className="text-xs text-muted-foreground">{format(new Date(update.createdAt), "MMM d, h:mm a")}</span>
                 {canManage && (
                   <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" onClick={() => onEditUpdate(update)} data-testid={`button-edit-update-${update.id}`}>

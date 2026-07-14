@@ -1,4 +1,4 @@
-import { serviceStatusDot, severityMeta, incidentStatusPill as statusPill } from "@/lib/status-meta";
+import { serviceStatusDot, severityMeta, incidentStatusPill as statusPill, alertStatusLabel } from "@/lib/status-meta";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -272,8 +272,8 @@ export default function PublicStatusPage() {
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${(severityMeta[a.severity] || severityMeta.info).pill}`}>
                 {a.severity}
               </span>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[a.status] || "bg-muted text-muted-foreground"}`}>
-                {a.status}
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[a.status] || "bg-muted text-muted-foreground"}`} data-testid={`badge-incident-status-${a.id}`}>
+                {alertStatusLabel(a.status)}
               </span>
             </div>
             <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">

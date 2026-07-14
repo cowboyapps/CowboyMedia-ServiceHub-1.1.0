@@ -9,6 +9,7 @@ import { RichTextContent } from "@/components/rich-text-content";
 import { QueryErrorState } from "@/components/query-error-state";
 import { TimeoutError } from "@/lib/queryClient";
 import type { ServiceAlertWithServices, AlertUpdate, Service } from "@shared/schema";
+import { alertStatusLabel } from "@/lib/status-meta";
 
 const severityMeta: Record<string, { pill: string }> = {
   critical: { pill: "bg-status-busy/15 text-status-busy" },
@@ -144,8 +145,8 @@ export default function AlertDetail() {
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${severityPillCls}`}>
                   {alert.severity}
                 </span>
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`}>
-                  {alert.status}
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`} data-testid="badge-alert-status">
+                  {alertStatusLabel(alert.status)}
                 </span>
                 {alertServiceNames.map((name, i) => (
                   <span key={i} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground" data-testid={`badge-alert-service-${i}`}>
@@ -207,8 +208,8 @@ export default function AlertDetail() {
                 </div>
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[update.status] || "bg-muted text-muted-foreground"}`}>
-                      {update.status}
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[update.status] || "bg-muted text-muted-foreground"}`} data-testid={`badge-alert-update-status-${update.id}`}>
+                      {alertStatusLabel(update.status)}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {format(new Date(update.createdAt), "MMM d, yyyy 'at' h:mm a")}

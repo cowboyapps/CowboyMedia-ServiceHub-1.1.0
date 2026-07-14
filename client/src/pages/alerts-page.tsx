@@ -12,7 +12,7 @@ import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
-import { severityMeta, incidentStatusPill as statusPill } from "@/lib/status-meta";
+import { severityMeta, incidentStatusPill as statusPill, alertStatusLabel } from "@/lib/status-meta";
 
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
@@ -33,8 +33,8 @@ function SeverityPill({ severity }: { severity: string }) {
 
 function StatusPill({ status }: { status: string }) {
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[status] || "bg-muted text-muted-foreground"}`}>
-      {status}
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[status] || "bg-muted text-muted-foreground"}`} data-testid="badge-alert-status-pill">
+      {alertStatusLabel(status)}
     </span>
   );
 }

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Activity, ListTodo } from "lucide-react";
 import { RichTextContent } from "@/components/rich-text-content";
+import { alertStatusLabel } from "@/lib/status-meta";
 
 type PublicIncident = {
   id: string;
@@ -249,10 +250,10 @@ export default function PublicIncidentPage() {
                       {data.severity}
                     </span>
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[data.status] || "bg-muted text-muted-foreground"}`}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[data.status] || "bg-muted text-muted-foreground"}`}
                       data-testid="badge-status"
                     >
-                      {data.status}
+                      {alertStatusLabel(data.status)}
                     </span>
                     <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground" data-testid="badge-service">
                       {data.serviceName}
@@ -310,8 +311,8 @@ export default function PublicIncidentPage() {
                         </div>
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${statusPill[update.status] || "bg-muted text-muted-foreground"}`}>
-                              {update.status}
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${statusPill[update.status] || "bg-muted text-muted-foreground"}`} data-testid={`badge-update-status-${update.id}`}>
+                              {alertStatusLabel(update.status)}
                             </span>
                             <span className="text-xs text-muted-foreground font-medium">
                               {format(new Date(update.createdAt), "MMM d, h:mm a")}

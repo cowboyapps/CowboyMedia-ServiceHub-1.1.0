@@ -237,7 +237,7 @@ test("happy path renders title, badges, description, and updates timeline", asyn
   try {
     const title = await waitForTestId(c.container, "text-incident-title");
     assert.match(title.textContent || "", /Database connectivity issues/);
-    assert.match(findByTestId(c.container, "badge-status")!.textContent || "", /investigating/);
+    assert.match(findByTestId(c.container, "badge-status")!.textContent || "", /Investigating/);
     assert.match(findByTestId(c.container, "badge-severity")!.textContent || "", /critical/);
     assert.match(findByTestId(c.container, "badge-service")!.textContent || "", /API/);
     assert.match(

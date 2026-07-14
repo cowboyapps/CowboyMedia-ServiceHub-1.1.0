@@ -7,6 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle2, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 import { stripHtml } from "@/components/rich-text-editor";
+import { alertStatusLabel } from "@/lib/status-meta";
 import type { Service, ServiceAlertWithServices } from "@shared/schema";
 
 type DailyStatus = "up" | "partial" | "down" | "unknown";
@@ -240,7 +241,7 @@ export default function ServiceDetail() {
                             <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${meta.pill}`}>{alert.severity}</span>
-                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`}>{alert.status}</span>
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`}>{alertStatusLabel(alert.status)}</span>
                             </div>
                             <p className="text-xs text-muted-foreground flex items-center gap-1">
                               <Clock className="w-3 h-3" />

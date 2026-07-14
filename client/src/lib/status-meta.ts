@@ -26,6 +26,28 @@ export const incidentStatusPill: Record<string, string> = {
   resolved: "bg-status-online/15 text-status-online",
 };
 
+// Known alert/incident lifecycle labels. Legacy rows written before the
+// server-side status whitelist may carry arbitrary strings; alertStatusLabel
+// falls back to a readable Title Case of the raw value (never blank).
+export const alertStatusLabels: Record<string, string> = {
+  investigating: "Investigating",
+  identified: "Identified",
+  monitoring: "Monitoring",
+  resolved: "Resolved",
+};
+
+export function alertStatusLabel(status: string | null | undefined): string {
+  const raw = (status ?? "").trim();
+  if (!raw) return "Update";
+  const known = alertStatusLabels[raw.toLowerCase()];
+  if (known) return known;
+  return raw
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export const ticketStatusPill: Record<string, string> = {
   open: "bg-status-online/15 text-status-online",
   waiting: "bg-status-away/15 text-status-away",
