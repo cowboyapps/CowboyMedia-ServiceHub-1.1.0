@@ -3685,12 +3685,12 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
   );
 }
 
-function getUnusedTemplateVariables(template: { availableVariables?: string[] | null }, subject: string, body: string): string[] {
+export function getUnusedTemplateVariables(template: { availableVariables?: string[] | null }, subject: string, body: string): string[] {
   const haystack = `${subject}\n${body}`;
   return (template.availableVariables || []).filter((v) => !haystack.includes(`{${v}}`));
 }
 
-function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
+export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
   const [editSubject, setEditSubject] = useState("");
@@ -4026,12 +4026,12 @@ interface NotificationTemplateRow {
 
 const NOTIFICATION_TEMPLATE_GROUPS: NotificationTemplateRow["group"][] = ["Service", "Invoice", "Ticket"];
 
-function getUnusedNotificationVariables(template: { variables: { name: string }[] }, title: string, body: string): string[] {
+export function getUnusedNotificationVariables(template: { variables: { name: string }[] }, title: string, body: string): string[] {
   const haystack = `${title}\n${body}`;
   return template.variables.map((v) => v.name).filter((name) => !haystack.includes(`{${name}}`));
 }
 
-function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean }) {
+export function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [editingTemplate, setEditingTemplate] = useState<NotificationTemplateRow | null>(null);
   const [editTitle, setEditTitle] = useState("");
