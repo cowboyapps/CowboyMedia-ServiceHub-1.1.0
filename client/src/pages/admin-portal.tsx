@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { queryClient, apiRequest, uploadRequest, liveQueryOptions } from "@/lib/queryClient";
-import { alertStatusLabel } from "@/lib/status-meta";
+import { alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2061,7 +2061,7 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                     <h4 className="font-semibold text-sm min-w-0 truncate text-foreground">{alert.title}</h4>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] capitalize font-normal">{alert.severity}</Badge>
+                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] font-normal">{alertSeverityLabel(alert.severity)}</Badge>
                     <Badge variant="outline" className={`text-[10px] font-semibold bg-background ${ALERT_STATUS_COLORS[alert.status] || ""}`} data-testid={`badge-alert-status-${alert.id}`}>{alertStatusLabel(alert.status)}</Badge>
                   </div>
                 </div>

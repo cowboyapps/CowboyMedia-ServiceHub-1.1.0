@@ -34,6 +34,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { APP_VERSION } from "@shared/version";
+import { alertSeverityLabel } from "@/lib/status-meta";
 import { countBulletsInBody } from "@shared/changelog-append";
 
 type ChangelogDraftRow = {
@@ -297,7 +298,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
               ) : data.services.recentAlerts.map(a => (
                 <div key={a.id} className="flex items-center justify-between text-xs gap-3" data-testid={`row-recent-alert-${a.id}`}>
                   <span className="truncate flex-1 font-medium">{a.title}</span>
-                  <Badge variant="secondary" className={`text-[10px] font-medium border-0 ${severityColor(a.severity)}`}>{a.severity}</Badge>
+                  <Badge variant="secondary" className={`text-[10px] font-medium border-0 ${severityColor(a.severity)}`}>{alertSeverityLabel(a.severity)}</Badge>
                   <span className="text-muted-foreground whitespace-nowrap">{formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}</span>
                 </div>
               ))}

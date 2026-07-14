@@ -48,6 +48,27 @@ export function alertStatusLabel(status: string | null | undefined): string {
     .join(" ");
 }
 
+// Known alert severity labels. Legacy rows may carry arbitrary strings
+// (e.g. "sev_1"); alertSeverityLabel falls back to a readable Title Case
+// of the raw value (never blank, never raw underscores).
+export const alertSeverityLabels: Record<string, string> = {
+  critical: "Critical",
+  warning: "Warning",
+  info: "Info",
+};
+
+export function alertSeverityLabel(severity: string | null | undefined): string {
+  const raw = (severity ?? "").trim();
+  if (!raw) return "Info";
+  const known = alertSeverityLabels[raw.toLowerCase()];
+  if (known) return known;
+  return raw
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export const ticketStatusPill: Record<string, string> = {
   open: "bg-status-online/15 text-status-online",
   waiting: "bg-status-away/15 text-status-away",

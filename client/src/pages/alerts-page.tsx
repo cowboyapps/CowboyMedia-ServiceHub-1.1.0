@@ -12,7 +12,7 @@ import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
-import { severityMeta, incidentStatusPill as statusPill, alertStatusLabel } from "@/lib/status-meta";
+import { severityMeta, incidentStatusPill as statusPill, alertStatusLabel, alertSeverityLabel } from "@/lib/status-meta";
 
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
@@ -25,8 +25,8 @@ function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) 
 function SeverityPill({ severity }: { severity: string }) {
   const meta = severityMeta[severity] || severityMeta.info;
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${meta.pill}`}>
-      {severity}
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>
+      {alertSeverityLabel(severity)}
     </span>
   );
 }
