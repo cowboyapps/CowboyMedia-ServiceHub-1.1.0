@@ -66,6 +66,11 @@ export interface AlertRouteMiddleware {
 // either would propagate to customers.
 const VALID_SEVERITIES = ["info", "warning", "critical"];
 const VALID_IMPACTS = ["operational", "degraded", "outage", "maintenance"];
+// Post-update lifecycle statuses (mirrors the admin UI's ALERT_ACTIVE_STATUSES
+// + terminal "resolved"). The status lands in alert_updates AND the alert row,
+// so a garbage string would surface in the timeline and could leave an alert
+// permanently "active" with a nonsense label.
+const VALID_UPDATE_STATUSES = ["investigating", "identified", "monitoring", "resolved"];
 
 // Register the six service-alert admin routes on `app`. Pulled out of
 // registerRoutes() verbatim; the only change is that collaborators are reached
@@ -267,6 +272,11 @@ export function registerAlertRoutes(
       // Optional severity change riding along with the update. "no_change" (or
       // absent/invalid) leaves the alert's severity untouched.
       const newSeverity = typeof rawSeverity === "string" && VALID_SEVERITIES.includes(rawSeverity) ? rawSeverity : null;
+      // Status is required and must be one of the lifecycle values the UI
+      // understands — reject anything else before any storage write.
+      if (typeof updateData.status !== "string" || !VALID_UPDATE_STATUSES.includes(updateData.status)) {
+        return res.status(400).json({ message: "Invalid status. Must be one of: investigating, identified, monitoring, resolved" });
+      }
       const update = await storage.createAlertUpdate({
         alertId: getParam(req, "id"),
         message: updateData.message,

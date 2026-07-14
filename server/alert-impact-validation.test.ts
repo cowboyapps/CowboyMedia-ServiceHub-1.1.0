@@ -222,3 +222,49 @@ test("post-update with a garbage impact never surfaces it in the push notificati
     assert.ok(!JSON.stringify(payload).includes("TOTAL MELTDOWN"), `raw impact string leaked into notification payload: ${JSON.stringify(payload)}`);
   }
 });
+
+// --- Post-update: status whitelist ----------------------------------------------
+
+for (const status of ["investigating", "identified", "monitoring"]) {
+  test(`post-update accepts lifecycle status "${status}" and persists it to the alert row`, async () => {
+    const { app, updateAlertCalls, alertState } = harness();
+    const res = await postUpdate(app, { message: "m", status });
+    assert.equal(res.status, 200);
+    const statusUpdate = updateAlertCalls.find((c) => "status" in c.data);
+    assert.ok(statusUpdate, "a status-carrying updateAlert call exists");
+    assert.equal(statusUpdate!.data.status, status);
+    assert.equal(alertState.status, status);
+  });
+}
+
+test('post-update accepts terminal status "resolved" and stamps resolvedAt', async () => {
+  const { app, updateAlertCalls, alertState } = harness();
+  const res = await postUpdate(app, { message: "m", status: "resolved" });
+  assert.equal(res.status, 200);
+  const statusUpdate = updateAlertCalls.find((c) => c.data.status === "resolved");
+  assert.ok(statusUpdate, "resolved is persisted");
+  assert.ok(statusUpdate!.data.resolvedAt instanceof Date, "resolvedAt is stamped");
+  assert.equal(alertState.status, "resolved");
+});
+
+for (const [label, status] of [
+  ['garbage string "on_fire"', "on_fire"],
+  ['sentinel "no_change"', "no_change"],
+  ['alert-row-only value "active"', "active"],
+  ["empty string", ""],
+  ["absent", undefined],
+  ["non-string (number)", 42],
+  ["non-string (object)", { $ne: null }],
+] as const) {
+  test(`post-update with ${label} status is rejected with 400 and nothing is persisted`, async () => {
+    const { app, updateAlertCalls, alertState, pushSends } = harness();
+    const body: any = { message: "m" };
+    if (status !== undefined) body.status = status;
+    const res = await postUpdate(app, body);
+    assert.equal(res.status, 400);
+    assert.match(res.body.message, /status/i);
+    assert.equal(updateAlertCalls.length, 0, "no alert write happens on a rejected request");
+    assert.equal(alertState.status, "active", "the alert's stored status is unchanged");
+    assert.equal(pushSends.length, 0, "no notifications fire");
+  });
+}
