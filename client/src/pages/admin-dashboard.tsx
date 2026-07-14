@@ -231,20 +231,23 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
   return (
     <div className="space-y-4" data-testid="page-admin-dashboard">
       <LiveConnectionBanner status={wsStatus} />
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
         {/* Tickets */}
-        <Card
-          className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2 xl:col-span-4"
+        <section
+          className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2 md:col-span-2 xl:col-span-4"
           onClick={() => navigate("/tickets")}
           data-testid="card-dashboard-tickets"
         >
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <LifeBuoy className="w-4 h-4 text-sky-500" /> Support tickets
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                <LifeBuoy className="h-[18px] w-[18px]" />
+              </span>
+              Support tickets
+            </h2>
+          </div>
+          <div className="p-5 space-y-6">
+            <div className="grid grid-cols-3 gap-6">
               <Stat label="Open" value={data.tickets.open} />
               <Stat label="Awaiting admin" value={data.tickets.awaitingAdmin} />
               <Stat label="Awaiting customer" value={data.tickets.awaitingCustomer} />
@@ -263,62 +266,68 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                 <Bar dataKey="resolved" fill="var(--color-resolved)" name="Resolved" />
               </BarChart>
             </ChartContainer>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
         {/* Services & alerts */}
-        <Card
-          className="cursor-pointer hover-elevate active-elevate-2"
+        <section
+          className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2"
           onClick={() => go("services")}
           data-testid="card-dashboard-services"
         >
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Server className="w-4 h-4 text-green-500" /> Services & alerts
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-green-500/10 text-green-600 dark:text-green-400">
+                <Server className="h-[18px] w-[18px]" />
+              </span>
+              Services & alerts
+            </h2>
+          </div>
+          <div className="p-5 space-y-6">
+            <div className="grid grid-cols-2 gap-4">
               <Stat label="Total services" value={data.services.total} sub={`${data.services.operational} operational`} />
               <Stat label="Active alerts" value={data.services.activeAlerts} sub={`${data.services.degraded} degraded · ${data.services.down} down`} />
             </div>
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Recent alerts
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Recent alerts
               </p>
               {data.services.recentAlerts.length === 0 ? (
                 <p className="text-xs text-muted-foreground italic">No alerts on record</p>
               ) : data.services.recentAlerts.map(a => (
-                <div key={a.id} className="flex items-center justify-between text-xs gap-2" data-testid={`row-recent-alert-${a.id}`}>
-                  <span className="truncate flex-1">{a.title}</span>
-                  <Badge variant="secondary" className={`text-[10px] ${severityColor(a.severity)}`}>{a.severity}</Badge>
+                <div key={a.id} className="flex items-center justify-between text-xs gap-3" data-testid={`row-recent-alert-${a.id}`}>
+                  <span className="truncate flex-1 font-medium">{a.title}</span>
+                  <Badge variant="secondary" className={`text-[10px] font-medium border-0 ${severityColor(a.severity)}`}>{a.severity}</Badge>
                   <span className="text-muted-foreground whitespace-nowrap">{formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}</span>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
         {/* Notifications */}
-        <Card
-          className="cursor-pointer hover-elevate active-elevate-2"
+        <section
+          className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2"
           onClick={() => go("logs")}
           data-testid="card-dashboard-notifications"
         >
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Bell className="w-4 h-4 text-orange-500" /> Notifications (24h)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                <Bell className="h-[18px] w-[18px]" />
+              </span>
+              Notifications (24h)
+            </h2>
+          </div>
+          <div className="p-5">
+            <div className="grid grid-cols-2 gap-4">
               <Stat
                 label="Push sent"
                 value={data.notifications.pushSent24h}
                 sub={
                   data.notifications.pushFailed24h > 0 ? (
                     <span className="inline-flex items-center gap-1 text-red-500">
-                      <XCircle className="w-3 h-3" /> {data.notifications.pushFailed24h} failed
+                      <XCircle className="w-3.5 h-3.5" /> {data.notifications.pushFailed24h} failed
                     </span>
                   ) : (
                     <span className="text-muted-foreground">0 failed</span>
@@ -328,106 +337,118 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
               <Stat label="Email sent" value={data.notifications.emailSent24h} sub={<span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> last 24h</span>} />
               <Stat label="Push subs" value={data.notifications.pushSubscriptionsTotal} sub={`+${data.notifications.pushSubscriptionsThisWeek} this week`} />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
         {/* Knowledge base */}
-        <Card
-          className="cursor-pointer hover-elevate active-elevate-2"
+        <section
+          className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2"
           onClick={() => go("knowledge-base")}
           data-testid="card-dashboard-kb"
         >
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BookOpen className="w-4 h-4 text-indigo-500" /> Knowledge base
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <BookOpen className="h-[18px] w-[18px]" />
+              </span>
+              Knowledge base
+            </h2>
+          </div>
+          <div className="p-5 space-y-5">
+            <div className="grid grid-cols-2 gap-4">
               <Stat label="Articles" value={data.knowledgeBase.total} sub={`${data.knowledgeBase.published} published`} />
               <Stat label="Top views" value={data.knowledgeBase.topViewed[0]?.viewCount ?? 0} sub={data.knowledgeBase.topViewed[0]?.title ?? "—"} />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground">Most viewed</p>
               {data.knowledgeBase.topViewed.length === 0 ? (
                 <p className="text-xs text-muted-foreground italic">No articles yet</p>
               ) : data.knowledgeBase.topViewed.map(a => (
-                <div key={a.id} className="flex items-center justify-between text-xs gap-2" data-testid={`row-kb-top-${a.id}`}>
-                  <span className="truncate flex-1">{a.title}</span>
-                  <span className="text-muted-foreground tabular-nums">{a.viewCount}</span>
+                <div key={a.id} className="flex items-center justify-between text-xs gap-3" data-testid={`row-kb-top-${a.id}`}>
+                  <span className="truncate flex-1 font-medium">{a.title}</span>
+                  <span className="text-muted-foreground tabular-nums">{a.viewCount} views</span>
                 </div>
               ))}
             </div>
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <Search className="w-3 h-3" /> Top zero-result searches
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5" /> Top zero-result searches
               </p>
               {data.knowledgeBase.topZeroResultSearches.length === 0 ? (
                 <p className="text-xs text-muted-foreground italic" data-testid="text-zero-search-empty">
                   Search analytics not tracked yet
                 </p>
               ) : data.knowledgeBase.topZeroResultSearches.map((s, i) => (
-                <div key={i} className="flex items-center justify-between text-xs gap-2" data-testid={`row-kb-zero-${i}`}>
-                  <span className="truncate flex-1">{s.query}</span>
-                  <span className="text-muted-foreground tabular-nums">{s.count}</span>
+                <div key={i} className="flex items-center justify-between text-xs gap-3" data-testid={`row-kb-zero-${i}`}>
+                  <span className="truncate flex-1 font-medium">{s.query}</span>
+                  <span className="text-muted-foreground tabular-nums">{s.count} searches</span>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
         {/* Community */}
-        <Card
-          className="cursor-pointer hover-elevate active-elevate-2"
+        <section
+          className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2"
           onClick={() => go("chat-admin")}
           data-testid="card-dashboard-community"
         >
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <MessageSquare className="w-4 h-4 text-pink-500" /> Community
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-3">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
+                <MessageSquare className="h-[18px] w-[18px]" />
+              </span>
+              Community
+            </h2>
+          </div>
+          <div className="p-5">
+            <div className="grid grid-cols-3 gap-4">
               <Stat label="Messages 24h" value={data.community.messages24h} />
               <Stat label="Active 7d" value={data.community.activeUsers7d} />
               <Stat label="Banned" value={data.community.bannedUsers} />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
         {/* Users */}
-        <Card
-          className="cursor-pointer hover-elevate active-elevate-2"
+        <section
+          className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2"
           onClick={() => go("users")}
           data-testid="card-dashboard-users"
         >
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Users className="w-4 h-4 text-blue-500" /> Users
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <Users className="h-[18px] w-[18px]" />
+              </span>
+              Users
+            </h2>
+          </div>
+          <div className="p-5">
+            <div className="grid grid-cols-2 gap-4">
               <Stat label="Total" value={data.users.total} sub={`${data.users.customers} customers · ${data.users.admins} admins`} />
               <Stat label="Online now" value={onlineDisplay} sub={data.usersOnline === null ? "presence unavailable" : "live websocket count"} />
-              <Stat label="Signups today" value={data.users.signupsToday} sub={<span className="inline-flex items-center gap-1"><TrendingUp className="w-3 h-3" /> {data.users.signupsThisWeek} this week</span>} />
+              <Stat label="Signups today" value={data.users.signupsToday} sub={<span className="inline-flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /> {data.users.signupsThisWeek} this week</span>} />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        {/* System Health (master_admin only) — 5xx rate, DB latency, build SHA */}
+        {/* System Health */}
         {isMasterAdmin && (
-          <Card
-            className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
+          <section
+            className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
             onClick={() => go("error-log")}
             data-testid="card-dashboard-system-health"
           >
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Activity className={`w-4 h-4 ${sysHealth && sysHealth.count5xxLast5Min > 0 ? "text-red-500" : "text-green-500"}`} /> System Health
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${sysHealth && sysHealth.count5xxLast5Min > 0 ? "bg-red-500/10 text-red-600 dark:text-red-400" : "bg-green-500/10 text-green-600 dark:text-green-400"}`}>
+                  <Activity className="h-[18px] w-[18px]" />
+                </span>
+                System Health
                 {sysHealth && sysHealth.count5xxLast5Min > 0 && (
-                  <Badge variant="destructive" className="ml-auto" data-testid="badge-system-health-alert">
+                  <Badge variant="destructive" className="ml-2" data-testid="badge-system-health-alert">
                     {sysHealth.count5xxLast5Min} error{sysHealth.count5xxLast5Min === 1 ? "" : "s"}
                   </Badge>
                 )}
@@ -436,7 +457,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                     variant="destructive"
                     role="button"
                     tabIndex={0}
-                    className={`cursor-pointer ${sysHealth && sysHealth.count5xxLast5Min > 0 ? "" : "ml-auto"}`}
+                    className={`cursor-pointer ${sysHealth && sysHealth.count5xxLast5Min > 0 ? "" : "ml-2"}`}
                     onClick={(e) => { e.stopPropagation(); setMissingImagesOpen(true); }}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setMissingImagesOpen(true); } }}
                     title="View which articles are missing images"
@@ -445,10 +466,10 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                     {missingImages.count} missing image{missingImages.count === 1 ? "" : "s"}
                   </Badge>
                 )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              </h2>
+            </div>
+            <div className="p-5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <Stat
                   label="5xx (5min)"
                   value={sysHealth ? sysHealth.count5xxLast5Min : "—"}
@@ -457,7 +478,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                 <Stat
                   label="DB latency"
                   value={sysHealth ? `${sysHealth.dbLatencyMs}ms` : "—"}
-                  sub={sysHealth?.dbOk === false ? <span className="text-red-500">DB down</span> : "SELECT 1 round-trip"}
+                  sub={sysHealth?.dbOk === false ? <span className="text-red-500 font-medium">DB down</span> : "SELECT 1 round-trip"}
                 />
                 <Stat
                   label="Version"
@@ -470,8 +491,8 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                   sub={sysHealth?.recent.length ? `${sysHealth.recent.length} recent in log` : "log empty"}
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         )}
 
         {/* Missing-images breakdown dialog (master_admin only). Lists which KB
@@ -553,27 +574,30 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
             agent-appended bullets are queued for the current release before
             the user opens the Changelog tab to proofread + publish. */}
         {isMasterAdmin && (
-          <Card
-            className="cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
+          <section
+            className="rounded-xl border border-card-border bg-card overflow-hidden cursor-pointer hover-elevate active-elevate-2 md:col-span-2"
             onClick={() => go("changelog")}
             data-testid="card-dashboard-changelog-draft"
           >
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <FileText className="w-4 h-4 text-cyan-500" /> Changelog draft
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+                  <FileText className="h-[18px] w-[18px]" />
+                </span>
+                Changelog draft
                 {currentDraft && currentDraftBulletCount > 0 && (
                   <Badge
                     variant="secondary"
-                    className="ml-auto"
+                    className="ml-2"
                     data-testid="badge-changelog-draft-count"
                   >
                     {currentDraftBulletCount} bullet{currentDraftBulletCount === 1 ? "" : "s"}
                   </Badge>
                 )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              </h2>
+            </div>
+            <div className="p-5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <Stat
                   label="Collecting for"
                   value={
@@ -615,19 +639,19 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
                   }
                   sub={
                     currentDraft?.status === "awaiting_publish"
-                      ? <span className="text-amber-600 dark:text-amber-400">publish to fire the welcome popup</span>
-                      : "publishes only when the version changes"
+                      ? <span className="text-amber-600 dark:text-amber-400 font-medium">publish to fire welcome popup</span>
+                      : "publishes only when version changes"
                   }
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-dashboard-updated">
-        <Clock className="w-3 h-3" /> Last updated {formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })}
-        {data.cached && <span className="ml-1">· cached</span>}
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="text-dashboard-updated">
+        <Clock className="w-3.5 h-3.5" /> Last updated {formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })}
+        {data.cached && <span className="ml-1 opacity-70">· cached</span>}
       </p>
     </div>
   );

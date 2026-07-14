@@ -4,7 +4,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLocation, useSearch, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1964,27 +1963,31 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
         </DialogContent>
       </Dialog>
 
-      {isLoading ? <Skeleton className="h-40" /> : (
-        <div className="space-y-3">
+      {isLoading ? (
+        <div className="divide-y divide-border border-t border-border">
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="px-5 py-3.5"><Skeleton className="h-16 w-full" /></div>)}
+        </div>
+      ) : (
+        <div className="divide-y divide-border border-t border-border">
           {alerts?.map((alert) => (
-            <Card key={alert.id} data-testid={`card-admin-alert-${alert.id}`}>
-              <CardContent className="p-4 space-y-2">
+            <div key={alert.id} className="hover-elevate px-5 py-3.5 group" data-testid={`card-admin-alert-${alert.id}`}>
+              <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 cursor-pointer" onClick={() => setExpandedAlertCardId(expandedAlertCardId === alert.id ? null : alert.id)} data-testid={`button-expand-alert-${alert.id}`}>
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {expandedAlertCardId === alert.id ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground" />}
-                    <h4 className="font-semibold text-sm min-w-0 truncate">{alert.title}</h4>
+                    {expandedAlertCardId === alert.id ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground group-hover:text-foreground" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground group-hover:text-foreground" />}
+                    <h4 className="font-semibold text-sm min-w-0 truncate text-foreground">{alert.title}</h4>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] capitalize">{alert.severity}</Badge>
-                    <Badge variant="outline" className={`text-[10px] font-semibold ${ALERT_STATUS_COLORS[alert.status] || ""}`} data-testid={`badge-alert-status-${alert.id}`}>{ALERT_STATUS_LABELS[alert.status] || alert.status}</Badge>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} className="text-[10px] capitalize font-normal">{alert.severity}</Badge>
+                    <Badge variant="outline" className={`text-[10px] font-semibold bg-background ${ALERT_STATUS_COLORS[alert.status] || ""}`} data-testid={`badge-alert-status-${alert.id}`}>{ALERT_STATUS_LABELS[alert.status] || alert.status}</Badge>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap pl-6">
-                  {alert.serviceIds?.map((sid) => serviceMap.get(sid) && <Badge key={sid} variant="secondary" className="text-[10px]" data-testid={`badge-alert-service-${sid}`}>{serviceMap.get(sid)}</Badge>)}
+                  {alert.serviceIds?.map((sid) => serviceMap.get(sid) && <Badge key={sid} variant="secondary" className="text-[10px] font-normal" data-testid={`badge-alert-service-${sid}`}>{serviceMap.get(sid)}</Badge>)}
                   <span className="text-[10px] text-muted-foreground">{format(new Date(alert.createdAt), "MMM d, yyyy h:mm a")}</span>
                 </div>
                 {canManage && alert.status !== "resolved" && (
-                  <div className="flex items-center gap-2 flex-wrap pl-6" onClick={(e) => e.stopPropagation()} data-testid={`inline-status-controls-${alert.id}`}>
+                  <div className="flex items-center gap-2 flex-wrap pl-6 mt-2" onClick={(e) => e.stopPropagation()} data-testid={`inline-status-controls-${alert.id}`}>
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Set status</span>
                     <div className="inline-flex rounded-md border overflow-hidden">
                       {ALERT_ACTIVE_STATUSES.map((st) => {
@@ -2004,24 +2007,24 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                       })}
                     </div>
                     <Button size="sm" variant="outline" className="h-7 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" onClick={() => { setResolveAlertId(alert.id); setResolveDialogOpen(true); }} data-testid={`button-resolve-inline-${alert.id}`}>
-                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Resolve
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Resolve
                     </Button>
                   </div>
                 )}
                 {expandedAlertCardId === alert.id && (
-                  <div className="space-y-2 pt-1 pl-6">
+                  <div className="space-y-3 pt-2 pl-6 pb-1 border-t mt-3 border-border">
                     <RichTextContent content={alert.description} className="text-xs text-muted-foreground" testId={`text-admin-alert-desc-${alert.id}`} />
-                    {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md" />}
-                    <div className="flex items-center gap-1 flex-wrap">
+                    {alert.imageUrl && <ClickableImage src={alert.imageUrl} alt="Alert image" className="max-h-24 rounded-md border border-border" />}
+                    <div className="flex items-center gap-2 flex-wrap">
                       {canManage && (
-                        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditAlert(alert); }} data-testid={`button-edit-alert-${alert.id}`}>
-                          <Edit className="w-3 h-3 mr-1" /> Edit
+                        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openEditAlert(alert); }} data-testid={`button-edit-alert-${alert.id}`}>
+                          <Edit className="w-3.5 h-3.5 mr-1.5" /> Edit
                         </Button>
                       )}
                       {canManage && <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="text-destructive" data-testid={`button-delete-alert-${alert.id}`}>
-                            <Trash2 className="w-3 h-3 mr-1" /> Delete
+                          <Button size="sm" variant="outline" className="text-destructive hover:bg-destructive/10 hover:text-destructive" data-testid={`button-delete-alert-${alert.id}`}>
+                            <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
@@ -2036,14 +2039,14 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                         </AlertDialogContent>
                       </AlertDialog>}
                     </div>
-                    <div className="pt-1">
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Update timeline</p>
+                    <div className="pt-2">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Update timeline</p>
                       <AlertUpdatesList alertId={alert.id} canManage={canManage} onEditUpdate={(update) => { setEditingAlertUpdate({ alertId: alert.id, update }); setEditUpdateMessage(update.message); setEditUpdateImageFile(null); setEditUpdateRemoveImage(false); setEditUpdateDialogOpen(true); }} />
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -2793,10 +2796,9 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4 p-5">
-        <Card>
-          <CardContent className="p-2 space-y-1">
-            <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Categories</div>
+      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] border-t border-border">
+        <div className="p-3 space-y-1 border-b md:border-b-0 md:border-r border-border bg-muted/20">
+          <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Categories</div>
             {renderCategoryRow("All", ALL_CATEGORIES, counts.total, "all")}
             {renderCategoryRow("Uncategorized", UNCATEGORIZED, counts.uncategorized, "uncategorized")}
             {counts.needsReview > 0 && (
@@ -2905,17 +2907,16 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
                 </Button>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </div>
 
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <div className="flex flex-col">
+          <div className="p-3 border-b border-border bg-muted/10 relative">
+            <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search responses..."
-              className="pl-8"
+              className="pl-8 bg-background"
               data-testid="input-qr-search"
             />
           </div>
@@ -2961,21 +2962,18 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
               {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
             </div>
           ) : filteredResponses.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <Zap className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  {(quickResponses ?? []).length === 0
-                    ? "No quick responses yet. Add one to get started."
-                    : "No responses match this filter."}
-                </p>
-              </CardContent>
-            </Card>
+            <div className="rounded-xl border border-card-border bg-card py-8 text-center">
+              <Zap className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                {(quickResponses ?? []).length === 0
+                  ? "No quick responses yet. Add one to get started."
+                  : "No responses match this filter."}
+              </p>
+            </div>
           ) : (
             <div className="space-y-3">
               {filteredResponses.map((qr) => (
-                <Card key={qr.id} data-testid={`card-quick-response-${qr.id}`}>
-                  <CardContent className="p-4">
+                <div key={qr.id} className="rounded-xl border border-card-border bg-card p-4" data-testid={`card-quick-response-${qr.id}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -3067,8 +3065,7 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
                         </AlertDialog>
                       </div>}
                     </div>
-                  </CardContent>
-                </Card>
+                </div>
               ))}
             </div>
           )}
@@ -3467,24 +3464,25 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
       </div>
 
       {!updates || updates.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground" data-testid="text-no-admin-updates">
+        <div className="py-12 text-center">
+          <Bell className="w-8 h-8 mx-auto mb-3 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground" data-testid="text-no-admin-updates">
             No service updates yet
-          </CardContent>
-        </Card>
+          </p>
+        </div>
       ) : (
-        <div className="space-y-3">
+        <div className="divide-y divide-border">
           {updates.map((update) => (
-            <Card key={update.id} data-testid={`card-admin-update-${update.id}`}>
-              <CardContent className="p-4 space-y-2">
-                <div className="flex items-center justify-between gap-2 cursor-pointer" onClick={() => setExpandedUpdateId(expandedUpdateId === update.id ? null : update.id)} data-testid={`button-expand-update-${update.id}`}>
+            <div key={update.id} className="px-5 py-3.5" data-testid={`card-admin-update-${update.id}`}>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 cursor-pointer group" onClick={() => setExpandedUpdateId(expandedUpdateId === update.id ? null : update.id)} data-testid={`button-expand-update-${update.id}`}>
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {expandedUpdateId === update.id ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground" />}
-                    <h4 className="font-semibold text-sm min-w-0 truncate">{update.title}</h4>
+                    {expandedUpdateId === update.id ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground group-hover:text-foreground" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground group-hover:text-foreground" />}
+                    <h4 className="font-semibold text-sm min-w-0 truncate text-foreground">{update.title}</h4>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <Badge variant="outline" className="text-[10px]">{getServiceName(update.serviceId)}</Badge>
-                    {update.matureContent && <Badge variant="destructive" className="text-[10px]" data-testid={`badge-mature-${update.id}`}>Mature</Badge>}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Badge variant="outline" className="text-[10px] font-normal bg-background">{getServiceName(update.serviceId)}</Badge>
+                    {update.matureContent && <Badge variant="destructive" className="text-[10px] font-normal" data-testid={`badge-mature-${update.id}`}>Mature</Badge>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap pl-6">
@@ -3494,18 +3492,18 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                   </span>
                 </div>
                 {expandedUpdateId === update.id && (
-                  <div className="space-y-2 pt-1 pl-6">
-                    <RichTextContent content={update.description} className="text-sm" testId={`text-admin-update-desc-${update.id}`} />
-                    <div className="flex items-center gap-1 flex-wrap">
+                  <div className="space-y-3 pt-2 pl-6 pb-1">
+                    <RichTextContent content={update.description} className="text-sm text-muted-foreground" testId={`text-admin-update-desc-${update.id}`} />
+                    <div className="flex items-center gap-2 flex-wrap">
                       {canManage && (
-                        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditDialog(update); }} data-testid={`button-admin-edit-update-${update.id}`}>
-                          <Edit className="w-3 h-3 mr-1" /> Edit
+                        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openEditDialog(update); }} data-testid={`button-admin-edit-update-${update.id}`}>
+                          <Edit className="w-3.5 h-3.5 mr-1.5" /> Edit
                         </Button>
                       )}
                       {canManage && <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="text-destructive" data-testid={`button-admin-delete-update-${update.id}`}>
-                            <Trash2 className="w-3 h-3 mr-1" /> Delete
+                          <Button size="sm" variant="outline" className="text-destructive hover:bg-destructive/10 hover:text-destructive" data-testid={`button-admin-delete-update-${update.id}`}>
+                            <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
@@ -3522,8 +3520,8 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -4449,57 +4447,57 @@ function DownloadsTab({ canManage = true }: { canManage?: boolean }) {
       </Dialog>
 
       {isLoading ? (
-        <Skeleton className="h-40" />
+        <div className="divide-y divide-border border-t border-border">
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="px-5 py-3.5"><Skeleton className="h-14 w-full" /></div>)}
+        </div>
       ) : !downloads || downloads.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <Download className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No downloads yet</p>
+        <div className="text-center py-12 border-t border-border">
+          <Download className="w-8 h-8 mx-auto mb-3 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">No downloads yet</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-border border-t border-border">
           {downloads.map((dl) => (
-            <Card key={dl.id} data-testid={`card-admin-download-${dl.id}`}>
-              <CardContent className="p-3">
-                <div className="flex items-start gap-3">
-                  {dl.imageUrl ? (
-                    <img src={dl.imageUrl} alt={dl.title} loading="lazy" decoding="async" width={56} height={56} className="w-14 h-14 rounded-md object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Download className="w-6 h-6 text-primary" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{dl.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{dl.description}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">{dl.downloaderCode}</p>
+            <div key={dl.id} className="px-5 py-3.5 hover-elevate group" data-testid={`card-admin-download-${dl.id}`}>
+              <div className="flex items-start gap-4">
+                {dl.imageUrl ? (
+                  <img src={dl.imageUrl} alt={dl.title} loading="lazy" decoding="async" width={56} height={56} className="w-14 h-14 rounded-md object-cover flex-shrink-0 border border-border" />
+                ) : (
+                  <div className="w-14 h-14 rounded-md bg-muted/30 border border-border flex items-center justify-center flex-shrink-0">
+                    <Download className="w-6 h-6 text-muted-foreground/50" />
                   </div>
-                  {canManage && (
-                    <div className="flex gap-1 shrink-0">
-                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEditDialog(dl)} data-testid={`button-edit-download-${dl.id}`}>
-                        <Edit className="w-3.5 h-3.5" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive" data-testid={`button-delete-download-${dl.id}`}>
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Download?</AlertDialogTitle>
-                            <AlertDialogDescription>This will permanently remove "{dl.title}". This cannot be undone.</AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => deleteMutation.mutate(dl.id)} data-testid={`button-confirm-delete-download-${dl.id}`}>Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  )}
+                )}
+                <div className="flex-1 min-w-0 py-0.5">
+                  <p className="font-medium text-sm text-foreground truncate">{dl.title}</p>
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{dl.description}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1 font-mono">{dl.downloaderCode}</p>
                 </div>
-              </CardContent>
-            </Card>
+                {canManage && (
+                  <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(dl)} data-testid={`button-edit-download-${dl.id}`}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-download-${dl.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Download?</AlertDialogTitle>
+                          <AlertDialogDescription>This will permanently remove "{dl.title}". This cannot be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(dl.id)} data-testid={`button-confirm-delete-download-${dl.id}`}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -5541,20 +5539,20 @@ function MonitorDetailView({ monitor, onBack }: { monitor: UrlMonitor; onBack: (
         <ArrowLeft className="w-4 h-4" /> Back to Monitors
       </Button>
 
-      <Card>
-        <CardContent className="p-4 space-y-3">
+      <div className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="p-5 space-y-3">
           <div className="space-y-2">
             <div className="flex items-start gap-3">
               <Circle className={`w-5 h-5 flex-shrink-0 mt-1 ${getStatusColor(m.status, m.enabled)} ${m.enabled && m.status === "up" ? "animate-status-glow fill-current" : m.enabled && m.status === "down" ? "animate-status-down fill-current" : ""}`} />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-lg font-semibold" data-testid="text-monitor-detail-name">{m.name}</h3>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">{m.monitorType === "http_status" ? "HTTP Status" : "Availability"}</Badge>
-                  <Badge className={`flex-shrink-0 ${!m.enabled ? "bg-muted text-muted-foreground border-muted" : m.status === "up" ? "bg-green-500/10 text-green-600 border-green-500/20" : m.status === "down" ? "bg-red-500/10 text-red-600 border-red-500/20" : ""}`} variant="outline">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="text-lg font-semibold text-foreground" data-testid="text-monitor-detail-name">{m.name}</h3>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0 font-normal bg-background">{m.monitorType === "http_status" ? "HTTP Status" : "Availability"}</Badge>
+                  <Badge className={`flex-shrink-0 font-normal ${!m.enabled ? "bg-muted text-muted-foreground border-muted" : m.status === "up" ? "bg-green-500/10 text-green-600 border-green-500/20" : m.status === "down" ? "bg-red-500/10 text-red-600 border-red-500/20" : ""}`} variant="outline">
                     {getStatusLabel(m.status, m.enabled)}
                   </Badge>
                 </div>
-                <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:underline inline-flex items-center gap-1 break-all" data-testid="link-monitor-url">
+                <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-foreground hover:underline inline-flex items-center gap-1 break-all transition-colors" data-testid="link-monitor-url">
                   {m.url} <ExternalLink className="w-3 h-3 flex-shrink-0" />
                 </a>
               </div>
@@ -5562,66 +5560,69 @@ function MonitorDetailView({ monitor, onBack }: { monitor: UrlMonitor; onBack: (
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-muted-foreground text-xs">Check Interval</p>
-              <p className="font-medium">{m.checkIntervalSeconds}s</p>
+            <div className="bg-muted/30 rounded-lg p-3 border border-border">
+              <p className="text-muted-foreground text-xs mb-1">Check Interval</p>
+              <p className="font-medium text-foreground">{m.checkIntervalSeconds}s</p>
             </div>
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-muted-foreground text-xs">Response Time</p>
-              <p className="font-medium">{m.lastResponseTimeMs != null ? `${m.lastResponseTimeMs}ms` : "—"}</p>
+            <div className="bg-muted/30 rounded-lg p-3 border border-border">
+              <p className="text-muted-foreground text-xs mb-1">Response Time</p>
+              <p className="font-medium text-foreground">{m.lastResponseTimeMs != null ? `${m.lastResponseTimeMs}ms` : "—"}</p>
             </div>
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-muted-foreground text-xs">Last Checked</p>
-              <p className="font-medium">{m.lastCheckedAt ? format(new Date(m.lastCheckedAt), "h:mm:ss a") : "Never"}</p>
+            <div className="bg-muted/30 rounded-lg p-3 border border-border">
+              <p className="text-muted-foreground text-xs mb-1">Last Checked</p>
+              <p className="font-medium text-foreground">{m.lastCheckedAt ? format(new Date(m.lastCheckedAt), "h:mm:ss a") : "Never"}</p>
             </div>
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-muted-foreground text-xs">Status Since</p>
-              <p className="font-medium">{m.lastStatusChange ? format(new Date(m.lastStatusChange), "MMM d, h:mm a") : "—"}</p>
+            <div className="bg-muted/30 rounded-lg p-3 border border-border">
+              <p className="text-muted-foreground text-xs mb-1">Status Since</p>
+              <p className="font-medium text-foreground">{m.lastStatusChange ? format(new Date(m.lastStatusChange), "MMM d, h:mm a") : "—"}</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <div>
-        <h3 className="text-base font-semibold mb-3" data-testid="text-incidents-title">Incident History</h3>
+      <div className="rounded-xl border border-card-border bg-card overflow-hidden mt-6">
+        <div className="px-5 py-4 border-b border-border">
+          <h3 className="text-sm font-semibold flex items-center gap-2" data-testid="text-incidents-title">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-rose-500/10 text-rose-500">
+              <Activity className="h-4 w-4" />
+            </span>
+            Incident History
+          </h3>
+        </div>
         {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+          <div className="divide-y divide-border">
+            {[1, 2, 3].map(i => <div key={i} className="px-5 py-3.5"><Skeleton className="h-16 w-full" /></div>)}
           </div>
         ) : incidents.length === 0 ? (
-          <Card>
-            <CardContent className="py-6 text-center text-muted-foreground">
-              <Activity className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              <p>No incidents recorded yet.</p>
-            </CardContent>
-          </Card>
+          <div className="py-12 text-center text-muted-foreground">
+            <Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">No incidents recorded yet.</p>
+          </div>
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-border">
             {incidents.map(inc => (
-              <Card key={inc.id} data-testid={`card-incident-${inc.id}`}>
-                <CardContent className="p-3">
-                  <div className="flex items-start gap-3">
-                    <div className={`mt-0.5 rounded-full p-1.5 ${inc.resolvedAt ? "bg-green-500/10" : "bg-red-500/10"}`}>
-                      {inc.resolvedAt ? <Activity className="w-3.5 h-3.5 text-green-500" /> : <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+              <div key={inc.id} className="px-5 py-3.5 hover-elevate" data-testid={`card-incident-${inc.id}`}>
+                <div className="flex items-start gap-4">
+                  <div className={`mt-0.5 rounded-full p-2 flex-shrink-0 ${inc.resolvedAt ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"}`}>
+                    {inc.resolvedAt ? <Activity className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <Badge variant={inc.resolvedAt ? "secondary" : "destructive"} className="text-[10px] font-normal">
+                        {inc.resolvedAt ? "Resolved" : "Ongoing"}
+                      </Badge>
+                      {inc.durationSeconds != null && (
+                        <span className="text-xs text-muted-foreground">Duration: {formatDuration(inc.durationSeconds)}</span>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant={inc.resolvedAt ? "secondary" : "destructive"} className="text-xs">
-                          {inc.resolvedAt ? "Resolved" : "Ongoing"}
-                        </Badge>
-                        {inc.durationSeconds != null && (
-                          <span className="text-xs text-muted-foreground">Duration: {formatDuration(inc.durationSeconds)}</span>
-                        )}
-                      </div>
-                      {inc.failureReason && <p className="text-sm mt-1">{inc.failureReason}</p>}
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Started: {format(new Date(inc.startedAt), "MMM d, yyyy h:mm:ss a")}
-                        {inc.resolvedAt && <> · Resolved: {format(new Date(inc.resolvedAt), "MMM d, yyyy h:mm:ss a")}</>}
-                      </div>
+                    {inc.failureReason && <p className="text-sm text-foreground mt-1 mb-1.5">{inc.failureReason}</p>}
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
+                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Started: {format(new Date(inc.startedAt), "MMM d, yyyy h:mm:ss a")}</span>
+                      {inc.resolvedAt && <span className="flex items-center gap-1">· Resolved: {format(new Date(inc.resolvedAt), "MMM d, yyyy h:mm:ss a")}</span>}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -6342,7 +6343,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
             >
               <div className="flex items-center gap-2">
                 {hasUnread && <span className="w-2 h-2 rounded-full bg-destructive flex-shrink-0" data-testid={`unread-dot-${thread.id}`} />}
-                <p className={`text-sm truncate font-medium`}>{getThreadDisplayName(thread)}</p>
+                <p className={`text-sm truncate font-medium text-foreground`}>{getThreadDisplayName(thread)}</p>
               </div>
               {thread.lastMessage && (
                 <p className={`text-xs text-muted-foreground truncate mt-0.5 ${hasUnread ? "ml-4 font-medium text-foreground" : ""}`}>{thread.lastMessage.message || "📎 File"}</p>
@@ -6999,42 +7000,48 @@ export function KnowledgeBaseTab() {
           {artsLoading ? (
             <Skeleton className="h-24" />
           ) : articles.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No articles yet.</p>
+            <div className="py-12 text-center text-muted-foreground border-t border-border">
+              <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">No articles yet.</p>
+            </div>
           ) : filteredArticles.length === 0 ? (
-            <p className="text-sm text-muted-foreground" data-testid="text-kb-articles-empty-filter">
-              No {artFilter === "draft" ? "draft" : "published"} articles.
-            </p>
+            <div className="py-12 text-center text-muted-foreground border-t border-border">
+              <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p className="text-sm" data-testid="text-kb-articles-empty-filter">
+                No {artFilter === "draft" ? "draft" : "published"} articles.
+              </p>
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="divide-y divide-border border-t border-border">
               {filteredArticles.map((a) => {
                 const cat = categories.find((c) => c.id === a.categoryId);
                 return (
-                  <Card key={a.id} data-testid={`card-admin-kb-article-${a.id}`}>
-                    <CardContent className="p-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-sm">{a.title}</p>
+                  <div key={a.id} className="px-5 py-3.5 hover-elevate group" data-testid={`card-admin-kb-article-${a.id}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1 py-0.5">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <p className="font-medium text-sm text-foreground">{a.title}</p>
                           {a.published ? (
-                            <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-600 dark:text-green-400" data-testid={`badge-kb-status-${a.id}`}>Published</Badge>
+                            <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-600 dark:text-green-400 font-normal bg-green-500/5" data-testid={`badge-kb-status-${a.id}`}>Published</Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400" data-testid={`badge-kb-status-${a.id}`}>Draft</Badge>
+                            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400 font-normal bg-amber-500/5" data-testid={`badge-kb-status-${a.id}`}>Draft</Badge>
                           )}
-                          {cat && <Badge variant="secondary" className="text-[10px]">{cat.name}</Badge>}
+                          {cat && <Badge variant="secondary" className="text-[10px] font-normal">{cat.name}</Badge>}
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">/{a.slug} · {a.viewCount} views · 👍 {a.helpfulCount} 👎 {a.unhelpfulCount}</p>
+                        <p className="text-xs text-muted-foreground">/{a.slug} · {a.viewCount} views · 👍 {a.helpfulCount} 👎 {a.unhelpfulCount}</p>
                       </div>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                         <a href={`/knowledge/${a.slug}`} target="_blank" rel="noopener noreferrer" data-testid={`link-preview-kb-article-${a.id}`}>
-                          <Button size="sm" variant="ghost" title="Preview" data-testid={`button-preview-kb-article-${a.id}`}>
+                          <Button size="icon" variant="ghost" title="Preview" className="h-8 w-8 text-muted-foreground hover:text-foreground" data-testid={`button-preview-kb-article-${a.id}`}>
                             <Eye className="w-4 h-4" />
                           </Button>
                         </a>
-                        <Button size="sm" variant="ghost" onClick={() => openEditArt(a)} data-testid={`button-edit-kb-article-${a.id}`}>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditArt(a)} data-testid={`button-edit-kb-article-${a.id}`}>
                           <Edit className="w-4 h-4" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="ghost" data-testid={`button-delete-kb-article-${a.id}`}>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-kb-article-${a.id}`}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -7050,40 +7057,47 @@ export function KnowledgeBaseTab() {
                           </AlertDialogContent>
                         </AlertDialog>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 );
               })}
             </div>
           )}
         </TabsContent>
 
-        <TabsContent value="categories" className="space-y-3 mt-4">
-          <div className="flex justify-end">
-            <Button onClick={openCreateCat} data-testid="button-create-kb-category">
-              <Plus className="w-4 h-4 mr-1" /> New Category
+        <TabsContent value="categories" className="mt-0 border-t border-border">
+          <div className="flex justify-between items-center px-5 py-4 border-b border-border bg-muted/20">
+            <div>
+              <h3 className="text-sm font-semibold">Categories</h3>
+              <div className="text-xs text-muted-foreground mt-0.5">Manage article grouping</div>
+            </div>
+            <Button size="sm" onClick={openCreateCat} data-testid="button-create-kb-category" className="h-8 gap-1.5 shrink-0">
+              <Plus className="w-3.5 h-3.5" /> New Category
             </Button>
           </div>
           {catsLoading ? (
-            <Skeleton className="h-24" />
+            <div className="px-5 py-4"><Skeleton className="h-16 w-full" /></div>
           ) : categories.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No categories yet.</p>
+            <div className="py-12 text-center text-muted-foreground">
+              <Hash className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">No categories yet.</p>
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="divide-y divide-border">
               {categories.map((c) => (
-                <Card key={c.id} data-testid={`card-admin-kb-category-${c.id}`}>
-                  <CardContent className="p-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-sm">{c.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">/{c.slug}{c.description ? ` · ${c.description}` : ""}</p>
+                <div key={c.id} className="px-5 py-3.5 hover-elevate group" data-testid={`card-admin-kb-category-${c.id}`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1 py-0.5">
+                      <p className="font-medium text-sm text-foreground">{c.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1">/{c.slug}{c.description ? ` · ${c.description}` : ""}</p>
                     </div>
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => openEditCat(c)} data-testid={`button-edit-kb-category-${c.id}`}>
+                    <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditCat(c)} data-testid={`button-edit-kb-category-${c.id}`}>
                         <Edit className="w-4 h-4" />
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" data-testid={`button-delete-kb-category-${c.id}`}>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-kb-category-${c.id}`}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </AlertDialogTrigger>
@@ -7099,8 +7113,8 @@ export function KnowledgeBaseTab() {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -8105,12 +8119,15 @@ function DiscordTab() {
   if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full" /></div>;
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Hash className="w-5 h-5" /> Discord Notifications</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-500">
+            <Hash className="h-[18px] w-[18px]" />
+          </span>
+          <h2 className="text-sm font-semibold">Discord Notifications</h2>
+        </div>
+        <div className="p-5 space-y-4">
           <div>
             <Label htmlFor="discord-webhook-url">Webhook URL</Label>
             <Input
@@ -8202,8 +8219,8 @@ function DiscordTab() {
             <p>📰 News stories — title and preview, split across messages if longer than 2000 characters</p>
             <p className="mt-2">If Discord fails or is disabled, your app notifications still send normally.</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 }
@@ -8622,13 +8639,13 @@ function StoreProductsSection() {
         {/* Curated products */}
         {rowOrder.length === 0 ? (
           <div className="px-5 py-8 text-center" data-testid="text-no-store-products">
-            <Tag className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <Tag className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
             <p className="text-sm text-muted-foreground">No products in the store yet.</p>
           </div>
         ) : (
-          <div className="border rounded-md overflow-hidden" data-testid="list-store-products">
+          <div className="border-t border-b border-border -mx-5" data-testid="list-store-products">
             {rowOrder.length > 1 && (
-              <div className="bg-muted/30 px-3 py-2 border-b">
+              <div className="bg-muted/30 px-5 py-2 border-b border-border">
                 <p className="text-xs text-muted-foreground">Drag the handle to reorder how products appear in the customer catalogue.</p>
               </div>
             )}
@@ -8641,23 +8658,23 @@ function StoreProductsSection() {
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleRowDrop(p.id)}
                   onDragEnd={() => setRowDragId(null)}
-                  className={`flex items-start justify-between gap-2 px-3 py-3 ${rowDragId === p.id ? "opacity-50" : ""}`}
+                  className={`flex items-start justify-between gap-3 px-5 py-3.5 hover:bg-muted/50 ${rowDragId === p.id ? "opacity-50" : ""}`}
                   data-testid={`row-store-product-${p.id}`}
                 >
                   <div className="flex items-start gap-3 min-w-0">
                     {rowOrder.length > 1 && (
-                      <span className="cursor-move text-muted-foreground mt-1 shrink-0" aria-label="Drag to reorder" data-testid={`drag-store-product-${p.id}`}>
+                      <span className="cursor-grab hover:text-foreground text-muted-foreground mt-3 shrink-0" aria-label="Drag to reorder" data-testid={`drag-store-product-${p.id}`}>
                         <GripVertical className="w-4 h-4" />
                       </span>
                     )}
                     {p.imageUrl ? (
-                      <img src={p.imageUrl} alt="" className="w-12 h-12 rounded object-cover border shrink-0" data-testid={`img-store-product-${p.id}`} />
+                      <img src={p.imageUrl} alt="" className="w-12 h-12 rounded object-cover border shrink-0 bg-muted" data-testid={`img-store-product-${p.id}`} />
                     ) : (
                       <div className="w-12 h-12 rounded border bg-muted flex items-center justify-center shrink-0">
-                        <ImagePlus className="w-5 h-5 text-muted-foreground" />
+                        <ImagePlus className="w-5 h-5 text-muted-foreground opacity-50" />
                       </div>
                     )}
-                    <div className="min-w-0">
+                    <div className="min-w-0 mt-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium truncate" data-testid={`text-store-product-name-${p.id}`}>{p.name || whmcsName(p.whmcsProductId)}</p>
                         {p.enabled ? (
@@ -8667,15 +8684,15 @@ function StoreProductsSection() {
                         )}
                         {p.category && <Badge variant="outline" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-category-${p.id}`}>{p.category}</Badge>}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} (#{p.whmcsProductId})</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} <span className="opacity-70">(#{p.whmcsProductId})</span></p>
                       {p.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 mt-1">
                     <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(p)} data-testid={`button-edit-store-product-${p.id}`}>
                       <Edit className="w-3 h-3" /> Edit
                     </Button>
-                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(p.id)} disabled={removeMutation.isPending} data-testid={`button-remove-store-product-${p.id}`}>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20" onClick={() => removeMutation.mutate(p.id)} disabled={removeMutation.isPending} data-testid={`button-remove-store-product-${p.id}`}>
                       <Trash2 className="w-3 h-3" /> Remove
                     </Button>
                   </div>
@@ -8977,7 +8994,7 @@ function StoreProductsSection() {
             </>
           )}
         </div>
-      </CardContent>
+      </div>
 
       <ImageCropDialog
         open={cropQueue.length > 0}
@@ -8988,7 +9005,7 @@ function StoreProductsSection() {
         onConfirm={handleCropConfirm}
         onCancel={cancelCrop}
       />
-    </Card>
+    </section>
   );
 }
 
@@ -9166,13 +9183,13 @@ function WhmcsProductMappingSection() {
         {/* Existing mappings */}
         {rowOrder.length === 0 ? (
           <div className="px-5 py-8 text-center" data-testid="text-no-mappings">
-            <Server className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <Server className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
             <p className="text-sm text-muted-foreground">No product mappings yet.</p>
           </div>
         ) : (
-          <div className="border rounded-md overflow-hidden" data-testid="list-whmcs-mappings">
+          <div className="border-t border-b border-border -mx-5" data-testid="list-whmcs-mappings">
             {rowOrder.length > 1 && (
-              <div className="bg-muted/30 px-3 py-2 border-b">
+              <div className="bg-muted/30 px-5 py-2 border-b border-border">
                 <p className="text-xs text-muted-foreground" data-testid="text-mapping-reorder-hint">Drag the handle to reorder this list (for example to group a product's monthly, quarterly and annual variants together).</p>
               </div>
             )}
@@ -9185,35 +9202,35 @@ function WhmcsProductMappingSection() {
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleRowDrop(m.whmcsProductId)}
                   onDragEnd={() => setRowDragId(null)}
-                  className={`flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 px-3 py-3.5 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
+                  className={`flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 px-5 py-3.5 hover:bg-muted/50 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
                   data-testid={`row-mapping-${m.whmcsProductId}`}
                 >
-                  <div className="flex items-start gap-2 min-w-0">
+                  <div className="flex items-start gap-3 min-w-0">
                     {rowOrder.length > 1 && (
-                      <span className="mt-0.5 shrink-0 cursor-grab text-muted-foreground" data-testid={`drag-mapping-${m.whmcsProductId}`} aria-label="Drag to reorder">
+                      <span className="mt-1 shrink-0 cursor-grab hover:text-foreground text-muted-foreground" data-testid={`drag-mapping-${m.whmcsProductId}`} aria-label="Drag to reorder">
                         <GripVertical className="w-4 h-4" />
                       </span>
                     )}
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <p className="text-sm font-medium break-words" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{mappingName(m)}</p>
-                        <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-mapping-pid-${m.whmcsProductId}`}>#{m.whmcsProductId}</span>
+                        <span className="text-xs text-muted-foreground opacity-70 shrink-0" data-testid={`text-mapping-pid-${m.whmcsProductId}`}>#{m.whmcsProductId}</span>
                         <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-2 flex flex-wrap gap-1">
                         {m.serviceIds.map((sid) => (
-                          <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
+                          <Badge key={sid} variant="secondary" className="h-5 px-1.5 text-[11px] font-medium" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
                             {serviceName(sid)}
                           </Badge>
                         ))}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-start mt-1">
                     <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(m)} data-testid={`button-edit-mapping-${m.whmcsProductId}`}>
                       <Edit className="w-3 h-3" /> Edit
                     </Button>
-                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(m.whmcsProductId)} disabled={removeMutation.isPending} data-testid={`button-remove-mapping-${m.whmcsProductId}`}>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20" onClick={() => removeMutation.mutate(m.whmcsProductId)} disabled={removeMutation.isPending} data-testid={`button-remove-mapping-${m.whmcsProductId}`}>
                       <Trash2 className="w-3 h-3" /> Remove
                     </Button>
                   </div>
@@ -9398,23 +9415,23 @@ function WhmcsProductDnsSection() {
         {/* Existing DNS values */}
         {entries.length === 0 ? (
           <div className="px-5 py-8 text-center" data-testid="text-no-dns">
-            <Server className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <Server className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
             <p className="text-sm text-muted-foreground">No product DNS set yet.</p>
           </div>
         ) : (
-          <div className="border rounded-md overflow-hidden" data-testid="list-whmcs-dns">
+          <div className="border-t border-b border-border -mx-5" data-testid="list-whmcs-dns">
             <div className="divide-y divide-border">
               {entries.map((row) => (
-                <div key={row.whmcsProductId} className="flex items-start justify-between gap-2 px-3 py-3" data-testid={`row-dns-${row.whmcsProductId}`}>
+                <div key={row.whmcsProductId} className="flex items-start justify-between gap-3 px-5 py-3.5 hover:bg-muted/50" data-testid={`row-dns-${row.whmcsProductId}`}>
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate" data-testid={`text-dns-product-${row.whmcsProductId}`}>{productName(row.whmcsProductId)}</p>
-                    <p className="mt-1 text-sm text-muted-foreground break-all font-mono" data-testid={`text-dns-value-${row.whmcsProductId}`}>{row.dns}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground break-all font-mono" data-testid={`text-dns-value-${row.whmcsProductId}`}>{row.dns}</p>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
                     <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(row)} data-testid={`button-edit-dns-${row.whmcsProductId}`}>
                       <Edit className="w-3 h-3" /> Edit
                     </Button>
-                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => saveMutation.mutate({ whmcsProductId: row.whmcsProductId, dns: "" })} disabled={saveMutation.isPending} data-testid={`button-remove-dns-${row.whmcsProductId}`}>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20" onClick={() => saveMutation.mutate({ whmcsProductId: row.whmcsProductId, dns: "" })} disabled={saveMutation.isPending} data-testid={`button-remove-dns-${row.whmcsProductId}`}>
                       <Trash2 className="w-3 h-3" /> Clear
                     </Button>
                   </div>
@@ -9544,18 +9561,16 @@ function BillingSummaryCard({
         ? "bg-green-500/10 text-green-600 dark:text-green-400"
         : "bg-primary/10 text-primary";
   return (
-    <Card data-testid={testid}>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2">
-          <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${toneClass}`}>
-            <Icon className="w-4 h-4" />
-          </div>
-          <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-xl border border-card-border bg-card p-4 hover-elevate tap-interactive" data-testid={testid}>
+      <div className="flex items-center gap-2">
+        <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${toneClass}`}>
+          <Icon className="w-4 h-4" />
         </div>
-        <p className="text-2xl font-bold mt-2 truncate" data-testid={`${testid}-value`}>{value}</p>
-        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
-      </CardContent>
-    </Card>
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+      <p className="text-2xl font-bold mt-2 truncate" data-testid={`${testid}-value`}>{value}</p>
+      {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+    </div>
   );
 }
 
@@ -9585,7 +9600,7 @@ function BillingDashboardTab() {
 
   if (!data || !data.configured || !data.enabled) {
     return (
-      <div className="text-center py-12" data-testid="billing-dashboard-unconfigured">
+      <div className="text-center py-12 rounded-xl border border-card-border bg-card" data-testid="billing-dashboard-unconfigured">
         <CreditCard className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
         <p className="text-base font-semibold">Billing dashboard unavailable</p>
         <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
@@ -9597,7 +9612,7 @@ function BillingDashboardTab() {
 
   if (data.unreachable) {
     return (
-      <div className="text-center py-12" data-testid="billing-dashboard-unreachable">
+      <div className="text-center py-12 rounded-xl border border-card-border bg-card" data-testid="billing-dashboard-unreachable">
         <ServerCog className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
         <p className="text-base font-semibold">Billing temporarily unavailable</p>
         <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
@@ -9615,10 +9630,10 @@ function BillingDashboardTab() {
 
   return (
     <div className="space-y-4" data-testid="billing-dashboard">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
         <div>
-          <h3 className="font-semibold">Billing health</h3>
-          <p className="text-xs text-muted-foreground">
+          <h3 className="font-semibold text-lg">Billing health</h3>
+          <p className="text-sm text-muted-foreground">
             Across {s.linkedCustomers} linked customer{s.linkedCustomers === 1 ? "" : "s"}
             {data.generatedAt ? ` · updated ${formatDistanceToNow(new Date(data.generatedAt), { addSuffix: true })}` : ""}
           </p>
@@ -9646,47 +9661,50 @@ function BillingDashboardTab() {
         <BillingSummaryCard icon={TrendingUp} label="Est. monthly revenue" value={formatDashboardMoney(s.estimatedMrr, code)} hint="from active services" tone="success" testid="card-billing-mrr" />
       </div>
 
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Wallet className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold" data-testid="heading-billing-owing">Customers with balances</h3>
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden mt-4">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="heading-billing-owing">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400">
+              <Wallet className="h-[18px] w-[18px]" />
+            </span>
+            Customers with balances
+          </h2>
         </div>
         {data.customers.length === 0 ? (
-          <div className="text-center py-8 border rounded-md" data-testid="billing-dashboard-no-owing">
-            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
-            <p className="text-sm font-medium">No outstanding balances</p>
-            <p className="text-xs text-muted-foreground mt-1">Every linked customer is paid up.</p>
+          <div className="px-5 py-8 text-center" data-testid="billing-dashboard-no-owing">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500 opacity-50" />
+            <p className="text-sm text-muted-foreground">No outstanding balances. Every linked customer is paid up.</p>
           </div>
         ) : (
-          <div className="border rounded-md overflow-hidden">
+          <div className="overflow-x-auto border-t border-border -mt-[1px]">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Customer</TableHead>
+                <TableRow className="border-b border-border hover:bg-transparent">
+                  <TableHead className="px-5">Customer</TableHead>
                   <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead className="text-right hidden sm:table-cell">Overdue</TableHead>
                   <TableHead className="text-right">Invoices</TableHead>
-                  <TableHead className="w-10" />
+                  <TableHead className="w-10 pr-5" />
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="divide-y divide-border">
                 {data.customers.map((c) => (
                   <TableRow
                     key={c.userId}
-                    className="cursor-pointer"
+                    className="cursor-pointer hover-elevate tap-interactive border-0"
                     onClick={() => goToCustomer(c.userId)}
                     data-testid={`row-billing-customer-${c.userId}`}
                   >
-                    <TableCell>
+                    <TableCell className="px-5 py-3.5">
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate" data-testid={`text-billing-customer-name-${c.userId}`}>{c.name}</p>
                         {c.status && <p className="text-xs text-muted-foreground truncate">WHMCS: {c.status}</p>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-semibold" data-testid={`text-billing-customer-outstanding-${c.userId}`}>
+                    <TableCell className="text-right font-semibold py-3.5" data-testid={`text-billing-customer-outstanding-${c.userId}`}>
                       {formatDashboardMoney(c.outstanding, c.currencyCode ?? code)}
                     </TableCell>
-                    <TableCell className="text-right hidden sm:table-cell">
+                    <TableCell className="text-right hidden sm:table-cell py-3.5">
                       {c.overdue > 0 ? (
                         <span className="text-destructive font-medium" data-testid={`text-billing-customer-overdue-${c.userId}`}>
                           {formatDashboardMoney(c.overdue, c.currencyCode ?? code)}
@@ -9695,12 +9713,12 @@ function BillingDashboardTab() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right py-3.5">
                       <Badge variant="outline" className={c.overdueCount > 0 ? "bg-destructive/15 text-destructive border-destructive/30" : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"}>
                         {c.unpaidCount}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right pr-5 py-3.5">
                       <ChevronRight className="w-4 h-4 text-muted-foreground inline" />
                     </TableCell>
                   </TableRow>
@@ -9709,7 +9727,7 @@ function BillingDashboardTab() {
             </Table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
@@ -9780,22 +9798,27 @@ function WhmcsTab() {
     }
   };
 
-  if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full" /></div>;
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full rounded-xl" /></div>;
 
   const hasCredentials = !!settings?.hasCredentials;
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5" /> WHMCS Billing</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${hasCredentials ? "" : "border-amber-500/40 bg-amber-500/5"}`} data-testid="status-whmcs-credentials">
+    <div className="space-y-4 max-w-3xl">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-slate-500/10 text-slate-600 dark:text-slate-400">
+              <CreditCard className="h-[18px] w-[18px]" />
+            </span>
+            WHMCS Billing
+          </h2>
+        </div>
+        <div className="p-5 space-y-5">
+          <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${hasCredentials ? "border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-300" : "border-amber-500/40 bg-amber-500/5 text-amber-800 dark:text-amber-200"}`} data-testid="status-whmcs-credentials">
             {hasCredentials ? (
-              <><CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 shrink-0" /> <span>API credentials detected.</span></>
+              <><CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> <span>API credentials detected.</span></>
             ) : (
-              <><AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> <span>API credentials are not set. Add <code>WHMCS_API_IDENTIFIER</code> and <code>WHMCS_API_SECRET</code> in Secrets to enable the connection.</span></>
+              <><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> <span>API credentials are not set. Add <code>WHMCS_API_IDENTIFIER</code> and <code>WHMCS_API_SECRET</code> in Secrets to enable the connection.</span></>
             )}
           </div>
 
@@ -9849,7 +9872,7 @@ function WhmcsTab() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 pt-2">
             <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-whmcs">
               {saveMutation.isPending ? "Saving..." : "Save Settings"}
             </Button>
@@ -9875,8 +9898,8 @@ function WhmcsTab() {
             <p>Open a customer under <strong>Users</strong> to link them to a WHMCS client — automatically by matching email, or manually by searching.</p>
             <p className="mt-2">This is the foundation for upcoming billing features.</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <StoreProductsSection />
       <WhmcsProductMappingSection />
@@ -9988,31 +10011,35 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
   const linkedClient = data.linkedClient;
 
   return (
-    <div className="border rounded-md" data-testid="panel-whmcs">
-      <div className="flex items-center gap-2 px-3 py-3 border-b">
-        <CreditCard className="w-4 h-4 text-muted-foreground" />
-        <p className="text-sm font-medium">Billing (WHMCS)</p>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="panel-whmcs">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-slate-500/10 text-slate-600 dark:text-slate-400">
+            <CreditCard className="h-[18px] w-[18px]" />
+          </span>
+          Billing (WHMCS)
+        </h2>
       </div>
-      <div className="p-3 space-y-3">
+      <div className="p-5 space-y-4">
         {link ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4 border rounded-md">
             <div className="min-w-0 text-sm" data-testid="text-whmcs-linked-client">
               {linkedClient ? (
                 <>
-                  <p className="font-medium truncate">
+                  <p className="font-medium truncate flex items-center gap-2">
                     {linkedClient.fullName}
                     {linkedClient.status && (
-                      <Badge variant="outline" className="ml-2 h-5 px-1.5 text-xs">{linkedClient.status}</Badge>
+                      <Badge variant="outline" className="h-5 px-1.5 text-xs">{linkedClient.status}</Badge>
                     )}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {linkedClient.email || "no email"} · WHMCS client #{link.whmcsClientId}
+                  <p className="text-xs text-muted-foreground mt-1 truncate">
+                    {linkedClient.email || "no email"} <span className="opacity-70">· WHMCS client #{link.whmcsClientId}</span>
                   </p>
                 </>
               ) : (
                 <>
                   <p className="font-medium">WHMCS client #{link.whmcsClientId}</p>
-                  <p className="text-xs text-muted-foreground">Details unavailable — WHMCS could not be reached.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Details unavailable — WHMCS could not be reached.</p>
                 </>
               )}
             </div>
@@ -10020,7 +10047,7 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs gap-1 shrink-0"
+              className="h-8 text-xs gap-1 shrink-0 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20"
               onClick={() => unlinkMutation.mutate()}
               disabled={unlinkMutation.isPending}
               data-testid="button-whmcs-unlink"
@@ -10032,19 +10059,18 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
         ) : null}
 
         {link && <WhmcsBillingSection userId={userId} />}
-
         {link && <WhmcsDerivedServicesSection userId={userId} />}
         {link && <WhmcsServiceAlertsSection userId={userId} />}
         {link && <WhmcsTicketsSection userId={userId} />}
 
         {!link && (
-          <>
+          <div className="p-4 border rounded-md space-y-4">
             {autoMatchMutation.isPending ? (
               <p className="text-sm text-muted-foreground" data-testid="text-whmcs-matching">Matching by email…</p>
             ) : autoMatchError ? (
               <p className="text-sm text-amber-600" data-testid="text-whmcs-automatch-error">{autoMatchError}</p>
             ) : (
-              <p className="text-sm text-muted-foreground" data-testid="text-whmcs-not-linked">Not linked to a WHMCS client.</p>
+              <p className="text-sm text-muted-foreground" data-testid="text-whmcs-not-linked">Not linked to a WHMCS client. Link an account to sync services and billing.</p>
             )}
 
             <div className="flex items-center gap-2">
@@ -10076,12 +10102,12 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
               searchResults.length === 0 ? (
                 <p className="text-xs text-muted-foreground" data-testid="text-whmcs-no-results">No matching WHMCS clients.</p>
               ) : (
-                <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+                <div className="border rounded-md divide-y divide-border max-h-56 overflow-y-auto">
                   {searchResults.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between gap-2 px-2.5 py-2" data-testid={`row-whmcs-client-${c.id}`}>
+                    <div key={c.id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/50" data-testid={`row-whmcs-client-${c.id}`}>
                       <div className="min-w-0 text-sm">
                         <p className="font-medium truncate">{c.fullName}</p>
-                        <p className="text-xs text-muted-foreground truncate">{c.email || "no email"} · #{c.id}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{c.email || "no email"} <span className="opacity-70">· #{c.id}</span></p>
                       </div>
                       <Button
                         type="button"
@@ -10099,10 +10125,10 @@ function WhmcsCustomerPanel({ userId }: { userId: string }) {
                 </div>
               )
             )}
-          </>
+          </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -10113,7 +10139,7 @@ function WhmcsBillingSection({ userId }: { userId: string }) {
   });
 
   return (
-    <div className="border-t pt-3" data-testid="panel-whmcs-billing">
+    <div className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="panel-whmcs-billing">
       <BillingSummaryView data={data} isLoading={isLoading} context="admin" userId={userId} />
     </div>
   );
@@ -10151,30 +10177,36 @@ function WhmcsDerivedServicesSection({ userId }: { userId: string }) {
   });
 
   if (isLoading) {
-    return <div className="border-t pt-3"><Skeleton className="h-16 w-full" /></div>;
+    return <div className="rounded-xl border border-card-border bg-card p-5"><Skeleton className="h-16 w-full" /></div>;
   }
   if (!data || !data.linked) return null;
 
   return (
-    <div className="border-t pt-3" data-testid="panel-whmcs-derived-services">
-      <div className="flex items-center gap-2 mb-2">
-        <Server className="w-4 h-4 text-muted-foreground" />
-        <p className="text-sm font-medium">Monitored services (from products)</p>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="panel-whmcs-derived-services">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <Server className="h-[18px] w-[18px]" />
+          </span>
+          Monitored services (from products)
+        </h2>
       </div>
-      {data.unreachable ? (
-        <p className="text-xs text-muted-foreground" data-testid="text-derived-unreachable">Couldn't reach WHMCS to derive services.</p>
-      ) : data.services.length === 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid="text-derived-empty">No services map to this customer's active products.</p>
-      ) : (
-        <div className="flex flex-wrap gap-1.5" data-testid="list-derived-services">
-          {data.services.map((s) => (
-            <Badge key={s.id} variant="outline" className={`h-6 px-2 text-xs gap-1.5 ${serviceStatusBadgeClass(s.status)}`} data-testid={`badge-derived-service-${s.id}`}>
-              {s.name}
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
+      <div className="p-5">
+        {data.unreachable ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-derived-unreachable">Couldn't reach WHMCS to derive services.</p>
+        ) : data.services.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-derived-empty">No services map to this customer's active products.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5" data-testid="list-derived-services">
+            {data.services.map((s) => (
+              <Badge key={s.id} variant="outline" className={`h-6 px-2 text-xs gap-1.5 ${serviceStatusBadgeClass(s.status)}`} data-testid={`badge-derived-service-${s.id}`}>
+                {s.name}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -10200,35 +10232,44 @@ function WhmcsServiceAlertsSection({ userId }: { userId: string }) {
   });
 
   if (isLoading) {
-    return <div className="border-t pt-3"><Skeleton className="h-16 w-full" /></div>;
+    return <div className="rounded-xl border border-card-border bg-card p-5"><Skeleton className="h-16 w-full" /></div>;
   }
 
   const alerts = data?.alerts ?? [];
 
   return (
-    <div className="border-t pt-3" data-testid="panel-whmcs-service-alerts">
-      <div className="flex items-center gap-2 mb-2">
-        <Bell className="w-4 h-4 text-muted-foreground" />
-        <p className="text-sm font-medium">New-service alerts sent</p>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="panel-whmcs-service-alerts">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <Bell className="h-[18px] w-[18px]" />
+          </span>
+          New-service alerts sent
+        </h2>
       </div>
       {alerts.length === 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid="text-service-alerts-empty">
-          No new-service alerts have been sent to this customer.
-        </p>
+        <div className="px-5 py-8 text-center">
+          <Bell className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
+          <p className="text-sm text-muted-foreground" data-testid="text-service-alerts-empty">
+            No new-service alerts have been sent to this customer.
+          </p>
+        </div>
       ) : (
-        <ul className="space-y-2" data-testid="list-whmcs-service-alerts">
+        <div className="divide-y divide-border" data-testid="list-whmcs-service-alerts">
           {alerts.map((a) => {
             const added = a.type === "whmcs_service_added";
             const when = new Date(a.createdAt);
             return (
-              <li
+              <div
                 key={a.id}
-                className="flex items-start gap-2 text-sm"
+                className="flex items-start gap-3 px-5 py-3.5 text-sm hover:bg-muted/30 transition-colors"
                 data-testid={`row-service-alert-${a.id}`}
               >
-                <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
+                <div className="mt-0.5 shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium truncate">{a.title}</span>
                     <Badge variant="outline" className="h-5 px-1.5 text-xs">
                       {added ? "Added" : "Ready"}
@@ -10241,21 +10282,21 @@ function WhmcsServiceAlertsSection({ userId }: { userId: string }) {
                       <Badge variant="outline" className="h-5 px-1.5 text-xs">Unread</Badge>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground truncate">{a.body}</p>
+                  <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{a.body}</p>
                   <p
-                    className="text-xs text-muted-foreground"
+                    className="text-xs text-muted-foreground mt-1"
                     title={when.toLocaleString()}
                     data-testid={`text-service-alert-when-${a.id}`}
                   >
                     {formatDistanceToNow(when, { addSuffix: true })}
                   </p>
                 </div>
-              </li>
+              </div>
             );
           })}
-        </ul>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -10305,27 +10346,37 @@ function WhmcsTicketsSection({ userId }: { userId: string }) {
     )}&relatedid=${encodeURIComponent(String(a.relatedId))}&index=${encodeURIComponent(String(a.index))}`;
 
   return (
-    <div className="border-t pt-3" data-testid="panel-whmcs-tickets">
-      <div className="flex items-center gap-2 mb-2">
-        <LifeBuoy className="w-4 h-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Billing &amp; account support tickets</h3>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="panel-whmcs-tickets">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
+            <LifeBuoy className="h-[18px] w-[18px]" />
+          </span>
+          Billing &amp; account support tickets
+        </h2>
       </div>
-      {selectedId === null ? (
-        <WhmcsTicketList data={data} isLoading={isLoading} context="admin" onOpen={setSelectedId} />
-      ) : (
-        <WhmcsTicketThread
-          ticket={detail?.ticket}
-          isLoading={detailLoading}
-          isError={detailError}
-          context="admin"
-          onReply={(message, files) => replyMutation.mutate({ message, files })}
-          replyPending={replyMutation.isPending}
-          onBack={() => setSelectedId(null)}
-          replyHint="Your reply posts to WHMCS as the configured support staff member."
-          buildAttachmentUrl={buildAttachmentUrl}
-        />
-      )}
-    </div>
+      <div className="p-0">
+        {selectedId === null ? (
+          <div className="p-5">
+             <WhmcsTicketList data={data} isLoading={isLoading} context="admin" onOpen={setSelectedId} />
+          </div>
+        ) : (
+          <div className="p-5">
+            <WhmcsTicketThread
+              ticket={detail?.ticket}
+              isLoading={detailLoading}
+              isError={detailError}
+              context="admin"
+              onReply={(message, files) => replyMutation.mutate({ message, files })}
+              replyPending={replyMutation.isPending}
+              onBack={() => setSelectedId(null)}
+              replyHint="Your reply posts to WHMCS as the configured support staff member."
+              buildAttachmentUrl={buildAttachmentUrl}
+            />
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -10382,125 +10433,128 @@ function TelegramTab() {
     }
   };
 
-  if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full" /></div>;
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-40 w-full rounded-xl" /></div>;
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Send className="w-5 h-5" /> Telegram Notifications</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-md border p-3 text-sm space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Bot token:</span>
-              {settings?.hasToken ? (
-                <span className="text-green-600 font-medium">Configured</span>
-              ) : (
-                <span className="text-destructive font-medium">Missing</span>
-              )}
-            </div>
-            {!settings?.hasToken && (
-              <p className="text-xs text-muted-foreground">
-                Ask the administrator to set the <code className="font-mono">TELEGRAM_BOT_TOKEN</code> secret.
-                Create a bot via <strong>@BotFather</strong> on Telegram to get a token.
-              </p>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden max-w-2xl">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <Send className="h-[18px] w-[18px]" />
+          </span>
+          Telegram Notifications
+        </h2>
+      </div>
+      <div className="p-5 space-y-6">
+        <div className="rounded-md border p-3 text-sm space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Bot token:</span>
+            {settings?.hasToken ? (
+              <span className="text-green-600 font-medium">Configured</span>
+            ) : (
+              <span className="text-destructive font-medium">Missing</span>
             )}
           </div>
+          {!settings?.hasToken && (
+            <p className="text-xs text-muted-foreground">
+              Ask the administrator to set the <code className="font-mono">TELEGRAM_BOT_TOKEN</code> secret.
+              Create a bot via <strong>@BotFather</strong> on Telegram to get a token.
+            </p>
+          )}
+        </div>
 
+        <div className="space-y-2">
+          <Label htmlFor="telegram-chat-id">Telegram Chat ID</Label>
+          <Input
+            id="telegram-chat-id"
+            placeholder="e.g. -1001234567890"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            data-testid="input-telegram-chat-id"
+          />
+          <p className="text-xs text-muted-foreground">
+            Add your bot to the group, then use @RawDataBot or a similar helper bot to obtain the group's chat ID (usually a negative number for groups).
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border p-4">
           <div>
-            <Label htmlFor="telegram-chat-id">Telegram Chat ID</Label>
-            <Input
-              id="telegram-chat-id"
-              placeholder="e.g. -1001234567890"
-              value={chatId}
-              onChange={(e) => setChatId(e.target.value)}
-              data-testid="input-telegram-chat-id"
-            />
+            <p className="text-sm font-medium">Enable Telegram notifications</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Add your bot to the group, then use @RawDataBot or a similar helper bot to obtain the group's chat ID (usually a negative number for groups).
+              When enabled, alerts, service updates, and news are posted to the configured chat.
             </p>
           </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            data-testid="switch-telegram-enabled"
+          />
+        </div>
 
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div>
-              <p className="text-sm font-medium">Enable Telegram notifications</p>
-              <p className="text-xs text-muted-foreground">
-                When enabled, alerts, service updates, and news are posted to the configured chat.
-              </p>
-            </div>
-            <Switch
-              checked={enabled}
-              onCheckedChange={setEnabled}
-              data-testid="switch-telegram-enabled"
+        <div className="rounded-md border p-4 space-y-3">
+          <p className="text-sm font-medium">Send these event types</p>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="telegram-send-alerts"
+              checked={sendAlerts}
+              onCheckedChange={(v) => setSendAlerts(!!v)}
+              data-testid="checkbox-telegram-send-alerts"
             />
+            <Label htmlFor="telegram-send-alerts" className="text-sm font-normal cursor-pointer">
+              Service alerts (created, updated, resolved)
+            </Label>
           </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="telegram-send-service-updates"
+              checked={sendServiceUpdates}
+              onCheckedChange={(v) => setSendServiceUpdates(!!v)}
+              data-testid="checkbox-telegram-send-service-updates"
+            />
+            <Label htmlFor="telegram-send-service-updates" className="text-sm font-normal cursor-pointer">
+              Service updates
+            </Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="telegram-send-news"
+              checked={sendNews}
+              onCheckedChange={(v) => setSendNews(!!v)}
+              data-testid="checkbox-telegram-send-news"
+            />
+            <Label htmlFor="telegram-send-news" className="text-sm font-normal cursor-pointer">
+              News stories
+            </Label>
+          </div>
+        </div>
 
-          <div className="rounded-md border p-3 space-y-3">
-            <p className="text-sm font-medium">Send these event types</p>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="telegram-send-alerts"
-                checked={sendAlerts}
-                onCheckedChange={(v) => setSendAlerts(!!v)}
-                data-testid="checkbox-telegram-send-alerts"
-              />
-              <Label htmlFor="telegram-send-alerts" className="text-sm font-normal cursor-pointer">
-                Service alerts (created, updated, resolved)
-              </Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="telegram-send-service-updates"
-                checked={sendServiceUpdates}
-                onCheckedChange={(v) => setSendServiceUpdates(!!v)}
-                data-testid="checkbox-telegram-send-service-updates"
-              />
-              <Label htmlFor="telegram-send-service-updates" className="text-sm font-normal cursor-pointer">
-                Service updates
-              </Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="telegram-send-news"
-                checked={sendNews}
-                onCheckedChange={(v) => setSendNews(!!v)}
-                data-testid="checkbox-telegram-send-news"
-              />
-              <Label htmlFor="telegram-send-news" className="text-sm font-normal cursor-pointer">
-                News stories
-              </Label>
-            </div>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => saveMutation.mutate({ chatId: chatId.trim(), enabled, sendAlerts, sendServiceUpdates, sendNews })}
+            disabled={saveMutation.isPending}
+            data-testid="button-save-telegram"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save Settings"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleTest}
+            disabled={testing || !settings?.hasToken || !chatId.trim()}
+            data-testid="button-test-telegram"
+          >
+            {testing ? "Sending..." : "Send Test Message"}
+          </Button>
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => saveMutation.mutate({ chatId: chatId.trim(), enabled, sendAlerts, sendServiceUpdates, sendNews })}
-              disabled={saveMutation.isPending}
-              data-testid="button-save-telegram"
-            >
-              {saveMutation.isPending ? "Saving..." : "Save Settings"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleTest}
-              disabled={testing || !settings?.hasToken || !chatId.trim()}
-              data-testid="button-test-telegram"
-            >
-              {testing ? "Sending..." : "Send Test Message"}
-            </Button>
-          </div>
-
-          <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground">What gets sent:</p>
-            <p>🚨 Service alerts (created / updated / resolved) — with service name and impact</p>
-            <p>📢 Service updates — with service name</p>
-            <p>📰 News stories — title and preview</p>
-            <p className="mt-2">If Telegram fails or is disabled, your app notifications still send normally.</p>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        <div className="rounded-md bg-muted/50 p-4 text-xs text-muted-foreground space-y-1.5">
+          <p className="font-medium text-foreground">What gets sent:</p>
+          <p>🚨 Service alerts (created / updated / resolved) — with service name and impact</p>
+          <p>📢 Service updates — with service name</p>
+          <p>📰 News stories — title and preview</p>
+          <p className="mt-2 text-[11px]">If Telegram fails or is disabled, your app notifications still send normally.</p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -10581,7 +10635,7 @@ function SupportAwayTab() {
     onError: (e: Error) => toast({ title: "Couldn't turn off", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading) return <div className="space-y-3"><Skeleton className="h-64 w-full" /></div>;
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-64 w-full rounded-xl" /></div>;
 
   const startDate = startAt ? new Date(startAt) : null;
   const endDate = endAt ? new Date(endAt) : null;
@@ -10589,102 +10643,103 @@ function SupportAwayTab() {
   const messageInvalid = !message.trim();
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="w-5 h-5" /> Support Away Message
-            {settings?.isActive && (
-              <Badge variant="default" className="ml-2 text-xs bg-orange-500 hover:bg-orange-500" data-testid="badge-away-status">
-                Active now
-              </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div className="pr-3">
-              <p className="text-sm font-medium">Enable away message</p>
-              <p className="text-xs text-muted-foreground">
-                When enabled and inside the window, customers see a banner before opening a ticket, and new tickets get the away message as an auto-reply instead of the standard one.
-              </p>
-            </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} data-testid="switch-away-enabled" />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="away-start">Start</Label>
-              <Input
-                id="away-start"
-                type="datetime-local"
-                value={startAt}
-                onChange={(e) => setStartAt(e.target.value)}
-                data-testid="input-away-start"
-              />
-            </div>
-            <div>
-              <Label htmlFor="away-end">End</Label>
-              <Input
-                id="away-end"
-                type="datetime-local"
-                value={endAt}
-                onChange={(e) => setEndAt(e.target.value)}
-                data-testid="input-away-end"
-              />
-            </div>
-          </div>
-          {enabled && windowInvalid && (
-            <p className="text-xs text-destructive" data-testid="text-away-window-error">
-              Set a start and an end time, with the end after the start.
-            </p>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden max-w-2xl">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
+            <Clock className="h-[18px] w-[18px]" />
+          </span>
+          Support Away Message
+          {settings?.isActive && (
+            <Badge variant="default" className="ml-2 text-[10px] uppercase tracking-wider bg-orange-500 hover:bg-orange-500" data-testid="badge-away-status">
+              Active now
+            </Badge>
           )}
-
-          <div>
-            <Label htmlFor="away-msg">Away message</Label>
-            <Textarea
-              id="away-msg"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              maxLength={2000}
-              rows={4}
-              data-testid="textarea-away-message"
-            />
+        </h2>
+      </div>
+      <div className="p-5 space-y-6">
+        <div className="flex items-center justify-between rounded-md border p-4">
+          <div className="pr-4">
+            <p className="text-sm font-medium">Enable away message</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Shown to customers as a banner before they open a ticket and posted as the auto-reply on any new ticket while active.
+              When enabled and inside the window, customers see a banner before opening a ticket, and new tickets get the away message as an auto-reply instead of the standard one.
             </p>
-            {messageInvalid && (
-              <p className="text-xs text-destructive mt-1">Away message can't be empty.</p>
-            )}
           </div>
+          <Switch checked={enabled} onCheckedChange={setEnabled} data-testid="switch-away-enabled" />
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => saveMutation.mutate({
-                enabled,
-                startAt: fromLocalInput(startAt),
-                endAt: fromLocalInput(endAt),
-                message: message.trim(),
-              })}
-              disabled={saveMutation.isPending || windowInvalid || messageInvalid}
-              data-testid="button-save-away"
-            >
-              {saveMutation.isPending ? "Saving..." : "Save Settings"}
-            </Button>
-            {settings?.isActive && (
-              <Button
-                variant="outline"
-                onClick={() => turnOffMutation.mutate()}
-                disabled={turnOffMutation.isPending}
-                data-testid="button-away-turn-off"
-              >
-                {turnOffMutation.isPending ? "Turning off..." : "Turn off now"}
-              </Button>
-            )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="away-start">Start</Label>
+            <Input
+              id="away-start"
+              type="datetime-local"
+              value={startAt}
+              onChange={(e) => setStartAt(e.target.value)}
+              data-testid="input-away-start"
+            />
           </div>
-        </CardContent>
-      </Card>
-    </div>
+          <div className="space-y-2">
+            <Label htmlFor="away-end">End</Label>
+            <Input
+              id="away-end"
+              type="datetime-local"
+              value={endAt}
+              onChange={(e) => setEndAt(e.target.value)}
+              data-testid="input-away-end"
+            />
+          </div>
+        </div>
+        {enabled && windowInvalid && (
+          <p className="text-xs text-destructive" data-testid="text-away-window-error">
+            Set a start and an end time, with the end after the start.
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="away-msg">Away message</Label>
+          <Textarea
+            id="away-msg"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            maxLength={2000}
+            rows={4}
+            data-testid="textarea-away-message"
+          />
+          <p className="text-xs text-muted-foreground">
+            Shown to customers as a banner before they open a ticket and posted as the auto-reply on any new ticket while active.
+          </p>
+          {messageInvalid && (
+            <p className="text-xs text-destructive">Away message can't be empty.</p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button
+            onClick={() => saveMutation.mutate({
+              enabled,
+              startAt: fromLocalInput(startAt),
+              endAt: fromLocalInput(endAt),
+              message: message.trim(),
+            })}
+            disabled={saveMutation.isPending || windowInvalid || messageInvalid}
+            data-testid="button-save-away"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save Settings"}
+          </Button>
+          {settings?.isActive && (
+            <Button
+              variant="outline"
+              onClick={() => turnOffMutation.mutate()}
+              disabled={turnOffMutation.isPending}
+              data-testid="button-away-turn-off"
+            >
+              {turnOffMutation.isPending ? "Turning off..." : "Turn off now"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -10785,7 +10840,7 @@ function BusinessHoursTab() {
     onError: (e: Error) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading) return <div className="space-y-3"><Skeleton className="h-64 w-full" /></div>;
+  if (isLoading) return <div className="space-y-3"><Skeleton className="h-64 w-full rounded-xl" /></div>;
 
   const toggleDay = (d: number) => {
     setDays((prev) => {
@@ -10801,130 +10856,131 @@ function BusinessHoursTab() {
   const hoursInvalid = startMin >= endMin;
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="w-5 h-5" /> Business Hours
-            {settings?.enabled && (
-              <Badge variant={settings.isOpen ? "default" : "secondary"} className="ml-2 text-xs" data-testid="badge-bh-status">
-                {settings.isOpen ? "Currently open" : "Currently closed"}
-              </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div>
-              <p className="text-sm font-medium">Enable business hours</p>
-              <p className="text-xs text-muted-foreground">
-                When enabled, customers see an after-hours warning when opening or replying to tickets outside the configured hours.
-              </p>
-            </div>
-            <Switch
-              checked={enabled}
-              onCheckedChange={setEnabled}
-              data-testid="switch-bh-enabled"
-            />
-          </div>
-
-          <div className="rounded-md border p-3 space-y-3">
-            <p className="text-sm font-medium">Business days</p>
-            <div className="flex flex-wrap gap-3">
-              {DAY_LABELS.map((d) => (
-                <div key={d.value} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`bh-day-${d.value}`}
-                    checked={days.has(d.value)}
-                    onCheckedChange={() => toggleDay(d.value)}
-                    data-testid={`checkbox-bh-day-${d.value}`}
-                  />
-                  <Label htmlFor={`bh-day-${d.value}`} className="text-sm font-normal cursor-pointer">
-                    {d.short}
-                  </Label>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="bh-start">Open time</Label>
-              <Input
-                id="bh-start"
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                data-testid="input-bh-start-time"
-              />
-            </div>
-            <div>
-              <Label htmlFor="bh-end">Close time</Label>
-              <Input
-                id="bh-end"
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                data-testid="input-bh-end-time"
-              />
-            </div>
-          </div>
-          {hoursInvalid && (
-            <p className="text-xs text-destructive" data-testid="text-bh-hours-error">
-              Open time must be earlier than close time. Hours that wrap past midnight aren't supported.
-            </p>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden max-w-2xl">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <Clock className="h-[18px] w-[18px]" />
+          </span>
+          Business Hours
+          {settings?.enabled && (
+            <Badge variant={settings.isOpen ? "default" : "secondary"} className="ml-2 text-[10px] uppercase tracking-wider" data-testid="badge-bh-status">
+              {settings.isOpen ? "Currently open" : "Currently closed"}
+            </Badge>
           )}
-
-          <div>
-            <Label htmlFor="bh-tz">Timezone</Label>
-            <Select value={timezone} onValueChange={setTimezone}>
-              <SelectTrigger id="bh-tz" data-testid="select-bh-timezone">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-72">
-                {timezones.map((tz) => (
-                  <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label htmlFor="bh-msg">After-hours message</Label>
-            <Textarea
-              id="bh-msg"
-              value={afterHoursMessage}
-              onChange={(e) => setAfterHoursMessage(e.target.value)}
-              maxLength={2000}
-              rows={4}
-              data-testid="textarea-bh-message"
-            />
+        </h2>
+      </div>
+      <div className="p-5 space-y-6">
+        <div className="flex items-center justify-between rounded-md border p-4">
+          <div className="pr-4">
+            <p className="text-sm font-medium">Enable business hours</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Customers see this in the warning popup and the in-ticket banner. The "we reopen ..." line is added automatically based on the next business day.
+              When enabled, customers see an after-hours warning when opening or replying to tickets outside the configured hours.
             </p>
           </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            data-testid="switch-bh-enabled"
+          />
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() =>
-                saveMutation.mutate({
-                  enabled,
-                  daysOfWeek: Array.from(days).sort((a, b) => a - b),
-                  startTime,
-                  endTime,
-                  timezone,
-                  afterHoursMessage: afterHoursMessage.trim(),
-                })
-              }
-              disabled={saveMutation.isPending || hoursInvalid}
-              data-testid="button-save-business-hours"
-            >
-              {saveMutation.isPending ? "Saving..." : "Save Settings"}
-            </Button>
+        <div className="rounded-md border p-4 space-y-3">
+          <p className="text-sm font-medium">Business days</p>
+          <div className="flex flex-wrap gap-4">
+            {DAY_LABELS.map((d) => (
+              <div key={d.value} className="flex items-center gap-2">
+                <Checkbox
+                  id={`bh-day-${d.value}`}
+                  checked={days.has(d.value)}
+                  onCheckedChange={() => toggleDay(d.value)}
+                  data-testid={`checkbox-bh-day-${d.value}`}
+                />
+                <Label htmlFor={`bh-day-${d.value}`} className="text-sm font-normal cursor-pointer">
+                  {d.short}
+                </Label>
+              </div>
+            ))}
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="bh-start">Open time</Label>
+            <Input
+              id="bh-start"
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              data-testid="input-bh-start-time"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="bh-end">Close time</Label>
+            <Input
+              id="bh-end"
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              data-testid="input-bh-end-time"
+            />
+          </div>
+        </div>
+        {hoursInvalid && (
+          <p className="text-xs text-destructive" data-testid="text-bh-hours-error">
+            Open time must be earlier than close time. Hours that wrap past midnight aren't supported.
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="bh-tz">Timezone</Label>
+          <Select value={timezone} onValueChange={setTimezone}>
+            <SelectTrigger id="bh-tz" data-testid="select-bh-timezone">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {timezones.map((tz) => (
+                <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="bh-msg">After-hours message</Label>
+          <Textarea
+            id="bh-msg"
+            value={afterHoursMessage}
+            onChange={(e) => setAfterHoursMessage(e.target.value)}
+            maxLength={2000}
+            rows={4}
+            data-testid="textarea-bh-message"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Customers see this in the warning popup and the in-ticket banner. The "we reopen ..." line is added automatically based on the next business day.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button
+            onClick={() =>
+              saveMutation.mutate({
+                enabled,
+                daysOfWeek: Array.from(days).sort((a, b) => a - b),
+                startTime,
+                endTime,
+                timezone,
+                afterHoursMessage: afterHoursMessage.trim(),
+              })
+            }
+            disabled={saveMutation.isPending || hoursInvalid}
+            data-testid="button-save-business-hours"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save Settings"}
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -11026,44 +11082,54 @@ function OnlineUsersTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-online-title">
-            <Activity className="w-5 h-5 text-emerald-500" /> Online Now
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {isLoading ? "Loading..." : `${rows.length} user${rows.length === 1 ? "" : "s"} currently connected`}
-          </p>
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden max-w-4xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div>
+            <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-online-title">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <Activity className="h-[18px] w-[18px]" />
+              </span>
+              Online Now
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1 ml-[3.25rem]">
+              {isLoading ? "Loading..." : `${rows.length} user${rows.length === 1 ? "" : "s"} currently connected`}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-online">
+            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+          </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-online">
-          <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
-        </Button>
-      </div>
 
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
-        </div>
-      ) : rows.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        {isLoading ? (
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+               <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                  <Skeleton className="w-9 h-9 rounded-full shrink-0" />
+                  <div className="space-y-1.5 flex-1 max-w-48">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+               </div>
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+            <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
             No other users are currently online.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {rows.map((r) => (
-            <Card key={r.userId} className="hover-elevate" data-testid={`row-online-${r.userId}`}>
-              <CardContent className="p-3 flex items-center gap-3">
-                <div className="relative">
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium">
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {rows.map((r) => (
+              <li key={r.userId} className="flex items-center gap-3 px-5 py-3.5" data-testid={`row-online-${r.userId}`}>
+                <div className="relative shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium text-primary">
                     {r.fullName.charAt(0).toUpperCase()}
                   </div>
                   <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium" data-testid={`text-online-name-${r.userId}`}>{r.fullName}</span>
+                    <span className="text-sm font-medium truncate" data-testid={`text-online-name-${r.userId}`}>{r.fullName}</span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${roleBadge(r.role)}`} data-testid={`badge-online-role-${r.userId}`}>
                       {r.role.replace("_", " ")}
                     </span>
@@ -11085,17 +11151,19 @@ function OnlineUsersTab() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="shrink-0"
                     onClick={() => { setComposeFor(r); setComposeSubject(""); setComposeBody(""); }}
                     data-testid={`button-message-${r.userId}`}
                   >
-                    <Mail className="w-3.5 h-3.5 mr-1" /> Message
+                    <Mail className="w-3.5 h-3.5 sm:mr-1" />
+                    <span className="hidden sm:inline">Message</span>
                   </Button>
                 )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <Dialog open={!!composeFor} onOpenChange={(open) => { if (!open) setComposeFor(null); }}>
         <DialogContent data-testid="dialog-online-message">
@@ -11345,46 +11413,49 @@ export default function AdminPortal() {
       </div>
 
       {!activeSection ? (
-        <div className="space-y-6" data-testid="admin-menu-grouped">
+        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-3" data-testid="admin-menu-grouped">
           {sectionGroups.map((g) => {
             const items = sections.filter((s) => s.group === g.key);
             if (items.length === 0) return null;
             return (
-              <section key={g.key} data-testid={`menu-group-${g.key}`}>
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
-                  {g.label}
-                </h2>
-                <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60">
+              <section key={g.key} data-testid={`menu-group-${g.key}`} className="rounded-xl border border-card-border bg-card overflow-hidden">
+                <div className="px-5 py-4 border-b border-border bg-muted/20">
+                  <h2 className="text-sm font-semibold tracking-tight">
+                    {g.label}
+                  </h2>
+                </div>
+                <ul className="divide-y divide-border">
                   {items.map((s) => {
                     const Icon = s.icon;
                     const badgeCategory = tileBadgeMap[s.key];
                     let badgeCount = badgeCategory && contentCounts ? (contentCounts[badgeCategory] ?? 0) : 0;
                     if (s.key === "admin-chat" && chatUnreadData) badgeCount = chatUnreadData.count;
                     return (
-                      <button
-                        key={s.key}
-                        onClick={() => {
-                          captureMenuScroll();
-                          if (s.navigateTo) navigate(s.navigateTo);
-                          else goToSection(s.key);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors motion-reduce:transition-none hover:bg-accent/50 active:bg-accent/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                        data-testid={`tile-admin-${s.key}`}
-                      >
-                        <div className={`rounded-lg p-2 shrink-0 ${s.bg}`}>
-                          <Icon className={`w-[18px] h-[18px] ${s.color}`} />
-                        </div>
-                        <span className="flex-1 min-w-0 text-sm font-medium truncate">{s.label}</span>
-                        {badgeCount > 0 && (
-                          <Badge variant="destructive" className="shrink-0 text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-tile-${s.key}`}>
-                            {badgeCount}
-                          </Badge>
-                        )}
-                        <ChevronRight aria-hidden="true" className="w-4 h-4 shrink-0 text-muted-foreground/40" />
-                      </button>
+                      <li key={s.key}>
+                        <button
+                          onClick={() => {
+                            captureMenuScroll();
+                            if (s.navigateTo) navigate(s.navigateTo);
+                            else goToSection(s.key);
+                          }}
+                          className="w-full flex items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-muted/50 active:bg-muted focus:outline-none tap-interactive"
+                          data-testid={`tile-admin-${s.key}`}
+                        >
+                          <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${s.bg} ${s.color} ring-1 ring-inset ring-current/10`}>
+                            <Icon className="w-[18px] h-[18px]" />
+                          </span>
+                          <span className="flex-1 min-w-0 text-sm font-medium truncate">{s.label}</span>
+                          {badgeCount > 0 && (
+                            <Badge variant="destructive" className="shrink-0 text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-tile-${s.key}`}>
+                              {badgeCount}
+                            </Badge>
+                          )}
+                          <ChevronRight aria-hidden="true" className="w-4 h-4 shrink-0 text-muted-foreground/50" />
+                        </button>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </section>
             );
           })}
@@ -11529,192 +11600,205 @@ function ChangelogTab() {
   });
 
   if (isLoading || !rows) {
-    return <div className="text-sm text-muted-foreground" data-testid="text-changelog-loading">Loading…</div>;
+    return <div className="space-y-4 max-w-3xl" data-testid="text-changelog-loading"><Skeleton className="h-64 w-full rounded-xl" /></div>;
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div>
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <FileText className="w-5 h-5 text-cyan-500" /> Changelog
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Notes collect in the <strong>Next release</strong> draft as changes ship. When the version number changes, those
-          notes get stamped with the new version and wait for you to click <strong>Publish</strong> — the gate that fires the
-          "Welcome to version X" popup for customers.
-        </p>
-      </div>
-
-      {pendingPublish && (
-        <div
-          className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
-          data-testid="banner-changelog-pending-publish"
-        >
-          <div>
-            <div className="font-medium text-amber-700 dark:text-amber-300">
-              v{APP_VERSION} is staged and ready to publish
-            </div>
-            <div className="text-xs mt-1 text-muted-foreground">
-              Proofread, then publish to fire the welcome popup for everyone.
-            </div>
-          </div>
-          <div className="flex gap-2 self-end sm:self-auto">
-            <Button variant="outline" size="sm" onClick={() => setEditing(pendingPublish)} data-testid="button-changelog-edit-pending">
-              <Edit className="w-4 h-4 mr-1" /> Edit
-            </Button>
-            <Button size="sm" onClick={() => setConfirmPublish(pendingPublish)} data-testid="button-changelog-publish-pending">
-              Publish v{APP_VERSION}
-            </Button>
-          </div>
+    <div className="space-y-6 max-w-4xl">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+              <FileText className="h-[18px] w-[18px]" />
+            </span>
+            Changelog
+          </h2>
+          <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
+            Notes collect in the <strong className="font-medium text-foreground">Next release</strong> draft as changes ship. When the version number changes, those
+            notes get stamped with the new version and wait for you to click <strong className="font-medium text-foreground">Publish</strong> — the gate that fires the
+            "Welcome to version X" popup for customers.
+          </p>
         </div>
-      )}
-
-      {rollingDraft && (
-        <div
-          className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
-          data-testid="banner-changelog-rolling-draft"
-        >
-          <div>
-            <div className="font-medium text-cyan-700 dark:text-cyan-300">
-              Collecting notes for the next release — {rollingBulletCount} bullet{rollingBulletCount === 1 ? "" : "s"} so far
-            </div>
-            <div className="text-xs mt-1 text-muted-foreground">
-              Updated {formatDistanceToNow(new Date(rollingDraft.updatedAt), { addSuffix: true })}. These publish automatically once the version number changes — no mid-version publishing.
-            </div>
-          </div>
-          <div className="flex gap-2 self-end sm:self-auto">
-            <Button variant="outline" size="sm" onClick={() => setEditing(rollingDraft)} data-testid="button-changelog-edit-rolling">
-              <Edit className="w-4 h-4 mr-1" /> Edit draft
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Filter by version or headline…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="pl-8"
-            data-testid="input-changelog-filter"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-muted-foreground" data-testid="text-changelog-count">
-            {filteredRows.length} of {rows.length} entr{rows.length === 1 ? "y" : "ies"}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              // Bust the PWA service-worker API cache for this URL too — the
-              // SW caches every successful GET, so a plain refetch could still
-              // see the stale copy on flaky/offline transitions.
-              try {
-                if ("caches" in window) {
-                  const keys = await caches.keys();
-                  await Promise.all(
-                    keys
-                      .filter((k) => k.startsWith("servicehub-api-"))
-                      .map(async (k) => {
-                        const cache = await caches.open(k);
-                        await cache.delete("/api/admin/changelog");
-                      }),
-                  );
-                }
-              } catch {}
-              await queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
-              await refetch();
-              toast({ title: "Refreshed" });
-            }}
-            disabled={isFetching}
-            data-testid="button-changelog-refresh"
-            title="Re-fetch from server (bypasses PWA cache)"
-          >
-            <RefreshCw className={`w-4 h-4 mr-1 ${isFetching ? "animate-spin" : ""}`} /> Refresh
-          </Button>
-        </div>
-      </div>
-
-      <div className="border rounded-md divide-y">
-        {rows.length === 0 && (
-          <div className="p-4 text-sm text-muted-foreground" data-testid="text-changelog-empty">No entries yet.</div>
-        )}
-        {rows.length > 0 && filteredRows.length === 0 && (
-          <div className="p-4 text-sm text-muted-foreground" data-testid="text-changelog-no-match">
-            No entries match "{filter}".
-          </div>
-        )}
-        {filteredRows.map((r) => {
-          const editable = isEditableRow(r);
-          const publishable = isPublishableRow(r);
-          const deletable = isDeletableRow(r);
-          const statusLabel =
-            r.status === "published" ? "Published"
-            : r.status === "collecting" ? "Collecting"
-            : r.status === "awaiting_publish" ? "Awaiting publish"
-            : "Draft";
-          return (
-          <div key={r.version} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2" data-testid={`row-changelog-${r.version}`}>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-sm font-semibold" data-testid={`text-changelog-version-${r.version}`}>{changelogVersionLabel(r)}</span>
-                <Badge variant={r.status === "published" ? "default" : "secondary"} data-testid={`badge-changelog-status-${r.version}`}>
-                  {statusLabel}
-                </Badge>
-                {r.status === "awaiting_publish" && r.version === APP_VERSION && (
-                  <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300 text-[10px]" data-testid={`badge-changelog-current-${r.version}`}>
-                    Current version
-                  </Badge>
-                )}
-                {!editable && (
-                  <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-changelog-readonly-${r.version}`}>
-                    Read-only
-                  </Badge>
-                )}
-                {r.status === "published" && r.publishedAt && (
-                  <span className="text-xs text-muted-foreground">
-                    {format(new Date(r.publishedAt), "MMM d, yyyy")}
-                  </span>
-                )}
-              </div>
-              {r.title && <div className="text-sm mt-1 truncate" data-testid={`text-changelog-title-${r.version}`}>{r.title}</div>}
-              <div className="text-xs text-muted-foreground mt-1">
-                Updated {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })}
-              </div>
-            </div>
-            <div className="flex items-center gap-1 self-end sm:self-auto">
-              {editable ? (
-                <>
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(r)} data-testid={`button-changelog-edit-${r.version}`}>
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setPreviewing(r)} data-testid={`button-changelog-preview-${r.version}`}>
-                    <Eye className="w-4 h-4" />
-                  </Button>
-                  {publishable && (
-                    <Button variant="default" size="sm" onClick={() => setConfirmPublish(r)} data-testid={`button-changelog-publish-${r.version}`}>
-                      Publish
+        <div className="p-5 space-y-5">
+          {(pendingPublish || rollingDraft) && (
+            <div className="space-y-3">
+              {pendingPublish && (
+                <div
+                  className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+                  data-testid="banner-changelog-pending-publish"
+                >
+                  <div>
+                    <div className="font-medium text-sm text-amber-700 dark:text-amber-300">
+                      v{APP_VERSION} is staged and ready to publish
+                    </div>
+                    <div className="text-xs mt-1 text-amber-700/80 dark:text-amber-300/80">
+                      Proofread, then publish to fire the welcome popup for everyone.
+                    </div>
+                  </div>
+                  <div className="flex gap-2 self-end sm:self-auto shrink-0">
+                    <Button variant="outline" size="sm" onClick={() => setEditing(pendingPublish)} data-testid="button-changelog-edit-pending" className="bg-background">
+                      <Edit className="w-4 h-4 mr-1.5" /> Edit
                     </Button>
-                  )}
-                  {deletable && (
-                    <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(r)} data-testid={`button-changelog-delete-${r.version}`}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
+                    <Button size="sm" onClick={() => setConfirmPublish(pendingPublish)} data-testid="button-changelog-publish-pending" className="bg-amber-600 hover:bg-amber-700 text-white">
+                      Publish v{APP_VERSION}
                     </Button>
-                  )}
-                </>
-              ) : (
-                <Button variant="outline" size="sm" onClick={() => setPreviewing(r)} data-testid={`button-changelog-view-${r.version}`}>
-                  <Eye className="w-4 h-4 mr-1" /> View
-                </Button>
+                  </div>
+                </div>
+              )}
+
+              {rollingDraft && (
+                <div
+                  className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+                  data-testid="banner-changelog-rolling-draft"
+                >
+                  <div>
+                    <div className="font-medium text-sm text-cyan-700 dark:text-cyan-300">
+                      Collecting notes for the next release
+                    </div>
+                    <div className="text-xs mt-1 text-cyan-700/80 dark:text-cyan-300/80">
+                      {rollingBulletCount} bullet{rollingBulletCount === 1 ? "" : "s"} so far · Updated {formatDistanceToNow(new Date(rollingDraft.updatedAt), { addSuffix: true })}.
+                    </div>
+                  </div>
+                  <div className="flex gap-2 self-end sm:self-auto shrink-0">
+                    <Button variant="outline" size="sm" onClick={() => setEditing(rollingDraft)} data-testid="button-changelog-edit-rolling" className="bg-background">
+                      <Edit className="w-4 h-4 mr-1.5" /> Edit draft
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Filter by version or headline…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="pl-9 h-9"
+                data-testid="input-changelog-filter"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-muted-foreground" data-testid="text-changelog-count">
+                {filteredRows.length} of {rows.length} entr{rows.length === 1 ? "y" : "ies"}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={async () => {
+                  try {
+                    if ("caches" in window) {
+                      const keys = await caches.keys();
+                      await Promise.all(
+                        keys
+                          .filter((k) => k.startsWith("servicehub-api-"))
+                          .map(async (k) => {
+                            const cache = await caches.open(k);
+                            await cache.delete("/api/admin/changelog");
+                          }),
+                      );
+                    }
+                  } catch {}
+                  await queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
+                  await refetch();
+                  toast({ title: "Refreshed" });
+                }}
+                disabled={isFetching}
+                data-testid="button-changelog-refresh"
+                title="Re-fetch from server (bypasses PWA cache)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+            </div>
           </div>
-          );
-        })}
-      </div>
+
+          <div className="rounded-md border border-border overflow-hidden">
+            <ul className="divide-y divide-border">
+              {rows.length === 0 && (
+                <li className="p-8 text-center">
+                  <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
+                  <p className="text-sm text-muted-foreground" data-testid="text-changelog-empty">No entries yet.</p>
+                </li>
+              )}
+              {rows.length > 0 && filteredRows.length === 0 && (
+                <li className="p-8 text-center text-sm text-muted-foreground" data-testid="text-changelog-no-match">
+                  No entries match "{filter}".
+                </li>
+              )}
+              {filteredRows.map((r) => {
+                const editable = isEditableRow(r);
+                const publishable = isPublishableRow(r);
+                const deletable = isDeletableRow(r);
+                const statusLabel =
+                  r.status === "published" ? "Published"
+                  : r.status === "collecting" ? "Collecting"
+                  : r.status === "awaiting_publish" ? "Awaiting publish"
+                  : "Draft";
+                return (
+                  <li key={r.version} className="p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-muted/30 transition-colors" data-testid={`row-changelog-${r.version}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        <span className="font-mono text-sm font-semibold" data-testid={`text-changelog-version-${r.version}`}>{changelogVersionLabel(r)}</span>
+                        <Badge variant={r.status === "published" ? "default" : "secondary"} className={r.status !== "published" ? "font-normal" : ""} data-testid={`badge-changelog-status-${r.version}`}>
+                          {statusLabel}
+                        </Badge>
+                        {r.status === "awaiting_publish" && r.version === APP_VERSION && (
+                          <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-400 font-normal" data-testid={`badge-changelog-current-${r.version}`}>
+                            Current version
+                          </Badge>
+                        )}
+                        {!editable && (
+                          <Badge variant="outline" className="text-muted-foreground font-normal border-border/50" data-testid={`badge-changelog-readonly-${r.version}`}>
+                            Read-only
+                          </Badge>
+                        )}
+                        {r.status === "published" && r.publishedAt && (
+                          <span className="text-xs text-muted-foreground">
+                            {format(new Date(r.publishedAt), "MMM d, yyyy")}
+                          </span>
+                        )}
+                      </div>
+                      {r.title && <div className="text-sm font-medium truncate" data-testid={`text-changelog-title-${r.version}`}>{r.title}</div>}
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Updated {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0 mt-2 sm:mt-0">
+                      {editable ? (
+                        <>
+                          <Button variant="outline" size="sm" className="h-8" onClick={() => setEditing(r)} data-testid={`button-changelog-edit-${r.version}`}>
+                            <Edit className="w-3.5 h-3.5 mr-1.5" /> Edit
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-8 px-2" onClick={() => setPreviewing(r)} title="Preview" data-testid={`button-changelog-preview-${r.version}`}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          {publishable && (
+                            <Button variant="default" size="sm" className="h-8" onClick={() => setConfirmPublish(r)} data-testid={`button-changelog-publish-${r.version}`}>
+                              Publish
+                            </Button>
+                          )}
+                          {deletable && (
+                            <Button variant="outline" size="sm" className="h-8 px-2 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20" onClick={() => setConfirmDelete(r)} title="Delete" data-testid={`button-changelog-delete-${r.version}`}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </>
+                      ) : (
+                        <Button variant="outline" size="sm" className="h-8" onClick={() => setPreviewing(r)} data-testid={`button-changelog-view-${r.version}`}>
+                          <Eye className="w-3.5 h-3.5 mr-1.5" /> View
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      </section>
 
       {editing && (
         <ChangelogEditor
@@ -11791,11 +11875,11 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-changelog-editor">
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto p-0 gap-0" data-testid="dialog-changelog-editor">
+        <DialogHeader className="px-5 py-4 border-b border-border">
+          <DialogTitle className="flex items-center gap-2">
             Edit {changelogVersionLabel(row)}
-            <Badge variant={row.status === "published" ? "default" : "secondary"} className="ml-2">
+            <Badge variant={row.status === "published" ? "default" : "secondary"} className="font-normal text-[10px] uppercase tracking-wider">
               {row.status === "published" ? "Published"
                 : row.status === "collecting" ? "Collecting"
                 : row.status === "awaiting_publish" ? "Awaiting publish"
@@ -11803,9 +11887,9 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
             </Badge>
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="p-5 space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="cl-title" className="text-xs">Headline (shown in the popup)</Label>
+            <Label htmlFor="cl-title">Headline (shown in the popup)</Label>
             <Input
               id="cl-title"
               placeholder="e.g. Smarter notifications & faster ticket replies"
@@ -11817,16 +11901,16 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs">Body (appears on /whats-new)</Label>
+              <Label>Body (appears on /whats-new)</Label>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs"
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => setRawMode((v) => !v)}
                 data-testid="button-changelog-raw-toggle"
               >
-                {rawMode ? "Rich text" : "Raw HTML"}
+                {rawMode ? "Switch to Rich text" : "Switch to Raw HTML"}
               </Button>
             </div>
             {rawMode ? (
@@ -11844,27 +11928,30 @@ function ChangelogEditor({ row, onClose, onPreview }: { row: ChangelogRow; onClo
                 </p>
               </>
             ) : (
-              <RichTextEditor
-                value={bodyHtml}
-                onChange={setBodyHtml}
-                testIdPrefix="changelog-editor"
-                draftKey={`changelog:${row.version}`}
-              />
+              <div className="rounded-md border bg-card">
+                <RichTextEditor
+                  value={bodyHtml}
+                  onChange={setBodyHtml}
+                  testIdPrefix="changelog-editor"
+                  draftKey={`changelog:${row.version}`}
+                />
+              </div>
             )}
           </div>
           {row.status === "published" && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs">
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
               This entry is already published. Editing it here updates the What's New page immediately, but does NOT re-fire the popup for customers who already dismissed it.
             </div>
           )}
         </div>
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          <Button variant="outline" onClick={() => onPreview({ ...row, title, bodyHtml })} data-testid="button-changelog-preview-current">
-            <Eye className="w-4 h-4 mr-1" /> Preview
+        <DialogFooter className="flex-col sm:flex-row gap-2 px-5 py-4 border-t border-border bg-muted/20">
+          <Button variant="outline" onClick={() => onPreview({ ...row, title, bodyHtml })} data-testid="button-changelog-preview-current" className="bg-background">
+            <Eye className="w-4 h-4 mr-1.5" /> Preview
           </Button>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <div className="flex-1 hidden sm:block" />
+          <Button variant="outline" onClick={onClose} className="bg-background">Cancel</Button>
           <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-changelog-save">
-            Save
+            Save Changes
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -11885,40 +11972,42 @@ function ChangelogPreviewDialog({ row, onClose }: { row: ChangelogRow; onClose: 
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-changelog-preview">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0" data-testid="dialog-changelog-preview">
+        <DialogHeader className="px-5 py-4 border-b border-border bg-muted/20">
           <DialogTitle>Preview {changelogVersionLabel(row)}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="p-6 space-y-10">
           <section>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Welcome popup</div>
-            <div className="rounded-md border p-4 max-w-sm mx-auto text-center" data-testid="preview-changelog-popup">
-              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-                <Sparkles className="w-7 h-7 text-primary" />
+            <div className="text-xs uppercase tracking-wider font-semibold text-muted-foreground mb-4 text-center">Welcome popup preview</div>
+            <div className="rounded-xl border border-card-border bg-card shadow-sm p-6 sm:p-8 max-w-sm mx-auto text-center" data-testid="preview-changelog-popup">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4 ring-8 ring-primary/5">
+                <Sparkles className="w-8 h-8 text-primary" />
               </div>
-              <div className="text-xl font-semibold">Welcome to version {popupVersion}</div>
-              <p className="text-sm text-muted-foreground mt-2">
+              <div className="text-xl font-bold tracking-tight">Welcome to version {popupVersion}</div>
+              <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
                 {row.title?.trim() || `What\u2019s new in ${popupVersion}`}
               </p>
             </div>
           </section>
 
           <section>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">What's New entry</div>
-            <article className="rounded-md border p-4" data-testid="preview-changelog-entry">
-              <h2 className="text-2xl font-bold">{isRolling ? "Next release" : `Version ${row.version}`}</h2>
-              {row.title && <p className="text-base text-muted-foreground mt-1">{row.title}</p>}
-              <div
-                className="prose prose-sm max-w-none dark:prose-invert mt-3"
-                dangerouslySetInnerHTML={{ __html: sanitized }}
-              />
+            <div className="text-xs uppercase tracking-wider font-semibold text-muted-foreground mb-4 text-center">What's New entry preview</div>
+            <article className="rounded-xl border border-card-border bg-card shadow-sm p-6 sm:p-8 max-w-2xl mx-auto" data-testid="preview-changelog-entry">
+              <h2 className="text-2xl font-bold tracking-tight">{isRolling ? "Next release" : `Version ${row.version}`}</h2>
+              {row.title && <p className="text-base text-muted-foreground mt-2">{row.title}</p>}
+              <div className="mt-6 border-t border-border pt-6">
+                <div
+                  className="prose prose-sm max-w-none dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: sanitized }}
+                />
+              </div>
             </article>
           </section>
         </div>
 
-        <DialogFooter>
-          <Button onClick={onClose}>Close</Button>
+        <DialogFooter className="px-5 py-4 border-t border-border">
+          <Button onClick={onClose} variant="outline">Close preview</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
