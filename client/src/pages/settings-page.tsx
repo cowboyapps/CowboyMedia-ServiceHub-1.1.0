@@ -900,7 +900,7 @@ export default function SettingsPage() {
         </Link>
       </p>
       <p className="text-center text-xs text-muted-foreground mb-2" data-testid="text-developed-by">
-        Developed by CowboyApps
+        Developed by CowboyMedia
       </p>
     </div>
   );
