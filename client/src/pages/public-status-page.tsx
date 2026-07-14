@@ -210,7 +210,7 @@ export default function PublicStatusPage() {
     };
   }, []);
 
-  const { data, isLoading } = useQuery<PublicStatusResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<PublicStatusResponse>({
     queryKey: ["/api/public/status"],
   });
 
@@ -286,6 +286,26 @@ export default function PublicStatusPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+        {isError ? (
+          <div
+            className="flex flex-col items-start gap-3 rounded-lg border p-4 bg-muted/40 border-border text-foreground"
+            data-testid="banner-overall-error"
+          >
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <span className="font-semibold" data-testid="text-banner-error-title">
+                Status unavailable
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              We couldn't load the current service status. This does not mean services are down — please try again.
+            </p>
+            <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-retry-status">
+              Retry
+            </Button>
+          </div>
+        ) : (
+        <>
         <div
           className={`flex items-center gap-3 rounded-lg border p-4 ${bannerStyles[banner.tone]}`}
           data-testid={`banner-overall-${banner.tone}`}
@@ -432,6 +452,8 @@ export default function PublicStatusPage() {
               </ul>
             </CardContent>
           </Card>
+        )}
+        </>
         )}
 
       </main>
