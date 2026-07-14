@@ -392,6 +392,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
   });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [deleteTargetUser, setDeleteTargetUser] = useState<{ id: string; name: string } | null>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [detailUser, setDetailUser] = useState<User | null>(null);
@@ -1141,7 +1142,7 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
                   </Button>
                 )}
                 {canManage && (
-                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteMutation.mutate(u.id)} data-testid={`button-delete-user-${u.id}`}>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTargetUser({ id: u.id, name: u.fullName || u.username })} data-testid={`button-delete-user-${u.id}`}>
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 )}
@@ -1151,6 +1152,27 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
         </ul>
       )}
       </section>
+
+      <AlertDialog open={!!deleteTargetUser} onOpenChange={(open) => { if (!open) setDeleteTargetUser(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete user?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {deleteTargetUser?.name ?? "this user"} and their data. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-user">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteTargetUser) deleteMutation.mutate(deleteTargetUser.id); setDeleteTargetUser(null); }}
+              data-testid="button-confirm-delete-user"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1160,6 +1182,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [deleteTargetService, setDeleteTargetService] = useState<{ id: string; name: string } | null>(null);
 
   const { data: services, isLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -1329,7 +1352,7 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
                       <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEdit(s)} data-testid={`button-edit-service-${s.id}`}>
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteMutation.mutate(s.id)} data-testid={`button-delete-service-${s.id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTargetService({ id: s.id, name: s.name })} data-testid={`button-delete-service-${s.id}`}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -1340,6 +1363,27 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
           </ul>
         )}
       </section>
+
+      <AlertDialog open={!!deleteTargetService} onOpenChange={(open) => { if (!open) setDeleteTargetService(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete service?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {deleteTargetService?.name ?? "this service"} and remove it from the status page. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-service">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteTargetService) deleteMutation.mutate(deleteTargetService.id); setDeleteTargetService(null); }}
+              data-testid="button-confirm-delete-service"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -2109,6 +2153,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
   const [removeImage, setRemoveImage] = useState(false);
   const [attachPoll, setAttachPoll] = useState(false);
   const [pollDraft, setPollDraft] = useState(emptyPollDraft());
+  const [deleteTargetStory, setDeleteTargetStory] = useState<{ id: string; title: string } | null>(null);
 
   const { data: news, isLoading } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
@@ -2320,7 +2365,7 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
                     <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(story)} data-testid={`button-edit-news-${story.id}`}>
                       <Edit className="w-4 h-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteMutation.mutate(story.id)} data-testid={`button-delete-news-${story.id}`}>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTargetStory({ id: story.id, title: story.title })} data-testid={`button-delete-news-${story.id}`}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -2330,6 +2375,27 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
           </ul>
         )}
       </section>
+
+      <AlertDialog open={!!deleteTargetStory} onOpenChange={(open) => { if (!open) setDeleteTargetStory(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete news story?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{deleteTargetStory?.title ?? "this story"}" for all customers. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-news">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteTargetStory) deleteMutation.mutate(deleteTargetStory.id); setDeleteTargetStory(null); }}
+              data-testid="button-confirm-delete-news"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) { setEditDialogOpen(false); setEditingStory(null); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -6171,6 +6237,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
     refetchInterval: 10000,
   });
 
+  const [deleteThreadConfirmOpen, setDeleteThreadConfirmOpen] = useState(false);
   const { data: adminUsers = [] } = useQuery<User[]>({ queryKey: ["/api/admin/chat/users"] });
 
   const { data: unreadThreadIds = [] } = useQuery<string[]>({
@@ -6396,11 +6463,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
                     size="icon"
                     variant="ghost"
                     className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
-                    onClick={() => {
-                      if (confirm("Delete this thread and all its messages?")) {
-                        deleteThreadMutation.mutate(activeThread.id);
-                      }
-                    }}
+                    onClick={() => setDeleteThreadConfirmOpen(true)}
                     disabled={deleteThreadMutation.isPending}
                     data-testid="button-delete-thread"
                   >
@@ -6556,6 +6619,27 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteThreadConfirmOpen} onOpenChange={setDeleteThreadConfirmOpen}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete thread?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this thread and all its messages. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-thread">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (activeThread) deleteThreadMutation.mutate(activeThread.id); setDeleteThreadConfirmOpen(false); }}
+              data-testid="button-confirm-delete-thread"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -6566,6 +6650,7 @@ type WordFilter = { id: string; word: string; createdAt: string };
 function ChatAdminTab() {
   const { toast } = useToast();
   const [newWord, setNewWord] = useState("");
+  const [deleteTargetFilter, setDeleteTargetFilter] = useState<{ id: string; word: string } | null>(null);
 
   const { data: wordFilters, isLoading: filtersLoading } = useQuery<WordFilter[]>({
     queryKey: ["/api/community-chat/word-filters"],
@@ -6670,7 +6755,7 @@ function ChatAdminTab() {
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  onClick={() => deleteFilterMutation.mutate(f.id)}
+                  onClick={() => setDeleteTargetFilter({ id: f.id, word: f.word })}
                   disabled={deleteFilterMutation.isPending}
                   data-testid={`button-delete-filter-${f.id}`}
                 >
@@ -6688,6 +6773,27 @@ function ChatAdminTab() {
           )}
         </div>
       </section>
+
+      <AlertDialog open={!!deleteTargetFilter} onOpenChange={(open) => { if (!open) setDeleteTargetFilter(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove word filter?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{deleteTargetFilter?.word ?? "This word"}" will no longer be blocked in community chat.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-filter">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteTargetFilter) deleteFilterMutation.mutate(deleteTargetFilter.id); setDeleteTargetFilter(null); }}
+              data-testid="button-confirm-delete-filter"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="px-5 py-4 border-b border-border">

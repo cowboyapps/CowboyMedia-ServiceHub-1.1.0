@@ -3,6 +3,7 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset"
 
 const AlertDialog = AlertDialogPrimitive.Root
 
@@ -28,7 +29,22 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => {
+  // Same iOS keyboard fix as DialogContent: shift up by half the keyboard
+  // inset and cap height to the visible space so text fields and footer
+  // buttons stay reachable while typing. Reports 0 on Android (viewport
+  // resizes itself), so nothing changes there.
+  const keyboardInset = useKeyboardInset()
+  const keyboardStyle: React.CSSProperties | undefined =
+    keyboardInset > 0
+      ? {
+          top: `calc(50% - ${Math.round(keyboardInset / 2)}px)`,
+          maxHeight: `calc(100dvh - ${keyboardInset}px - 2rem)`,
+          overflowY: "auto",
+          transition: "top 150ms ease-out",
+        }
+      : undefined
+  return (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
@@ -37,10 +53,12 @@ const AlertDialogContent = React.forwardRef<
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-2xl max-[640px]:w-[calc(100%-2rem)]",
         className
       )}
+      style={{ ...keyboardStyle, ...style }}
       {...props}
     />
   </AlertDialogPortal>
-))
+  )
+})
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName
 
 const AlertDialogHeader = ({
