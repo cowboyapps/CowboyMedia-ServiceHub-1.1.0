@@ -71,6 +71,12 @@ const VALID_IMPACTS = ["operational", "degraded", "outage", "maintenance"];
 // so a garbage string would surface in the timeline and could leave an alert
 // permanently "active" with a nonsense label.
 const VALID_UPDATE_STATUSES = ["investigating", "identified", "monitoring", "resolved"];
+// Statuses an alert may be BORN with (mirrors the admin UI's create form,
+// which only offers the active lifecycle stages). "resolved" is excluded —
+// resolving is a lifecycle action (post-update / resolve routes) that also
+// stamps resolvedAt; letting create persist "resolved" would produce a
+// resolved row with no resolvedAt (the exact drift called out in replit.md).
+const VALID_CREATE_STATUSES = ["investigating", "identified", "monitoring"];
 
 // Register the six service-alert admin routes on `app`. Pulled out of
 // registerRoutes() verbatim; the only change is that collaborators are reached
@@ -144,6 +150,16 @@ export function registerAlertRoutes(
         return res.status(400).json({ message: "Invalid impact. Must be one of: operational, degraded, outage, maintenance" });
       }
       alertData.impact = impact;
+      // Status whitelist: `alertData` is spread straight from req.body into the
+      // insert, so without this gate an arbitrary `status` string would land on
+      // the alert row — poisoning the "active alerts" filters and timeline
+      // labels. Absent status is fine (schema defaults to "investigating"), but
+      // a present invalid value is a client bug — reject loudly.
+      if (alertData.status !== undefined) {
+        if (typeof alertData.status !== "string" || !VALID_CREATE_STATUSES.includes(alertData.status)) {
+          return res.status(400).json({ message: "Invalid status. Must be one of: investigating, identified, monitoring" });
+        }
+      }
       const alert = await storage.createAlert(alertData, serviceIds);
       // Recompute each covered service's status so a shared service keeps its
       // most-severe active impact rather than being clobbered by this one.
