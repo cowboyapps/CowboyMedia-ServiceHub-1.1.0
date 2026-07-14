@@ -67,7 +67,7 @@ body {
   --chart-3: 280 65% 38%;
   --chart-4: 27 87% 35%;
   --chart-5: 142 76% 28%;
-  --font-sans: Open Sans, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Open Sans, Roboto, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   --radius: .5rem;
