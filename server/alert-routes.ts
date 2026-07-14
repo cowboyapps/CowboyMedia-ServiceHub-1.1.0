@@ -194,7 +194,7 @@ export function registerAlertRoutes(
       for (const u of subscribers) {
         if (parsedSendPush && customerWantsPush(u, "service_alert", alert.severity)) {
           await sendPushToUser(u.id, {
-            title: `${serviceNameDisplay}: ${impactLabel}`,
+            title: `[${alertSeverityLabel(alert.severity)}] ${serviceNameDisplay}: ${impactLabel}`,
             body: alert.title,
             url: `/alerts/${alert.id}`,
             tag: `alert-${alert.id}`,
@@ -347,11 +347,12 @@ export function registerAlertRoutes(
           console.log(`[Alert Update] Alert ${req.params.id} updated silently — notifications suppressed`);
           return res.json(update);
         }
+        const pushSeverityPrefix = `[${alertSeverityLabel(alert.severity)}] `;
         const pushTitle = isResolved
-          ? `${serviceName}: Resolved — Now Operational`
+          ? `${pushSeverityPrefix}${serviceName}: Resolved — Now Operational`
           : impactLabel
-            ? `${serviceName}: ${impactLabel} — ${alert.title}`
-            : `${serviceName} Alert Update: ${alert.title}`;
+            ? `${pushSeverityPrefix}${serviceName}: ${impactLabel} — ${alert.title}`
+            : `${pushSeverityPrefix}${serviceName} Alert Update: ${alert.title}`;
         const emailTitle = isResolved
           ? `${serviceName}: Issue Resolved — Service Restored`
           : impactLabel
@@ -475,7 +476,7 @@ export function registerAlertRoutes(
       for (const u of subscribers) {
         if (customerWantsPush(u, "service_alert", updated.severity)) {
           await sendPushToUser(u.id, {
-            title: `${serviceName}: Resolved — Now Operational`,
+            title: `[${alertSeverityLabel(updated.severity)}] ${serviceName}: Resolved — Now Operational`,
             body: `${updated.title} has been resolved. Service is back to operational.`,
             url: `/alerts/${req.params.id}`,
             tag: `alert-${req.params.id}`,
