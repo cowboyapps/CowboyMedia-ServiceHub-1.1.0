@@ -215,7 +215,7 @@ export function BottomNav() {
                 <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60">
                   {group.items.map((item) => {
                     const Icon = item.icon;
-                    const active = location === item.url || location.startsWith(item.url + "/") || location.startsWith(item.url);
+                    const active = location === item.url || location.startsWith(item.url + "/");
                     return (
                       <button
                         key={item.title}
