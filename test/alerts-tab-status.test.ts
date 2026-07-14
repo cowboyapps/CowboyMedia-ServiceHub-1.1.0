@@ -273,7 +273,14 @@ test("toggling 'Impact & notification options' reveals the secondary controls", 
     const advanced = window.document.querySelector('[data-testid="section-update-advanced"]');
     assert.ok(advanced, "advanced section revealed");
     assert.ok(window.document.querySelector('[data-testid="select-update-service-impact"]'), "service-impact control present in advanced");
-    assert.ok(window.document.querySelector('[data-testid="switch-update-silent"]'), "silent switch present in advanced");
+    // The silent switch lives in the MAIN dialog body (always visible), NOT
+    // inside the advanced section — one toggle to change status silently.
+    assert.ok(window.document.querySelector('[data-testid="switch-update-silent"]'), "silent switch rendered");
+    assert.equal(
+      advanced!.querySelector('[data-testid="switch-update-silent"]'),
+      null,
+      "silent switch is outside the advanced section",
+    );
   } finally {
     c.cleanup();
   }
@@ -339,6 +346,69 @@ test("submitting the streamlined update (advanced collapsed) POSTs the notify-on
     assert.equal(body.get("sendEmail"), "true", "subscriber emails on by default");
     assert.equal(body.get("serviceImpact"), "no_change", "service impact left unchanged by default");
     assert.equal(body.get("silent"), "false", "not silent — customers are notified");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("silent status-only change: blank message + silent switch POSTs silent=true with a default status note", async () => {
+  const c = await mountAlertsTab([activeAlert()]);
+  capturedUpdatePost = null;
+  try {
+    // One-tap: open the streamlined dialog via the "Monitoring" pill.
+    await act(async () => {
+      byTestId(c.container, "button-set-status-monitoring-alert-1")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // The silent switch lives in the MAIN dialog body (not the collapsed
+    // advanced section) so a status flip without notifications is one toggle.
+    const silentSwitch = window.document.querySelector('[data-testid="switch-update-silent"]') as HTMLElement | null;
+    assert.ok(silentSwitch, "silent switch is visible without opening advanced options");
+    assert.equal(window.document.querySelector('[data-testid="section-update-advanced"]'), null, "advanced options stay collapsed");
+    await act(async () => {
+      silentSwitch!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // Submit with NO message — allowed only because the update is silent.
+    await act(async () => {
+      (window.document.querySelector('[data-testid="button-submit-update"]') as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    const captured = getCapturedUpdatePost();
+    assert.ok(captured, "silent status change POSTed to the updates endpoint");
+    const body = captured!.body;
+    assert.equal(body.get("status"), "monitoring", "status = clicked pill's status");
+    assert.equal(body.get("silent"), "true", "silent — no customer notifications");
+    assert.match(body.get("message") as string, /Status changed to Monitoring/, "default status note substituted for the blank message");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("a NON-silent update still requires a message (blank submit never posts)", async () => {
+  const c = await mountAlertsTab([activeAlert()]);
+  capturedUpdatePost = null;
+  try {
+    await act(async () => {
+      byTestId(c.container, "button-set-status-identified-alert-1")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // Submit with no message and silent OFF — validation must block the POST.
+    await act(async () => {
+      (window.document.querySelector('[data-testid="button-submit-update"]') as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    assert.equal(getCapturedUpdatePost(), null, "no POST — message is still required for notifying updates");
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Message is required/,
+      "validation error explains the message requirement",
+    );
   } finally {
     c.cleanup();
   }

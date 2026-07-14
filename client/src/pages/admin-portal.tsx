@@ -324,15 +324,20 @@ const createAlertSchema = z.object({
 });
 
 const addUpdateSchema = z.object({
-  message: z.string().min(1, "Message is required").refine(
-    (val) => val.replace(/<[^>]*>/g, "").trim().length > 0,
-    "Message is required"
-  ),
+  // Message is required for customer-facing updates, but a SILENT update may be
+  // a pure status change (e.g. flip to Monitoring without notifying anyone) —
+  // in that case an empty message is allowed and a default status note is
+  // substituted at submit time.
+  message: z.string().default(""),
   status: z.string().min(1, "Status is required"),
   serviceImpact: z.string().default("no_change"),
   sendPush: z.boolean().default(true),
   sendEmail: z.boolean().default(true),
   silent: z.boolean().default(false),
+}).superRefine((d, ctx) => {
+  if (!d.silent && d.message.replace(/<[^>]*>/g, "").trim().length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["message"], message: "Message is required (or enable 'Send silently' for a status-only change)" });
+  }
 });
 
 // Alert incident lifecycle. Active statuses progress investigating → identified
@@ -1470,8 +1475,14 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const addUpdateMutation = useMutation({
     mutationFn: async (data: z.infer<typeof addUpdateSchema>) => {
+      // Silent status-only change: substitute a default timeline note so the
+      // alert history still records what happened and when.
+      const isBlank = data.message.replace(/<[^>]*>/g, "").trim().length === 0;
+      const payload = data.silent && isBlank
+        ? { ...data, message: `<p>Status changed to ${ALERT_STATUS_LABELS[data.status] || data.status}.</p>` }
+        : data;
       const formData = new FormData();
-      Object.entries(data).forEach(([k, v]) => formData.append(k, String(v)));
+      Object.entries(payload).forEach(([k, v]) => formData.append(k, String(v)));
       if (updateImageFile) formData.append("image", updateImageFile);
       const res = await uploadRequest("POST", `/api/admin/alerts/${selectedAlertId}/updates`, formData);
       if (!res.ok) throw new Error((await res.json()).message || "Failed to post update");
@@ -1822,7 +1833,16 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                 <FormMessage /></FormItem>
               )} />
               <FormField control={updateForm.control} name="message" render={({ field }) => (
-                <FormItem><FormLabel>Message</FormLabel><FormControl><RichTextEditor value={field.value} onChange={field.onChange} placeholder="What's the latest?" testIdPrefix="input-update-message" hideImage /></FormControl><FormMessage /></FormItem>
+                <FormItem><FormLabel>Message{updateForm.watch("silent") ? " (optional for silent status changes)" : ""}</FormLabel><FormControl><RichTextEditor value={field.value} onChange={field.onChange} placeholder={updateForm.watch("silent") ? "Optional — leave blank to just record the status change" : "What's the latest?"} testIdPrefix="input-update-message" hideImage /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={updateForm.control} name="silent" render={({ field }) => (
+                <FormItem className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-sm font-medium">Send silently (no notifications)</FormLabel>
+                    <p className="text-xs text-muted-foreground">Change the status without sending any push, email, Discord, Telegram or in-app notifications.</p>
+                  </div>
+                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-silent" /></FormControl>
+                </FormItem>
               )} />
               <Button type="button" variant="ghost" size="sm" className="w-full justify-between px-2 text-muted-foreground" onClick={() => setShowUpdateAdvanced((v) => !v)} data-testid="button-toggle-update-advanced">
                 <span className="text-xs">Impact &amp; notification options</span>
@@ -1859,15 +1879,6 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                     <FormItem className="flex items-center justify-between rounded-lg border p-3">
                       <FormLabel className="text-sm font-medium">Send Email to Subscribers</FormLabel>
                       <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} disabled={updateForm.watch("silent")} data-testid="switch-update-email" /></FormControl>
-                    </FormItem>
-                  )} />
-                  <FormField control={updateForm.control} name="silent" render={({ field }) => (
-                    <FormItem className="flex items-start justify-between gap-3 rounded-lg border p-3">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-sm font-medium">Send silently (no notifications)</FormLabel>
-                        <p className="text-xs text-muted-foreground">Post this update without sending any push, email, Discord, Telegram or in-app notifications.</p>
-                      </div>
-                      <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-update-silent" /></FormControl>
                     </FormItem>
                   )} />
                 </div>
