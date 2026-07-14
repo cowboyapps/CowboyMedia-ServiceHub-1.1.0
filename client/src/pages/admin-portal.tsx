@@ -4026,6 +4026,11 @@ interface NotificationTemplateRow {
 
 const NOTIFICATION_TEMPLATE_GROUPS: NotificationTemplateRow["group"][] = ["Service", "Invoice", "Ticket"];
 
+function getUnusedNotificationVariables(template: { variables: { name: string }[] }, title: string, body: string): string[] {
+  const haystack = `${title}\n${body}`;
+  return template.variables.map((v) => v.name).filter((name) => !haystack.includes(`{${name}}`));
+}
+
 function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [editingTemplate, setEditingTemplate] = useState<NotificationTemplateRow | null>(null);
@@ -4148,10 +4153,12 @@ function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean })
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" data-testid={`text-notif-group-${group.toLowerCase()}`}>{group} Notifications</h3>
               </div>
               <ul className="divide-y divide-border">
-                {groupTemplates.map((template) => (
+                {groupTemplates.map((template) => {
+                  const unusedVars = template.customized && template.enabled ? getUnusedNotificationVariables(template, template.title, template.body) : [];
+                  return (
                   <li key={template.templateKey} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-notif-template-${template.templateKey}`}>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-semibold text-sm" data-testid={`text-notif-template-name-${template.templateKey}`}>{template.label}</h4>
                         {template.customized && template.enabled && (
                           <Badge variant="secondary" className="text-[10px]">Custom</Badge>
@@ -4159,8 +4166,23 @@ function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean })
                         <Badge variant={template.enabled ? "default" : "secondary"} className={template.enabled ? "bg-status-online/10 text-status-online hover:bg-status-online/20" : ""}>
                           {template.enabled ? "On" : "Off"}
                         </Badge>
+                        {unusedVars.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 gap-1"
+                            data-testid={`badge-notif-unused-vars-${template.templateKey}`}
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            {unusedVars.length === 1 ? "1 new variable available" : `${unusedVars.length} variables unused`}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                      {unusedVars.length > 0 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1" data-testid={`text-notif-unused-vars-${template.templateKey}`}>
+                          This customized notification doesn't use: {unusedVars.map((v) => `{${v}}`).join(", ")}. Edit it to add them, or reset to the default wording.
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground mt-2 font-mono truncate">{template.enabled ? template.title : template.defaultTitle}</p>
                       <p className="text-xs text-muted-foreground mt-1 font-mono truncate">{template.enabled ? template.body : template.defaultBody}</p>
                     </div>
@@ -4184,7 +4206,8 @@ function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean })
                       )}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           );
@@ -4203,21 +4226,37 @@ function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean })
               <div>
                 <label className="text-sm font-medium mb-1 block">Available Variables</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {editingTemplate.variables.map((v) => (
+                  {editingTemplate.variables.map((v) => {
+                    const isUnused = !`${editTitle}\n${editBody}`.includes(`{${v.name}}`);
+                    return (
                     <Badge
                       key={v.name}
-                      variant="secondary"
-                      className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors text-xs gap-1"
+                      variant={isUnused ? "outline" : "secondary"}
+                      className={`cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors text-xs gap-1 ${isUnused ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400" : ""}`}
                       onClick={() => insertVariable(v.name)}
                       title={v.description}
                       data-testid={`badge-notif-var-${v.name}`}
                     >
                       <Copy className="w-3 h-3" />
                       {`{${v.name}}`}
+                      {isUnused && <span className="font-normal">(not used)</span>}
                     </Badge>
-                  ))}
+                    );
+                  })}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Click a variable to insert it at the cursor position in the body field</p>
+                {(() => {
+                  const unused = getUnusedNotificationVariables(editingTemplate, editTitle, editBody);
+                  if (unused.length === 0) return null;
+                  return (
+                    <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2" data-testid="notice-notif-unused-variables">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        This notification doesn't use {unused.map((v) => `{${v}}`).join(", ")}. Newer variables like these won't appear in the notifications your customers receive until you insert them here — click a highlighted variable above to add it, or use "Reset to Default" to pick up the latest default wording.
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div>
