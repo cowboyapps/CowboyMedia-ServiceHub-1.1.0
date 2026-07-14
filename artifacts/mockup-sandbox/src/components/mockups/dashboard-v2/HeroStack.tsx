@@ -107,12 +107,12 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
               <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-away/25">
                 <AlertTriangle className="h-7 w-7 text-status-away" />
               </span>
-              <p className="min-w-0 flex-1 truncate text-lg">
-                <span className="font-semibold text-status-away">We're currently experiencing an issue</span>
-                <span className="text-sm text-muted-foreground">
-                  {" "}— {firstAlert.title} · {firstAlert.serviceNames.join(", ")} · started {firstAlert.startedAgo}
-                </span>
-              </p>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-semibold text-status-away">We're currently experiencing an issue</p>
+                <p className="text-sm text-muted-foreground">
+                  {firstAlert.title} — {firstAlert.serviceNames.join(", ")} · started {firstAlert.startedAgo}
+                </p>
+              </div>
               <button className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-status-away px-3 py-2 text-sm font-medium text-background hover:bg-status-away/90">
                 View alert <ArrowRight className="h-4 w-4" />
               </button>
