@@ -437,6 +437,9 @@ async function doSubscribe(): Promise<PushResult> {
       apiRequest("POST", "/api/push/subscribe", {
         endpoint: subJson.endpoint,
         keys: { p256dh: subJson.keys.p256dh, auth: subJson.keys.auth },
+        // Tag which PWA minted this subscription so the server can route
+        // admin-audience pushes to admin-app devices only.
+        appScope: swScope === "/admin" ? "admin" : "customer",
       }),
       10000,
       "POST /api/push/subscribe",

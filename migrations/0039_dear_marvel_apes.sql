@@ -1,0 +1,1 @@
+ALTER TABLE "push_subscriptions" ADD COLUMN "app_scope" text DEFAULT 'customer' NOT NULL;

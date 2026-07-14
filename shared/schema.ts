@@ -188,6 +188,11 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   endpoint: text("endpoint").notNull(),
   p256dh: text("p256dh").notNull(),
   auth: text("auth").notNull(),
+  // Which PWA created this subscription: "customer" (root scope "/") or
+  // "admin" (the /admin PWA). Admin-audience pushes (new tickets, monitor
+  // down, draft alerts, ...) are routed to admin-app subscriptions when the
+  // user has any, so staff aren't pinged about admin work in the customer app.
+  appScope: text("app_scope").notNull().default("customer"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   userIdx: index("push_subscriptions_user_id_idx").on(table.userId),
