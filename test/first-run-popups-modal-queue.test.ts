@@ -214,6 +214,18 @@ async function flush(): Promise<void> {
   }
 }
 
+// Deploy-gate machines can be much slower than dev: a fixed flush budget is not
+// always enough for React + the modal queue to settle, which made this file
+// flake and block deploys. For POSITIVE assertions ("the popup appears"), poll
+// until the condition holds instead of assuming a fixed number of ticks.
+async function waitFor(cond: () => boolean, message: string, timeoutMs = 15000): Promise<void> {
+  const start = Date.now();
+  while (!cond() && Date.now() - start < timeoutMs) {
+    await act(async () => { await new Promise<void>((r) => setTimeout(r, 25)); });
+  }
+  assert.ok(cond(), message);
+}
+
 // A stand-in for a HIGHER-priority first-run surface (the onboarding tour sits
 // at 70, above the setup reminder's 45 and the message popup's 40). Toggling
 // `hold` lets a test claim then release the top slot and watch the real popups
@@ -309,8 +321,8 @@ test("real SetupReminderDialog renders null under a higher slot, then appears on
     );
 
     await h.setHold(false); // higher slot releases
-    assert.ok(
-      has("dialog-setup-reminder"),
+    await waitFor(
+      () => has("dialog-setup-reminder"),
       "setup reminder appears once the higher slot releases",
     );
   } finally {
@@ -331,8 +343,8 @@ test("real PrivateMessagePopup renders null under a higher slot, then appears on
     );
 
     await h.setHold(false);
-    assert.ok(
-      has("dialog-private-message-popup"),
+    await waitFor(
+      () => has("dialog-private-message-popup"),
       "message popup appears once the higher slot releases",
     );
   } finally {
@@ -347,7 +359,7 @@ test("real setup reminder outranks the message popup; the message shows only onc
   try {
     await h.fireMessage("Ping"); // both now want to show
 
-    assert.ok(has("dialog-setup-reminder"), "the higher-priority setup reminder is active");
+    await waitFor(() => has("dialog-setup-reminder"), "the higher-priority setup reminder is active");
     assert.equal(
       has("dialog-private-message-popup"),
       false,
@@ -356,11 +368,11 @@ test("real setup reminder outranks the message popup; the message shows only onc
 
     // Dismiss the reminder — it releases its slot; the message popup takes over.
     await click("button-reminder-dismiss");
-    assert.equal(has("dialog-setup-reminder"), false, "reminder closed after dismiss");
-    assert.ok(
-      has("dialog-private-message-popup"),
+    await waitFor(
+      () => has("dialog-private-message-popup"),
       "message popup shows once the reminder releases its slot",
     );
+    assert.equal(has("dialog-setup-reminder"), false, "reminder closed after dismiss");
   } finally {
     h.cleanup();
   }
