@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -128,6 +129,11 @@ export default function ServiceUpdatesPage() {
     if (typeof window === "undefined") return "";
     return window.sessionStorage.getItem("service-updates:search") || "";
   });
+  const searchString = useSearch();
+  const highlightParam = useMemo(() => new URLSearchParams(searchString).get("highlight"), [searchString]);
+  const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
+  const appliedHighlightRef = useRef<string | null>(null);
+  const scrolledHighlightRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -242,6 +248,45 @@ export default function ServiceUpdatesPage() {
   }, [services, updates]);
 
   const groups = useMemo<Group[]>(() => groupServiceUpdates(filteredUpdates), [filteredUpdates]);
+
+  // Deep-link highlight (?highlight=<id>): make the target visible (clear
+  // filters that hide it), expand its group, scroll it into view, and pulse it.
+  useEffect(() => {
+    if (!highlightParam || !updates || appliedHighlightRef.current === highlightParam) return;
+    const target = updates.find(u => u.id === highlightParam);
+    if (!target) return;
+    appliedHighlightRef.current = highlightParam;
+    const now = Date.now();
+    const hiddenByService = serviceFilter !== "all" && target.serviceId !== serviceFilter;
+    const hiddenByTime = timeRangeMs !== null && now - new Date(target.createdAt).getTime() > timeRangeMs;
+    const title = (target.title || "").toLowerCase();
+    const desc = stripHtmlPreserveBreaks(target.description || "").toLowerCase();
+    const hiddenBySearch = !!trimmedQuery && !title.includes(trimmedQuery) && !desc.includes(trimmedQuery);
+    if (hiddenByService) setServiceFilter("all");
+    if (hiddenByTime) setTimeFilter("all");
+    if (hiddenBySearch) setSearchQuery("");
+    setActiveHighlight(highlightParam);
+  }, [highlightParam, updates, serviceFilter, timeRangeMs, trimmedQuery]);
+
+  useEffect(() => {
+    if (!activeHighlight || scrolledHighlightRef.current === activeHighlight) return;
+    const group = groups.find(g => g.items.some(i => i.id === activeHighlight));
+    if (!group) return;
+    scrolledHighlightRef.current = activeHighlight;
+    setExpandedGroups(prev => {
+      if (prev.has(group.key)) return prev;
+      const next = new Set(prev);
+      next.add(group.key);
+      return next;
+    });
+    const frame = requestAnimationFrame(() => {
+      const el = document.getElementById(`service-update-${activeHighlight}`)
+        || document.getElementById(`service-update-${group.head.id}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timer = setTimeout(() => setActiveHighlight(null), 3000);
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  }, [activeHighlight, groups]);
 
   const timeRangeLabels: Record<typeof timeFilter, string> = {
     today: "today",
@@ -475,14 +520,18 @@ export default function ServiceUpdatesPage() {
               const extraCount = group.items.length - 1;
               const headMature = group.head.matureContent;
               const showSingleDescription = isExpanded && group.items.length === 1 && !isMatureHidden(group.head);
+              const isHighlightedGroup = !!activeHighlight && group.items.some(i => i.id === activeHighlight);
               return (
                 <li key={group.key}>
                   <div
                     role="button"
                     tabIndex={0}
+                    id={`service-update-${group.head.id}`}
                     onClick={() => toggleGroup(group)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
-                    className="relative flex items-start gap-3 w-full pr-1 py-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors"
+                    className={`relative flex items-start gap-3 w-full pr-1 py-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors ${
+                      isHighlightedGroup ? "bg-primary/10 ring-2 ring-primary/50 animate-pulse" : ""
+                    }`}
                     data-testid={`row-service-update-${group.head.id}`}
                   >
                     <span className="relative z-10 flex-shrink-0 mt-1.5 ml-1.5">
@@ -550,7 +599,7 @@ export default function ServiceUpdatesPage() {
                           {group.items.map((item) => {
                             const itemMatureHidden = isMatureHidden(item);
                             return (
-                              <li key={item.id} className="text-sm" data-testid={`subitem-update-${item.id}`}>
+                              <li key={item.id} id={`service-update-${item.id}`} className="text-sm" data-testid={`subitem-update-${item.id}`}>
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-foreground/90 truncate flex-1 min-w-0">
                                     <HighlightedText text={item.title} query={trimmedQueryRaw} />

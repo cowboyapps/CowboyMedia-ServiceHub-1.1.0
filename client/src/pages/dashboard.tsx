@@ -343,7 +343,7 @@ export default function Dashboard() {
             {serviceUpdates.slice(0, 3).map((update) => (
               <li key={update.id}>
                 <Link
-                  href="/service-updates"
+                  href={`/service-updates?highlight=${update.id}`}
                   className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
                   data-testid={`update-row-${update.id}`}
                 >
