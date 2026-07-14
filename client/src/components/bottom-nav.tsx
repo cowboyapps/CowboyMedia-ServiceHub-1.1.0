@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, LogOut, Download, Users, BookOpen, CreditCard, Server, ChevronRight } from "lucide-react";
+import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut, Download, Users, BookOpen, CreditCard, Server } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useAuth } from "@/lib/auth";
@@ -15,7 +15,7 @@ import { APP_VERSION } from "@shared/version";
 export function BottomNav() {
   const isMobile = useIsMobile();
   const [location, navigate] = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   // Hide the nav while the on-screen keyboard is open: on iOS the fixed bar
   // would otherwise float mid-screen above the keyboard.
@@ -53,11 +53,13 @@ export function BottomNav() {
   const contentCounts = contentNotifData ?? {};
   const unreadMessageCount = messageData?.count ?? 0;
   const unreadReportCount = reportNotifData?.count ?? 0;
+  const adminBadgeCount = (contentCounts["admin-reports"] ?? 0) + (contentCounts["admin-users"] ?? 0);
 
   const overflowBadgeCount =
     unreadMessageCount +
     unreadReportCount +
-    (contentCounts["service-updates"] ?? 0);
+    (contentCounts["service-updates"] ?? 0) +
+    (isAdmin ? adminBadgeCount : 0);
 
   if (!isMobile || keyboardInset > 0) return null;
 
@@ -69,7 +71,7 @@ export function BottomNav() {
     { label: "More", icon: Menu, path: null, badge: overflowBadgeCount },
   ];
 
-  const overflowRoutes = ["/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings"];
+  const overflowRoutes = ["/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings", "/admin"];
 
   const isActive = (path: string | null) => {
     if (path === null) return overflowRoutes.some((r) => location === r || location.startsWith(r + "/"));
@@ -78,19 +80,21 @@ export function BottomNav() {
   };
 
   const overflowItems = [
-    { title: "Service Updates", url: "/service-updates", icon: RefreshCw, badge: contentCounts["service-updates"] ?? 0, chip: "bg-sky-500/15 text-sky-600 dark:text-sky-400" },
-    { title: "Messages", url: "/messages", icon: Mail, badge: unreadMessageCount, chip: "bg-violet-500/15 text-violet-600 dark:text-violet-400" },
-    { title: "Community Chat", url: "/community", icon: Users, badge: 0, chip: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
-    { title: "Report/Request", url: "/report-request", icon: FileText, badge: unreadReportCount, chip: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
-    { title: "Downloads", url: "/downloads", icon: Download, badge: 0, chip: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400" },
-    { title: "Knowledge Base", url: "/knowledge", icon: BookOpen, badge: 0, chip: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400" },
-    { title: "My Services", url: "/my-services", icon: Server, badge: 0, chip: "bg-primary/15 text-primary" },
-    { title: "Billing", url: "/billing", icon: CreditCard, badge: 0, chip: "bg-green-500/15 text-green-600 dark:text-green-400" },
-    { title: "Settings", url: "/settings", icon: Settings, badge: 0, chip: "bg-muted text-muted-foreground" },
+    { title: "Service Updates", url: "/service-updates", icon: RefreshCw, badge: contentCounts["service-updates"] ?? 0 },
+    { title: "Messages", url: "/messages", icon: Mail, badge: unreadMessageCount },
+    { title: "Community Chat", url: "/community", icon: Users, badge: 0 },
+    { title: "Report/Request", url: "/report-request", icon: FileText, badge: unreadReportCount },
+    { title: "Downloads", url: "/downloads", icon: Download, badge: 0 },
+    { title: "Knowledge Base", url: "/knowledge", icon: BookOpen, badge: 0 },
+    { title: "My Services", url: "/my-services", icon: Server, badge: 0 },
+    { title: "Billing", url: "/billing", icon: CreditCard, badge: 0 },
+    { title: "Settings", url: "/settings", icon: Settings, badge: 0 },
   ];
 
-  /* The Admin Portal is a separate PWA at /admin and is intentionally NOT
-     linked from the customer shell — staff open/install it directly. */
+  const adminItems = isAdmin
+    ? [{ title: "Admin Portal", url: "/admin", icon: Shield, badge: adminBadgeCount }]
+    : [];
+
   const handleSheetNav = (url: string) => {
     setMoreOpen(false);
     navigate(url);
@@ -99,7 +103,7 @@ export function BottomNav() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-sidebar border-t border-sidebar-border"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-muted border-t"
         style={{ paddingBottom: "var(--sab, env(safe-area-inset-bottom, 0px))" }}
         data-testid="nav-bottom"
       >
@@ -108,7 +112,7 @@ export function BottomNav() {
             const active = isActive(tab.path);
             const Icon = tab.icon;
             const separator = index < tabs.length - 1 ? (
-              <div className="w-px h-[60%] bg-sidebar-foreground/10 self-center flex-shrink-0" />
+              <div className="w-px h-[60%] bg-foreground/10 self-center flex-shrink-0" />
             ) : null;
 
             if (tab.path === null) {
@@ -124,12 +128,12 @@ export function BottomNav() {
                     data-testid="button-bottom-nav-more"
                   >
                     <div className="relative">
-                      <Icon className={`w-5 h-5 ${moreHighlighted ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />
+                      <Icon className={`w-5 h-5 ${moreHighlighted ? "text-primary" : "text-muted-foreground"}`} />
                       {(tab.badge ?? 0) > 0 && (
                         <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-destructive rounded-full" data-testid="badge-bottom-nav-more" />
                       )}
                     </div>
-                    <span className={`text-[10px] mt-0.5 ${moreHighlighted ? "text-sidebar-primary font-medium" : "text-sidebar-foreground/60"}`}>{tab.label}</span>
+                    <span className={`text-[10px] mt-0.5 ${moreHighlighted ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
                   </button>
                   {separator}
                 </Fragment>
@@ -145,14 +149,14 @@ export function BottomNav() {
                   data-testid={`link-bottom-nav-${tab.label.toLowerCase()}`}
                 >
                   <div className="relative">
-                    <Icon className={`w-5 h-5 ${active ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />
+                    <Icon className={`w-5 h-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
                     {(tab.badge ?? 0) > 0 && (
                       <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1" data-testid={`badge-bottom-nav-${tab.label.toLowerCase()}`}>
                         {tab.badge}
                       </span>
                     )}
                   </div>
-                  <span className={`text-[10px] mt-0.5 ${active ? "text-sidebar-primary font-medium" : "text-sidebar-foreground/60"}`}>{tab.label}</span>
+                  <span className={`text-[10px] mt-0.5 ${active ? "text-primary font-medium" : "text-muted-foreground"}`}>{tab.label}</span>
                 </Link>
                 {separator}
               </Fragment>
@@ -169,29 +173,24 @@ export function BottomNav() {
 
           <div className="w-10 h-1 rounded-full bg-muted-foreground/30 mx-auto mb-4" />
 
-          {/* iOS-settings-style grouped list: one rounded card, full-width
-              rows with colored icon chips, divider-separated, chevron cue. */}
-          <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60">
-            {overflowItems.map((item) => {
+          <div className="space-y-1">
+            {[...overflowItems, ...adminItems].map((item) => {
               const Icon = item.icon;
               const active = location === item.url || location.startsWith(item.url);
               return (
                 <button
                   key={item.title}
                   onClick={() => handleSheetNav(item.url)}
-                  className={`flex items-center gap-3 w-full px-3 py-2 tap-interactive transition-colors text-left ${active ? "bg-primary/10" : "active:bg-accent/70 hover:bg-accent/50"}`}
+                  className={`flex items-center gap-3 w-full px-3 py-3 rounded-lg tap-interactive transition-colors ${active ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
                   data-testid={`sheet-nav-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}
                 >
-                  <div className={`rounded-lg p-1.5 shrink-0 ${item.chip}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <span className={`flex-1 min-w-0 text-sm font-medium truncate ${active ? "text-primary" : ""}`}>{item.title}</span>
+                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1 text-left text-sm font-medium">{item.title}</span>
                   {item.badge > 0 && (
-                    <Badge variant="destructive" className="shrink-0 text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-sheet-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}>
+                    <Badge variant="destructive" className="text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-sheet-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}>
                       {item.badge}
                     </Badge>
                   )}
-                  <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground/50" />
                 </button>
               );
             })}

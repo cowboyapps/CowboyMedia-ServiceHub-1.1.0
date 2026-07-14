@@ -194,7 +194,6 @@ const { memoryLocation } = await import("wouter/memory-location");
 const { _resetModalQueueForTests } = await import("../client/src/lib/modal-queue");
 const { APP_VERSION } = await import("../shared/version");
 const { ChangelogPublishPrompt } = await import("../client/src/components/changelog-publish-prompt");
-const { __setAssignForTests } = await import("../client/src/lib/admin-nav");
 
 const PENDING_ENTRY = { version: APP_VERSION, title: "Release highlights", bodyHtml: "<ul><li>Something new</li></ul>" };
 
@@ -523,18 +522,13 @@ test("\"Preview\" reveals the staged release notes, then hides them again", asyn
   }
 });
 
-test("\"Review in Admin Portal\" hard-navigates to the admin PWA and dismisses the prompt", async () => {
+test("\"Review in Admin Portal\" navigates to /admin and dismisses the prompt", async () => {
   pendingPublish = PENDING_ENTRY;
-  // The Admin Portal is now a separate PWA at /admin — crossing over is a
-  // full page load (window.location.assign), not a wouter navigation.
-  const assigned: string[] = [];
-  __setAssignForTests((url) => assigned.push(url));
   const h = await mountPrompt(MASTER_ADMIN);
   try {
     await click("button-changelog-publish-prompt-edit");
 
-    assert.deepEqual(assigned, ["/admin"], "hard-navigated to the admin app at /admin");
-    assert.ok(!h.history.includes("/admin"), "must NOT use an in-SPA navigation for /admin");
+    assert.ok(h.history.includes("/admin"), "navigated to /admin");
     assert.equal(
       window.localStorage.getItem(dismissKey(MASTER_ADMIN.id, APP_VERSION)),
       "1",
@@ -542,7 +536,6 @@ test("\"Review in Admin Portal\" hard-navigates to the admin PWA and dismisses t
     );
     assert.equal(has("dialog-changelog-publish-prompt"), false, "dialog closes after navigating away");
   } finally {
-    __setAssignForTests(null);
     h.cleanup();
   }
 });

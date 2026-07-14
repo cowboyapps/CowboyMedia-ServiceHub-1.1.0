@@ -45,20 +45,14 @@ test("filterQuickActions hides admin-only actions from non-admins", () => {
 
 test("filterQuickActions includes admin-only actions for admins", () => {
   const admin = filterQuickActions(QUICK_ACTIONS, true, "");
-  assert.equal(admin.some((a) => a.id === "qa-open-tickets"), true);
-  assert.equal(admin.some((a) => a.id === "qa-claimed-tickets"), true);
-});
-
-// The Admin Portal is a separate PWA now — the customer palette must not
-// advertise it, even to admins.
-test("no quick action points into the admin app", () => {
-  assert.equal(QUICK_ACTIONS.some((a) => a.url.startsWith("/admin")), false);
+  assert.equal(admin.some((a) => a.id === "qa-admin"), true);
+  assert.equal(admin.some((a) => a.id === "qa-new-kb"), true);
 });
 
 test("filterQuickActions narrows by '>'-prefixed needle", () => {
-  const admin = filterQuickActions(QUICK_ACTIONS, true, "> unclaimed");
+  const admin = filterQuickActions(QUICK_ACTIONS, true, "> admin");
   assert.equal(admin.length, 1);
-  assert.equal(admin[0].id, "qa-unclaimed-tickets");
+  assert.equal(admin[0].id, "qa-admin");
 });
 
 test("buildVisibleGroups skips empty groups and hides users from non-admins", () => {

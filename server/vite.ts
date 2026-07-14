@@ -35,27 +35,18 @@ export async function setupVite(server: Server, app: Express) {
     const url = req.originalUrl;
 
     try {
-      // The admin PWA has its own HTML entry: any /admin navigation gets
-      // admin.html (which loads /src/admin-main.tsx); everything else gets the
-      // customer app's index.html. `/admin-manifest.json` and `/icons/admin/*`
-      // never reach this fallback — vite.middlewares serves them from
-      // client/public first.
-      const pathname = url.split("?")[0];
-      const isAdminApp = pathname === "/admin" || pathname.startsWith("/admin/");
-      const templateName = isAdminApp ? "admin.html" : "index.html";
-      const entrySrc = isAdminApp ? "/src/admin-main.tsx" : "/src/main.tsx";
       const clientTemplate = path.resolve(
         import.meta.dirname,
         "..",
         "client",
-        templateName,
+        "index.html",
       );
 
-      // always reload the template file from disk incase it changes
+      // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
-        `src="${entrySrc}"`,
-        `src="${entrySrc}?v=${nanoid()}"`,
+        `src="/src/main.tsx"`,
+        `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);

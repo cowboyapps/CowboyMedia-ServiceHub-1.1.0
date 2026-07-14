@@ -42,7 +42,3 @@
 - [Radix menu → popover handoff](radix-menu-to-popover-handoff.md) — opening a Popover from a DropdownMenuItem via setTimeout(0) races the menu's focus restore; open it in onCloseAutoFocus + preventDefault.
 - [Wouter route exit animations](wouter-route-exit-animations.md) — don't remount the outgoing route in a 2nd Router (re-fires mount POSTs); use View Transitions on a single tree pinned to renderedLocation w/ the real navigate.
 - [TipTap typing in jsdom tests](tiptap-jsdom-typing.md) — fill a ProseMirror field by setting innerHTML + dispatching InputEvent("input"); such mutation-firing tests need setupComponentTestTeardown (mutation gcTime:0).
-- [Logo asset alpha speckles](logo-asset-alpha-speckles.md) — CowboyMedia logo PNGs have speckled semi-transparent backgrounds that defeat -trim; clean the alpha mask first, recolor only the text crop for light-bg variants.
-- [Shared stylesheet across customer + admin PWAs](shared-stylesheet-two-pwas.md) — both apps import index.css; token changes leak into admin unless mirrored in the html.admin-app override block; tailwind config values can't be scoped.
-- [Dual-PWA split](dual-pwa-split.md) — customer (/) and admin (/admin) are separate installable apps; cross-app links must be hard navigations; one scope-parametrized sw.js serves both.
-- [PWA icon regeneration](pwa-icon-regeneration.md) — compose icon masters in ImageMagick (exact hex canvas, label: wordmark); AI text + remove-bg leave remnants.

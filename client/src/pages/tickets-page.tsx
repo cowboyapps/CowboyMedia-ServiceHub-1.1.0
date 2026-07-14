@@ -328,7 +328,7 @@ export default function TicketsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-tickets-title">Support Tickets</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-tickets-title">Support Tickets</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isAdmin ? "Manage customer support tickets" : "Get help with your services"}
           </p>

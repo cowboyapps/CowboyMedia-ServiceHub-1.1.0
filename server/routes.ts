@@ -131,7 +131,6 @@ import { shouldSuppressNotification } from "@shared/quiet-hours";
 import { updateQuietHoursSchema } from "@shared/schema";
 import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
 import { buildPushPayload } from "./push-payload";
-import { subsForAudience, pushAudienceForUrl } from "./push-audience";
 import type { User, Service } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
 import { markGroupRead } from "./notifications-helpers";
@@ -833,12 +832,11 @@ export async function sendPushToUser(userId: string, payload: { title: string; b
     { notificationId },
   );
   try {
-    const allSubs = await storage.getPushSubscriptionsByUser(userId);
-    if (allSubs.length === 0) {
+    const subs = await storage.getPushSubscriptionsByUser(userId);
+    if (subs.length === 0) {
       console.log(`[Push] User ${userId} — no push subscriptions registered`);
       return;
     }
-    const subs = subsForAudience(allSubs, pushAudienceForUrl(payload.url));
     let sent = 0, failed = 0;
     for (const sub of subs) {
       try {
@@ -2257,7 +2255,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             void sendPushToUser(admin.id, {
               title: "Ticket Closed",
               body: `Ticket Closed: ${ticket.subject}`,
-              url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
+              url: `/tickets/${ticket.id}`,
               tag: `ticket-${ticket.id}`,
               resourceLabel: `Ticket: ${ticket.subject}`,
               rollupNoun: "messages",
@@ -2485,7 +2483,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         void sendPushToUser(toAdminId, {
           title: "Ticket Transfer",
           body: `${admin.fullName} transferred a ticket to you: ${ticket.subject} — Reason: ${reason}`,
-          url: `/admin?tab=support-tickets&ticket=${ticket.id}`,
+          url: `/tickets/${ticket.id}`,
           tag: `ticket-transfer-${ticket.id}`,
         }, { type: "ticket_transfer", referenceType: "ticket", referenceId: ticket.id });
       }
@@ -4664,7 +4662,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   // Push notification subscription routes
   app.post("/api/push/subscribe", requireAuth, async (req, res) => {
     try {
-      const { endpoint, keys, appScope } = req.body;
+      const { endpoint, keys } = req.body;
       if (!endpoint || !keys?.p256dh || !keys?.auth) {
         return res.status(400).json({ message: "Invalid subscription" });
       }
@@ -4673,7 +4671,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         endpoint,
         p256dh: keys.p256dh,
         auth: keys.auth,
-        appScope: appScope === "admin" ? "admin" : "customer",
       });
       res.json(sub);
     } catch (e) {

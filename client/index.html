@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#1f1b18" />
+    <meta name="theme-color" content="#1a56db" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CowboyMedia" />
@@ -15,7 +15,7 @@
       (function () {
         try {
           var stored = localStorage.getItem("theme");
-          var theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "dark";
+          var theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
           var resolved = theme;
           if (theme === "system") {
             resolved = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";

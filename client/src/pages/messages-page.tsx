@@ -864,7 +864,7 @@ export default function MessagesPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-messages-title">Messages</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-messages-title">Messages</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isAdmin ? "Conversations with customers" : "Conversations with the support team"}
           </p>

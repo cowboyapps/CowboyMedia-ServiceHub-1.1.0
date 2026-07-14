@@ -1,16 +1,5 @@
 uploads = []
-
-[[generated]]
-id = "M4P8VcVeM61aHSy4aSubV"
-uri = "file://attached_assets/generated_images/admin_icon_master_text.png"
-type = "image"
-title = "generated_image"
-
-[[generated]]
-id = "u0m57X_hwuhZQpfoO4xR6"
-uri = "file://attached_assets/generated_images/admin_icon_master_notext.png"
-type = "image"
-title = "generated_image"
+generated = []
 
 [[outputs]]
 id = "Nsyb5EPURR0dhissWhFDj"
@@ -35,15 +24,3 @@ id = "2lr9ca-QiWCioUDj52WQh"
 uri = "file://.local/changelog-restore/restore_v52_on_vps.sh.txt"
 type = "text"
 title = "VPS one-shot restore script (rename to .sh before running)"
-
-[[outputs]]
-id = "QcmAoKK8G6rmBF54ZJ_oh"
-uri = "file://client/public/icons/admin/icon-512.png"
-type = "image"
-title = "Admin app icon (512px)"
-
-[[outputs]]
-id = "sRlpFL3NUCbenIeqg_Zjj"
-uri = "file://client/public/icons/icon-512.png"
-type = "image"
-title = "Customer app icon (512px)"

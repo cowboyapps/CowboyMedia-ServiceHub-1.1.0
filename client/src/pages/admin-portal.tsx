@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, LayoutGrid, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { ImageCropDialog, type CropAspectKey } from "@/components/image-crop-dialog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -10989,83 +10989,8 @@ export default function AdminPortal() {
     }
   };
 
-  const badgeCountFor = (key: string): number => {
-    const badgeCategory = tileBadgeMap[key];
-    let count = badgeCategory && contentCounts ? (contentCounts[badgeCategory] ?? 0) : 0;
-    if (key === "admin-chat" && chatUnreadData) count = chatUnreadData.count;
-    return count;
-  };
-
   return (
-    <div className="lg:flex lg:items-start">
-      {/* Desktop nav rail — deep slate, matching the header, so the shell forms
-          one continuous dark frame around the light/dark work area. Mobile
-          keeps the tile menu + back-button flow unchanged. */}
-      <aside
-        className="hidden lg:flex flex-col gap-4 w-60 shrink-0 sticky top-0 max-h-[calc(100dvh-3.5rem)] overflow-y-auto bg-sidebar text-sidebar-foreground border-r border-sidebar-border px-3 py-4"
-        data-testid="admin-nav-rail"
-      >
-        <button
-          onClick={goToMenu}
-          className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors text-left ${
-            !activeSection
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-          }`}
-          data-testid="nav-rail-menu"
-        >
-          <LayoutGrid className="w-4 h-4 shrink-0" />
-          <span className="truncate">All sections</span>
-        </button>
-        {sectionGroups.map((g) => {
-          const items = sections.filter((s) => s.group === g.key);
-          if (items.length === 0) return null;
-          return (
-            <div key={g.key}>
-              <div className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-                {g.label}
-              </div>
-              <div className="space-y-0.5">
-                {items.map((s) => {
-                  const Icon = s.icon;
-                  const badgeCount = badgeCountFor(s.key);
-                  const active = activeSection === s.key;
-                  return (
-                    <button
-                      key={s.key}
-                      onClick={() => {
-                        captureMenuScroll();
-                        if (s.navigateTo) navigate(s.navigateTo);
-                        else goToSection(s.key);
-                      }}
-                      className={`w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors text-left ${
-                        active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-                      }`}
-                      aria-current={active ? "page" : undefined}
-                      data-testid={`nav-rail-${s.key}`}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate flex-1">{s.label}</span>
-                      {badgeCount > 0 && (
-                        <span
-                          className="ml-auto inline-flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold px-1.5 min-w-[18px] h-[18px]"
-                          data-testid={`badge-nav-rail-${s.key}`}
-                        >
-                          {badgeCount}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </aside>
-
-      <div className="flex-1 min-w-0 space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-admin-title">Admin Portal</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage users, services, alerts, news, and messages</p>
@@ -11081,12 +11006,7 @@ export default function AdminPortal() {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
                   {g.label}
                 </h2>
-                {/* One markup, two looks: below sm the group renders as an
-                    iOS-settings-style card of full-width tappable rows
-                    (icon chip · label · badge · chevron, divider-separated);
-                    from sm up it reverts to the tile grid. Same test-ids in
-                    both, so jsdom tests are viewport-agnostic. */}
-                <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60 sm:rounded-none sm:border-0 sm:bg-transparent sm:shadow-none sm:overflow-visible sm:divide-y-0 sm:grid sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 sm:gap-3">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-3">
                   {items.map((s) => {
                     const Icon = s.icon;
                     const badgeCategory = tileBadgeMap[s.key];
@@ -11100,19 +11020,18 @@ export default function AdminPortal() {
                           if (s.navigateTo) navigate(s.navigateTo);
                           else goToSection(s.key);
                         }}
-                        className="relative w-full flex items-center gap-3 px-3 py-2.5 text-left bg-card hover:bg-accent/50 transition-all duration-150 active:bg-accent/70 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset sm:flex-col sm:justify-center sm:gap-2 sm:p-3.5 sm:rounded-xl sm:border sm:border-card-border sm:shadow-sm sm:hover:shadow-md sm:active:scale-[0.96] sm:text-center sm:min-h-[92px]"
+                        className="relative flex flex-col items-center justify-center gap-1.5 p-3 sm:p-3.5 rounded-lg border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[88px]"
                         data-testid={`tile-admin-${s.key}`}
                       >
-                        <div className={`rounded-lg p-2 sm:rounded-xl sm:p-2.5 ${s.bg}`}>
-                          <Icon className={`w-5 h-5 ${s.color}`} />
-                        </div>
-                        <span className="flex-1 min-w-0 font-medium text-sm leading-tight line-clamp-2 sm:flex-none sm:w-full sm:text-[13px]">{s.label}</span>
                         {badgeCount > 0 && (
-                          <Badge variant="destructive" className="shrink-0 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center shadow-sm sm:absolute sm:top-1.5 sm:right-1.5" data-testid={`badge-tile-${s.key}`}>
+                          <Badge variant="destructive" className="absolute top-1 right-1 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center" data-testid={`badge-tile-${s.key}`}>
                             {badgeCount}
                           </Badge>
                         )}
-                        <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground/50 sm:hidden" />
+                        <div className={`rounded-full p-2 ${s.bg}`}>
+                          <Icon className={`w-5 h-5 ${s.color}`} />
+                        </div>
+                        <span className="font-medium text-xs sm:text-[13px] leading-tight line-clamp-2">{s.label}</span>
                       </button>
                     );
                   })}
@@ -11123,8 +11042,7 @@ export default function AdminPortal() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* On desktop the nav rail replaces the back-button round-trip. */}
-          <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="sm"
@@ -11151,7 +11069,6 @@ export default function AdminPortal() {
           {renderContent()}
         </div>
       )}
-      </div>
     </div>
   );
 }

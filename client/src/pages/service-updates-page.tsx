@@ -292,7 +292,7 @@ export default function ServiceUpdatesPage() {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-service-updates-title">Service Updates</h1>
+        <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
         <div className="space-y-2 pl-5">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
         </div>
@@ -304,7 +304,7 @@ export default function ServiceUpdatesPage() {
     return (
       <div className="space-y-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-service-updates-title">Service Updates</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
           <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
         </div>
         <QueryErrorState
@@ -321,7 +321,7 @@ export default function ServiceUpdatesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-service-updates-title">Service Updates</h1>
+        <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
         <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
       </div>
 

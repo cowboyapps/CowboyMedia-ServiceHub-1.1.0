@@ -41,12 +41,7 @@ export default function AuthPage() {
   // hooks than during the previous render", white-screening the page.
   useEffect(() => {
     if (user) {
-      if (user.role === "admin" || user.role === "master_admin") {
-        // The Admin Portal is its own PWA at /admin — needs a full page load.
-        window.location.assign("/admin");
-      } else {
-        navigate("/");
-      }
+      navigate((user.role === "admin" || user.role === "master_admin") ? "/admin" : "/");
     }
   }, [user, navigate]);
 

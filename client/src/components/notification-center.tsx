@@ -10,7 +10,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
-import { navigateAcrossApps } from "@/lib/admin-nav";
 import { useToast } from "@/hooks/use-toast";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -380,16 +379,16 @@ export function NotificationCenter() {
 
   const handleNavigate = (url: string) => {
     setOpen(false);
-    navigateAcrossApps(url, navigate);
+    navigate(url);
   };
 
   const bellButton = (
     <button
       onClick={() => { hapticLight(); setOpen(true); }}
-      className="relative p-2 rounded-md hover:bg-sidebar-accent tap-interactive transition-colors"
+      className="relative p-2 rounded-md hover:bg-muted/80 tap-interactive transition-colors"
       data-testid="button-notification-bell"
     >
-      <Bell className="w-5 h-5 text-sidebar-foreground/80" />
+      <Bell className="w-5 h-5 text-foreground" />
       {unreadCount > 0 && (
         <span
           className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1"

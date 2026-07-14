@@ -10,7 +10,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Rocket } from "lucide-react";
 import { APP_VERSION } from "@shared/version";
 import { useModalSlot } from "@/lib/modal-queue";
-import { navigateAcrossApps } from "@/lib/admin-nav";
 import DOMPurify from "dompurify";
 
 // After a version change, the collected notes are stamped with the new
@@ -138,7 +137,7 @@ export function ChangelogPublishPrompt() {
           <Button
             variant="ghost"
             className="w-full"
-            onClick={() => { dismiss(); navigateAcrossApps("/admin", navigate); }}
+            onClick={() => { dismiss(); navigate("/admin"); }}
             data-testid="button-changelog-publish-prompt-edit"
           >
             Review in Admin Portal

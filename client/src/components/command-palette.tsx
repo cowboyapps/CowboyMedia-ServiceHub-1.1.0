@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
-import { navigateAcrossApps } from "@/lib/admin-nav";
 import {
   MessageSquare,
   BookOpen,
@@ -21,6 +20,8 @@ import {
   Users,
   AlertTriangle,
   Plus,
+  FileText,
+  Shield,
   ArrowRight,
   Clock,
 } from "lucide-react";
@@ -149,6 +150,8 @@ export const QUICK_ACTIONS: QuickAction[] = [
   { id: "qa-open-tickets", label: "Open tickets", url: "/tickets?status=open", icon: MessageSquare, adminOnly: true },
   { id: "qa-claimed-tickets", label: "My claimed tickets", url: "/tickets?claimedBy=me", icon: MessageSquare, adminOnly: true },
   { id: "qa-unclaimed-tickets", label: "Unclaimed tickets", url: "/tickets?claimedBy=unclaimed&status=open", icon: MessageSquare, adminOnly: true },
+  { id: "qa-new-kb", label: "New KB article", url: "/admin?tab=knowledge&new=1", icon: FileText, adminOnly: true },
+  { id: "qa-admin", label: "Open admin portal", url: "/admin", icon: Shield, adminOnly: true },
 ];
 
 export function filterQuickActions(actions: QuickAction[], isAdmin: boolean, query: string): QuickAction[] {
@@ -281,8 +284,7 @@ export function CommandPalette() {
       window.location.href = url;
       return;
     }
-    // /admin URLs belong to the separate admin PWA — needs a full page load.
-    navigateAcrossApps(url, setLocation);
+    setLocation(url);
   };
 
   const [recents, setRecents] = useState<RecentVisit[]>([]);
