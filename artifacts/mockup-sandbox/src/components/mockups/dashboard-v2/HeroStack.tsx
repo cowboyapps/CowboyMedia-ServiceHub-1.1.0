@@ -59,8 +59,8 @@ const newsWithFlags = news.map((n, i) => ({ ...n, isNew: i === 0 }));
 
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
-    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-md ${tone}`}>
-      <Icon className="h-4 w-4" />
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
     </span>
   );
 }
@@ -78,18 +78,18 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
       <div className="mx-auto w-full max-w-[860px] space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-xl font-semibold leading-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Welcome back, {userName}</p>
+          <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Welcome, {userName}</h1>
+          <p className="text-muted-foreground text-sm mt-1">Here's an overview of your services and recent activity</p>
         </div>
 
         {/* Hero */}
         {allClear ? (
           <div
-            className="rounded-xl border border-status-online/50 bg-gradient-to-r from-status-online/25 via-status-online/15 to-status-online/5 p-6 flex items-center gap-4"
+            className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent p-6 flex items-center gap-4 shadow-sm"
             data-testid="hero-status"
           >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-online/25">
-              <CheckCircle2 className="h-7 w-7 text-status-online" />
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
+              <CheckCircle2 className="h-6 w-6 text-status-online" />
             </span>
             <div>
               <p className="text-lg font-semibold text-status-online">All services are running smoothly</p>
@@ -100,11 +100,11 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
           </div>
         ) : (
           <button
-            className="w-full rounded-xl border border-status-away/50 bg-gradient-to-r from-status-away/25 via-status-away/15 to-status-away/5 p-6 flex items-center gap-4 text-left hover:border-status-away/70"
+            className="w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-away/40 transition"
             data-testid="hero-status"
           >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-away/25">
-              <AlertTriangle className="h-7 w-7 text-status-away" />
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-away/15 ring-1 ring-status-away/30">
+              <AlertTriangle className="h-6 w-6 text-status-away animate-status-pulse" />
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-lg font-semibold text-status-away">We're currently experiencing an issue</p>
@@ -119,7 +119,7 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
         {/* Services */}
         <section className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold flex items-center gap-2.5">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
               <SectionIcon icon={CheckCircle2} tone="bg-status-online/15 text-status-online" />
               Your services
             </h2>
@@ -130,8 +130,8 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
               const meta = statusMeta[s.status];
               return (
                 <li key={s.id}>
-                  <button className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-muted/50">
-                    <span className={`h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0`} />
+                  <button className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-accent/60 transition-colors">
+                    <span className={`h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0 ${s.status !== "operational" ? "animate-status-pulse" : ""}`} />
                     <span className="flex-1 min-w-0 truncate text-sm font-medium">{s.name}</span>
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>
                       {meta.label}
@@ -147,8 +147,8 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
         {/* Tickets */}
         <section className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold flex items-center gap-2.5">
-              <SectionIcon icon={MessageSquare} tone="bg-primary/15 text-primary" />
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={MessageSquare} tone="bg-primary/10 text-primary" />
               Your support tickets
             </h2>
             {openTickets.length > 0 && (
@@ -168,7 +168,7 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
             <ul className="divide-y divide-border">
               {openTickets.map((t) => (
                 <li key={t.id}>
-                  <button className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-muted/50">
+                  <button className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-accent/60 transition-colors">
                     <div className="flex-1 min-w-0">
                       <p className="truncate text-sm font-medium">{t.subject}</p>
                       <p className="text-xs text-muted-foreground">
@@ -189,8 +189,8 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
         {/* Service updates */}
         <section className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold flex items-center gap-2.5">
-              <SectionIcon icon={Bell} tone="bg-status-away/15 text-status-away" />
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={Bell} tone="bg-status-away/10 text-status-away" />
               Recent service updates
             </h2>
             <button className="text-xs font-medium text-primary hover:underline">View all</button>
@@ -198,7 +198,7 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
           <ul className="divide-y divide-border">
             {(allClear ? serviceUpdates.map((u) => ({ ...u, isNew: false })) : serviceUpdates).map((u) => (
               <li key={u.id}>
-                <button className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-muted/50">
+                <button className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-accent/60 transition-colors">
                   <span className={`h-2 w-2 rounded-full ${u.tone} shrink-0`} />
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-sm font-medium flex items-center gap-2">
@@ -221,7 +221,7 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
         {/* News */}
         <section className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold flex items-center gap-2.5">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
               <SectionIcon icon={Newspaper} tone="bg-status-online/15 text-status-online" />
               Latest news
             </h2>
@@ -230,7 +230,7 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
           <ul className="divide-y divide-border">
             {newsWithFlags.map((n) => (
               <li key={n.id}>
-                <button className="w-full flex items-start gap-3 px-5 py-3.5 text-left hover:bg-muted/50">
+                <button className="w-full flex items-start gap-3 px-5 py-3.5 text-left hover:bg-accent/60 transition-colors">
                   <span className="mt-0.5 shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-primary">
                     {n.date}
                   </span>
