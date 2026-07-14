@@ -107,6 +107,7 @@ const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
 const { QueryClientProvider } = await import("@tanstack/react-query");
 const { Route, Router } = await import("wouter");
+const { focusManager } = await import("@tanstack/react-query");
 const { queryClient } = await import("../client/src/lib/queryClient");
 const { setupComponentTestTeardown } = await import("./helpers/component-test-teardown");
 const PublicIncidentPage = (await import("../client/src/pages/public-incident-page")).default;
@@ -325,6 +326,86 @@ test("retry after a failure refetches and renders the incident", async () => {
     assert.equal(findByTestId(c.container, "text-incident-error"), null, "error state cleared");
   } finally {
     c.cleanup();
+  }
+});
+
+test("ongoing incident refetches on window focus and picks up a newly posted update", async () => {
+  const c = await mountIncidentPage({
+    [INCIDENT_PATH]: { status: 200, body: incident() },
+  });
+  try {
+    await waitForTestId(c.container, "text-incident-title");
+    assert.equal(findByTestId(c.container, "incident-update-u3"), null, "new update not there yet");
+
+    // A new update lands on the server while the visitor has the tab open.
+    routes[INCIDENT_PATH] = {
+      status: 200,
+      body: incident({
+        updates: [
+          {
+            id: "u3",
+            message: "<p>A fix is being deployed.</p>",
+            status: "identified",
+            imageUrl: null,
+            createdAt: "2026-07-10T13:00:00.000Z",
+          },
+          ...incident().updates as unknown[],
+        ],
+      }),
+    };
+
+    // Simulate the tab losing and regaining focus. Because the incident is
+    // ongoing, refetchOnWindowFocus is "always" and must bypass the app-wide
+    // staleTime: Infinity and pull the new update.
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitForTestId(c.container, "incident-update-u3");
+    assert.match(
+      findByTestId(c.container, "text-incident-update-message-u3")!.textContent || "",
+      /fix is being deployed/,
+    );
+  } finally {
+    focusManager.setFocused(undefined);
+    c.cleanup();
+  }
+});
+
+test("resolved incident stays cached — no refetch on window focus", async () => {
+  let fetchCount = 0;
+  const countingFetch = (async (input: unknown) => {
+    const url = String(input).replace(/^https?:\/\/[^/]+/, "");
+    if (url === INCIDENT_PATH) fetchCount++;
+    const hit = routes[url];
+    if (hit) return jsonResponse(hit.body, hit.status);
+    return jsonResponse([]);
+  }) as unknown as typeof fetch;
+  const prevFetch = g.fetch;
+  g.fetch = countingFetch;
+  w.fetch = countingFetch;
+
+  const c = await mountIncidentPage({
+    [INCIDENT_PATH]: {
+      status: 200,
+      body: incident({ status: "resolved", resolvedAt: "2026-07-10T14:00:00.000Z" }),
+    },
+  });
+  try {
+    await waitForTestId(c.container, "text-incident-title");
+    assert.equal(fetchCount, 1, "initial fetch happened once");
+
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await flushFrames();
+    assert.equal(fetchCount, 1, "resolved incident must NOT refetch on focus");
+  } finally {
+    focusManager.setFocused(undefined);
+    c.cleanup();
+    g.fetch = prevFetch;
+    w.fetch = prevFetch;
   }
 });
 

@@ -114,11 +114,32 @@ function isNotFoundError(error: unknown): boolean {
   return error instanceof Error && /^404[:\s]/.test(error.message);
 }
 
+// How often the page re-polls an ongoing (unresolved) incident. Visitors leave
+// this page open during an outage, so it must keep pulling new updates without
+// a manual reload; once the incident is resolved it goes back to the cheap
+// app-wide cache-forever behavior.
+export const ONGOING_INCIDENT_REFETCH_MS = 30_000;
+
+function isOngoing(data: PublicIncident | undefined): boolean {
+  return !!data && data.status !== "resolved";
+}
+
 export default function PublicIncidentPage() {
   const params = useParams<{ id: string }>();
 
   const { data, isLoading, error, refetch } = useQuery<PublicIncident>({
     queryKey: ["/api/public/incidents", params.id],
+    // Live-update while the outage is ongoing. The app-wide default is
+    // `staleTime: Infinity` (fetch once, freeze), which is wrong for an active
+    // incident page. `refetchInterval` ignores staleTime, and the
+    // focus/reconnect refetches use "always" for the same reason — with an
+    // infinite staleTime a plain `true` would never fire. All three predicates
+    // read the query's own data, so a resolved incident keeps the cheap cached
+    // behavior with no polling and no focus refetches.
+    refetchInterval: (query) =>
+      isOngoing(query.state.data) ? ONGOING_INCIDENT_REFETCH_MS : false,
+    refetchOnWindowFocus: (query) => (isOngoing(query.state.data) ? "always" : false),
+    refetchOnReconnect: (query) => (isOngoing(query.state.data) ? "always" : false),
   });
 
   useIncidentMeta(data);
