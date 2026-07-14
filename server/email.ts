@@ -350,9 +350,10 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     body: `<h2>New Service Alert</h2>
 <p>An alert has been issued for a service you are subscribed to.</p>
 <p><strong>{alert_title}</strong></p>
+<p><strong>Severity:</strong> {severity_label}</p>
 <blockquote>{alert_description}</blockquote>
 <p>Log in to the app for real-time updates on this alert.</p>`,
-    availableVariables: ["alert_title", "alert_description", "customer_name"],
+    availableVariables: ["alert_title", "alert_description", "severity_label", "customer_name"],
     description: "Sent to subscribed customers when a new service alert is created",
   },
   {
@@ -523,10 +524,11 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     body: `<h2>New incident on {service_name}</h2>
 <p><strong>{alert_title}</strong></p>
 <p><strong>Status:</strong> {impact_label}</p>
+<p><strong>Severity:</strong> {severity_label}</p>
 <blockquote>{alert_description}</blockquote>
 <p><a href="{status_link}">View on the status page</a></p>
 <p style="color:#6b7280;font-size:12px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">You're receiving this because you follow {service_name}. <a href="{unsubscribe_link}">Unsubscribe</a></p>`,
-    availableVariables: ["service_name", "alert_title", "alert_description", "impact_label", "status_link", "unsubscribe_link"],
+    availableVariables: ["service_name", "alert_title", "alert_description", "impact_label", "severity_label", "status_link", "unsubscribe_link"],
     description: "Sent to public subscribers when a new incident is opened for a service they follow",
   },
   {

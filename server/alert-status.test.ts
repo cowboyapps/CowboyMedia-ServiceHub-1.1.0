@@ -334,7 +334,9 @@ test("route PATCH /api/admin/alerts/:id edit is silent — recomputes/broadcasts
   const res = await httpCall(app, "PATCH", "/api/admin/alerts/alert-1", {
     title: "Fixed a typo in the title",
     description: "Reworded description",
-    severity: "major",
+    // Must be a canonical severity: the edit route rejects legacy aliases
+    // (e.g. "major") with 400 via the same whitelist as create/post-update.
+    severity: "critical",
     serviceIds: ["s1", "s3"],
   });
 
@@ -1642,4 +1644,50 @@ test("resolve note: a photo-less resolve update reads back with a null imageUrl"
     null,
     "a resolve note with no photo reads back with imageUrl null",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Email severity-label normalization guard.
+//
+// Customer alert emails (customer_service_alert) and follower emails
+// (via notifyServiceSubscribers) carry a severity_label var so recipients get
+// the same urgency signal Discord/Telegram show. The label must be normalized
+// through shared/severity.ts — a legacy stored severity like "sev_1" must
+// surface as "Critical", never raw. Pins the update route (which reads the
+// alert's stored severity, whitelist-free) with a legacy value.
+// ---------------------------------------------------------------------------
+test("route POST /api/admin/alerts/:id/updates normalizes legacy severity in email vars", async () => {
+  const emailVars: any[] = [];
+  const followerVars: any[] = [];
+  const { app } = routeHarness(
+    {
+      ...subscriberStorage,
+      getAlert: async (id: string) => ({ id, serviceIds: ["s1"], title: "t", description: "d", severity: "sev_1" }),
+    },
+    {
+      depsOverrides: {
+        ...wantsEverythingDeps,
+        sendTemplatedEmail: async (_to: string, _tpl: string, vars: any) => {
+          emailVars.push(vars);
+        },
+        notifyServiceSubscribers: (_sid: string, _event: string, vars: any) => {
+          followerVars.push(vars);
+        },
+      },
+    },
+  );
+  const res = await httpCall(app, "POST", "/api/admin/alerts/alert-1/updates", {
+    message: "Still investigating",
+    status: "investigating",
+    sendEmail: "true",
+    serviceImpact: "outage",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(emailVars.length, 1, "one customer alert email sent");
+  assert.equal(emailVars[0].severity_label, "Critical", "legacy sev_1 normalized to Critical");
+  for (const vars of [...emailVars, ...followerVars]) {
+    assert.ok(!JSON.stringify(vars).includes("sev_1"), "raw legacy severity never appears in email vars");
+  }
+  assert.ok(followerVars.length >= 1, "follower email fan-out fired for the impact change");
+  assert.equal(followerVars[0].severity_label, "Critical", "follower email vars carry normalized label");
 });

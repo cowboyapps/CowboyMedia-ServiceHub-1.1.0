@@ -13,6 +13,7 @@ import { getParam } from "./http-params";
 import { recomputeForCoveredServices, recomputeForServiceChange } from "./alert-status";
 import { getErrorMessage } from "./error-utils";
 import { stripHtmlPreserveBreaks, htmlToPlainTextInline } from "@shared/html-text";
+import { alertSeverityLabel } from "@shared/severity";
 import { composeAlertCreated, composeAlertUpdate, composeAlertResolved, type TelegramCategory } from "./telegram";
 import {
   composeAlertCreated as composeDiscordAlertCreated,
@@ -42,6 +43,7 @@ export interface AlertRouteDeps {
       alert_title: string;
       alert_description?: string;
       impact_label?: string;
+      severity_label?: string;
       resolve_message?: string;
     },
     baseUrl: string,
@@ -204,6 +206,7 @@ export function registerAlertRoutes(
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceNameDisplay}: ${impactLabel}`,
             alert_description: `${alert.title}\n\n${stripHtmlPreserveBreaks(alert.description)}`,
+            severity_label: alertSeverityLabel(alert.severity),
             customer_name: u.fullName,
           }, u.fullName);
         }
@@ -232,6 +235,7 @@ export function registerAlertRoutes(
           alert_title: alert.title,
           alert_description: stripHtmlPreserveBreaks(alert.description),
           impact_label: impactLabel,
+          severity_label: alertSeverityLabel(alert.severity),
         }, getBaseUrl(req));
       }
       res.json(alert);
@@ -371,6 +375,7 @@ export function registerAlertRoutes(
             sendTemplatedEmail(u.email, "customer_service_alert", {
               alert_title: emailTitle,
               alert_description: stripHtmlPreserveBreaks(updateData.message || ""),
+              severity_label: alertSeverityLabel(alert.severity),
               customer_name: u.fullName,
             }, u.fullName);
           }
@@ -411,6 +416,7 @@ export function registerAlertRoutes(
               alert_title: alert.title,
               alert_description: stripHtmlPreserveBreaks(updateData.message || ""),
               impact_label: impactLabel || "",
+              severity_label: alertSeverityLabel(alert.severity),
             }, getBaseUrl(req));
           }
         }
@@ -481,6 +487,7 @@ export function registerAlertRoutes(
           sendTemplatedEmail(u.email, "customer_service_alert", {
             alert_title: `${serviceName}: Issue Resolved — Service Restored`,
             alert_description: `${updated.title} has been resolved. Service is back to operational.`,
+            severity_label: alertSeverityLabel(updated.severity),
             customer_name: u.fullName,
           }, u.fullName);
         }

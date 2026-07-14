@@ -254,7 +254,7 @@ const scryptAsync = promisify(crypto.scrypt);
 async function notifyServiceSubscribers(
   serviceId: string,
   event: "status" | "incident" | "resolved",
-  vars: { service_name: string; alert_title: string; alert_description?: string; impact_label?: string; resolve_message?: string },
+  vars: { service_name: string; alert_title: string; alert_description?: string; impact_label?: string; severity_label?: string; resolve_message?: string },
   baseUrl: string,
 ): Promise<void> {
   try {
@@ -271,6 +271,7 @@ async function notifyServiceSubscribers(
           alert_title: vars.alert_title,
           alert_description: vars.alert_description || "",
           impact_label: vars.impact_label || "",
+          severity_label: vars.severity_label || "",
           resolve_message: vars.resolve_message || "",
           status_link: `${baseUrl}/status`,
           unsubscribe_link: unsubscribeLink,
