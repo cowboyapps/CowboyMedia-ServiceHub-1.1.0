@@ -3690,6 +3690,29 @@ export function getUnusedTemplateVariables(template: { availableVariables?: stri
   return (template.availableVariables || []).filter((v) => !haystack.includes(`{${v}}`));
 }
 
+// Single-brace {token} placeholders that are NOT in the known-variable list.
+// These are never substituted at send time, so customers would see them as
+// raw text (e.g. a typo like {usrname}). Matches word-only tokens to avoid
+// false positives on CSS/JSON braces in HTML bodies.
+export function getUnknownTemplateTokens(known: string[], ...texts: string[]): string[] {
+  const knownSet = new Set(known);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /\{([A-Za-z0-9_]+)\}/g;
+  for (const text of texts) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text || "")) !== null) {
+      const token = m[1];
+      if (!knownSet.has(token) && !seen.has(token)) {
+        seen.add(token);
+        out.push(token);
+      }
+    }
+    re.lastIndex = 0;
+  }
+  return out;
+}
+
 export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
@@ -3907,6 +3930,18 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                       <span>
                         This template doesn't use {unused.map((v) => `{${v}}`).join(", ")}. Newer variables like these won't appear in the emails your customers receive until you insert them here — click a highlighted variable above to add it, or use "Reset to Default" to pick up the latest default wording.
+                      </span>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const unknown = getUnknownTemplateTokens(editingTemplate.availableVariables || [], editSubject, editBody);
+                  if (unknown.length === 0) return null;
+                  return (
+                    <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2" data-testid="notice-unknown-tokens">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        {unknown.map((t) => `{${t}}`).join(", ")} {unknown.length === 1 ? "isn't a known variable" : "aren't known variables"} for this template, so customers would see {unknown.length === 1 ? "it" : "them"} as raw text. Check for typos or remove {unknown.length === 1 ? "it" : "them"} — the valid variables are listed above.
                       </span>
                     </div>
                   );
@@ -4253,6 +4288,18 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                       <span>
                         This notification doesn't use {unused.map((v) => `{${v}}`).join(", ")}. Newer variables like these won't appear in the notifications your customers receive until you insert them here — click a highlighted variable above to add it, or use "Reset to Default" to pick up the latest default wording.
+                      </span>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const unknown = getUnknownTemplateTokens(editingTemplate.variables.map((v) => v.name), editTitle, editBody);
+                  if (unknown.length === 0) return null;
+                  return (
+                    <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2" data-testid="notice-notif-unknown-tokens">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        {unknown.map((t) => `{${t}}`).join(", ")} {unknown.length === 1 ? "isn't a known variable" : "aren't known variables"} for this notification, so customers would see {unknown.length === 1 ? "it" : "them"} as raw text. Check for typos or remove {unknown.length === 1 ? "it" : "them"} — the valid variables are listed above.
                       </span>
                     </div>
                   );

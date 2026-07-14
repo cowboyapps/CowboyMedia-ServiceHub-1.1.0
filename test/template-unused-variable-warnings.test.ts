@@ -116,6 +116,7 @@ const {
   NotificationTemplatesTab,
   getUnusedTemplateVariables,
   getUnusedNotificationVariables,
+  getUnknownTemplateTokens,
 } = await import("../client/src/pages/admin-portal");
 
 setupComponentTestTeardown({ queryClient, window });
@@ -427,6 +428,94 @@ test("notification edit dialog: notice reacts live to typing in the title", asyn
     });
     await flushFrames();
     assert.equal(bodyByTestId("notice-notif-unused-variables"), null, "notice gone after typing the variable in the title");
+  } finally {
+    c.cleanup();
+  }
+});
+
+// --- unknown (misspelled) placeholder detection ------------------------------
+
+test("getUnknownTemplateTokens flags word-only {tokens} missing from the known list", () => {
+  assert.deepEqual(getUnknownTemplateTokens(["username", "app_url"], "Hi {usrname}", "{app_url} {user_name}"), ["usrname", "user_name"]);
+  assert.deepEqual(getUnknownTemplateTokens(["username"], "Hi {username}", "all good"), []);
+  // Dedupes repeats across fields.
+  assert.deepEqual(getUnknownTemplateTokens([], "{oops}", "{oops} again"), ["oops"]);
+  // Ignores CSS/JSON-style braces (non-word content) and double braces content is still word-only inner match.
+  assert.deepEqual(getUnknownTemplateTokens(["username"], "", "<style>p { color: red; }</style> {username}"), []);
+  // Empty/undefined-ish inputs are safe.
+  assert.deepEqual(getUnknownTemplateTokens(["a"], "", ""), []);
+});
+
+test("email edit dialog: unknown-token notice appears for a typo'd placeholder and clears when fixed", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({ templateKey: "welcome", customized: true, subject: "Welcome, {usrname}!", body: "<p>Hello {username} {app_url}</p>" }),
+  ]);
+  try {
+    fireClick(byTestId(c.container, "button-edit-template-welcome")!);
+    await flushFrames();
+
+    const notice = bodyByTestId("notice-unknown-tokens");
+    assert.ok(notice, "unknown-token notice visible in edit dialog");
+    assert.match(notice!.textContent ?? "", /\{usrname\}/);
+    assert.match(notice!.textContent ?? "", /raw text/);
+
+    // Fix the typo in the subject: notice clears.
+    const subject = bodyByTestId("input-template-subject") as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(subject, "Welcome, {username}!");
+    });
+    await flushFrames();
+    assert.equal(bodyByTestId("notice-unknown-tokens"), null, "notice gone after fixing the typo");
+
+    // Typing a new bogus token in the body brings it back.
+    const ta = bodyByTestId("textarea-template-body") as HTMLTextAreaElement;
+    await act(async () => {
+      setNativeValue(ta, "<p>Hello {username} {app_url} {appurl}</p>");
+    });
+    await flushFrames();
+    const again = bodyByTestId("notice-unknown-tokens");
+    assert.ok(again, "notice returns for a new unknown token in the body");
+    assert.match(again!.textContent ?? "", /\{appurl\}/);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("email edit dialog: no unknown-token notice when all placeholders are valid", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({ templateKey: "welcome", customized: true, body: "<p>Hello {username}, visit {app_url}</p>" }),
+  ]);
+  try {
+    fireClick(byTestId(c.container, "button-edit-template-welcome")!);
+    await flushFrames();
+    assert.equal(bodyByTestId("notice-unknown-tokens"), null, "no notice when every token is known");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("notification edit dialog: unknown-token notice appears for a typo'd placeholder and clears when removed", async () => {
+  const c = await mountNotifTab([
+    notifTemplate({
+      templateKey: "invoice_created", customized: true,
+      title: "New invoice {invoice_numbr}", body: "Amount due: {amount} {invoice_number}",
+    }),
+  ]);
+  try {
+    fireClick(byTestId(c.container, "button-edit-notif-template-invoice_created")!);
+    await flushFrames();
+
+    const notice = bodyByTestId("notice-notif-unknown-tokens");
+    assert.ok(notice, "unknown-token notice visible in notification edit dialog");
+    assert.match(notice!.textContent ?? "", /\{invoice_numbr\}/);
+    assert.match(notice!.textContent ?? "", /raw text/);
+
+    const title = bodyByTestId("input-notif-template-title") as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(title, "New invoice {invoice_number}");
+    });
+    await flushFrames();
+    assert.equal(bodyByTestId("notice-notif-unknown-tokens"), null, "notice gone after fixing the typo");
   } finally {
     c.cleanup();
   }
