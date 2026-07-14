@@ -60,6 +60,13 @@ export interface AlertRouteMiddleware {
   upload: { single: (field: string) => RequestHandler };
 }
 
+// Whitelists shared by the create / edit / post-update routes. Severity keys
+// the push/email preference checks and the UI badge; impact feeds the
+// service-status recompute and customer-facing labels — arbitrary strings in
+// either would propagate to customers.
+const VALID_SEVERITIES = ["info", "warning", "critical"];
+const VALID_IMPACTS = ["operational", "degraded", "outage", "maintenance"];
+
 // Register the six service-alert admin routes on `app`. Pulled out of
 // registerRoutes() verbatim; the only change is that collaborators are reached
 // through the injected `deps`/`middleware` rather than module/closure scope.
@@ -113,7 +120,24 @@ export function registerAlertRoutes(
       if (serviceIds.length === 0) {
         return res.status(400).json({ message: "At least one service is required" });
       }
-      const impact = serviceImpact || "degraded";
+      // Same whitelist as the edit route: an arbitrary severity string would
+      // poison the severity-keyed push/email preference checks and the UI
+      // badge. Absent severity is fine (schema defaults to "warning"), but a
+      // present invalid value is a client bug — reject loudly.
+      if (alertData.severity !== undefined) {
+        if (typeof alertData.severity !== "string" || !VALID_SEVERITIES.includes(alertData.severity)) {
+          return res.status(400).json({ message: "Invalid severity. Must be one of: info, warning, critical" });
+        }
+      }
+      // Impact feeds service-status recompute and customer-facing labels, so
+      // only whitelisted values may be persisted. Only a truly absent field
+      // falls back to the long-standing "degraded" default; any provided value
+      // (including "" or null) must match the whitelist or the request is
+      // rejected.
+      const impact = serviceImpact === undefined ? "degraded" : serviceImpact;
+      if (typeof impact !== "string" || !VALID_IMPACTS.includes(impact)) {
+        return res.status(400).json({ message: "Invalid impact. Must be one of: operational, degraded, outage, maintenance" });
+      }
       alertData.impact = impact;
       const alert = await storage.createAlert(alertData, serviceIds);
       // Recompute each covered service's status so a shared service keeps its
@@ -206,7 +230,6 @@ export function registerAlertRoutes(
         // would poison the severity-keyed push/email preference checks and the
         // UI badge. Edits send severity explicitly, so an invalid value is a
         // client bug — reject loudly instead of silently ignoring.
-        const VALID_SEVERITIES = ["info", "warning", "critical"];
         if (typeof req.body.severity !== "string" || !VALID_SEVERITIES.includes(req.body.severity)) {
           return res.status(400).json({ message: "Invalid severity. Must be one of: info, warning, critical" });
         }
@@ -243,7 +266,6 @@ export function registerAlertRoutes(
       const silent = rawSilent === "true" || rawSilent === true;
       // Optional severity change riding along with the update. "no_change" (or
       // absent/invalid) leaves the alert's severity untouched.
-      const VALID_SEVERITIES = ["info", "warning", "critical"];
       const newSeverity = typeof rawSeverity === "string" && VALID_SEVERITIES.includes(rawSeverity) ? rawSeverity : null;
       const update = await storage.createAlertUpdate({
         alertId: getParam(req, "id"),
@@ -262,8 +284,12 @@ export function registerAlertRoutes(
       if (alert) {
         const isResolved = updateData.status === "resolved";
         const impactLabels: Record<string, string> = { operational: "Operational", degraded: "Degraded", outage: "Outage", maintenance: "Maintenance" };
-        const hasImpactChange = !isResolved && serviceImpact && serviceImpact !== "no_change";
-        const impactLabel = hasImpactChange ? impactLabels[serviceImpact] || serviceImpact : null;
+        // Only whitelisted impacts may persist or surface in labels. Like the
+        // severity rider above, "no_change" / absent / invalid all leave the
+        // alert's impact untouched (post-updates use sentinels, so ignoring is
+        // the established contract here — no 400).
+        const hasImpactChange = !isResolved && typeof serviceImpact === "string" && VALID_IMPACTS.includes(serviceImpact);
+        const impactLabel = hasImpactChange ? impactLabels[serviceImpact] : null;
         // Persist the new impact on the alert so status recompute reflects it for all covered services.
         if (hasImpactChange) {
           await storage.updateAlert(getParam(req, "id"), { impact: serviceImpact });
