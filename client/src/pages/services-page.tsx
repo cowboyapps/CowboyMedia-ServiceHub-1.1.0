@@ -1,39 +1,41 @@
 import { useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { Service } from "@shared/schema";
-import { Activity, CheckCircle, AlertTriangle, XCircle, Wrench, ChevronRight } from "lucide-react";
+import { Activity, CheckCircle2, ChevronRight } from "lucide-react";
 import { Link } from "wouter";
 
-function StatusIcon({ status }: { status: string }) {
-  const isActive = status !== "operational";
-  const pulseClass = isActive ? "animate-status-pulse" : "";
-  switch (status) {
-    case "operational":
-      return <CheckCircle className="w-5 h-5 text-status-online animate-status-glow" />;
-    case "degraded":
-      return <AlertTriangle className={`w-5 h-5 text-status-away ${pulseClass}`} />;
-    case "outage":
-      return <XCircle className={`w-5 h-5 text-status-busy ${pulseClass}`} />;
-    case "maintenance":
-      return <Wrench className={`w-5 h-5 text-status-offline ${pulseClass}`} />;
-    default:
-      return <Activity className="w-5 h-5 text-muted-foreground" />;
-  }
+const statusMeta: Record<string, { label: string; dot: string; pill: string }> = {
+  operational: { label: "Operational", dot: "bg-status-online", pill: "bg-status-online/15 text-status-online" },
+  degraded: { label: "Degraded", dot: "bg-status-away", pill: "bg-status-away/15 text-status-away" },
+  outage: { label: "Outage", dot: "bg-status-busy", pill: "bg-status-busy/15 text-status-busy" },
+  maintenance: { label: "Maintenance", dot: "bg-status-offline", pill: "bg-status-offline/20 text-muted-foreground" },
+};
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof Activity; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    operational: "secondary",
-    degraded: "default",
-    outage: "destructive",
-    maintenance: "secondary",
-  };
-  return <Badge variant={variants[status] || "secondary"} className="capitalize text-xs">{status}</Badge>;
+function RowSkeletons({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-2.5 w-2.5 rounded-full" />
+          <Skeleton className="h-4 flex-1 max-w-48" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function ServicesPage() {
@@ -79,23 +81,7 @@ export default function ServicesPage() {
         )}
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="border rounded-lg p-4 flex items-start gap-3">
-              <Skeleton className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5" />
-              <div className="flex-1 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Skeleton className="h-4 w-28" />
-                  <Skeleton className="h-5 w-20 rounded-full" />
-                </div>
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-2/3" />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : isError ? (
+      {isError ? (
         <QueryErrorState
           error={error}
           onRetry={() => refetch()}
@@ -103,7 +89,7 @@ export default function ServicesPage() {
           resourceName="services"
           data-testid="error-services"
         />
-      ) : !services || services.length === 0 ? (
+      ) : !isLoading && (!services || services.length === 0) ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Activity className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
@@ -111,32 +97,50 @@ export default function ServicesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {services.map((service) => (
-            <Link key={service.id} href={`/services/${service.id}`} className="stagger-item block">
-              <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-service-${service.id}`}>
-                <CardContent className="flex items-start gap-3 p-4">
-                  <div className="mt-0.5">
-                    <StatusIcon status={service.status} />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <h3 className="font-semibold text-sm">{service.name}</h3>
-                      <StatusBadge status={service.status} />
-                    </div>
-                    {service.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2">{service.description}</p>
-                    )}
-                    {service.category && (
-                      <Badge variant="secondary" className="text-xs mt-1">{service.category}</Badge>
-                    )}
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <SectionIcon icon={CheckCircle2} tone="bg-status-online/10 text-status-online" />
+              Services
+            </h2>
+            <span className="text-xs text-muted-foreground hidden sm:inline">Click a service for alerts &amp; history</span>
+          </div>
+          {isLoading ? (
+            <RowSkeletons />
+          ) : (
+            <ul className="divide-y divide-border">
+              {services!.map((service) => {
+                const meta = statusMeta[service.status] || statusMeta.maintenance;
+                return (
+                  <li key={service.id}>
+                    <Link
+                      href={`/services/${service.id}`}
+                      className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                      data-testid={`card-service-${service.id}`}
+                    >
+                      <span
+                        className={`mt-1.5 h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0 ${service.status !== "operational" ? "animate-status-pulse" : ""}`}
+                      />
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-sm font-medium truncate">{service.name}</span>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>{meta.label}</span>
+                        </div>
+                        {service.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2">{service.description}</p>
+                        )}
+                        {service.category && (
+                          <Badge variant="secondary" className="text-xs mt-1">{service.category}</Badge>
+                        )}
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       )}
     </div>
   );

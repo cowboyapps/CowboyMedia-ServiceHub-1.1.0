@@ -1,37 +1,75 @@
 import { useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
-import { format } from "date-fns";
-import { AlertTriangle, CheckCircle, Clock, ChevronRight } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { AlertTriangle, CheckCircle2, ChevronRight, Bell } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 
-function SeverityBadge({ severity }: { severity: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    critical: "destructive",
-    warning: "default",
-    info: "secondary",
-  };
-  return <Badge variant={variants[severity] || "secondary"} className="text-xs capitalize">{severity}</Badge>;
+const severityMeta: Record<string, { dot: string; pill: string; icon: string }> = {
+  critical: { dot: "bg-status-busy", pill: "bg-status-busy/15 text-status-busy", icon: "text-status-busy" },
+  warning: { dot: "bg-status-away", pill: "bg-status-away/15 text-status-away", icon: "text-status-away" },
+  info: { dot: "bg-status-away", pill: "bg-status-away/15 text-status-away", icon: "text-status-away" },
+};
+
+const statusPill: Record<string, string> = {
+  investigating: "bg-status-away/15 text-status-away",
+  identified: "bg-status-away/15 text-status-away",
+  monitoring: "bg-primary/15 text-primary",
+  resolved: "bg-status-online/15 text-status-online",
+};
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    investigating: "bg-status-away text-black",
-    identified: "bg-status-away text-black",
-    monitoring: "bg-primary text-primary-foreground",
-    resolved: "bg-status-online text-white",
-  };
+function SeverityPill({ severity }: { severity: string }) {
+  const meta = severityMeta[severity] || severityMeta.info;
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium capitalize ${colors[status] || "bg-muted text-muted-foreground"}`}>
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${meta.pill}`}>
+      {severity}
+    </span>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[status] || "bg-muted text-muted-foreground"}`}>
       {status}
     </span>
+  );
+}
+
+function ServicePill({ name }: { name: string }) {
+  return (
+    <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      {name}
+    </span>
+  );
+}
+
+function RowSkeletons({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-2.5 w-2.5 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -94,93 +132,102 @@ export default function AlertsPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="active" className="mt-4 space-y-3">
-          {alertsLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="border rounded-lg p-4 flex items-start gap-3">
-                <Skeleton className="w-5 h-5 rounded flex-shrink-0 mt-0.5" />
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Skeleton className="h-4 w-40" />
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                  </div>
-                  <Skeleton className="h-3 w-32" />
-                </div>
-                <Skeleton className="w-4 h-4 flex-shrink-0 self-center" />
-              </div>
-            ))
-          ) : activeAlerts.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <CheckCircle className="w-10 h-10 mx-auto mb-3 text-status-online animate-status-glow" />
+        <TabsContent value="active" className="mt-4">
+          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <SectionIcon icon={AlertTriangle} tone="bg-status-away/10 text-status-away" />
+                Active incidents
+              </h2>
+              {activeAlerts.length > 0 && (
+                <span className="rounded-full bg-status-away/15 px-2.5 py-0.5 text-xs font-medium text-status-away">
+                  {activeAlerts.length} active
+                </span>
+              )}
+            </div>
+            {alertsLoading ? (
+              <RowSkeletons />
+            ) : activeAlerts.length === 0 ? (
+              <div className="px-5 py-12 text-center">
+                <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-status-online animate-status-glow" />
                 <p className="font-medium">All Clear</p>
                 <p className="text-sm text-muted-foreground mt-1">No active incidents at this time</p>
-              </CardContent>
-            </Card>
-          ) : (
-            activeAlerts.map((alert) => (
-              <Link key={alert.id} href={`/alerts/${alert.id}`} className="stagger-item block">
-                <Card className="hover-elevate cursor-pointer" data-testid={`card-alert-${alert.id}`}>
-                  <CardContent className="flex items-start justify-between gap-3 p-4">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-status-away flex-shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <h3 className="font-semibold text-sm">{alert.title}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <SeverityBadge severity={alert.severity} />
-                          <StatusBadge status={alert.status} />
-                          {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
-                            <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
-                          ))}
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {activeAlerts.map((alert) => {
+                  const meta = severityMeta[alert.severity] || severityMeta.info;
+                  return (
+                    <li key={alert.id}>
+                      <Link
+                        href={`/alerts/${alert.id}`}
+                        className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                        data-testid={`card-alert-${alert.id}`}
+                      >
+                        <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.dot}`} />
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <p className="truncate text-sm font-medium">{alert.title}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <SeverityPill severity={alert.severity} />
+                            <StatusPill status={alert.status} />
+                            {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
+                              <ServicePill key={sid} name={serviceMap.get(sid)!} />
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {format(new Date(alert.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                        </p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                  </CardContent>
-                </Card>
-              </Link>
-            ))
-          )}
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
         </TabsContent>
 
-        <TabsContent value="resolved" className="mt-4 space-y-3">
-          {resolvedAlerts.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <p className="text-sm text-muted-foreground">No resolved alerts</p>
-              </CardContent>
-            </Card>
-          ) : (
-            resolvedAlerts.map((alert) => (
-              <Link key={alert.id} href={`/alerts/${alert.id}`} className="stagger-item block">
-                <Card className="hover-elevate cursor-pointer opacity-80" data-testid={`card-alert-resolved-${alert.id}`}>
-                  <CardContent className="flex items-start justify-between gap-3 p-4">
-                    <div className="flex items-start gap-3">
-                      <CheckCircle className="w-5 h-5 text-status-online animate-status-glow flex-shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <h3 className="font-semibold text-sm">{alert.title}</h3>
+        <TabsContent value="resolved" className="mt-4">
+          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <SectionIcon icon={CheckCircle2} tone="bg-status-online/10 text-status-online" />
+                Resolved incidents
+              </h2>
+            </div>
+            {resolvedAlerts.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No resolved alerts</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {resolvedAlerts.map((alert) => (
+                  <li key={alert.id}>
+                    <Link
+                      href={`/alerts/${alert.id}`}
+                      className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80"
+                      data-testid={`card-alert-resolved-${alert.id}`}
+                    >
+                      <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-status-online shrink-0" />
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <p className="truncate text-sm font-medium">{alert.title}</p>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <StatusBadge status="resolved" />
+                          <StatusPill status="resolved" />
                           {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (
-                            <Badge key={sid} variant="secondary" className="text-xs">{serviceMap.get(sid)}</Badge>
+                            <ServicePill key={sid} name={serviceMap.get(sid)!} />
                           ))}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Resolved {alert.resolvedAt ? format(new Date(alert.resolvedAt), "MMM d, yyyy") : ""}
+                          Resolved {alert.resolvedAt ? formatDistanceToNow(new Date(alert.resolvedAt), { addSuffix: true }) : ""}
                         </p>
                       </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                  </CardContent>
-                </Card>
-              </Link>
-            ))
-          )}
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </TabsContent>
       </Tabs>
       )}

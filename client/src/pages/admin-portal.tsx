@@ -11006,7 +11006,7 @@ export default function AdminPortal() {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
                   {g.label}
                 </h2>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-3">
+                <div className="rounded-xl border border-card-border bg-card shadow-sm overflow-hidden divide-y divide-border/60">
                   {items.map((s) => {
                     const Icon = s.icon;
                     const badgeCategory = tileBadgeMap[s.key];
@@ -11020,18 +11020,19 @@ export default function AdminPortal() {
                           if (s.navigateTo) navigate(s.navigateTo);
                           else goToSection(s.key);
                         }}
-                        className="relative flex flex-col items-center justify-center gap-1.5 p-3 sm:p-3.5 rounded-lg border bg-card hover:bg-accent/50 transition-colors active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring text-center min-h-[88px]"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors motion-reduce:transition-none hover:bg-accent/50 active:bg-accent/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                         data-testid={`tile-admin-${s.key}`}
                       >
+                        <div className={`rounded-lg p-2 shrink-0 ${s.bg}`}>
+                          <Icon className={`w-[18px] h-[18px] ${s.color}`} />
+                        </div>
+                        <span className="flex-1 min-w-0 text-sm font-medium truncate">{s.label}</span>
                         {badgeCount > 0 && (
-                          <Badge variant="destructive" className="absolute top-1 right-1 text-[10px] px-1 py-0 min-w-[18px] h-[18px] flex items-center justify-center" data-testid={`badge-tile-${s.key}`}>
+                          <Badge variant="destructive" className="shrink-0 text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-tile-${s.key}`}>
                             {badgeCount}
                           </Badge>
                         )}
-                        <div className={`rounded-full p-2 ${s.bg}`}>
-                          <Icon className={`w-5 h-5 ${s.color}`} />
-                        </div>
-                        <span className="font-medium text-xs sm:text-[13px] leading-tight line-clamp-2">{s.label}</span>
+                        <ChevronRight aria-hidden="true" className="w-4 h-4 shrink-0 text-muted-foreground/40" />
                       </button>
                     );
                   })}

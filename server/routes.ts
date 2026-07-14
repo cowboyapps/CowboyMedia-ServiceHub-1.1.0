@@ -3186,14 +3186,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           updateNotifId = await createBellNotification(u.id, { type: "service_update", referenceType: "service_update_group", referenceId: serviceId }, {
             title: `Service Update: ${serviceName}`,
             body: title,
-            url: "/service-updates",
+            url: `/service-updates?highlight=${update.id}`,
           });
         }
         if (updateWantsPush) {
           void sendPushToUser(u.id, {
             title: `Service Update: ${serviceName}`,
             body: title,
-            url: "/service-updates",
+            url: `/service-updates?highlight=${update.id}`,
             tag: `service-update-${serviceId}`,
             resourceLabel: serviceName,
             rollupNoun: "updates",
@@ -3208,6 +3208,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             update_title: title,
             update_description: stripHtmlPreserveBreaks(description),
             customer_name: u.fullName,
+            update_link: `${getBaseUrl(req)}/service-updates?highlight=${update.id}`,
           }, u.fullName);
         }
       }

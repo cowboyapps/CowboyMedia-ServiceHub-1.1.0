@@ -362,8 +362,9 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     body: `<h2>Service Update: {service_name}</h2>
 <p>There is a new update for a service you are subscribed to.</p>
 <p><strong>{update_title}</strong></p>
-<blockquote>{update_description}</blockquote>`,
-    availableVariables: ["service_name", "update_title", "update_description", "customer_name"],
+<blockquote>{update_description}</blockquote>
+<p><a href="{update_link}" style="display:inline-block;padding:10px 20px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">View this update</a></p>`,
+    availableVariables: ["service_name", "update_title", "update_description", "customer_name", "update_link"],
     description: "Sent to subscribed customers when a service update is posted",
   },
   {

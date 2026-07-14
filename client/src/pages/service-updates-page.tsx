@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Trash2, Bell, ShieldAlert, X, Search } from "lucide-react";
+import { Trash2, Bell, ShieldAlert, X, Search, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { QueryErrorState } from "@/components/query-error-state";
 import { formatDistanceToNow } from "date-fns";
@@ -98,6 +98,14 @@ function FilterChip({
     >
       {children}
     </button>
+  );
+}
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
   );
 }
 
@@ -337,10 +345,25 @@ export default function ServiceUpdatesPage() {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
-        <div className="space-y-2 pl-5">
-          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
+          <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
         </div>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+            <SectionIcon icon={Bell} tone="bg-status-away/10 text-status-away" />
+            <h2 className="text-sm font-semibold">Service updates</h2>
+          </div>
+          <div className="divide-y divide-border">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                <Skeleton className="h-2.5 w-2.5 rounded-full" />
+                <Skeleton className="h-4 flex-1 max-w-48" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     );
   }
@@ -507,14 +530,20 @@ export default function ServiceUpdatesPage() {
       </AlertDialog>
 
       {groups.length === 0 ? (
-        <div className="flex items-center gap-3 py-6 text-muted-foreground">
-          <Bell className="w-5 h-5 opacity-50" />
-          <p className="text-sm" data-testid="text-no-updates">{emptyMessage}</p>
-        </div>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+            <SectionIcon icon={Bell} tone="bg-status-away/10 text-status-away" />
+            <h2 className="text-sm font-semibold">Service updates</h2>
+          </div>
+          <p className="text-sm text-muted-foreground py-8 text-center" data-testid="text-no-updates">{emptyMessage}</p>
+        </section>
       ) : (
-        <div className="relative">
-          <div className="absolute left-[11px] top-3 bottom-3 w-px bg-border" aria-hidden />
-          <ul className="space-y-0.5">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+            <SectionIcon icon={Bell} tone="bg-status-away/10 text-status-away" />
+            <h2 className="text-sm font-semibold">Service updates</h2>
+          </div>
+          <ul className="divide-y divide-border">
             {groups.map(group => {
               const isExpanded = expandedGroups.has(group.key);
               const extraCount = group.items.length - 1;
@@ -529,13 +558,13 @@ export default function ServiceUpdatesPage() {
                     id={`service-update-${group.head.id}`}
                     onClick={() => toggleGroup(group)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
-                    className={`relative flex items-start gap-3 w-full pr-1 py-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors ${
-                      isHighlightedGroup ? "bg-primary/10 ring-2 ring-primary/50 animate-pulse" : ""
+                    className={`relative flex items-start gap-3 w-full px-5 py-3.5 cursor-pointer transition-colors hover-elevate tap-interactive ${
+                      isHighlightedGroup ? "bg-primary/10 ring-2 ring-inset ring-primary/50 animate-pulse" : ""
                     }`}
                     data-testid={`row-service-update-${group.head.id}`}
                   >
-                    <span className="relative z-10 flex-shrink-0 mt-1.5 ml-1.5">
-                      <span className="block w-2 h-2 rounded-full bg-muted-foreground/50 ring-[3px] ring-background" />
+                    <span className="relative z-10 flex-shrink-0 mt-1.5">
+                      <span className="block h-2.5 w-2.5 rounded-full bg-status-away" />
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
@@ -572,6 +601,7 @@ export default function ServiceUpdatesPage() {
                         >
                           {isAdmin ? <Trash2 className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                         </button>
+                        <ChevronRight className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                       </div>
                       <div className="text-[11px] text-muted-foreground/70 mt-0.5 sm:hidden">
                         {formatDistanceToNow(new Date(group.head.createdAt), { addSuffix: true })}
@@ -645,7 +675,7 @@ export default function ServiceUpdatesPage() {
               );
             })}
           </ul>
-        </div>
+        </section>
       )}
     </div>
   );

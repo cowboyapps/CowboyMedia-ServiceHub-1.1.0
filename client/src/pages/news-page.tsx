@@ -1,10 +1,10 @@
 import { useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { Newspaper, ChevronRight } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import { LazyImage } from "@/components/lazy-image";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { stripHtml } from "@/components/rich-text-editor";
@@ -12,10 +12,40 @@ import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { NewsStory } from "@shared/schema";
 
+function SectionIcon({ icon: Icon, tone }: { icon: typeof Newspaper; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function NewBadge() {
+  return (
+    <span className="rounded-full bg-status-busy px-1.5 py-0.5 text-[10px] font-semibold uppercase text-background shrink-0">
+      New
+    </span>
+  );
+}
+
 export default function NewsPage() {
+  const { user } = useAuth();
+
   const { data: news, isLoading, isError, error, refetch, isFetching } = useQuery<NewsStory[]>({
     queryKey: ["/api/news"],
   });
+
+  const { data: unreadNewsIds } = useQuery<string[]>({
+    queryKey: ["/api/content-notifications/unread-references", "news"],
+    queryFn: async () => {
+      const res = await fetch("/api/content-notifications/unread-references/news", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!user,
+  });
+
+  const unreadNewsSet = new Set(unreadNewsIds || []);
 
   const markNewsRead = useCallback(() => {
     apiRequest("POST", "/api/content-notifications/mark-read", { category: "news" })
@@ -41,54 +71,70 @@ export default function NewsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-news-title">News & Updates</h1>
+        <h1 className="text-2xl font-bold" data-testid="text-news-title">News &amp; Updates</h1>
         <p className="text-sm text-muted-foreground mt-1">Stay up to date with the latest company news</p>
       </div>
 
-      {isLoading ? (
-        <div className="flex flex-col gap-5">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="border rounded-lg p-4 flex gap-4">
-              <Skeleton className="w-20 h-14 sm:w-28 sm:h-20 rounded-md flex-shrink-0" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-2/3" />
-                <Skeleton className="h-3 w-24" />
-              </div>
-            </div>
-          ))}
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <SectionIcon icon={Newspaper} tone="bg-status-online/10 text-status-online" />
+            Latest news
+          </h2>
         </div>
-      ) : isError ? (
-        <QueryErrorState
-          error={error}
-          onRetry={() => refetch()}
-          isRetrying={isFetching}
-          resourceName="news"
-          data-testid="error-news"
-        />
-      ) : !news || news.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
+
+        {isLoading ? (
+          <div className="divide-y divide-border">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex gap-3 px-5 py-3.5">
+                <Skeleton className="h-10 w-14 rounded-md shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : isError ? (
+          <QueryErrorState
+            error={error}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            resourceName="news"
+            className="py-6"
+            data-testid="error-news"
+          />
+        ) : !news || news.length === 0 ? (
+          <div className="px-5 py-12 text-center">
             <Newspaper className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-muted-foreground">No news stories published yet</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-5">
-          {news.map((story) => (
-            <Link key={story.id} href={`/news/${story.id}`} className="stagger-item block">
-              <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-news-${story.id}`}>
-                <CardContent className="flex gap-4 p-4">
-                  {story.imageUrl && (
+            <p className="text-sm text-muted-foreground">No news stories published yet</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {news.map((story) => (
+              <li key={story.id} className="stagger-item">
+                <Link
+                  href={`/news/${story.id}`}
+                  className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                  data-testid={`card-news-${story.id}`}
+                >
+                  {story.imageUrl ? (
                     <LazyImage
                       src={story.imageUrl}
                       alt=""
-                      className="w-20 h-14 sm:w-28 sm:h-20 rounded-md object-contain flex-shrink-0"
+                      className="h-14 w-20 rounded-md object-cover shrink-0"
                     />
+                  ) : (
+                    <span className="mt-0.5 shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                      {format(new Date(story.createdAt), "MMM d")}
+                    </span>
                   )}
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <h3 className="font-semibold text-sm">{story.title}</h3>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <span className="truncate">{story.title}</span>
+                      {unreadNewsSet.has(story.id) && <NewBadge />}
+                    </p>
                     <p className="text-xs text-muted-foreground line-clamp-2">{stripHtml(story.content)}</p>
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(story.createdAt), "MMMM d, yyyy")}
@@ -97,13 +143,13 @@ export default function NewsPage() {
                       <NewsReactionsBar storyId={story.id} source="list" />
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 self-center" />
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      )}
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 self-center" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
