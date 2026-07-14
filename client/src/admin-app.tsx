@@ -28,7 +28,18 @@ import {
   LocationPresenceSync,
 } from "@/components/shared-shell";
 import { useAppBadge } from "@/hooks/use-app-badge";
-import { syncPushSubscription } from "@/lib/push-notifications";
+import {
+  syncPushSubscription,
+  isPushSupported,
+  isSubscribedToPush,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from "@/lib/push-notifications";
+import { NotificationPreferencesDialog } from "@/components/notification-preferences-dialog";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "./lib/queryClient";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { loginSchema, type LoginData } from "@shared/schema";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -36,7 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Shield, ShieldAlert, LogOut } from "lucide-react";
+import { Shield, ShieldAlert, LogOut, Settings, SlidersHorizontal, Bell } from "lucide-react";
 
 const AdminPortal = lazy(() => import("@/pages/admin-portal"));
 
@@ -250,6 +261,165 @@ function NotStaffScreen() {
   );
 }
 
+// Header gear popover: the admin app's own push-notification controls. The
+// admin PWA holds an INDEPENDENT push subscription (service worker scoped to
+// /admin), so staff can get ticket/request pushes here without installing or
+// enabling anything in the customer app.
+function AdminNotificationSettings() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [prefsDialogOpen, setPrefsDialogOpen] = useState(false);
+
+  useEffect(() => {
+    isPushSupported().then(setPushSupported);
+    isSubscribedToPush().then(setPushEnabled);
+  }, []);
+
+  // Re-check on every open so the switch reflects reality even if the silent
+  // background sync (or another tab) changed the subscription after mount.
+  useEffect(() => {
+    if (open) isSubscribedToPush().then(setPushEnabled);
+  }, [open]);
+
+  const handlePushToggle = async (checked: boolean) => {
+    setPushLoading(true);
+    try {
+      if (checked) {
+        const result = await subscribeToPush();
+        if (result.ok) {
+          toast({ title: "Push notifications enabled" });
+        } else {
+          toast({ title: "Could not enable notifications", description: result.reason, variant: "destructive" });
+        }
+      } else {
+        const success = await unsubscribeFromPush();
+        if (success) {
+          toast({ title: "Push notifications disabled" });
+        } else {
+          toast({ title: "Could not disable notifications", description: "Please try again.", variant: "destructive" });
+        }
+      }
+    } catch {
+      toast({ title: "Error toggling notifications", variant: "destructive" });
+    } finally {
+      // Reconcile with the browser's real subscription state so the switch
+      // can never get stuck out of sync.
+      setPushEnabled(await isSubscribedToPush());
+      setPushLoading(false);
+    }
+  };
+
+  const testPushMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/test-push");
+      return (await res.json()) as { success: boolean; total: number; message?: string };
+    },
+    onSuccess: (res) => {
+      if (res.success) {
+        toast({
+          title: "Test notification sent",
+          description: `Sent to ${res.total} device(s) on your account. Check your device.`,
+        });
+      } else {
+        toast({
+          title: "No devices registered",
+          description: res.message || "Turn on push notifications above, then try again.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not send test", description: e?.message || "Something went wrong.", variant: "destructive" });
+    },
+  });
+
+  return (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 w-9 p-0 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+            aria-label="Notification settings"
+            data-testid="button-admin-notif-settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80" data-testid="popover-admin-notif-settings">
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-semibold">Notifications</p>
+              <p className="text-xs text-muted-foreground">
+                Settings for this admin app on this device — separate from the customer app.
+              </p>
+            </div>
+            {pushSupported ? (
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Push notifications</p>
+                  <p className="text-xs text-muted-foreground">New tickets, requests, and more on this device</p>
+                </div>
+                <Switch
+                  checked={pushEnabled}
+                  onCheckedChange={handlePushToggle}
+                  disabled={pushLoading}
+                  data-testid="switch-admin-push-notifications"
+                />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground" data-testid="text-admin-push-unsupported">
+                Push notifications aren't supported in this browser. On iPhone, add this app to your Home Screen first.
+              </p>
+            )}
+            {pushSupported && pushEnabled && (
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Send a test</p>
+                  <p className="text-xs text-muted-foreground">Confirm pushes reach this device</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testPushMutation.mutate()}
+                  disabled={testPushMutation.isPending}
+                  data-testid="button-admin-send-test-push"
+                >
+                  <Bell className="w-4 h-4 mr-1.5" />
+                  {testPushMutation.isPending ? "Sending..." : "Send test"}
+                </Button>
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                setOpen(false);
+                setPrefsDialogOpen(true);
+              }}
+              data-testid="button-admin-open-notif-prefs"
+            >
+              <SlidersHorizontal className="w-4 h-4 mr-1.5" /> Notification preferences
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <NotificationPreferencesDialog
+        open={prefsDialogOpen}
+        onOpenChange={setPrefsDialogOpen}
+        prefs={user?.notificationPrefs}
+        pushAvailable={pushSupported && pushEnabled}
+      />
+    </>
+  );
+}
+
 function AdminShell() {
   const { user, logout } = useAuth();
   const [location] = useLocation();
@@ -300,6 +470,7 @@ function AdminShell() {
           </div>
           <div className="z-10 ml-auto flex items-center gap-1">
             <NotificationCenter />
+            <AdminNotificationSettings />
             <Button
               variant="ghost"
               size="sm"
