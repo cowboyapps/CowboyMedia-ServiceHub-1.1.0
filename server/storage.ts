@@ -609,12 +609,20 @@ export class DatabaseStorage implements IStorage {
   async recomputeServiceStatus(serviceId: string): Promise<string> {
     // Find the most severe impact among the still-active (non-resolved) alerts
     // that cover this service. Returns "operational" when none remain.
+    // Alerts in "monitoring" status are excluded: a fix has shipped and the
+    // service is considered healthy while the team watches for recurrence, so
+    // a monitoring alert must not drag the service (or the dashboard hero)
+    // back into a problem state.
     const IMPACT_RANK: Record<string, number> = { operational: 0, maintenance: 1, degraded: 2, outage: 3 };
     const rows = await db
       .select({ impact: serviceAlerts.impact })
       .from(alertServices)
       .innerJoin(serviceAlerts, eq(alertServices.alertId, serviceAlerts.id))
-      .where(and(eq(alertServices.serviceId, serviceId), ne(serviceAlerts.status, "resolved")));
+      .where(and(
+        eq(alertServices.serviceId, serviceId),
+        ne(serviceAlerts.status, "resolved"),
+        ne(serviceAlerts.status, "monitoring"),
+      ));
     let best = "operational";
     let bestRank = 0;
     for (const r of rows) {

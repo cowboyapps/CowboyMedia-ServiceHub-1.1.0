@@ -309,6 +309,49 @@ test("red outage hero when a service reports outage status", async () => {
   }
 });
 
+test("blue monitoring hero when the only active alert is in monitoring status", async () => {
+  const monitoring = alert("a-mon", "medium", { status: "monitoring", serviceIds: ["s1"] });
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [monitoring] },
+  });
+  try {
+    const hero = findByTestId(c.container, "hero-status");
+    assert.ok(hero, "hero renders");
+    const text = hero!.textContent || "";
+    assert.match(text, /monitoring a recent fix/i, "monitoring hero copy");
+    assert.doesNotMatch(text, /experiencing an issue/i, "monitoring must not read as a problem");
+    assert.doesNotMatch(text, /experiencing an outage/i);
+    assert.match(text, /Alert a-mon/, "subtitle names the monitoring alert");
+    assert.equal(hero!.getAttribute("href"), "/alerts/a-mon", "monitoring hero deep-links to the alert");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("a monitoring alert never dilutes a real problem: issue hero + problem-only count", async () => {
+  const problem = alert("a-live", "medium", { serviceIds: ["s1"] });
+  const monitoring = alert("a-mon", "medium", { status: "monitoring" });
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [monitoring, problem] },
+  });
+  try {
+    const hero = findByTestId(c.container, "hero-status");
+    assert.ok(hero, "hero renders");
+    const text = hero!.textContent || "";
+    assert.match(text, /We're currently experiencing an issue/);
+    assert.equal(hero!.getAttribute("href"), "/alerts/a-live", "deep-links to the PROBLEM alert, not the monitoring one");
+    assert.match(
+      findByTestId(c.container, "text-active-alerts-count")!.textContent || "",
+      /1 active alert/,
+      "count excludes monitoring alerts",
+    );
+  } finally {
+    c.cleanup();
+  }
+});
+
 test("alerts query failure shows the hero error state — never a false all-clear", async () => {
   const c = await mountDashboard({
     "/api/services": { status: 200, body: [service("s1", "operational")] },

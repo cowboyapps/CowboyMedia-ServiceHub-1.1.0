@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import {
+  Activity,
   AlertTriangle,
   Bell,
   CheckCircle2,
@@ -109,17 +110,24 @@ export default function Dashboard() {
   const displayServices = subscribedServices.length > 0 ? subscribedServices : services || [];
   const openTickets = tickets?.filter((t) => t.status === "open") || [];
 
-  const hasOutage = displayServices.some((s) => s.status === "outage") || activeAlerts.some((a) => a.severity === "critical");
-  const hasIssue = activeAlerts.length > 0 || displayServices.some((s) => s.status !== "operational");
-  const heroState: "clear" | "issue" | "outage" = hasOutage ? "outage" : hasIssue ? "issue" : "clear";
-  const firstAlert = activeAlerts[0];
+  // Alerts in "monitoring" status mean a fix is in place and the team is
+  // watching for recurrence — they stay visible but no longer count as a
+  // problem, so the hero shows a calm monitoring state instead of a warning.
+  const problemAlerts = activeAlerts.filter((a) => a.status !== "monitoring");
+  const monitoringAlerts = activeAlerts.filter((a) => a.status === "monitoring");
+  const hasOutage = displayServices.some((s) => s.status === "outage") || problemAlerts.some((a) => a.severity === "critical");
+  const hasIssue = problemAlerts.length > 0 || displayServices.some((s) => s.status !== "operational");
+  const heroState: "clear" | "monitoring" | "issue" | "outage" = hasOutage ? "outage" : hasIssue ? "issue" : monitoringAlerts.length > 0 ? "monitoring" : "clear";
+  const firstAlert = problemAlerts[0] ?? monitoringAlerts[0];
 
-  const heroTone = heroState === "outage" ? "status-busy" : "status-away";
   const heroTitle = heroState === "outage" ? "We're currently experiencing an outage" : "We're currently experiencing an issue";
   const heroAlertServices = firstAlert?.serviceIds?.map((sid) => serviceMap.get(sid)).filter(Boolean).join(", ");
   const heroSubtitle = firstAlert
     ? `${firstAlert.title}${heroAlertServices ? ` — ${heroAlertServices}` : ""} · started ${formatDistanceToNow(new Date(firstAlert.createdAt), { addSuffix: true })} · tap to view the alert`
     : "One or more of your services isn't fully operational right now. Tap to see details.";
+  const monitoringSubtitle = firstAlert
+    ? `${firstAlert.title}${heroAlertServices ? ` — ${heroAlertServices}` : ""} · a fix is in place and we're watching closely · tap to view`
+    : "A fix is in place and we're keeping an eye on things.";
 
   return (
     <div className="space-y-6">
@@ -142,13 +150,13 @@ export default function Dashboard() {
         </div>
       ) : heroState === "clear" ? (
         <Link href="/alerts" className="block" data-testid="hero-status">
-          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent p-6 flex items-center gap-4 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
-              <CheckCircle2 className="h-6 w-6 text-status-online" />
+          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
+            <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
+              <CheckCircle2 className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-status-online" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-lg font-semibold text-status-online">All services are running smoothly</p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base sm:text-lg font-semibold leading-snug text-status-online">All services are running smoothly</p>
+              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5">
                 Every service you're subscribed to is operational.{" "}
                 <span data-testid="text-active-alerts-count">0 active alerts</span> · tap to view alert history
               </p>
@@ -156,39 +164,58 @@ export default function Dashboard() {
             <ChevronRight className="h-5 w-5 shrink-0 text-status-online" />
           </div>
         </Link>
+      ) : heroState === "monitoring" ? (
+        <Link href={firstAlert ? `/alerts/${firstAlert.id}` : "/alerts"} className="block" data-testid="hero-status">
+          <div className="rounded-xl border border-primary/40 ring-1 ring-inset ring-primary/20 bg-gradient-to-br from-primary/15 via-primary/[0.07] to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-primary/40 transition cursor-pointer">
+            <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/30">
+              <Activity className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-primary" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-base sm:text-lg font-semibold leading-snug text-primary">All services are up — monitoring a recent fix</p>
+              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5">{monitoringSubtitle}</p>
+            </div>
+            <span
+              className="hidden sm:inline rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 bg-primary/10 text-primary"
+              data-testid="text-active-alerts-count"
+            >
+              Monitoring
+            </span>
+            <ChevronRight className="h-5 w-5 shrink-0 text-primary" />
+          </div>
+        </Link>
       ) : (
         <Link href={firstAlert ? `/alerts/${firstAlert.id}` : "/alerts"} className="block" data-testid="hero-status">
           <div
             className={
               heroState === "outage"
-                ? "w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer animate-hero-breathe hero-glow-busy"
-                : "w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer animate-hero-breathe hero-glow-away"
+                ? "w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer animate-hero-breathe hero-glow-busy"
+                : "w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer animate-hero-breathe hero-glow-away"
             }
           >
             <span
               className={
                 heroState === "outage"
-                  ? "flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-busy/15 ring-1 ring-status-busy/30"
-                  : "flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-away/15 ring-1 ring-status-away/30"
+                  ? "flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-busy/15 ring-1 ring-status-busy/30"
+                  : "flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-away/15 ring-1 ring-status-away/30"
               }
             >
-              <AlertTriangle className={`h-6 w-6 animate-status-pulse ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`} />
+              <AlertTriangle className={`h-5 w-5 sm:h-[22px] sm:w-[22px] animate-status-pulse ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className={`text-lg font-semibold ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`}>{heroTitle}</p>
-              <p className="text-sm text-muted-foreground">{heroSubtitle}</p>
+              <p className={`text-base sm:text-lg font-semibold leading-snug ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`}>{heroTitle}</p>
+              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5">{heroSubtitle}</p>
             </div>
             <span
               className={`hidden sm:inline rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 ${heroState === "outage" ? "bg-status-busy/15 text-status-busy" : "bg-status-away/15 text-status-away"}`}
               data-testid="text-active-alerts-count"
             >
-              {activeAlerts.length} active {activeAlerts.length === 1 ? "alert" : "alerts"}
+              {problemAlerts.length} active {problemAlerts.length === 1 ? "alert" : "alerts"}
             </span>
             <ChevronRight className={`h-5 w-5 shrink-0 ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`} />
           </div>
         </Link>
       )}
-      {heroState !== "clear" && activeAlerts.length > 1 && (
+      {(heroState === "issue" || heroState === "outage") && activeAlerts.length > 1 && (
         <div className="-mt-3 text-right">
           <Link href="/alerts" className="text-xs font-medium text-muted-foreground hover:text-foreground" data-testid="link-view-all-alerts">
             View all {activeAlerts.length} active alerts →
