@@ -1,0 +1,154 @@
+/* ServiceHub main-app design tokens — copied from client/src/index.css.
+   Every mockup in this group imports this file so previews match the real app. */
+
+:root {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+  --background: 30 25% 97%;
+  --foreground: 20 14% 10%;
+  --border: 28 15% 87%;
+  --card: 0 0% 100%;
+  --card-foreground: 20 14% 10%;
+  --card-border: 28 18% 91%;
+  --sidebar: 20 12% 11%;
+  --sidebar-foreground: 30 15% 92%;
+  --sidebar-border: 20 10% 18%;
+  --sidebar-primary: 25 95% 53%;
+  --sidebar-primary-foreground: 20 15% 8%;
+  --sidebar-accent: 22 12% 19%;
+  --sidebar-accent-foreground: 30 20% 95%;
+  --sidebar-ring: 25 95% 53%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 14% 10%;
+  --popover-border: 28 15% 88%;
+  --primary: 24 90% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 28 18% 89%;
+  --secondary-foreground: 20 14% 12%;
+  --muted: 28 16% 91%;
+  --muted-foreground: 24 8% 40%;
+  --accent: 26 55% 93%;
+  --accent-foreground: 22 60% 22%;
+  --destructive: 0 78% 42%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 28 12% 76%;
+  --ring: 24 90% 45%;
+  --chart-1: 24 90% 48%;
+  --chart-2: 185 55% 34%;
+  --chart-3: 340 60% 45%;
+  --chart-4: 45 90% 38%;
+  --chart-5: 150 55% 30%;
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', Menlo, monospace;
+  --radius: .75rem;
+  --motion-fast: 140ms;
+  --motion-med: 220ms;
+  --motion-slow: 320ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-stagger-step: 45ms;
+}
+
+.dark {
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+  --background: 20 12% 8%;
+  --foreground: 30 15% 95%;
+  --border: 20 9% 17%;
+  --card: 20 10% 11%;
+  --card-foreground: 30 15% 95%;
+  --card-border: 20 8% 15%;
+  --sidebar: 20 13% 9%;
+  --sidebar-foreground: 30 15% 92%;
+  --sidebar-border: 20 9% 15%;
+  --sidebar-primary: 25 95% 58%;
+  --sidebar-primary-foreground: 20 15% 8%;
+  --sidebar-accent: 22 12% 18%;
+  --sidebar-accent-foreground: 30 20% 95%;
+  --sidebar-ring: 25 95% 58%;
+  --popover: 20 10% 13%;
+  --popover-foreground: 30 15% 95%;
+  --popover-border: 20 9% 18%;
+  --primary: 25 95% 55%;
+  --primary-foreground: 20 15% 8%;
+  --secondary: 20 8% 20%;
+  --secondary-foreground: 30 15% 95%;
+  --muted: 22 9% 16%;
+  --muted-foreground: 28 10% 66%;
+  --accent: 24 18% 17%;
+  --accent-foreground: 30 20% 93%;
+  --destructive: 0 72% 45%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 20 8% 28%;
+  --ring: 25 95% 58%;
+  --chart-1: 25 95% 60%;
+  --chart-2: 185 55% 55%;
+  --chart-3: 340 65% 65%;
+  --chart-4: 45 90% 55%;
+  --chart-5: 150 55% 50%;
+}
+
+/* Status dot colors (main app defines these via tailwind.config.ts) */
+.bg-status-online { background-color: rgb(34 197 94); }
+.bg-status-away { background-color: rgb(245 158 11); }
+.bg-status-busy { background-color: rgb(239 68 68); }
+.bg-status-offline { background-color: rgb(156 163 175); }
+.text-status-online { color: rgb(34 197 94); }
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+.animate-status-pulse { animation: status-pulse 2s ease-in-out infinite; }
+
+@keyframes status-glow {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 0px currentColor); }
+  50% { opacity: 0.85; filter: drop-shadow(0 0 3px currentColor); }
+}
+.animate-status-glow { animation: status-glow 3s ease-in-out infinite; }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stagger-item { animation: slide-up var(--motion-med) var(--motion-ease) both; }
+.stagger-item:nth-child(1) { animation-delay: 0ms; }
+.stagger-item:nth-child(2) { animation-delay: calc(1 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(3) { animation-delay: calc(2 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(4) { animation-delay: calc(3 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(5) { animation-delay: calc(4 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(6) { animation-delay: calc(5 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(7) { animation-delay: calc(6 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(8) { animation-delay: calc(7 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(9) { animation-delay: calc(8 * var(--motion-stagger-step)); }
+.stagger-item:nth-child(n+10) { animation-delay: calc(9 * var(--motion-stagger-step)); }
+
+.tap-interactive { transition: transform 0.1s ease-in-out; }
+.tap-interactive:active { transform: scale(0.98); }
+
+/* Elevate system (hover/active brightness overlays) */
+.hover-elevate, .active-elevate {
+  position: relative;
+  z-index: 0;
+}
+.hover-elevate::after, .active-elevate::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0px;
+  border-radius: inherit;
+  z-index: 999;
+}
+.hover-elevate:hover::after, .active-elevate:active::after {
+  background-color: var(--elevate-1);
+}
+.border.hover-elevate::after, .border.active-elevate::after {
+  inset: -1px;
+}

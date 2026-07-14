@@ -1,0 +1,34 @@
+.personal-hub-gradient {
+  background: radial-gradient(100% 100% at 50% 0%, hsl(var(--primary) / 0.15) 0%, transparent 100%);
+}
+
+.service-card-degraded {
+  background: linear-gradient(135deg, hsl(var(--card)), hsl(var(--card)));
+  position: relative;
+  overflow: hidden;
+}
+
+.service-card-degraded::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background-color: rgb(245 158 11); /* status-away */
+}
+
+.ticket-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.ticket-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background-color: hsl(var(--chart-5));
+}
