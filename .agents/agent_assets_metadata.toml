@@ -24,3 +24,15 @@ id = "2lr9ca-QiWCioUDj52WQh"
 uri = "file://.local/changelog-restore/restore_v52_on_vps.sh.txt"
 type = "text"
 title = "VPS one-shot restore script (rename to .sh before running)"
+
+[[outputs]]
+id = "PsuZCd9ifMhXZ_56hQGU5"
+uri = "file://attached_assets/screenshots/ab026dec-2b21-4386-8a82-ad60aa66a512-00-jcet29hqj23k_picard_replit_dev_mockup_preview_dashboard-v2_HeroStack.png"
+type = "image"
+title = "Dashboard mockup — issue state (yellow hero)"
+
+[[outputs]]
+id = "uajnqm89X1vI7jN6doZjq"
+uri = "file://attached_assets/screenshots/ab026dec-2b21-4386-8a82-ad60aa66a512-00-jcet29hqj23k_picard_replit_dev_mockup_preview_dashboard-v2_HeroStackAllClear.png"
+type = "image"
+title = "Dashboard mockup — all clear state (green hero)"
