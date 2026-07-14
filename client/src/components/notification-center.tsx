@@ -1,19 +1,20 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Bell, X, Mail, MessageSquare, AlertTriangle, Newspaper, Activity, FileText, RefreshCw, CheckCheck, UserPlus, MonitorX, MonitorCheck, ChevronDown } from "lucide-react";
+import { Bell, X, Mail, MessageSquare, AlertTriangle, Newspaper, Activity, FileText, RefreshCw, CheckCheck, UserPlus, MonitorX, MonitorCheck, ChevronDown, CheckCircle2 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { groupNotifications, type UserNotification, type GroupedNotification } from "@/lib/notification-grouping";
 
 const typeIcons: Record<string, typeof Bell> = {
@@ -33,6 +34,75 @@ const typeIcons: Record<string, typeof Bell> = {
 
 function getIcon(type: string) {
   return typeIcons[type] || Bell;
+}
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function NewBadge() {
+  return (
+    <span className="rounded-full bg-status-busy px-1.5 py-0.5 text-[10px] font-semibold uppercase text-background shrink-0">
+      New
+    </span>
+  );
+}
+
+function RowSkeletons({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-start gap-3 px-5 py-3.5">
+          <Skeleton className="h-9 w-9 rounded-md shrink-0 mt-0.5" />
+          <div className="flex-1 space-y-2 py-1">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type DayGroup = {
+  label: string;
+  groups: GroupedNotification[];
+};
+
+function groupByDay(groups: GroupedNotification[]): DayGroup[] {
+  const result: DayGroup[] = [];
+  let currentLabel = "";
+  let currentGroups: GroupedNotification[] = [];
+  
+  for (const g of groups) {
+    const d = new Date(g.latest.createdAt);
+    let label = "";
+    if (isToday(d)) {
+      label = "Today";
+    } else if (isYesterday(d)) {
+      label = "Yesterday";
+    } else {
+      label = format(d, "MMMM d, yyyy");
+    }
+    
+    if (label !== currentLabel) {
+      if (currentGroups.length > 0) {
+        result.push({ label: currentLabel, groups: currentGroups });
+      }
+      currentLabel = label;
+      currentGroups = [g];
+    } else {
+      currentGroups.push(g);
+    }
+  }
+  if (currentGroups.length > 0) {
+    result.push({ label: currentLabel, groups: currentGroups });
+  }
+  return result;
 }
 
 const RELATED_BADGE_KEYS = [
@@ -216,14 +286,17 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
   };
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b">
-        <h3 className="text-sm font-semibold" data-testid="text-notifications-title">Notifications</h3>
+    <div className="flex flex-col bg-card h-full rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border sticky top-0 bg-card z-10">
+        <h3 className="text-sm font-semibold flex items-center gap-3" data-testid="text-notifications-title">
+          <SectionIcon icon={Bell} tone="bg-status-online/10 text-status-online" />
+          Notifications
+        </h3>
         {notifications.length > 0 && (
           <Button
             variant="ghost"
             size="sm"
-            className="text-xs h-7 gap-1"
+            className="text-xs h-8 gap-1.5 px-2"
             onClick={handleMarkAllRead}
             data-testid="button-mark-all-read"
           >
@@ -232,131 +305,139 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
           </Button>
         )}
       </div>
-      <ScrollArea className="max-h-[60vh] md:max-h-[400px]">
+      <ScrollArea className="flex-1 max-h-[60vh] md:max-h-[450px]">
         {groupedNotifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 px-4 text-muted-foreground">
-            <Bell className="w-10 h-10 mb-2 opacity-40" />
-            <p className="text-sm">No notifications</p>
+          <div className="flex flex-col items-center justify-center py-16 px-5 text-center">
+            <CheckCircle2 className="w-10 h-10 mb-3 text-status-online animate-status-glow" />
+            <p className="font-medium">All caught up</p>
+            <p className="text-sm text-muted-foreground mt-1">You have no unread notifications</p>
           </div>
         ) : (
-          <div className="divide-y">
-            <AnimatePresence initial={false}>
-              {groupedNotifications.map(group => {
-                const notif = group.latest;
-                const Icon = getIcon(notif.type);
-                const isUnread = group.notifications.some(n => !n.readAt);
-                const isExpandable = group.count > 1;
-                const isExpanded = isExpandable && expandedKeys.has(group.key);
-                return (
-                  <motion.div
-                    key={group.key}
-                    layout
-                    initial={false}
-                    exit={{ opacity: 0, x: 32, height: 0, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 }}
-                    transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-                    style={{ overflow: "hidden" }}
-                  >
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={isExpandable ? isExpanded : undefined}
-                      onClick={() => handleTapGroup(group)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTapGroup(group); } }}
-                      className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${isUnread ? "bg-primary/5" : ""}`}
-                      data-testid={`notification-item-${notif.id}`}
-                    >
-                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-0.5 ${isUnread ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className={`text-sm leading-tight ${isUnread ? "font-medium" : "text-muted-foreground"}`}>{notif.title}</p>
-                          {group.count > 1 && (
-                            <span className="flex-shrink-0 text-[10px] font-medium bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                              {group.count}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                          {group.count > 1
-                            ? notif.type === "message"
-                              ? `${group.count} new messages`
-                              : `${group.count} updates`
-                            : notif.body}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground/60 mt-1">
-                          {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
-                        </p>
-                      </div>
-                      {isExpandable && (
-                        <ChevronDown
-                          className={`flex-shrink-0 w-4 h-4 text-muted-foreground mt-1 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-                          data-testid={`chevron-group-${group.key}`}
-                        />
-                      )}
-                      <button
-                        onClick={(e) => handleDismissGroup(e, group)}
-                        className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
-                        data-testid={`button-dismiss-${group.key}`}
-                        aria-label="Dismiss all"
-                      >
-                        <X className="w-3.5 h-3.5 text-muted-foreground" />
-                      </button>
-                    </div>
-                    <AnimatePresence initial={false}>
-                      {isExpanded && (
+          <div className="pb-2">
+            {groupByDay(groupedNotifications).map((day) => (
+              <div key={day.label} className="mt-2 first:mt-0">
+                <div className="sticky top-0 z-10 bg-muted/40 backdrop-blur-md px-5 py-1.5 border-y border-border/50 first:border-t-0">
+                  <span className="text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
+                    {day.label}
+                  </span>
+                </div>
+                <div className="divide-y divide-border">
+                  <AnimatePresence initial={false}>
+                    {day.groups.map((group) => {
+                      const notif = group.latest;
+                      const Icon = getIcon(notif.type);
+                      const isUnread = group.notifications.some(n => !n.readAt);
+                      const isExpandable = group.count > 1;
+                      const isExpanded = isExpandable && expandedKeys.has(group.key);
+                      return (
                         <motion.div
-                          key={`${group.key}-items`}
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
+                          key={group.key}
+                          layout
+                          initial={false}
+                          exit={{ opacity: 0, height: 0 }}
                           transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
                           style={{ overflow: "hidden" }}
-                          className="bg-muted/20"
                         >
-                          <div className="divide-y divide-border/50">
-                            {group.notifications.map(item => {
-                              const ItemIcon = getIcon(item.type);
-                              const itemUnread = !item.readAt;
-                              return (
-                                <div
-                                  key={item.id}
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() => handleOpenItem(item)}
-                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleOpenItem(item); } }}
-                                  className={`flex items-start gap-3 w-full pl-10 pr-4 py-2.5 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${itemUnread ? "bg-primary/5" : ""}`}
-                                  data-testid={`notification-subitem-${item.id}`}
-                                >
-                                  <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${itemUnread ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                                    <ItemIcon className="w-3 h-3" />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className={`text-xs leading-tight ${itemUnread ? "font-medium" : "text-muted-foreground"}`}>{item.title}</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.body}</p>
-                                    <p className="text-[10px] text-muted-foreground/60 mt-1">
-                                      {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
-                                    </p>
-                                  </div>
-                                  <button
-                                    onClick={(e) => handleDismissItem(e, item)}
-                                    className="flex-shrink-0 p-1 rounded-md hover:bg-muted tap-interactive mt-0.5"
-                                    data-testid={`button-dismiss-item-${item.id}`}
-                                    aria-label="Dismiss notification"
-                                  >
-                                    <X className="w-3 h-3 text-muted-foreground" />
-                                  </button>
-                                </div>
-                              );
-                            })}
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={isExpandable ? isExpanded : undefined}
+                            onClick={() => handleTapGroup(group)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTapGroup(group); } }}
+                            className={`flex items-start gap-3 w-full px-5 py-3.5 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer hover-elevate ${isUnread ? "" : "opacity-80"}`}
+                            data-testid={`notification-item-${notif.id}`}
+                          >
+                            <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${isUnread ? "bg-status-busy animate-status-pulse" : "bg-transparent"}`} />
+                            
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <p className={`text-sm flex items-center gap-2 ${isUnread ? "font-medium" : "font-normal text-muted-foreground"}`}>
+                                <span className="truncate">{notif.title}</span>
+                                {group.count > 1 && (
+                                  <span className="flex-shrink-0 text-[10px] font-medium bg-muted text-foreground px-1.5 py-0.5 rounded-full">
+                                    {group.count}
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-muted-foreground line-clamp-2">
+                                {group.count > 1
+                                  ? notif.type === "message"
+                                    ? `${group.count} new messages`
+                                    : `${group.count} updates`
+                                  : notif.body}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
+                              </p>
+                            </div>
+                            
+                            {isExpandable && (
+                              <ChevronDown
+                                className={`flex-shrink-0 w-4 h-4 text-muted-foreground mt-1 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                                data-testid={`chevron-group-${group.key}`}
+                              />
+                            )}
+                            <button
+                              onClick={(e) => handleDismissGroup(e, group)}
+                              className="flex-shrink-0 p-1.5 -mr-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors mt-0.5"
+                              data-testid={`button-dismiss-${group.key}`}
+                              aria-label="Dismiss all"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           </div>
+                          <AnimatePresence initial={false}>
+                            {isExpanded && (
+                              <motion.div
+                                key={`${group.key}-items`}
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                                style={{ overflow: "hidden" }}
+                                className="bg-muted/10 border-t border-border/50"
+                              >
+                                <div className="divide-y divide-border/50">
+                                  {group.notifications.map(item => {
+                                    const itemUnread = !item.readAt;
+                                    return (
+                                      <div
+                                        key={item.id}
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => handleOpenItem(item)}
+                                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleOpenItem(item); } }}
+                                        className={`flex items-start gap-3 w-full pl-11 pr-5 py-3 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer ${itemUnread ? "" : "opacity-80"}`}
+                                        data-testid={`notification-subitem-${item.id}`}
+                                      >
+                                        <div className="flex-1 min-w-0 space-y-1">
+                                          <p className={`text-xs ${itemUnread ? "font-medium" : "text-muted-foreground"}`}>{item.title}</p>
+                                          <p className="text-xs text-muted-foreground line-clamp-2">{item.body}</p>
+                                          <p className="text-[10px] text-muted-foreground">
+                                            {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                                          </p>
+                                        </div>
+                                        <button
+                                          onClick={(e) => handleDismissItem(e, item)}
+                                          className="flex-shrink-0 p-1 -mr-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                          data-testid={`button-dismiss-item-${item.id}`}
+                                          aria-label="Dismiss notification"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </ScrollArea>

@@ -198,7 +198,10 @@ export default function AlertsPage() {
               </h2>
             </div>
             {resolvedAlerts.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">No resolved alerts</p>
+              <div className="px-5 py-10 text-center">
+                <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">No resolved incidents yet</p>
+              </div>
             ) : (
               <ul className="divide-y divide-border">
                 {resolvedAlerts.map((alert) => (

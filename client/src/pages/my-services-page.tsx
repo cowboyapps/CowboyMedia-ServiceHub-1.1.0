@@ -57,7 +57,17 @@ import {
   Package,
   Search,
   X,
+  type LucideIcon,
 } from "lucide-react";
+
+function SectionIcon({ icon: Icon, tone }: { icon: LucideIcon; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
 import type { Service } from "@shared/schema";
 import { computeOrderEstimate, priceForCycle, startingPriceLabel, startingPriceValue } from "@shared/store-estimate";
 
@@ -405,12 +415,12 @@ function ActiveServiceCard({ service, autoOpen = false }: { service: ActiveServi
     }
   }, [autoOpen]);
   return (
-    <Card ref={cardRef} data-testid={`card-active-service-${service.id}`}>
-      <CardContent className="p-3">
+    <div ref={cardRef} data-testid={`card-active-service-${service.id}`}>
+      <div className="px-5 py-3.5">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -m-3 p-3 rounded-md"
+          className="w-full flex items-center justify-between gap-3 text-left hover-elevate active-elevate-2 -mx-5 px-5 -my-3.5 py-3.5"
           aria-expanded={open}
           data-testid={`button-toggle-service-${service.id}`}
         >
@@ -448,8 +458,8 @@ function ActiveServiceCard({ service, autoOpen = false }: { service: ActiveServi
             <UpgradePlanAction service={service} />
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1589,6 +1599,20 @@ function AddProductFlow() {
   );
 }
 
+function RowSkeletons({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-2.5 w-2.5 rounded-full" />
+          <Skeleton className="h-4 flex-1 max-w-48" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MyActiveServices() {
   const { data, isLoading } = useQuery<ActiveServicesPayload>({
     queryKey: ["/api/my/services"],
@@ -1600,40 +1624,52 @@ function MyActiveServices() {
   const search = useSearch();
   const deepLinkServiceId = new URLSearchParams(search).get("service");
 
-  if (isLoading) return <Skeleton className="h-28 rounded-xl" data-testid="active-services-loading" />;
+  if (isLoading) return (
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="active-services-loading">
+      <div className="px-5 py-4 border-b border-border">
+        <Skeleton className="h-5 w-40" />
+      </div>
+      <RowSkeletons />
+    </section>
+  );
   // Only render the section when billing is live and the customer is linked.
   if (!data || !data.configured || !data.enabled || !data.linked) return null;
 
   const hasServices = !data.unreachable && data.services.length > 0;
 
   return (
-    <div data-testid="my-active-services">
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-2">
-        <div className="flex items-center gap-2">
-          <KeyRound className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold" data-testid="heading-active-services">Active services</h2>
-        </div>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="my-active-services">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="heading-active-services">
+          <SectionIcon icon={KeyRound} tone="bg-primary/10 text-primary" />
+          Active services
+        </h2>
         <div className="flex flex-wrap items-center gap-2">
           <AddServiceFlow />
           <AddProductFlow />
         </div>
       </div>
       {data.unreachable ? (
-        <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-active-services-unreachable">
-          We couldn't load your services right now. Please try again in a few minutes.
-        </p>
+        <div className="px-5 py-8 text-center">
+          <p className="text-sm text-muted-foreground" data-testid="text-active-services-unreachable">
+            We couldn't load your services right now. Please try again in a few minutes.
+          </p>
+        </div>
       ) : !hasServices ? (
-        <p className="text-sm text-muted-foreground px-1 py-3" data-testid="text-active-services-empty">
-          You don't have any active services right now.
-        </p>
+        <div className="px-5 py-8 text-center">
+          <KeyRound className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground" data-testid="text-active-services-empty">
+            You don't have any active services right now.
+          </p>
+        </div>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-border">
           {data.services.map((s) => (
             <ActiveServiceCard key={s.id} service={s} autoOpen={String(s.id) === deepLinkServiceId} />
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -1643,35 +1679,42 @@ function MyMonitoredServices() {
     ...liveQueryOptions,
   });
 
-  if (isLoading) return <Skeleton className="h-28 rounded-xl" data-testid="my-services-loading" />;
+  if (isLoading) return (
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="my-services-loading">
+      <div className="px-5 py-4 border-b border-border">
+        <Skeleton className="h-5 w-40" />
+      </div>
+      <RowSkeletons />
+    </section>
+  );
   // Only render when there's something to show — linked with mapped services.
   if (!data || !data.configured || !data.enabled || !data.linked) return null;
   if (data.unreachable || data.services.length === 0) return null;
 
   return (
-    <div data-testid="my-monitored-services">
-      <div className="flex items-center gap-2 mb-2">
-        <Server className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold" data-testid="heading-my-services">Monitored services included with your products</h2>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="my-monitored-services">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="heading-my-services">
+          <SectionIcon icon={Server} tone="bg-status-online/10 text-status-online" />
+          Monitored services included with your products
+        </h2>
       </div>
-      <div className="space-y-2">
+      <div className="divide-y divide-border">
         {data.services.map((s) => (
-          <Card key={s.id} data-testid={`card-my-service-${s.id}`}>
-            <CardContent className="p-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium text-sm truncate" data-testid={`text-my-service-name-${s.id}`}>{s.name}</p>
-                {s.description && (
-                  <p className="text-xs text-muted-foreground truncate">{s.description}</p>
-                )}
-              </div>
-              <Badge variant="outline" className={`shrink-0 ${statusBadgeClass(s.status)}`} data-testid={`badge-my-service-status-${s.id}`}>
-                {statusLabel(s.status)}
-              </Badge>
-            </CardContent>
-          </Card>
+          <div key={s.id} className="flex items-center justify-between gap-3 px-5 py-3.5" data-testid={`card-my-service-${s.id}`}>
+            <div className="min-w-0">
+              <p className="font-medium text-sm truncate" data-testid={`text-my-service-name-${s.id}`}>{s.name}</p>
+              {s.description && (
+                <p className="text-xs text-muted-foreground truncate">{s.description}</p>
+              )}
+            </div>
+            <Badge variant="outline" className={`shrink-0 ${statusBadgeClass(s.status)}`} data-testid={`badge-my-service-status-${s.id}`}>
+              {statusLabel(s.status)}
+            </Badge>
+          </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1710,24 +1753,22 @@ function NoServicesNotice() {
   const needsLink = !!data && data.configured && data.enabled && !data.linked;
 
   return (
-    <Card data-testid="card-no-services">
-      <CardContent className="p-6 text-center">
-        <KeyRound className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-        <p className="text-base font-semibold" data-testid="text-no-services-title">
-          {needsLink ? "Link your account to see your services" : "No services to show yet"}
-        </p>
-        <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto" data-testid="text-no-services-description">
-          {needsLink
-            ? "Connect your billing account to view your active services, logins, and more."
-            : "Your active services and logins will appear here once they're available."}
-        </p>
-        {needsLink && (
-          <Button asChild variant="outline" size="sm" className="mt-4" data-testid="button-link-account">
-            <Link href="/settings">Link your account</Link>
-          </Button>
-        )}
-      </CardContent>
-    </Card>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden px-5 py-12 text-center" data-testid="card-no-services">
+      <KeyRound className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+      <p className="text-base font-semibold" data-testid="text-no-services-title">
+        {needsLink ? "Link your account to see your services" : "No services to show yet"}
+      </p>
+      <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto" data-testid="text-no-services-description">
+        {needsLink
+          ? "Connect your billing account to view your active services, logins, and more."
+          : "Your active services and logins will appear here once they're available."}
+      </p>
+      {needsLink && (
+        <Button asChild variant="outline" size="sm" className="mt-4" data-testid="button-link-account">
+          <Link href="/settings">Link your account</Link>
+        </Button>
+      )}
+    </section>
   );
 }
 

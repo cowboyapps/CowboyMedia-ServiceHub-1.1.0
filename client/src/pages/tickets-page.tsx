@@ -14,7 +14,6 @@ import type { KbArticle } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +27,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import {
   AlertDialog,
@@ -41,7 +40,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen, Filter, X, CreditCard } from "lucide-react";
+import { Plus, Ticket, Clock, ChevronRight, MessageSquare, Trash2, Tag, AlertTriangle, BookOpen, Filter, X, CreditCard, CheckCircle2 } from "lucide-react";
 import { WhmcsTicketList, type WhmcsTicketsListData } from "@/components/whmcs-tickets";
 import { useWhmcsSeenMap } from "@/lib/whmcs-unread";
 import { countNewReplies, newReplyTicketIds } from "@shared/whmcs-unread";
@@ -53,6 +52,31 @@ import { z } from "zod";
 import type { Ticket as TicketType, Service, TicketCategory } from "@shared/schema";
 
 type AdminTicket = TicketType & { claimedByName?: string | null };
+
+function SectionIcon({ icon: Icon, tone }: { icon: typeof MessageSquare; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
+function RowSkeletons({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="h-4 w-4 rounded shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 type SupportAwayPublicStatus = {
   enabled: boolean;
@@ -95,20 +119,20 @@ const createTicketSchema = z.object({
 });
 
 function PriorityBadge({ priority }: { priority: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    high: "destructive",
-    medium: "default",
-    low: "secondary",
+  const variants: Record<string, string> = {
+    high: "bg-status-busy/15 text-status-busy",
+    medium: "bg-primary/15 text-primary",
+    low: "bg-muted text-muted-foreground",
   };
-  return <Badge variant={variants[priority] || "secondary"} className="text-xs capitalize">{priority}</Badge>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${variants[priority] || "bg-muted text-muted-foreground"}`}>{priority}</span>;
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    open: "default",
-    closed: "secondary",
+  const variants: Record<string, string> = {
+    open: "bg-status-online/15 text-status-online",
+    closed: "bg-muted text-muted-foreground",
   };
-  return <Badge variant={variants[status] || "secondary"} className="text-xs capitalize">{status}</Badge>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${variants[status] || "bg-muted text-muted-foreground"}`}>{status}</span>;
 }
 
 type BusinessHoursStatus = {
@@ -153,20 +177,26 @@ function SubjectKbSuggestions({ subject }: { subject: string }) {
   });
   if (!enabled || results.length === 0) return null;
   return (
-    <div className="mt-2 rounded-md border bg-muted/30 p-2 space-y-1" data-testid="kb-subject-suggestions">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Suggested articles</p>
-      {results.slice(0, 3).map((a) => (
-        <a
-          key={a.id}
-          href={`/knowledge/${a.slug}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-sm px-2 py-1 rounded hover:bg-accent/60 truncate"
-          data-testid={`link-kb-suggestion-${a.id}`}
-        >
-          {a.title}
-        </a>
-      ))}
+    <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3" data-testid="kb-subject-suggestions">
+      <div className="flex items-center gap-2 text-primary font-medium text-sm">
+        <BookOpen className="w-4 h-4" />
+        These articles might solve your issue instantly
+      </div>
+      <div className="grid gap-2">
+        {results.slice(0, 3).map((a) => (
+          <a
+            key={a.id}
+            href={`/knowledge/${a.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between rounded-lg border border-primary/10 bg-background px-4 py-3 hover-elevate tap-interactive"
+            data-testid={`link-kb-suggestion-${a.id}`}
+          >
+            <span className="text-sm font-medium truncate">{a.title}</span>
+            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
@@ -382,27 +412,32 @@ export default function TicketsPage() {
                   </div>
                 )}
                 <div
-                  className="mb-3 rounded-md border border-primary/40 bg-primary/5 p-3 flex items-center justify-between gap-3 flex-wrap"
+                  className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                   data-testid="notice-kb-hint"
                 >
-                  <div className="flex items-start gap-2">
-                    <BookOpen className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Many common questions are answered in our Knowledge Base — you may find a faster fix there.
-                    </p>
+                  <div className="flex items-start gap-3">
+                    <div className="bg-primary/10 text-primary rounded-full p-2 shrink-0">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-primary">Need a quick fix?</p>
+                      <p className="text-xs text-muted-foreground">
+                        Many common questions are answered in our Knowledge Base — you may find a faster fix there.
+                      </p>
+                    </div>
                   </div>
                   <Button
                     type="button"
                     size="sm"
-                    variant="outline"
+                    className="shrink-0 w-full sm:w-auto"
                     onClick={() => {
                       setDialogOpen(false);
                       setLocation("/knowledge");
                     }}
                     data-testid="button-kb-hint-browse"
                   >
-                    <BookOpen className="w-4 h-4 mr-1.5" />
-                    Browse
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    Browse Knowledge Base
                   </Button>
                 </div>
                 <SupportAwayBanner />
@@ -551,7 +586,7 @@ export default function TicketsPage() {
       </div>
 
       {isAdmin && (
-        <div className="flex flex-wrap items-end gap-2 rounded-md border bg-muted/30 p-3" data-testid="ticket-filters">
+        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-card-border bg-card p-4" data-testid="ticket-filters">
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mr-1">
             <Filter className="w-3.5 h-3.5" />
             Filters
@@ -628,171 +663,159 @@ export default function TicketsPage() {
           </TabsList>
         </div>
 
-        <TabsContent value="open" className="mt-4 space-y-3">
-          {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="border rounded-lg p-4 flex items-start gap-3">
-                <Skeleton className="w-5 h-5 rounded flex-shrink-0 mt-0.5" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-48" />
-                  <Skeleton className="h-3 w-full" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                  </div>
-                  <Skeleton className="h-3 w-28" />
-                </div>
-                <Skeleton className="w-4 h-4 flex-shrink-0 self-center" />
+        <TabsContent value="open" className="mt-4">
+          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <SectionIcon icon={MessageSquare} tone="bg-primary/10 text-primary" />
+                Open tickets
+              </h2>
+            </div>
+            {isLoading ? (
+              <RowSkeletons />
+            ) : ticketsError ? (
+              <QueryErrorState
+                error={ticketsErrorObj}
+                onRetry={() => refetchTickets()}
+                isRetrying={ticketsFetching}
+                resourceName="your tickets"
+                data-testid="error-tickets"
+                className="py-6"
+              />
+            ) : openTickets.length === 0 ? (
+              <div className="px-5 py-12 text-center">
+                <Ticket className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-20" />
+                <p className="font-medium">No open tickets</p>
+                <p className="text-sm text-muted-foreground mt-1 mb-4">You don't have any open support requests.</p>
+                <Button onClick={() => setDialogOpen(true)} data-testid="button-open-first-ticket">
+                  <Plus className="w-4 h-4 mr-2" /> Open your first ticket
+                </Button>
               </div>
-            ))
-          ) : ticketsError ? (
-            <QueryErrorState
-              error={ticketsErrorObj}
-              onRetry={() => refetchTickets()}
-              isRetrying={ticketsFetching}
-              resourceName="your tickets"
-              data-testid="error-tickets"
-            />
-          ) : openTickets.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Ticket className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-                <p className="text-muted-foreground">No open tickets</p>
-              </CardContent>
-            </Card>
-          ) : (
-            openTickets.map((ticket) => (
-              <Link key={ticket.id} href={`/tickets/${ticket.id}`}>
-                <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-ticket-${ticket.id}`}>
-                  <CardContent className="flex items-start justify-between gap-3 p-4">
-                    <div className="flex items-start gap-3">
-                      <MessageSquare className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <h3 className="font-semibold text-sm">{ticket.subject}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{ticket.description}</p>
-                        <div className="flex items-center gap-2 flex-wrap">
+            ) : (
+              <ul className="divide-y divide-border">
+                {openTickets.map((ticket) => (
+                  <li key={ticket.id}>
+                    <Link href={`/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-ticket-${ticket.id}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm font-medium">{ticket.subject}</p>
+                        <p className="text-xs text-muted-foreground truncate">{ticket.description}</p>
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                           <PriorityBadge priority={ticket.priority} />
                           {ticket.serviceId && serviceMap.get(ticket.serviceId) && (
-                            <Badge variant="secondary" className="text-xs">{serviceMap.get(ticket.serviceId)}</Badge>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{serviceMap.get(ticket.serviceId)}</span>
                           )}
                           {ticket.categoryId && categoryMap.get(ticket.categoryId) && (
-                            <Badge variant="outline" className="text-xs"><Tag className="w-3 h-3 mr-1" />{categoryMap.get(ticket.categoryId)}</Badge>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground flex items-center gap-1"><Tag className="w-3 h-3" />{categoryMap.get(ticket.categoryId)}</span>
                           )}
                           {isAdmin && ticket.claimedBy && (
-                            <Badge variant="outline" className="text-xs" data-testid={`badge-claimed-${ticket.id}`}>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground" data-testid={`badge-claimed-${ticket.id}`}>
                               {ticket.claimedBy === user?.id ? "Claimed by you" : `Claimed by ${(ticket as any).claimedByName || "admin"}`}
-                            </Badge>
+                            </span>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {format(new Date(ticket.createdAt), "MMM d, h:mm a")}
-                        </p>
                       </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                  </CardContent>
-                </Card>
-              </Link>
-            ))
-          )}
+                      <div className="text-right shrink-0 mr-2 hidden sm:block">
+                         <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </TabsContent>
 
-        <TabsContent value="closed" className="mt-4 space-y-3">
-          {isLoading ? (
-            Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 rounded-lg" />
-            ))
-          ) : ticketsError ? (
-            <QueryErrorState
-              error={ticketsErrorObj}
-              onRetry={() => refetchTickets()}
-              isRetrying={ticketsFetching}
-              resourceName="your tickets"
-              data-testid="error-tickets-closed"
-            />
-          ) : closedTickets.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <p className="text-sm text-muted-foreground">No closed tickets</p>
-              </CardContent>
-            </Card>
-          ) : (
-            closedTickets.map((ticket) => (
-              <Card key={ticket.id} className="hover-elevate tap-interactive cursor-pointer opacity-80" data-testid={`card-ticket-closed-${ticket.id}`}>
-                <CardContent className="flex items-start justify-between gap-3 p-4">
-                  <Link href={`/tickets/${ticket.id}`} className="flex-1">
-                    <div className="space-y-1">
-                      <h3 className="font-semibold text-sm">{ticket.subject}</h3>
-                      <p className="text-xs text-muted-foreground">
-                        Closed {ticket.closedAt ? format(new Date(ticket.closedAt), "MMM d, yyyy") : ""}
-                      </p>
+        <TabsContent value="closed" className="mt-4">
+          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <SectionIcon icon={CheckCircle2} tone="bg-muted text-muted-foreground" />
+                Closed tickets
+              </h2>
+            </div>
+            {isLoading ? (
+              <RowSkeletons />
+            ) : ticketsError ? (
+              <QueryErrorState
+                error={ticketsErrorObj}
+                onRetry={() => refetchTickets()}
+                isRetrying={ticketsFetching}
+                resourceName="your tickets"
+                data-testid="error-tickets-closed"
+                className="py-6"
+              />
+            ) : closedTickets.length === 0 ? (
+              <div className="px-5 py-12 text-center">
+                <p className="text-sm font-medium text-muted-foreground">No closed tickets</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {closedTickets.map((ticket) => (
+                  <li key={ticket.id}>
+                    <div className="flex items-center justify-between gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80" data-testid={`card-ticket-closed-${ticket.id}`}>
+                      <Link href={`/tickets/${ticket.id}`} className="flex-1 min-w-0 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate text-sm font-medium">{ticket.subject}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Closed {ticket.closedAt ? formatDistanceToNow(new Date(ticket.closedAt), { addSuffix: true }) : ""}
+                          </p>
+                        </div>
+                      </Link>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isAdmin && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" data-testid={`button-delete-ticket-${ticket.id}`}>
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete this ticket? This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => deleteMutation.mutate(ticket.id)} data-testid="button-confirm-delete">Delete</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        <Link href={`/tickets/${ticket.id}`}>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </Link>
+                      </div>
                     </div>
-                  </Link>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {isAdmin && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => e.stopPropagation()}
-                            data-testid={`button-delete-ticket-${ticket.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this ticket? This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteMutation.mutate(ticket.id)}
-                              data-testid="button-confirm-delete"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                    <Link href={`/tickets/${ticket.id}`}>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </TabsContent>
       </Tabs>
 
       {showWhmcsSection && (
-        <Card data-testid="section-whmcs-tickets">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-primary" />
-              Billing &amp; account support
-              {whmcsNewReplyCount > 0 && (
-                <Badge
-                  variant="destructive"
-                  className="ml-1 text-[10px] h-5 min-w-5 flex items-center justify-center px-1.5"
-                  data-testid="badge-whmcs-new-replies"
-                >
-                  {whmcsNewReplyCount} new
-                </Badge>
-              )}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Tickets from our billing system, kept separate from your support tickets above.
-            </p>
-          </CardHeader>
-          <CardContent>
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="section-whmcs-tickets">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="space-y-1">
+              <h2 className="text-sm font-semibold flex items-center gap-3">
+                <SectionIcon icon={CreditCard} tone="bg-primary/10 text-primary" />
+                Billing &amp; account support
+                {whmcsNewReplyCount > 0 && (
+                  <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-destructive-foreground" data-testid="badge-whmcs-new-replies">
+                    {whmcsNewReplyCount} new
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-muted-foreground ml-[48px]">
+                Tickets from our billing system, kept separate from your support tickets above.
+              </p>
+            </div>
+          </div>
+          <div className="p-0">
             <WhmcsTicketList
               data={whmcsTickets}
               isLoading={whmcsLoading}
@@ -800,8 +823,8 @@ export default function TicketsPage() {
               newReplyIds={whmcsNewReplyIds}
               onOpen={(id) => setLocation(`/whmcs-tickets/${id}`)}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
     </div>
   );

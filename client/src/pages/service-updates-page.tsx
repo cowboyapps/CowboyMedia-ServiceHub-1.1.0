@@ -566,7 +566,13 @@ export default function ServiceUpdatesPage() {
             <SectionIcon icon={Bell} tone="bg-status-away/10 text-status-away" />
             <h2 className="text-sm font-semibold">Service updates</h2>
           </div>
-          <p className="text-sm text-muted-foreground py-8 text-center" data-testid="text-no-updates">{emptyMessage}</p>
+          <div className="px-5 py-12 text-center">
+            <Bell className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground" data-testid="text-no-updates">{emptyMessage}</p>
+            {(!updates || updates.length === 0) && (
+              <p className="text-xs text-muted-foreground mt-1">When a service you follow posts an update, it shows up here.</p>
+            )}
+          </div>
         </section>
       ) : (
         <section className="rounded-xl border border-card-border bg-card overflow-hidden">

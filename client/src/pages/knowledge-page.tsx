@@ -301,8 +301,10 @@ function KnowledgeIndex() {
       ) : isSearching ? (
         articles.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              No articles match "{debouncedSearch}".
+            <CardContent className="py-12 text-center">
+              <Search className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No articles match "{debouncedSearch}".</p>
+              <p className="text-xs text-muted-foreground mt-1">Try a different search, or open a ticket and we'll help.</p>
             </CardContent>
           </Card>
         ) : (
@@ -330,8 +332,9 @@ function KnowledgeIndex() {
         )
       ) : visibleCategories.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            No articles available yet.
+          <CardContent className="py-12 text-center">
+            <BookOpen className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No articles available yet.</p>
           </CardContent>
         </Card>
       ) : (

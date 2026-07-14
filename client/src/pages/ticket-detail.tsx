@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -93,6 +92,23 @@ type OptimisticMessage = {
   senderAvatarUrl?: string | null;
   kbArticle?: KbArticleRef | null;
 };
+
+function PriorityPill({ priority }: { priority: string }) {
+  const variants: Record<string, string> = {
+    high: "bg-status-busy/15 text-status-busy",
+    medium: "bg-primary/15 text-primary",
+    low: "bg-muted text-muted-foreground",
+  };
+  return <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${variants[priority] || "bg-muted text-muted-foreground"}`}>{priority}</span>;
+}
+
+function StatusPill({ status }: { status: string }) {
+  const variants: Record<string, string> = {
+    open: "bg-status-online/15 text-status-online",
+    closed: "bg-muted text-muted-foreground",
+  };
+  return <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${variants[status] || "bg-muted text-muted-foreground"}`}>{status}</span>;
+}
 
 function BouncingDots() {
   return (
@@ -229,9 +245,9 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
               className="flex-shrink-0 mt-0.5 rounded-full hover:opacity-80 transition-opacity"
               data-testid={`button-avatar-internal-${msg.id}`}
             >
-              <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
-                {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />}
-                <AvatarFallback className="text-xs bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
+              <Avatar className="w-8 h-8 sm:w-10 sm:h-10 border border-amber-500/20 shadow-sm">
+                {msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} className="object-cover" />}
+                <AvatarFallback className="text-[13px] font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-100">
                   {msg.senderName?.[0] || "A"}
                 </AvatarFallback>
               </Avatar>
@@ -241,26 +257,26 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
           )}
           <div className="max-w-[90%] min-w-0 space-y-0.5 flex-1">
             {isFirstInRun && (
-              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-400 mb-0.5">
                 <Lock className="w-3 h-3" />
                 <button
                   type="button"
                   onClick={() => onProfileClick(msg.senderId)}
-                  className="text-xs font-medium hover:underline underline-offset-2"
+                  className="text-xs font-semibold hover:underline underline-offset-2"
                   data-testid={`text-chat-sender-${msg.id}`}
                 >
                   {displayName}
                 </button>
-                <span className="text-[10px] uppercase tracking-wide font-semibold">Internal note · not visible to customer</span>
+                <span className="text-[10px] uppercase tracking-wide font-bold opacity-80">Internal note · not visible to customer</span>
               </div>
             )}
             <div
-              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden border-l-4 border-amber-500${tailClass} ${
+              className={`rounded-xl p-3 sm:p-4 text-[14px] leading-relaxed whitespace-pre-wrap overflow-hidden border-l-4 shadow-sm border-amber-500${tailClass} ${
                 isFailed
-                  ? "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
+                  ? "bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
                   : isSending
-                    ? "bg-amber-100/60 dark:bg-amber-900/30 opacity-70"
-                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100"
+                    ? "bg-amber-50/80 dark:bg-amber-950/40 opacity-70 border-amber-500/50"
+                    : "bg-amber-50/80 dark:bg-amber-950/40 text-amber-950 dark:text-amber-50 border-r border-t border-b border-amber-200/50 dark:border-amber-900/50"
               }`}
               style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
               data-testid={`internal-note-${msg.id}`}
@@ -355,13 +371,13 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
               className={`flex-shrink-0 mt-0.5 rounded-full ${isMe ? "" : "hover:opacity-80 transition-opacity"}`}
               data-testid={`button-avatar-msg-${msg.id}`}
             >
-              <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+                  <Avatar className="w-8 h-8 sm:w-10 sm:h-10 border border-border shadow-sm">
                 {isMe ? (
-                  userAvatarUrl && <AvatarImage src={userAvatarUrl} alt={userFullName} />
+                  userAvatarUrl && <AvatarImage src={userAvatarUrl} alt={userFullName} className="object-cover" />
                 ) : (
-                  msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} />
+                  msg.senderAvatarUrl && <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName || ""} className="object-cover" />
                 )}
-                <AvatarFallback className="text-xs">
+                <AvatarFallback className={`text-[13px] font-medium ${isMe ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
                   {isMe ? (userFullName?.[0] || "U") : (msg.senderName?.[0] || "S")}
                 </AvatarFallback>
               </Avatar>
@@ -385,14 +401,14 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
               </div>
             )}
             <div
-              className={`rounded-lg p-2.5 sm:p-3 text-sm whitespace-pre-wrap overflow-hidden${tailClass} ${
+              className={`rounded-2xl p-3 sm:p-4 text-[15px] leading-relaxed whitespace-pre-wrap overflow-hidden shadow-sm border${tailClass} ${
                 isFailed
-                  ? "bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
+                  ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50 text-red-900 dark:text-red-200"
                   : isSending
-                    ? "bg-primary/70 text-primary-foreground opacity-70"
+                    ? "bg-primary/80 border-transparent text-primary-foreground opacity-70"
                     : isMe
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-accent"
+                      ? "bg-primary border-transparent text-primary-foreground"
+                      : "bg-card border-card-border text-card-foreground"
               }`}
               style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
             >
@@ -1092,18 +1108,16 @@ export default function TicketDetail() {
       }}
     >
       <div
-        className="flex items-center gap-1.5 pb-2 flex-shrink-0 min-w-0"
-        style={{ minHeight: "40px", maxHeight: "44px" }}
+        className="flex items-center gap-2 pb-3 flex-shrink-0 min-w-0 border-b border-border mb-3"
+        style={{ minHeight: "48px" }}
       >
         <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <h2 className="font-semibold text-sm sm:text-base truncate" title={ticket.subject} data-testid="text-ticket-subject">{ticket.subject}</h2>
-          <Badge variant={ticket.status === "open" ? "default" : "secondary"} className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">{ticket.status}</Badge>
-          {ticket.priority === "high" && (
-            <Badge variant="destructive" className="text-[10px] capitalize flex-shrink-0 px-1.5 py-0">!</Badge>
-          )}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <h2 className="font-semibold text-base truncate" title={ticket.subject} data-testid="text-ticket-subject">{ticket.subject}</h2>
+          <StatusPill status={ticket.status} />
+          <PriorityPill priority={ticket.priority} />
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1618,47 +1632,47 @@ export default function TicketDetail() {
         </Dialog>
       )}
 
-      <Card className="flex-1 flex flex-col min-h-0 relative">
-        <CardContent className="flex-1 flex flex-col min-h-0 p-0 relative">
+      <div className="flex-1 flex flex-col min-h-0 relative rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 relative">
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
             className="flex-1 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
           >
-            <div className="p-3 sm:p-4 border-b bg-card">
-              <p className="text-sm whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
+            <div className="px-5 py-4 border-b border-border bg-card">
+              <p className="text-[15px] whitespace-pre-wrap text-card-foreground leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
               {ticket.imageUrl && (
-                <ClickableImage src={ticket.imageUrl} alt="Ticket attachment" className="mt-2 max-w-[100px] max-h-16 object-cover rounded-md cursor-pointer" />
+                <ClickableImage src={ticket.imageUrl} alt="Ticket attachment" className="mt-3 max-w-[120px] max-h-24 object-cover rounded-lg cursor-pointer border border-border" />
               )}
-              <p className="text-xs text-muted-foreground mt-2">
+              <p className="text-[11px] font-medium text-muted-foreground mt-4 uppercase tracking-wider">
                 Opened {format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}
               </p>
             </div>
 
             {ticket.status === "closed" && (
-              <div className="mx-3 sm:mx-4 mt-3 sm:mt-4 space-y-2">
+              <div className="px-5 pt-4 pb-2 space-y-3">
                 {ticket.closedBy && (
-                  <Badge variant="outline" className="text-xs" data-testid="badge-closed-by">
+                  <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground border border-border" data-testid="badge-closed-by">
                     {ticket.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
-                  </Badge>
+                  </div>
                 )}
                 {ticket.resolutionNote && ticket.closedBy === ticket.customerId && (
-                  <div className="p-3 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30" data-testid="customer-close-note">
-                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-400 mb-1">Customer's Closing Note</p>
-                    <p className="text-sm text-blue-700 dark:text-blue-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+                  <div className="p-4 rounded-xl border border-blue-200/50 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20" data-testid="customer-close-note">
+                    <p className="text-[11px] font-medium text-blue-800 dark:text-blue-400 mb-1.5 uppercase tracking-wider">Customer's Closing Note</p>
+                    <p className="text-sm text-blue-900 dark:text-blue-300 whitespace-pre-wrap leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
                   </div>
                 )}
                 {ticket.resolutionNote && ticket.closedBy !== ticket.customerId && (
-                  <div className="p-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="resolution-note">
-                    <p className="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">Resolution Summary</p>
-                    <p className="text-sm text-green-700 dark:text-green-300 whitespace-pre-wrap" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
+                  <div className="p-4 rounded-xl border border-green-200/50 dark:border-green-900/50 bg-green-50/50 dark:bg-green-950/20" data-testid="resolution-note">
+                    <p className="text-[11px] font-medium text-green-800 dark:text-green-400 mb-1.5 uppercase tracking-wider">Resolution Summary</p>
+                    <p className="text-sm text-green-900 dark:text-green-300 whitespace-pre-wrap leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
                   </div>
                 )}
               </div>
             )}
 
-            <div className="p-3 sm:p-4">
+            <div className="p-4 sm:p-5">
             {messagesLoading ? (
               <div className="space-y-4">
                 {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
@@ -1834,8 +1848,8 @@ export default function TicketDetail() {
               />
             );
           })()}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
       <AlertDialog
         open={pendingPlaceholderSend !== null}
         onOpenChange={(open) => { if (!open) setPendingPlaceholderSend(null); }}

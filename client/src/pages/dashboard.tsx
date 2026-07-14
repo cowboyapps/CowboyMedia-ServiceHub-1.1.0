@@ -250,7 +250,11 @@ export default function Dashboard() {
             data-testid="error-dashboard-services"
           />
         ) : displayServices.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">No services to display</p>
+          <div className="px-5 py-8 text-center">
+            <Sparkles className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No services to display</p>
+            <p className="text-xs text-muted-foreground mt-1">Follow services in Settings to see their status here.</p>
+          </div>
         ) : (
           <ul className="divide-y divide-border">
             {displayServices.map((service) => {
@@ -407,7 +411,10 @@ export default function Dashboard() {
             data-testid="error-dashboard-news"
           />
         ) : !news || news.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">No news stories yet</p>
+          <div className="px-5 py-8 text-center">
+            <Newspaper className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No news stories yet</p>
+          </div>
         ) : (
           <ul className="divide-y divide-border">
             {news.slice(0, 3).map((story) => (
