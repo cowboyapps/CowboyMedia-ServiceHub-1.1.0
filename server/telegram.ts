@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { logError } from "./error-log";
 import { stripHtmlPreserveBreaks } from "@shared/html-text";
+import { alertSeverityLabel } from "@shared/severity";
 
 function escapeHtml(text: string): string {
   return String(text ?? "")
@@ -122,7 +123,7 @@ export function composeAlertCreated(opts: {
   return [
     `🚨 <b>SERVICE ALERT — ${escapeHtml(serviceDisplay(opts))}</b>`,
     `${emoji} <b>Impact:</b> ${escapeHtml(impactLabel)}`,
-    opts.severity ? `<b>Severity:</b> ${escapeHtml(opts.severity)}` : "",
+    opts.severity ? `<b>Severity:</b> ${escapeHtml(alertSeverityLabel(opts.severity))}` : "",
     ``,
     `<b>${escapeHtml(opts.title)}</b>`,
     `<i>${escapeHtml(truncate(stripHtmlPreserveBreaks(opts.description)))}</i>`,

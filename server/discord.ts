@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { logError } from "./error-log";
 import { stripHtmlPreserveBreaks } from "@shared/html-text";
+import { alertSeverityLabel } from "@shared/severity";
 
 function truncate(text: string, max: number): string {
   const t = text ?? "";
@@ -197,7 +198,7 @@ export function composeAlertCreated(opts: {
     { name: svc.label, value: truncate(svc.value, MAX_FIELD_VALUE), inline: true },
     { name: "Impact", value: `${emoji} ${impactLabel}`, inline: true },
   ];
-  if (opts.severity) fields.push({ name: "Severity", value: truncate(opts.severity, MAX_FIELD_VALUE), inline: true });
+  if (opts.severity) fields.push({ name: "Severity", value: truncate(alertSeverityLabel(opts.severity), MAX_FIELD_VALUE), inline: true });
   return {
     embeds: [{
       title: truncate(`🚨 Service Alert — ${clampTitle(opts.title)}`, 256),

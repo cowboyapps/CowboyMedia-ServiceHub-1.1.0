@@ -29,46 +29,11 @@ export const unknownSeverityMeta: SeverityMeta = {
   icon: "text-muted-foreground",
 };
 
-// Legacy severity aliases. Old rows (written before the server-side severity
-// whitelist) may carry strings like "sev_1" or "major" that map cleanly onto
-// the canonical critical/warning/info levels. Normalizing them here lets both
-// the label and the badge styling reflect the real urgency instead of the
-// neutral "unknown" fallback. Keys are compared after trim + lowercase with
-// separators (_, -, whitespace) collapsed to a single underscore.
-export const severityAliases: Record<string, "critical" | "warning" | "info"> = {
-  sev_1: "critical",
-  sev1: "critical",
-  p1: "critical",
-  major: "critical",
-  severe: "critical",
-  urgent: "critical",
-  emergency: "critical",
-  high: "critical",
-  sev_2: "warning",
-  sev2: "warning",
-  p2: "warning",
-  minor: "warning",
-  medium: "warning",
-  moderate: "warning",
-  degraded: "warning",
-  sev_3: "info",
-  sev3: "info",
-  p3: "info",
-  low: "info",
-  notice: "info",
-  informational: "info",
-};
-
-// Normalizes a raw severity string to a canonical key (critical/warning/info)
-// when it is either already canonical or a known legacy alias. Returns null
-// for blank/unrecognized values.
-export function normalizeAlertSeverity(severity: string | null | undefined): "critical" | "warning" | "info" | null {
-  const raw = (severity ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  if (raw === "critical" || raw === "warning" || raw === "info") return raw;
-  const collapsed = raw.split(/[_\-\s]+/).filter(Boolean).join("_");
-  return severityAliases[collapsed] ?? null;
-}
+// Severity alias normalization + labels live in shared/severity.ts so the
+// server-side formatters (Discord/Telegram) show the same canonical wording.
+// Re-exported here so existing client imports keep working.
+export { severityAliases, normalizeAlertSeverity, alertSeverityLabels, alertSeverityLabel } from "@shared/severity";
+import { normalizeAlertSeverity } from "@shared/severity";
 
 export function alertSeverityMeta(severity: string | null | undefined): SeverityMeta {
   const raw = (severity ?? "").trim();
@@ -99,27 +64,6 @@ export function alertStatusLabel(status: string | null | undefined): string {
   if (!raw) return "Update";
   const known = alertStatusLabels[raw.toLowerCase()];
   if (known) return known;
-  return raw
-    .split(/[_\-\s]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-}
-
-// Known alert severity labels. Legacy rows may carry arbitrary strings
-// (e.g. "sev_1"); alertSeverityLabel falls back to a readable Title Case
-// of the raw value (never blank, never raw underscores).
-export const alertSeverityLabels: Record<string, string> = {
-  critical: "Critical",
-  warning: "Warning",
-  info: "Info",
-};
-
-export function alertSeverityLabel(severity: string | null | undefined): string {
-  const raw = (severity ?? "").trim();
-  if (!raw) return "Info";
-  const canonical = normalizeAlertSeverity(raw);
-  if (canonical) return alertSeverityLabels[canonical];
   return raw
     .split(/[_\-\s]+/)
     .filter(Boolean)
