@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, Tags, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { ImageCropDialog, type CropAspectKey } from "@/components/image-crop-dialog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -599,10 +599,36 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-semibold">Users ({filteredUsers?.length ?? 0}{searchQuery.trim() && users ? ` of ${users.length}` : ""})</h3>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Users className="h-[18px] w-[18px]" />
+            </span>
+            Users ({filteredUsers?.length ?? 0}{searchQuery.trim() && users ? ` of ${users.length}` : ""})
+          </h2>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full sm:w-48 h-9 pl-9 pr-9 text-xs bg-background"
+                data-testid="input-search-users"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  data-testid="button-clear-search"
+                >
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-add-user"><Plus className="w-4 h-4 mr-1" /> Add User</Button>
           </DialogTrigger>}
@@ -640,7 +666,8 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
             </Form>
           </DialogContent>
         </Dialog>
-      </div>
+          </div>
+        </div>
 
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
@@ -1028,254 +1055,103 @@ function UsersTab({ canManage = true, initialUserId = null }: { canManage?: bool
       </div>
 
       {isLoading ? (
-        isMobile ? (
-          <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i}>
-                <CardContent className="p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <Skeleton className="h-4 w-32" />
-                      <div className="flex items-center gap-2">
-                        <Skeleton className="h-3 w-20" />
-                        <Skeleton className="h-4 w-14 rounded-full" />
-                      </div>
-                      <Skeleton className="h-3 w-40" />
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Skeleton className="h-3.5 w-3.5 rounded-full" />
-                      <Skeleton className="h-3.5 w-3.5 rounded-full" />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 mt-2 pt-2 border-t">
-                    <Skeleton className="h-7 w-14" />
-                    <Skeleton className="h-7 w-16" />
-                    <Skeleton className="h-7 w-14" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Notifications</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-36" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Skeleton className="h-4 w-4 rounded-full" />
-                        <Skeleton className="h-4 w-4 rounded-full" />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Skeleton className="h-8 w-16" />
-                        <Skeleton className="h-8 w-16" />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-        )
+        <ul className="divide-y divide-border">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <li key={i} className="px-5 py-3.5 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-16 rounded-full" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-3 w-40" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Skeleton className="h-8 w-8 rounded-md" />
+                <Skeleton className="h-8 w-8 rounded-md" />
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : filteredUsers?.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <Search className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              {searchQuery.trim() ? `No users matching "${searchQuery.trim()}"` : "No users found"}
-            </p>
-          </CardContent>
-        </Card>
-      ) : isMobile ? (
-        <div className="space-y-2">
+        <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+          <Search className="w-8 h-8 mb-3 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">
+            {searchQuery.trim() ? `No users matching "${searchQuery.trim()}"` : "No users found"}
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
           {filteredUsers?.map((u) => (
-            <Card
+            <li
               key={u.id}
-              className="cursor-pointer active:bg-accent/50 transition-colors"
+              className="px-5 py-3.5 flex items-center justify-between gap-4 hover-elevate tap-interactive group cursor-pointer"
               onClick={() => openDetailDialog(u)}
               data-testid={`row-user-${u.id}`}
             >
-              <CardContent className="p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      {newUserIds.includes(u.id) && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" data-testid={`dot-new-user-${u.id}`} />}
-                      <span className="font-medium text-sm truncate">{u.fullName}</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5 min-w-0">
-                      <span className="text-xs text-muted-foreground truncate">@{u.username}</span>
-                      <Badge variant={u.role === "admin" || u.role === "master_admin" ? "default" : "secondary"} className="text-[10px] capitalize px-1.5 py-0 shrink-0">
-                        {u.role === "master_admin" ? "Master Admin" : u.role}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{u.email}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
-                    <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
-                      {pushStatus?.[u.id] ? <Bell className="w-3.5 h-3.5 text-green-500" /> : <BellOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                    </span>
-                    {u.role === "customer" && (() => {
-                      const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
-                      const p = countEnabledGroups(prefs, "push");
-                      const e = countEnabledGroups(prefs, "email");
-                      return (
-                        <>
-                          <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-0.5 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
-                            <Bell className="w-2.5 h-2.5" />{p.enabled}/{p.total}
-                          </Badge>
-                          <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-0.5 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
-                            <Mail className="w-2.5 h-2.5" />{e.enabled}/{e.total}
-                          </Badge>
-                        </>
-                      );
-                    })()}
-                  </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  {newUserIds.includes(u.id) && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" data-testid={`dot-new-user-${u.id}`} />}
+                  <span className="font-medium text-sm truncate">{u.fullName}</span>
+                  <Badge variant={u.role === "admin" || u.role === "master_admin" ? "default" : "secondary"} className="text-[10px] capitalize px-1.5 py-0 shrink-0 font-medium">
+                    {u.role === "master_admin" ? "Master Admin" : u.role}
+                  </Badge>
                 </div>
-                <div className="flex items-center gap-1 mt-2 pt-2 border-t" onClick={(e) => e.stopPropagation()}>
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => openDetailDialog(u)} data-testid={`button-view-user-${u.id}`}>
-                    <Edit className="w-3 h-3" /> Edit
+                <div className="flex items-center gap-3 mt-1.5 min-w-0 text-xs text-muted-foreground">
+                  <span className="truncate">@{u.username}</span>
+                  <span className="w-1 h-1 rounded-full bg-border shrink-0" />
+                  <span className="truncate">{u.email}</span>
+                </div>
+                
+                {/* Notifications summary (mobile inline, desktop float) */}
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
+                    {pushStatus?.[u.id] ? <Bell className="w-3.5 h-3.5 text-status-online" /> : <BellOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
+                  </span>
+                  {u.role === "customer" && (() => {
+                    const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
+                    const p = countEnabledGroups(prefs, "push");
+                    const e = countEnabledGroups(prefs, "email");
+                    return (
+                      <>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-0.5 border-transparent ${p.enabled === p.total ? "bg-status-online/10 text-status-online" : "bg-muted text-muted-foreground"}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups`} data-testid={`badge-push-prefs-${u.id}`}>
+                          <Smartphone className="w-2.5 h-2.5" />{p.enabled}/{p.total}
+                        </Badge>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-0.5 border-transparent ${e.enabled === e.total ? "bg-status-online/10 text-status-online" : "bg-muted text-muted-foreground"}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
+                          <Mail className="w-2.5 h-2.5" />{e.enabled}/{e.total}
+                        </Badge>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openDetailDialog(u)} data-testid={`button-view-user-${u.id}`}>
+                  <Edit className="w-4 h-4" />
+                </Button>
+                {canManage && u.role !== "master_admin" && (
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => toggleRoleMutation.mutate({ id: u.id, role: u.role === "admin" ? "customer" : "admin" })} data-testid={`button-toggle-role-${u.id}`}>
+                    {u.role === "admin" ? <Shield className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                   </Button>
-                  {canManage && u.role !== "master_admin" && (
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => toggleRoleMutation.mutate({ id: u.id, role: u.role === "admin" ? "customer" : "admin" })} data-testid={`button-toggle-role-${u.id}`}>
-                      {u.role === "admin" ? <Shield className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
-                      {u.role === "admin" ? "Demote" : "Promote"}
-                    </Button>
-                  )}
-                  {canManage && (
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => { setSelectedUser(u); setResetDialogOpen(true); }} data-testid={`button-reset-password-${u.id}`}>
-                      <RotateCcw className="w-3 h-3" /> Reset
-                    </Button>
-                  )}
-                  {canManage && (
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1 text-destructive" onClick={() => deleteMutation.mutate(u.id)} data-testid={`button-delete-user-${u.id}`}>
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                )}
+                {canManage && (
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => { setSelectedUser(u); setResetDialogOpen(true); }} data-testid={`button-reset-password-${u.id}`}>
+                    <RotateCcw className="w-4 h-4" />
+                  </Button>
+                )}
+                {canManage && (
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteMutation.mutate(u.id)} data-testid={`button-delete-user-${u.id}`}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </li>
           ))}
-        </div>
-      ) : (
-        <Card>
-          <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Username</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Notifications</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers?.map((u) => (
-                <TableRow
-                  key={u.id}
-                  className="cursor-pointer"
-                  onClick={() => openDetailDialog(u)}
-                  data-testid={`row-user-${u.id}`}
-                >
-                  <TableCell className="font-medium text-sm">
-                    <span className="flex items-center gap-1.5">
-                      {newUserIds.includes(u.id) && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" data-testid={`dot-new-user-${u.id}`} />}
-                      {u.fullName}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm">{u.username}</TableCell>
-                  <TableCell className="text-sm">{u.email}</TableCell>
-                  <TableCell>
-                    <Badge variant={u.role === "admin" || u.role === "master_admin" ? "default" : "secondary"} className="text-xs capitalize">
-                      {u.role === "master_admin" ? "Master Admin" : u.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span title={pushStatus?.[u.id] ? "Push device registered" : "No push device registered"} data-testid={`icon-push-${u.id}`}>
-                        {pushStatus?.[u.id] ? <Bell className="w-4 h-4 text-green-500" /> : <BellOff className="w-4 h-4 text-muted-foreground/40" />}
-                      </span>
-                      {u.role === "customer" && (() => {
-                        const prefs: NotificationPrefs | null | undefined = u.notificationPrefs;
-                        const p = countEnabledGroups(prefs, "push");
-                        const e = countEnabledGroups(prefs, "email");
-                        return (
-                          <>
-                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(p.enabled, p.total)}`} title={`Customer has not opted out of ${p.enabled} of ${p.total} push groups (only delivered if device is also subscribed)`} data-testid={`badge-push-prefs-${u.id}`}>
-                              <Bell className="w-3 h-3" />Push prefs {p.enabled}/{p.total} groups
-                            </Badge>
-                            <Badge variant="outline" className={`h-5 px-1.5 text-[10px] gap-1 ${pillColorClass(e.enabled, e.total)}`} title={`Customer has not opted out of ${e.enabled} of ${e.total} email groups`} data-testid={`badge-email-prefs-${u.id}`}>
-                              <Mail className="w-3 h-3" />Email prefs {e.enabled}/{e.total} groups
-                            </Badge>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => openDetailDialog(u)}
-                        title="View/Edit User"
-                        data-testid={`button-view-user-${u.id}`}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      {canManage && u.role !== "master_admin" && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => toggleRoleMutation.mutate({ id: u.id, role: u.role === "admin" ? "customer" : "admin" })}
-                          data-testid={`button-toggle-role-${u.id}`}
-                        >
-                          {u.role === "admin" ? <Shield className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                        </Button>
-                      )}
-                      {canManage && <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => { setSelectedUser(u); setResetDialogOpen(true); }}
-                        data-testid={`button-reset-password-${u.id}`}
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </Button>}
-                      {canManage && <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteMutation.mutate(u.id)}
-                        data-testid={`button-delete-user-${u.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          </div>
-        </Card>
+        </ul>
       )}
+      </section>
     </div>
   );
 }
@@ -1330,141 +1206,141 @@ function ServicesTab({ canManage = true }: { canManage?: boolean }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-semibold">Services ({services?.length || 0})</h3>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditId(null); form.reset(); } }}>
-          {canManage && <DialogTrigger asChild>
-            <Button size="sm" data-testid="button-add-service"><Plus className="w-4 h-4 mr-1" /> Add Service</Button>
-          </DialogTrigger>}
-          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
-            <DialogHeader><DialogTitle>{editId ? "Edit Service" : "Add Service"}</DialogTitle></DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
-                <FormField control={form.control} name="name" render={({ field }) => (
-                  <FormItem><FormLabel>Name</FormLabel><FormControl><Input data-testid="input-service-name" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea data-testid="input-service-desc" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="category" render={({ field }) => (
-                  <FormItem><FormLabel>Category</FormLabel><FormControl><Input data-testid="input-service-category" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="status" render={({ field }) => (
-                  <FormItem><FormLabel>Status</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger data-testid="select-service-status"><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="operational">Operational</SelectItem>
-                        <SelectItem value="degraded">Degraded</SelectItem>
-                        <SelectItem value="outage">Outage</SelectItem>
-                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  <FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="discordWebhookUrl" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Discord Webhook URL (optional)</FormLabel>
-                    <FormControl>
-                      <Input
-                        data-testid="input-service-discord-webhook"
-                        placeholder="https://discord.com/api/webhooks/..."
-                        {...field}
-                        value={field.value ?? ""}
-                      />
-                    </FormControl>
-                    <p className="text-xs text-muted-foreground">If set, Discord posts for this service (alerts, updates, service updates) go here. Otherwise the global webhook is used.</p>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="isDefault" render={({ field }) => (
-                  <FormItem className="flex items-start justify-between gap-3 rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-sm">Pre-check for new customers</FormLabel>
-                      <p className="text-xs text-muted-foreground">When on, this service is ticked by default in the new-customer services picker. Existing customers are unaffected.</p>
-                    </div>
-                    <FormControl>
-                      <Switch checked={!!field.value} onCheckedChange={field.onChange} data-testid="switch-service-default" />
-                    </FormControl>
-                  </FormItem>
-                )} />
-                <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-service">
-                  {createMutation.isPending ? "Saving..." : editId ? "Update Service" : "Add Service"}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Server className="h-[18px] w-[18px]" />
+            </span>
+            Services ({services?.length || 0})
+          </h2>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditId(null); form.reset(); } }}>
+            {canManage && <DialogTrigger asChild>
+              <Button size="sm" data-testid="button-add-service"><Plus className="w-4 h-4 mr-1" /> Add Service</Button>
+            </DialogTrigger>}
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+              <DialogHeader><DialogTitle>{editId ? "Edit Service" : "Add Service"}</DialogTitle></DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
+                  <FormField control={form.control} name="name" render={({ field }) => (
+                    <FormItem><FormLabel>Name</FormLabel><FormControl><Input data-testid="input-service-name" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="description" render={({ field }) => (
+                    <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea data-testid="input-service-desc" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="category" render={({ field }) => (
+                    <FormItem><FormLabel>Category</FormLabel><FormControl><Input data-testid="input-service-category" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="status" render={({ field }) => (
+                    <FormItem><FormLabel>Status</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl><SelectTrigger data-testid="select-service-status"><SelectValue /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="operational">Operational</SelectItem>
+                          <SelectItem value="degraded">Degraded</SelectItem>
+                          <SelectItem value="outage">Outage</SelectItem>
+                          <SelectItem value="maintenance">Maintenance</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    <FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="discordWebhookUrl" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Discord Webhook URL (optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          data-testid="input-service-discord-webhook"
+                          placeholder="https://discord.com/api/webhooks/..."
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">If set, Discord posts for this service (alerts, updates, service updates) go here. Otherwise the global webhook is used.</p>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="isDefault" render={({ field }) => (
+                    <FormItem className="flex items-start justify-between gap-3 rounded-md border p-3">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-sm">Pre-check for new customers</FormLabel>
+                        <p className="text-xs text-muted-foreground">When on, this service is ticked by default in the new-customer services picker. Existing customers are unaffected.</p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={!!field.value} onCheckedChange={field.onChange} data-testid="switch-service-default" />
+                      </FormControl>
+                    </FormItem>
+                  )} />
+                  <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-service">
+                    {createMutation.isPending ? "Saving..." : editId ? "Update Service" : "Add Service"}
+                  </Button>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        </div>
 
-      {isLoading ? <Skeleton className="h-40" /> : isMobile ? (
-        <div className="space-y-2">
-          {services?.map((s) => (
-            <Card key={s.id} data-testid={`row-service-${s.id}`}>
-              <CardContent className="p-3">
-                <div className="flex items-start justify-between gap-2">
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <li key={i} className="px-5 py-3.5 flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-16 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3 w-40" />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : services?.length === 0 ? (
+          <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+            <Server className="w-8 h-8 mb-3 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No services defined</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {services?.map((s) => {
+              const statusColors: Record<string, string> = {
+                operational: "bg-status-online/10 text-status-online",
+                degraded: "bg-status-degraded/10 text-status-degraded",
+                outage: "bg-status-offline/10 text-status-offline",
+                maintenance: "bg-status-maintenance/10 text-status-maintenance",
+              };
+              const sc = statusColors[s.status] || "bg-muted text-muted-foreground";
+
+              return (
+                <li key={s.id} className="px-5 py-3.5 flex items-center justify-between gap-4 hover-elevate transition-colors group" data-testid={`row-service-${s.id}`}>
                   <div className="min-w-0 flex-1">
-                    <span className="font-medium text-sm">{s.name}</span>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      {s.category && <span className="text-xs text-muted-foreground">{s.category}</span>}
-                      <Badge variant="secondary" className="text-[10px] capitalize px-1.5 py-0">{s.status}</Badge>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm truncate">{s.name}</span>
+                      {s.category && <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.category}</span>}
+                      <Badge variant="outline" className={`text-[10px] capitalize px-1.5 py-0 border-transparent font-medium ${sc}`}>{s.status}</Badge>
                       {s.isDefault && <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-service-default-${s.id}`}>Default</Badge>}
                     </div>
-                    {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
+                    {s.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{s.description}</p>}
                   </div>
                   {canManage && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => openEdit(s)} data-testid={`button-edit-service-${s.id}`}>
-                        <Edit className="w-3 h-3" /> Edit
+                    <div className="flex items-center gap-1 shrink-0 transition-opacity opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEdit(s)} data-testid={`button-edit-service-${s.id}`}>
+                        <Edit className="w-4 h-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1 text-destructive" onClick={() => deleteMutation.mutate(s.id)} data-testid={`button-delete-service-${s.id}`}>
-                        <Trash2 className="w-3 h-3" />
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteMutation.mutate(s.id)} data-testid={`button-delete-service-${s.id}`}>
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Default</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {services?.map((s) => (
-                <TableRow key={s.id} data-testid={`row-service-${s.id}`}>
-                  <TableCell className="font-medium text-sm">{s.name}</TableCell>
-                  <TableCell className="text-sm">{s.category || "-"}</TableCell>
-                  <TableCell><Badge variant="secondary" className="text-xs capitalize">{s.status}</Badge></TableCell>
-                  <TableCell>{s.isDefault ? <Badge variant="outline" className="text-xs" data-testid={`badge-service-default-${s.id}`}>Default</Badge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {canManage && <Button size="icon" variant="ghost" onClick={() => openEdit(s)} data-testid={`button-edit-service-${s.id}`}>
-                        <Edit className="w-4 h-4" />
-                      </Button>}
-                      {canManage && <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(s.id)} data-testid={`button-delete-service-${s.id}`}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          </div>
-        </Card>
-      )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -2180,11 +2056,11 @@ function AlertUpdatesList({ alertId, canManage, onEditUpdate }: { alertId: strin
     queryKey: ["/api/alerts", alertId, "updates"],
   });
 
-  if (isLoading) return <Skeleton className="h-16" />;
-  if (!updates || updates.length === 0) return <p className="text-xs text-muted-foreground text-center py-2">No updates yet</p>;
+  if (isLoading) return <Skeleton className="h-16 mt-2" />;
+  if (!updates || updates.length === 0) return <p className="text-xs text-muted-foreground text-center py-4">No updates yet</p>;
 
   return (
-    <div className="border-t pt-2 pl-1">
+    <div className="border-t pt-3 mt-2">
       {updates.map((update, idx) => {
         const isLast = idx === updates.length - 1;
         const dotColor = update.status === "resolved"
@@ -2195,23 +2071,23 @@ function AlertUpdatesList({ alertId, canManage, onEditUpdate }: { alertId: strin
               ? "bg-amber-500"
               : "bg-red-500";
         return (
-          <div key={update.id} className="relative flex gap-3 pb-3 last:pb-0" data-testid={`alert-update-entry-${update.id}`}>
+          <div key={update.id} className="relative flex gap-4 pb-4 last:pb-0 group" data-testid={`alert-update-entry-${update.id}`}>
             <div className="flex flex-col items-center flex-shrink-0">
-              <span className={`w-2.5 h-2.5 rounded-full mt-1 ${dotColor}`} aria-hidden="true" />
-              {!isLast && <span className="w-px flex-1 bg-border mt-1" aria-hidden="true" />}
+              <span className={`w-2.5 h-2.5 rounded-full mt-1 ring-2 ring-background ${dotColor}`} aria-hidden="true" />
+              {!isLast && <span className="w-px flex-1 bg-border mt-1.5" aria-hidden="true" />}
             </div>
             <div className="min-w-0 flex-1 -mt-0.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline" className={`text-[10px] font-semibold capitalize ${ALERT_STATUS_COLORS[update.status] || ""}`} data-testid={`badge-alert-update-status-${update.id}`}>{ALERT_STATUS_LABELS[update.status] || update.status}</Badge>
                 <span className="text-xs text-muted-foreground">{format(new Date(update.createdAt), "MMM d, h:mm a")}</span>
                 {canManage && (
-                  <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto flex-shrink-0" onClick={() => onEditUpdate(update)} data-testid={`button-edit-update-${update.id}`}>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" onClick={() => onEditUpdate(update)} data-testid={`button-edit-update-${update.id}`}>
                     <Edit className="w-3.5 h-3.5" />
                   </Button>
                 )}
               </div>
-              <RichTextContent content={update.message} className="text-xs mt-1" testId={`text-alert-update-message-${update.id}`} />
-              {update.imageUrl && <ClickableImage src={update.imageUrl} alt="Update image" className="max-h-20 rounded-md mt-1" />}
+              <RichTextContent content={update.message} className="text-xs mt-1.5" testId={`text-alert-update-message-${update.id}`} />
+              {update.imageUrl && <ClickableImage src={update.imageUrl} alt="Update image" className="max-h-24 rounded-md mt-2" />}
             </div>
           </div>
         );
@@ -2325,58 +2201,88 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-semibold">News Stories ({news?.length || 0})</h3>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          {canManage && <DialogTrigger asChild>
-            <Button size="sm" data-testid="button-create-news"><Plus className="w-4 h-4 mr-1" /> Publish Story</Button>
-          </DialogTrigger>}
-          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Publish News Story</DialogTitle></DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
-                <FormField control={form.control} name="title" render={({ field }) => (
-                  <FormItem><FormLabel>Title</FormLabel><FormControl><Input data-testid="input-news-title" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="content" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Content</FormLabel>
-                    <FormControl>
-                      <RichTextEditor value={field.value} onChange={field.onChange} testIdPrefix="create-news" draftKey={dialogOpen ? "news:new" : undefined} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <div>
-                  <label className="text-sm font-medium">Cover Image (optional)</label>
-                  <Input type="file" accept="image/*" className="mt-1" onChange={(e) => setImageFile(e.target.files?.[0] || null)} data-testid="input-news-image" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox id="attach-poll" checked={attachPoll} onCheckedChange={(v) => setAttachPoll(!!v)} data-testid="checkbox-attach-poll" />
-                  <label htmlFor="attach-poll" className="text-sm cursor-pointer">Attach a poll</label>
-                </div>
-                {attachPoll && <PollEditor value={pollDraft} onChange={setPollDraft} />}
-                <Button type="submit" className="w-full" disabled={createMutation.isPending || (attachPoll && !isPollDraftValid(pollDraft))} data-testid="button-submit-news">
-                  {createMutation.isPending ? "Publishing..." : "Publish Story"}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              <Newspaper className="h-[18px] w-[18px]" />
+            </span>
+            News Stories ({news?.length || 0})
+          </h2>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            {canManage && <DialogTrigger asChild>
+              <Button size="sm" data-testid="button-create-news"><Plus className="w-4 h-4 mr-1" /> Publish Story</Button>
+            </DialogTrigger>}
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Publish News Story</DialogTitle></DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
+                  <FormField control={form.control} name="title" render={({ field }) => (
+                    <FormItem><FormLabel>Title</FormLabel><FormControl><Input data-testid="input-news-title" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="content" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Content</FormLabel>
+                      <FormControl>
+                        <RichTextEditor value={field.value} onChange={field.onChange} testIdPrefix="create-news" draftKey={dialogOpen ? "news:new" : undefined} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <div>
+                    <label className="text-sm font-medium">Cover Image (optional)</label>
+                    <Input type="file" accept="image/*" className="mt-1" onChange={(e) => setImageFile(e.target.files?.[0] || null)} data-testid="input-news-image" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="attach-poll" checked={attachPoll} onCheckedChange={(v) => setAttachPoll(!!v)} data-testid="checkbox-attach-poll" />
+                    <label htmlFor="attach-poll" className="text-sm cursor-pointer">Attach a poll</label>
+                  </div>
+                  {attachPoll && <PollEditor value={pollDraft} onChange={setPollDraft} />}
+                  <Button type="submit" className="w-full" disabled={createMutation.isPending || (attachPoll && !isPollDraftValid(pollDraft))} data-testid="button-submit-news">
+                    {createMutation.isPending ? "Publishing..." : "Publish Story"}
+                  </Button>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        </div>
 
-      {isLoading ? <Skeleton className="h-40" /> : (
-        <div className="space-y-3">
-          {news?.map((story) => (
-            <Card key={story.id} data-testid={`card-admin-news-${story.id}`}>
-              <CardContent className="flex items-start justify-between gap-3 p-4">
-                <div className="flex items-start gap-3">
-                  {story.imageUrl && (
-                    <img src={story.imageUrl} alt="" loading="lazy" decoding="async" width={64} height={48} className="w-16 h-12 rounded-md object-cover flex-shrink-0" />
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <li key={i} className="px-5 py-3.5 flex items-start gap-4">
+                <Skeleton className="w-16 h-12 rounded-md shrink-0" />
+                <div className="flex-1 space-y-2 py-1">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+                <div className="flex gap-1 py-1">
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : news?.length === 0 ? (
+          <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+            <Newspaper className="w-8 h-8 mb-3 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No news stories published yet</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {news?.map((story) => (
+              <li key={story.id} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-admin-news-${story.id}`}>
+                <div className="flex items-start gap-4 min-w-0">
+                  {story.imageUrl ? (
+                    <img src={story.imageUrl} alt="" loading="lazy" decoding="async" width={64} height={48} className="w-16 h-12 rounded-md object-cover border shrink-0" />
+                  ) : (
+                    <div className="w-16 h-12 rounded-md bg-muted/50 border flex items-center justify-center shrink-0">
+                      <Newspaper className="w-6 h-6 text-muted-foreground/30" />
+                    </div>
                   )}
-                  <div className="space-y-1">
-                    <h4 className="font-semibold text-sm">{story.title}</h4>
+                  <div className="space-y-1.5 min-w-0">
+                    <h4 className="font-semibold text-sm truncate">{story.title}</h4>
                     <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(story.content)}</p>
                     {(() => {
                       const groups = reactionsByStory?.[story.id] ?? [];
@@ -2393,32 +2299,34 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
                           {groups.map((g) => (
                             <span
                               key={g.emoji}
-                              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 text-xs text-muted-foreground"
+                              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                               data-testid={`text-admin-news-reaction-${story.id}-${g.emoji}`}
                             >
                               <span aria-hidden>{g.emoji}</span>
                               <span className="tabular-nums">{g.count}</span>
                             </span>
                           ))}
-                          <span className="text-xs text-muted-foreground">· {total} total</span>
+                          <span className="text-[10px] text-muted-foreground">· {total} total</span>
                         </div>
                       );
                     })()}
                   </div>
                 </div>
-                {canManage && <div className="flex gap-1 flex-shrink-0">
-                  <Button size="icon" variant="ghost" onClick={() => openEditDialog(story)} data-testid={`button-edit-news-${story.id}`}>
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(story.id)} data-testid={`button-delete-news-${story.id}`}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                {canManage && (
+                  <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(story)} data-testid={`button-edit-news-${story.id}`}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => deleteMutation.mutate(story.id)} data-testid={`button-delete-news-${story.id}`}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) { setEditDialogOpen(false); setEditingStory(null); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2737,9 +2645,14 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="text-lg font-semibold" data-testid="text-quick-responses-title">Quick Responses</h2>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-quick-responses-title">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/10 text-amber-500">
+            <Zap className="h-[18px] w-[18px]" />
+          </span>
+          Quick Responses
+        </h2>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingQr(null); form.reset(); } }}>
           {canManage && <DialogTrigger asChild>
             <Button size="sm" onClick={openCreate} data-testid="button-add-quick-response">
@@ -2880,7 +2793,7 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4 p-5">
         <Card>
           <CardContent className="p-2 space-y-1">
             <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Categories</div>
@@ -3161,7 +3074,7 @@ function QuickResponsesTab({ canManage = true }: { canManage?: boolean }) {
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -3232,99 +3145,109 @@ function ReportsRequestsTab({ canManage = true }: { canManage?: boolean }) {
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold" data-testid="text-reports-requests-title">Reports & Requests</h2>
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-reports-requests-title">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+              <FileText className="h-[18px] w-[18px]" />
+            </span>
+            Reports & Requests
+          </h2>
         </div>
-      ) : !reports || reports.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No reports or requests yet.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {reports.map((rr) => (
-            <Card key={rr.id} data-testid={`card-report-${rr.id}`}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant={rr.type === "content_issue" ? "destructive" : rr.type === "app_issue" ? "outline" : "default"} className="text-xs">
-                        {rr.type === "content_issue" ? "Content Issue" : rr.type === "app_issue" ? "App Issue / Feature Request" : "Movie/Series Request"}
-                      </Badge>
-                      {statusBadge(rr.status)}
-                    </div>
-                    <p className="font-medium text-sm mt-2" data-testid={`text-report-title-${rr.id}`}>{rr.title}</p>
-                    {rr.description && <p className="text-xs text-muted-foreground mt-1">{rr.description}</p>}
-                    {rr.imageUrl && (
-                      <div className="mt-2">
-                        {rr.imageUrl.match(/\.(mp4|webm|mov|avi)$/i) ? (
-                          <div>
-                            <ClickableVideo src={rr.imageUrl} className="max-h-32" />
-                            <a href={rr.imageUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`link-download-video-${rr.id}`}>
-                              <Download className="w-3 h-3" />
-                              <span>Download</span>
-                            </a>
-                          </div>
-                        ) : (
-                          <div>
-                            <ClickableImage src={rr.imageUrl} alt="Attachment" className="max-h-32 rounded-md" />
-                            <a href={rr.imageUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`link-download-image-${rr.id}`}>
-                              <Download className="w-3 h-3" />
-                              <span>Download</span>
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {rr.adminNotes && (
-                      <div className="mt-2 p-2 rounded-md bg-accent/50 border">
-                        <p className="text-xs font-medium text-muted-foreground">Admin Notes:</p>
-                        <p className="text-xs mt-0.5">{rr.adminNotes}</p>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
-                      <span>{rr.customerName}</span>
-                      {rr.customerEmail && <span>({rr.customerEmail})</span>}
-                      <span>·</span>
-                      <span>{rr.serviceName}</span>
-                      <span>·</span>
-                      <Clock className="w-3 h-3" />
-                      <span>{format(new Date(rr.createdAt), "MMM d, yyyy 'at' h:mm a")}</span>
-                    </div>
-                  </div>
-                  {canManage && <div className="flex items-center gap-1 flex-shrink-0">
-                    <Button size="sm" variant="outline" onClick={() => openUpdateDialog(rr)} data-testid={`button-update-report-${rr.id}`}>
-                      <Edit className="w-3 h-3 mr-1" /> Update
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" data-testid={`button-delete-report-${rr.id}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Report/Request</AlertDialogTitle>
-                          <AlertDialogDescription>Are you sure you want to delete this submission?</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteMutation.mutate(rr.id)}>Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>}
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <li key={i} className="px-5 py-3.5 flex items-start gap-4">
+                <div className="flex-1 space-y-2 py-1">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-2/3" />
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              </li>
+            ))}
+          </ul>
+        ) : !reports || reports.length === 0 ? (
+          <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+            <FileText className="w-8 h-8 mb-3 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No reports or requests yet.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {reports.map((rr) => (
+              <li key={rr.id} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-report-${rr.id}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={rr.type === "content_issue" ? "destructive" : rr.type === "app_issue" ? "outline" : "default"} className="text-xs">
+                      {rr.type === "content_issue" ? "Content Issue" : rr.type === "app_issue" ? "App Issue / Feature Request" : "Movie/Series Request"}
+                    </Badge>
+                    {statusBadge(rr.status)}
+                  </div>
+                  <p className="font-medium text-sm mt-2" data-testid={`text-report-title-${rr.id}`}>{rr.title}</p>
+                  {rr.description && <p className="text-xs text-muted-foreground mt-1">{rr.description}</p>}
+                  {rr.imageUrl && (
+                    <div className="mt-2">
+                      {rr.imageUrl.match(/\.(mp4|webm|mov|avi)$/i) ? (
+                        <div>
+                          <ClickableVideo src={rr.imageUrl} className="max-h-32 rounded-md border" />
+                          <a href={rr.imageUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`link-download-video-${rr.id}`}>
+                            <Download className="w-3 h-3" />
+                            <span>Download</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <div>
+                          <ClickableImage src={rr.imageUrl} alt="Attachment" className="max-h-32 rounded-md border" />
+                          <a href={rr.imageUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`link-download-image-${rr.id}`}>
+                            <Download className="w-3 h-3" />
+                            <span>Download</span>
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {rr.adminNotes && (
+                    <div className="mt-2 p-2 rounded-md bg-accent/50 border">
+                      <p className="text-xs font-medium text-muted-foreground">Admin Notes:</p>
+                      <p className="text-xs mt-0.5">{rr.adminNotes}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
+                    <span>{rr.customerName}</span>
+                    {rr.customerEmail && <span>({rr.customerEmail})</span>}
+                    <span>·</span>
+                    <span>{rr.serviceName}</span>
+                    <span>·</span>
+                    <Clock className="w-3 h-3" />
+                    <span>{format(new Date(rr.createdAt), "MMM d, yyyy 'at' h:mm a")}</span>
+                  </div>
+                </div>
+                {canManage && <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openUpdateDialog(rr)} data-testid={`button-update-report-${rr.id}`}>
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-report-${rr.id}`}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Report/Request</AlertDialogTitle>
+                        <AlertDialogDescription>Are you sure you want to delete this submission?</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteMutation.mutate(rr.id)}>Delete</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <Dialog open={updateDialogOpen} onOpenChange={(open) => { if (!open) { setUpdateDialogOpen(false); setUpdatingReport(null); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
@@ -3459,13 +3382,19 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
   if (isLoading) return <Skeleton className="h-64 w-full" />;
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold" data-testid="text-admin-service-updates-title">Service Updates ({updates?.length || 0})</h2>
-        <Dialog open={open} onOpenChange={setOpen}>
-          {canManage && <DialogTrigger asChild>
-            <Button data-testid="button-add-service-update"><Plus className="w-4 h-4 mr-2" />Add Service Update</Button>
-          </DialogTrigger>}
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex justify-between items-center px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-admin-service-updates-title">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400">
+              <RefreshCw className="h-[18px] w-[18px]" />
+            </span>
+            Service Updates ({updates?.length || 0})
+          </h2>
+          <Dialog open={open} onOpenChange={setOpen}>
+            {canManage && <DialogTrigger asChild>
+              <Button size="sm" data-testid="button-add-service-update"><Plus className="w-4 h-4 mr-1" />Add Update</Button>
+            </DialogTrigger>}
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Add Service Update</DialogTitle>
@@ -3598,6 +3527,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
           ))}
         </div>
       )}
+      </section>
 
       <Dialog open={!!editingUpdate} onOpenChange={(open) => { if (!open) setEditingUpdate(null); }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
@@ -3728,49 +3658,88 @@ function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
     }
   };
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (isLoading) return (
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+            <Mail className="h-[18px] w-[18px]" />
+          </span>
+          Email Templates
+        </h2>
+      </div>
+      <ul className="divide-y divide-border">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <li key={i} className="px-5 py-3.5 flex items-start gap-4">
+            <div className="flex-1 space-y-2 py-1">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-bold" data-testid="text-email-templates-title">Email Templates</h2>
-      <p className="text-sm text-muted-foreground">Customize the subject and body of outgoing system emails. Use variable placeholders like <code className="bg-muted px-1 py-0.5 rounded text-xs">{"{variable_name}"}</code> which get replaced automatically when emails are sent.</p>
-
-      <div className="space-y-2">
-        {templates?.map((template) => (
-          <Card key={template.id} data-testid={`card-template-${template.templateKey}`}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-sm text-muted-foreground">Customize the subject and body of outgoing system emails. Use variable placeholders like <code className="bg-muted px-1 py-0.5 rounded text-xs">{"{variable_name}"}</code> which get replaced automatically when emails are sent.</p>
+      </div>
+      
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-email-templates-title">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <Mail className="h-[18px] w-[18px]" />
+            </span>
+            Email Templates ({templates?.length || 0})
+          </h2>
+        </div>
+        
+        {!templates || templates.length === 0 ? (
+          <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+            <Mail className="w-8 h-8 mb-3 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No templates available</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {templates.map((template) => (
+              <li key={template.id} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-template-${template.templateKey}`}>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm" data-testid={`text-template-name-${template.templateKey}`}>{template.name}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">{template.description}</p>
-                  <p className="text-xs text-muted-foreground mt-1 font-mono truncate">Subject: {template.subject}</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-sm" data-testid={`text-template-name-${template.templateKey}`}>{template.name}</h3>
+                    <Badge variant={template.enabled !== false ? "default" : "secondary"} className={template.enabled !== false ? "bg-status-online/10 text-status-online hover:bg-status-online/20" : ""}>
+                      {template.enabled !== false ? "On" : "Off"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                  <p className="text-xs text-muted-foreground mt-1.5 font-mono truncate">Subject: {template.subject}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{template.enabled !== false ? "On" : "Off"}</span>
-                    <Switch
-                      checked={template.enabled !== false}
-                      onCheckedChange={(checked) => toggleEnabledMutation.mutate({ id: template.id, enabled: checked })}
-                      disabled={!canManage}
-                      data-testid={`switch-template-enabled-${template.templateKey}`}
-                    />
-                  </div>
-                  {canManage && <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
-                    onClick={() => openEdit(template)}
-                    data-testid={`button-edit-template-${template.templateKey}`}
-                  >
-                    <Edit className="w-3.5 h-3.5" />
-                    Edit
-                  </Button>}
+                  <Switch
+                    checked={template.enabled !== false}
+                    onCheckedChange={(checked) => toggleEnabledMutation.mutate({ id: template.id, enabled: checked })}
+                    disabled={!canManage}
+                    data-testid={`switch-template-enabled-${template.templateKey}`}
+                  />
+                  {canManage && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                      onClick={() => openEdit(template)}
+                      data-testid={`button-edit-template-${template.templateKey}`}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-template">
@@ -3989,64 +3958,96 @@ function NotificationTemplatesTab({ canManage = true }: { canManage?: boolean })
     }
   };
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (isLoading) return (
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+            <Bell className="h-[18px] w-[18px]" />
+          </span>
+          Notification Wording
+        </h2>
+      </div>
+      <ul className="divide-y divide-border">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <li key={i} className="px-5 py-3.5 flex items-start gap-4">
+            <div className="flex-1 space-y-2 py-1">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-bold" data-testid="text-notification-templates-title">Notification Wording</h2>
-      <p className="text-sm text-muted-foreground">Customize the title and body of the WHMCS push &amp; in-app notifications customers receive. Use placeholders like <code className="bg-muted px-1 py-0.5 rounded text-xs">{"{service}"}</code> which are filled in automatically. Turning a notification <strong>Off</strong> reverts it to the built-in default wording — the notification still sends.</p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-sm text-muted-foreground">Customize the title and body of the WHMCS push &amp; in-app notifications customers receive. Use placeholders like <code className="bg-muted px-1 py-0.5 rounded text-xs">{"{service}"}</code> which are filled in automatically. Turning a notification <strong>Off</strong> reverts it to the built-in default wording — the notification still sends.</p>
+      </div>
 
-      {NOTIFICATION_TEMPLATE_GROUPS.map((group) => {
-        const groupTemplates = templates?.filter((t) => t.group === group) ?? [];
-        if (groupTemplates.length === 0) return null;
-        return (
-          <div key={group} className="space-y-2">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide" data-testid={`text-notif-group-${group.toLowerCase()}`}>{group}</h3>
-            {groupTemplates.map((template) => (
-              <Card key={template.templateKey} data-testid={`card-notif-template-${template.templateKey}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-4">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-notification-templates-title">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <Bell className="h-[18px] w-[18px]" />
+            </span>
+            Notification Wording
+          </h2>
+        </div>
+        
+        {NOTIFICATION_TEMPLATE_GROUPS.map((group) => {
+          const groupTemplates = templates?.filter((t) => t.group === group) ?? [];
+          if (groupTemplates.length === 0) return null;
+          return (
+            <div key={group} className="border-b border-border last:border-0">
+              <div className="px-5 py-3 bg-muted/20 border-b border-border">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" data-testid={`text-notif-group-${group.toLowerCase()}`}>{group} Notifications</h3>
+              </div>
+              <ul className="divide-y divide-border">
+                {groupTemplates.map((template) => (
+                  <li key={template.templateKey} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-notif-template-${template.templateKey}`}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h4 className="font-semibold text-sm" data-testid={`text-notif-template-name-${template.templateKey}`}>{template.label}</h4>
                         {template.customized && template.enabled && (
                           <Badge variant="secondary" className="text-[10px]">Custom</Badge>
                         )}
+                        <Badge variant={template.enabled ? "default" : "secondary"} className={template.enabled ? "bg-status-online/10 text-status-online hover:bg-status-online/20" : ""}>
+                          {template.enabled ? "On" : "Off"}
+                        </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{template.description}</p>
-                      <p className="text-xs text-muted-foreground mt-1 font-mono truncate">{template.enabled ? template.title : template.defaultTitle}</p>
-                      <p className="text-xs text-muted-foreground font-mono truncate">{template.enabled ? template.body : template.defaultBody}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                      <p className="text-xs text-muted-foreground mt-2 font-mono truncate">{template.enabled ? template.title : template.defaultTitle}</p>
+                      <p className="text-xs text-muted-foreground mt-1 font-mono truncate">{template.enabled ? template.body : template.defaultBody}</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{template.enabled ? "On" : "Off"}</span>
-                        <Switch
-                          checked={template.enabled}
-                          onCheckedChange={(checked) => template.id && toggleEnabledMutation.mutate({ id: template.id, enabled: checked })}
-                          disabled={!canManage || !template.id}
-                          data-testid={`switch-notif-template-enabled-${template.templateKey}`}
-                        />
-                      </div>
+                      <Switch
+                        checked={template.enabled}
+                        onCheckedChange={(checked) => template.id && toggleEnabledMutation.mutate({ id: template.id, enabled: checked })}
+                        disabled={!canManage || !template.id}
+                        data-testid={`switch-notif-template-enabled-${template.templateKey}`}
+                      />
                       {canManage && template.id && (
                         <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                           onClick={() => openEdit(template)}
                           data-testid={`button-edit-notif-template-${template.templateKey}`}
                         >
-                          <Edit className="w-3.5 h-3.5" />
-                          Edit
+                          <Edit className="w-4 h-4" />
                         </Button>
                       )}
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        );
-      })}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </section>
 
       <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-notif-template">
@@ -4309,15 +4310,92 @@ function DownloadsTab({ canManage = true }: { canManage?: boolean }) {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-semibold">Downloads ({downloads?.length || 0})</h3>
-        {canManage && (
-          <Button size="sm" onClick={openAddDialog} data-testid="button-add-download">
-            <Plus className="w-4 h-4 mr-1" /> Add Download
-          </Button>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-admin-downloads-title">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Download className="h-[18px] w-[18px]" />
+            </span>
+            Downloads ({downloads?.length || 0})
+          </h2>
+          {canManage && (
+            <Button size="sm" onClick={openAddDialog} data-testid="button-add-download">
+              <Plus className="w-4 h-4 mr-1" /> Add Download
+            </Button>
+          )}
+        </div>
+        
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <li key={i} className="px-5 py-3.5 flex items-start gap-4">
+                <Skeleton className="w-16 h-12 rounded-md shrink-0" />
+                <div className="flex-1 space-y-2 py-1">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : !downloads || downloads.length === 0 ? (
+          <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+            <Download className="w-8 h-8 mb-3 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No downloads available</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {downloads.map((item) => (
+              <li key={item.id} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-download-${item.id}`}>
+                <div className="flex items-start gap-4 min-w-0">
+                  {item.imageUrl ? (
+                    <img src={item.imageUrl} alt="" loading="lazy" decoding="async" width={64} height={48} className="w-16 h-12 rounded-md object-cover border shrink-0" />
+                  ) : (
+                    <div className="w-16 h-12 rounded-md bg-muted/50 border flex items-center justify-center shrink-0">
+                      <Download className="w-6 h-6 text-muted-foreground/30" />
+                    </div>
+                  )}
+                  <div className="space-y-1.5 min-w-0">
+                    <h4 className="font-semibold text-sm truncate" data-testid={`text-download-title-${item.id}`}>{item.title}</h4>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{item.description}</p>
+                    <div className="flex items-center gap-3 pt-1 flex-wrap">
+                      <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono">{item.downloaderCode}</code>
+                      <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary hover:underline inline-flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3" />
+                        URL
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                {canManage && (
+                  <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(item)} data-testid={`button-edit-download-${item.id}`}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-download-${item.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Download</AlertDialogTitle>
+                          <AlertDialogDescription>Are you sure you want to delete this download item?</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(item.id)}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
+      </section>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); resetForm(); } else setDialogOpen(true); }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[85vh] overflow-y-auto" data-testid="dialog-download-form">
@@ -4552,114 +4630,138 @@ function LogsTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-2">
-        <Select value={category} onValueChange={(v) => { setCategory(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-log-category">
-            <SelectValue placeholder="All Categories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {Object.entries(LOG_CATEGORY_CONFIG).map(([key, cfg]) => (
-              <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex flex-col sm:flex-row gap-4 px-5 py-4 border-b border-border justify-between sm:items-center">
+          <div className="flex items-center gap-3">
+             <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-500/10 text-zinc-600 dark:text-zinc-400">
+                <ScrollText className="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold" data-testid="text-admin-logs-title">Activity Logs</h2>
+                <div className="text-xs text-muted-foreground" data-testid="text-log-total">{total} log entries</div>
+              </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Select value={category} onValueChange={(v) => { setCategory(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs" data-testid="select-log-category">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {Object.entries(LOG_CATEGORY_CONFIG).map(([key, cfg]) => (
+                  <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2 flex-1">
+              <Input
+                placeholder="Search logs..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="flex-1 h-8 text-xs"
+                data-testid="input-log-search"
+              />
+              <Button size="icon" variant="outline" className="h-8 w-8" onClick={handleSearch} data-testid="button-log-search">
+                <Search className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {[1, 2, 3, 4, 5].map(i => (
+              <li key={i} className="px-5 py-3.5 flex items-center">
+                <Skeleton className="h-10 w-full rounded-md" />
+              </li>
             ))}
-          </SelectContent>
-        </Select>
-        <div className="flex gap-2 flex-1">
-          <Input
-            placeholder="Search logs..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            className="flex-1"
-            data-testid="input-log-search"
-          />
-          <Button size="icon" variant="outline" onClick={handleSearch} data-testid="button-log-search">
-            <Search className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="text-xs text-muted-foreground">{total} log entries</div>
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 w-full" />)}
-        </div>
-      ) : logs.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <ScrollText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          </ul>
+        ) : logs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-muted-foreground flex flex-col items-center justify-center">
+            <ScrollText className="w-8 h-8 mx-auto mb-3 opacity-50" />
             <p className="text-sm">No log entries found</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {logs.map((log) => {
-            const config = LOG_CATEGORY_CONFIG[log.category] || { label: log.category, color: "bg-gray-500/10 text-gray-500", icon: ScrollText };
-            const Icon = config.icon;
-            const isExpanded = expandedLogId === log.id;
-            return (
-              <Card key={log.id} data-testid={`card-log-${log.id}`}>
-                <CardContent className="p-3 space-y-1.5">
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {logs.map((log) => {
+              const config = LOG_CATEGORY_CONFIG[log.category] || { label: log.category, color: "bg-gray-500/10 text-gray-500", icon: ScrollText };
+              const Icon = config.icon;
+              const isExpanded = expandedLogId === log.id;
+              return (
+                <li key={log.id} className="group" data-testid={`card-log-${log.id}`}>
                   <div
-                    className="flex items-center gap-2 cursor-pointer"
+                    className="flex items-center gap-3 px-5 py-3.5 cursor-pointer hover-elevate tap-interactive"
                     onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
                     data-testid={`button-expand-log-${log.id}`}
                   >
-                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
-                    <div className={`rounded-full p-1 ${config.color.split(" ")[0]}`}>
-                      <Icon className={`w-3 h-3 ${config.color.split(" ")[1]}`} />
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                      <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md shrink-0 ${config.color}`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
                     </div>
-                    <span className="text-sm flex-1 min-w-0 truncate">{log.summary}</span>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium truncate">{log.summary}</span>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] uppercase font-medium ${config.color.replace('text-', 'border-').replace('/10', '/20')} bg-transparent`}>{config.label}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        {log.actorName && (
+                          <span className="text-xs text-muted-foreground">by {log.actorName}</span>
+                        )}
+                        {log.recipientName && (
+                          <span className="text-xs text-muted-foreground">→ {log.recipientName}</span>
+                        )}
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {format(new Date(log.createdAt), "MMM d, yyyy h:mm a")}
+                        </span>
+                      </div>
+                    </div>
+                    
                     {hasPreview(log) && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6 flex-shrink-0"
-                        onClick={(e) => { e.stopPropagation(); setPreviewLog(log); }}
-                        data-testid={`button-preview-log-${log.id}`}
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </Button>
+                      <div className="shrink-0 flex items-center">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); setPreviewLog(log); }}
+                          data-testid={`button-preview-log-${log.id}`}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </div>
                     )}
-                    <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${config.color}`}>{config.label}</Badge>
                   </div>
-                  <div className="flex items-center gap-2 pl-7 flex-wrap">
-                    {log.actorName && (
-                      <span className="text-[10px] text-muted-foreground">by {log.actorName}</span>
-                    )}
-                    {log.recipientName && (
-                      <span className="text-[10px] text-muted-foreground">→ {log.recipientName}</span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                      <Clock className="w-2.5 h-2.5" />
-                      {format(new Date(log.createdAt), "MMM d, yyyy h:mm a")}
-                    </span>
-                  </div>
+                  
                   {isExpanded && log.details && (
-                    <div className="mt-2 pl-7 border-l-2 border-muted ml-2 pl-4 py-2">
-                      {renderDetails(log)}
+                    <div className="px-5 pb-4 pl-[4.5rem]">
+                      <div className="border-l-2 border-border pl-4 space-y-1.5">
+                        {renderDetails(log)}
+                      </div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-log-prev">
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)} data-testid="button-log-next">
-            Next
-          </Button>
-        </div>
-      )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        
+        {totalPages > 1 && (
+          <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-muted/20">
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-log-prev">
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground font-medium">Page {page} of {totalPages}</span>
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card" disabled={page >= totalPages} onClick={() => setPage(page + 1)} data-testid="button-log-next">
+              Next
+            </Button>
+          </div>
+        )}
+      </section>
 
       <Dialog open={!!previewLog} onOpenChange={(open) => { if (!open) setPreviewLog(null); }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" data-testid="dialog-log-preview">
@@ -4829,208 +4931,246 @@ function ErrorLogsTab() {
   const handleSearch = () => { setSearch(searchInput); setPage(1); };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
-        <Select value={severity || "all"} onValueChange={(v) => { setSeverity(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-error-severity">
-            <SelectValue placeholder="All Severities" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Severities</SelectItem>
-            {ERROR_SEVERITY_OPTIONS.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
-          </SelectContent>
-        </Select>
-        <Select value={source || "all"} onValueChange={(v) => { setSource(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-error-source">
-            <SelectValue placeholder="All Sources" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Sources</SelectItem>
-            {ERROR_SOURCE_OPTIONS.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
-          </SelectContent>
-        </Select>
-        <Select value={resolved} onValueChange={(v) => { setResolved(v); setPage(1); }}>
-          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-error-resolved">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="false">Unresolved</SelectItem>
-            <SelectItem value="true">Resolved</SelectItem>
-            <SelectItem value="all">All</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex gap-2 flex-1 min-w-[200px]">
-          <Input
-            placeholder="Search errors..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            className="flex-1"
-            data-testid="input-error-search"
-          />
-          <Button size="icon" variant="outline" onClick={handleSearch} data-testid="button-error-search">
-            <Search className="w-4 h-4" />
-          </Button>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex flex-col sm:flex-row gap-4 px-5 py-4 border-b border-border justify-between sm:items-center">
+          <div className="flex items-center gap-3">
+             <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
+                <AlertTriangle className="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold">Error Logs</h2>
+                <div className="text-xs text-muted-foreground" data-testid="text-error-total">{total} error log entries</div>
+              </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Select value={severity || "all"} onValueChange={(v) => { setSeverity(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs" data-testid="select-error-severity">
+                <SelectValue placeholder="All Severities" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Severities</SelectItem>
+                {ERROR_SEVERITY_OPTIONS.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+              </SelectContent>
+            </Select>
+            <Select value={source || "all"} onValueChange={(v) => { setSource(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs" data-testid="select-error-source">
+                <SelectValue placeholder="All Sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                {ERROR_SOURCE_OPTIONS.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+              </SelectContent>
+            </Select>
+            <Select value={resolved} onValueChange={(v) => { setResolved(v); setPage(1); }}>
+              <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs" data-testid="select-error-resolved">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">Unresolved</SelectItem>
+                <SelectItem value="true">Resolved</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2 flex-1 min-w-[200px]">
+              <Input
+                placeholder="Search errors..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="flex-1 h-8 text-xs"
+                data-testid="input-error-search"
+              />
+              <Button size="icon" variant="outline" className="h-8 w-8" onClick={handleSearch} data-testid="button-error-search">
+                <Search className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs text-muted-foreground" data-testid="text-error-total">{total} error log entries</div>
-        <div className="flex items-center gap-2">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              disabled={total === 0 || resolved === "true" || resolveAllMutation.isPending}
-              data-testid="button-resolve-all-errors"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Resolve all
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Resolve all unresolved errors?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {hasFilter
-                  ? "This marks every unresolved error matching the current filters as resolved. The entries stay in the log for reference."
-                  : "This marks every unresolved error as resolved. The entries stay in the log for reference."}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel data-testid="button-resolve-all-errors-cancel">Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => resolveAllMutation.mutate()}
-                data-testid="button-resolve-all-errors-confirm"
-              >
-                Resolve all
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        {isMasterAdmin && (
+        <div className="px-5 py-3 border-b border-border bg-muted/20 flex justify-end gap-2">
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
                 size="sm"
-                variant="destructive"
-                className="h-7 text-xs"
-                disabled={total === 0 || clearAllMutation.isPending}
-                data-testid="button-clear-all-errors"
+                variant="outline"
+                className="h-8 text-xs bg-card"
+                disabled={total === 0 || resolved === "true" || resolveAllMutation.isPending}
+                data-testid="button-resolve-all-errors"
               >
-                <Trash2 className="w-3.5 h-3.5 mr-1" /> Clear all
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-green-500" /> Resolve all
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
               <AlertDialogHeader>
-                <AlertDialogTitle>Clear all error logs?</AlertDialogTitle>
+                <AlertDialogTitle>Resolve all unresolved errors?</AlertDialogTitle>
                 <AlertDialogDescription>
                   {hasFilter
-                    ? `This will permanently delete the ${total} error log ${total === 1 ? "entry" : "entries"} matching the current filters. This cannot be undone.`
-                    : `This will permanently delete all ${total} error log ${total === 1 ? "entry" : "entries"}. This cannot be undone.`}
+                    ? "This marks every unresolved error matching the current filters as resolved. The entries stay in the log for reference."
+                    : "This marks every unresolved error as resolved. The entries stay in the log for reference."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel data-testid="button-clear-all-errors-cancel">Cancel</AlertDialogCancel>
+                <AlertDialogCancel data-testid="button-resolve-all-errors-cancel">Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => clearAllMutation.mutate()}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  data-testid="button-clear-all-errors-confirm"
+                  onClick={() => resolveAllMutation.mutate()}
+                  data-testid="button-resolve-all-errors-confirm"
                 >
-                  Clear all
+                  Resolve all
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-        )}
+          {isMasterAdmin && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive bg-card"
+                  disabled={total === 0 || clearAllMutation.isPending}
+                  data-testid="button-clear-all-errors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Clear all
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear all error logs?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {hasFilter
+                      ? `This will permanently delete the ${total} error log ${total === 1 ? "entry" : "entries"} matching the current filters. This cannot be undone.`
+                      : `This will permanently delete all ${total} error log ${total === 1 ? "entry" : "entries"}. This cannot be undone.`}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-clear-all-errors-cancel">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => clearAllMutation.mutate()}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    data-testid="button-clear-all-errors-confirm"
+                  >
+                    Clear all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
-      </div>
 
-      {isLoading ? (
-        <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
-      ) : logs.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <Bug className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {[1, 2, 3, 4, 5].map(i => (
+              <li key={i} className="px-5 py-3.5 flex items-center">
+                <Skeleton className="h-10 w-full rounded-md" />
+              </li>
+            ))}
+          </ul>
+        ) : logs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-muted-foreground flex flex-col items-center justify-center">
+            <Bug className="w-8 h-8 mx-auto mb-3 opacity-50" />
             <p className="text-sm">No errors logged 🎉</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {logs.map((log) => {
-            const isExpanded = expandedId === log.id;
-            const isResolved = !!log.resolvedAt;
-            return (
-              <Card key={log.id} data-testid={`card-error-${log.id}`} className={isResolved ? "opacity-70" : ""}>
-                <CardContent className="p-3 space-y-1.5">
-                  <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : log.id)} data-testid={`button-expand-error-${log.id}`}>
-                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
-                    <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${severityBadgeClass(log.severity)}`}>{log.severity}</Badge>
-                    <Badge variant="outline" className="text-[10px] flex-shrink-0">{log.source}</Badge>
-                    <span className="text-sm flex-1 min-w-0 truncate" data-testid={`text-error-summary-${log.id}`}>{log.summary}</span>
-                    {isResolved ? (
-                      <Badge variant="outline" className="text-[10px] flex-shrink-0 bg-green-500/10 text-green-600 dark:text-green-400">resolved</Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[10px] px-2"
-                        disabled={resolveMutation.isPending}
-                        onClick={(e) => { e.stopPropagation(); resolveMutation.mutate({ id: log.id, value: true }); }}
-                        data-testid={`button-resolve-error-${log.id}`}
-                      >
-                        <CheckCircle2 className="w-3 h-3 mr-1" /> Resolve
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 pl-7 flex-wrap">
-                    {log.userName && (<span className="text-[10px] text-muted-foreground">user: {log.userName}</span>)}
-                    {log.referenceType && log.referenceId && (<span className="text-[10px] text-muted-foreground">ref: {log.referenceType}/{log.referenceId.slice(0,8)}</span>)}
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                      <Clock className="w-2.5 h-2.5" />
-                      {format(new Date(log.createdAt), "MMM d, yyyy h:mm a")}
-                    </span>
-                    {isResolved && log.resolvedAt && (
-                      <span className="text-[10px] text-muted-foreground">
-                        resolved {format(new Date(log.resolvedAt), "MMM d, h:mm a")}{log.resolvedByName ? ` by ${log.resolvedByName}` : ""}
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {logs.map((log) => {
+              const isExpanded = expandedId === log.id;
+              const isResolved = !!log.resolvedAt;
+              return (
+                <li key={log.id} className={`group ${isResolved ? "opacity-70" : ""}`} data-testid={`card-error-${log.id}`}>
+                  <div
+                    className="flex items-start gap-3 px-5 py-3.5 cursor-pointer hover-elevate tap-interactive"
+                    onClick={() => setExpandedId(isExpanded ? null : log.id)}
+                    data-testid={`button-expand-error-${log.id}`}
+                  >
+                    <div className="flex items-center gap-2 mt-0.5 shrink-0">
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                      <span className={`inline-flex h-7 w-7 items-center justify-center rounded-md shrink-0 ${isResolved ? "bg-muted text-muted-foreground" : severityBadgeClass(log.severity).replace('text-', 'bg-transparent border-').replace('/15', '/30')} border`}>
+                        <AlertTriangle className="h-3.5 w-3.5" />
                       </span>
-                    )}
-                  </div>
-                  {isExpanded && (
-                    <div className="mt-2 pl-7 border-l-2 border-muted ml-2 pl-4 py-2 space-y-2">
-                      {log.details ? (
-                        <pre className="text-xs whitespace-pre-wrap break-all bg-muted/40 rounded p-2 max-h-96 overflow-auto" data-testid={`text-error-details-${log.id}`}>{log.details}</pre>
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium truncate" data-testid={`text-error-summary-${log.id}`}>{log.summary}</span>
+                        <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase font-medium">{log.source}</Badge>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[10px] uppercase font-medium ${severityBadgeClass(log.severity)}`}>{log.severity}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        {log.userName && (<span className="text-xs text-muted-foreground">user: {log.userName}</span>)}
+                        {log.referenceType && log.referenceId && (<span className="text-xs text-muted-foreground">ref: {log.referenceType}/{log.referenceId.slice(0,8)}</span>)}
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {format(new Date(log.createdAt), "MMM d, yyyy h:mm a")}
+                        </span>
+                        {isResolved && log.resolvedAt && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Check className="w-3 h-3 text-green-500" />
+                            resolved {format(new Date(log.resolvedAt), "MMM d, h:mm a")}{log.resolvedByName ? ` by ${log.resolvedByName}` : ""}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="shrink-0 flex items-center">
+                      {isResolved ? (
+                        <Badge variant="outline" className="h-6 text-[10px] bg-green-500/10 text-green-600 dark:text-green-400">resolved</Badge>
                       ) : (
-                        <p className="text-xs text-muted-foreground">No additional details.</p>
-                      )}
-                      {isResolved && (
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-8 text-xs px-3 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                           disabled={resolveMutation.isPending}
-                          onClick={() => resolveMutation.mutate({ id: log.id, value: false })}
-                          data-testid={`button-reopen-error-${log.id}`}
+                          onClick={(e) => { e.stopPropagation(); resolveMutation.mutate({ id: log.id, value: true }); }}
+                          data-testid={`button-resolve-error-${log.id}`}
                         >
-                          Reopen
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-green-500" /> Resolve
                         </Button>
                       )}
                     </div>
+                  </div>
+                  
+                  {isExpanded && (
+                    <div className="px-5 pb-4 pl-[4.5rem]">
+                      <div className="border-l-2 border-border pl-4 space-y-3">
+                        {log.details ? (
+                          <pre className="text-[11px] font-mono whitespace-pre-wrap break-all bg-muted/40 rounded-md p-3 max-h-[400px] overflow-y-auto border border-border/50" data-testid={`text-error-details-${log.id}`}>{log.details}</pre>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No additional details available.</p>
+                        )}
+                        {isResolved && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            disabled={resolveMutation.isPending}
+                            onClick={() => resolveMutation.mutate({ id: log.id, value: false })}
+                            data-testid={`button-reopen-error-${log.id}`}
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reopen error
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-error-prev">Previous</Button>
-          <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)} data-testid="button-error-next">Next</Button>
-        </div>
-      )}
+        {totalPages > 1 && (
+          <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-muted/20">
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-error-prev">
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground font-medium">Page {page} of {totalPages}</span>
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card" disabled={page >= totalPages} onClick={() => setPage(page + 1)} data-testid="button-error-next">
+              Next
+            </Button>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -5164,87 +5304,99 @@ function MonitoringTab({ canManage, initialMonitorId }: { canManage: boolean; in
     return <MonitorDetailView monitor={selectedMonitor} onBack={() => { setSelectedMonitor(null); queryClient.invalidateQueries({ queryKey: ["/api/admin/monitors"] }); }} />;
   }
 
-  if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold" data-testid="text-monitoring-title">URL Monitors</h2>
-        {canManage && (
-          <Button size="sm" onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-monitor">
-            <Plus className="w-4 h-4 mr-1" /> Add Monitor
-          </Button>
-        )}
-      </div>
-
-      {monitors.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <Globe className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No URL monitors configured yet.</p>
-            {canManage && <p className="text-sm mt-1">Add a monitor to start tracking URL health.</p>}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {monitors.map(m => (
-            <Card key={m.id} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSelectedMonitor(m)} data-testid={`card-monitor-${m.id}`}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`rounded-full p-2 ${getStatusBg(m.status, m.enabled)}`}>
-                    <Circle className={`w-4 h-4 ${getStatusColor(m.status, m.enabled)} ${m.enabled && m.status === "up" ? "animate-status-glow fill-current" : m.enabled && m.status === "down" ? "animate-status-down fill-current" : ""}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-medium truncate max-w-[50vw] sm:max-w-none" data-testid={`text-monitor-name-${m.id}`}>{m.name}</span>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">{m.monitorType === "http_status" ? "HTTP Status" : "Availability"}</Badge>
-                      {!m.enabled && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">Paused</Badge>}
-                    </div>
-                    <p className="text-sm text-muted-foreground truncate">{m.url}</p>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground hidden sm:block">
-                    {m.lastCheckedAt && <p>Checked {format(new Date(m.lastCheckedAt), "MMM d, h:mm a")}</p>}
-                    {m.lastResponseTimeMs != null && m.status === "up" && <p>{m.lastResponseTimeMs}ms</p>}
-                  </div>
-                  {canManage && (
-                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleMutation.mutate({ id: m.id, enabled: !m.enabled })} data-testid={`button-toggle-monitor-${m.id}`}>
-                        {m.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(m)} data-testid={`button-edit-monitor-${m.id}`}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" data-testid={`button-delete-monitor-${m.id}`}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Monitor</AlertDialogTitle>
-                            <AlertDialogDescription>This will permanently delete "{m.name}" and all its incident history.</AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => deleteMutation.mutate(m.id)}>Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Globe className="h-[18px] w-[18px]" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold" data-testid="text-monitoring-title">URL Monitors</h3>
+              <p className="text-xs text-muted-foreground hidden sm:block">Track availability of external services</p>
+            </div>
+          </div>
+          {canManage && (
+            <Button size="sm" onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-monitor">
+              <Plus className="w-4 h-4 mr-1" /> Add Monitor
+            </Button>
+          )}
         </div>
-      )}
+
+        {isLoading ? (
+          <div className="divide-y divide-border">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="px-5 py-3.5 flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : monitors.length === 0 ? (
+          <div className="px-5 py-8 text-center text-muted-foreground">
+            <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm font-medium">No URL monitors configured</p>
+            {canManage && <p className="text-xs mt-1">Add a monitor to start tracking URL health.</p>}
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {monitors.map(m => (
+              <li key={m.id} className="cursor-pointer hover-elevate tap-interactive" onClick={() => setSelectedMonitor(m)} data-testid={`card-monitor-${m.id}`}>
+                <div className="px-5 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className={`rounded-full p-2 ${getStatusBg(m.status, m.enabled)} shrink-0`}>
+                      <Circle className={`w-4 h-4 ${getStatusColor(m.status, m.enabled)} ${m.enabled && m.status === "up" ? "animate-status-glow fill-current" : m.enabled && m.status === "down" ? "animate-status-down fill-current" : ""}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium text-sm truncate max-w-[50vw] sm:max-w-none" data-testid={`text-monitor-name-${m.id}`}>{m.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">{m.monitorType === "http_status" ? "HTTP Status" : "Availability"}</Badge>
+                        {!m.enabled && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">Paused</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{m.url}</p>
+                    </div>
+                    <div className="text-right text-xs text-muted-foreground hidden sm:block">
+                      {m.lastCheckedAt && <p>Checked {format(new Date(m.lastCheckedAt), "MMM d, h:mm a")}</p>}
+                      {m.lastResponseTimeMs != null && m.status === "up" && <p>{m.lastResponseTimeMs}ms</p>}
+                    </div>
+                    {canManage && (
+                      <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => toggleMutation.mutate({ id: m.id, enabled: !m.enabled })} data-testid={`button-toggle-monitor-${m.id}`}>
+                          {m.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEdit(m)} data-testid={`button-edit-monitor-${m.id}`}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" data-testid={`button-delete-monitor-${m.id}`}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Monitor</AlertDialogTitle>
+                              <AlertDialogDescription>This will permanently delete "{m.name}" and all its incident history.</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteMutation.mutate(m.id)}>Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <Dialog open={dialogOpen} onOpenChange={v => { if (!v) resetForm(); setDialogOpen(v); }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
@@ -5652,78 +5804,93 @@ function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | nu
   };
 
   return (
-    <Tabs defaultValue={initialInnerTab || "roles"} className="space-y-4">
-      <TabsList data-testid="tabs-admin-management">
+    <Tabs defaultValue={initialInnerTab || "roles"} className="space-y-6">
+      <TabsList data-testid="tabs-admin-management" className="mb-2">
         <TabsTrigger value="roles" data-testid="tab-roles">Roles</TabsTrigger>
         <TabsTrigger value="categories" data-testid="tab-categories">Ticket Categories</TabsTrigger>
         <TabsTrigger value="user-roles" data-testid="tab-user-roles">User Roles</TabsTrigger>
         <TabsTrigger value="broadcast" data-testid="tab-broadcast">Broadcast Push</TabsTrigger>
       </TabsList>
 
-      <TabsContent value="roles" className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold">Admin Roles</h3>
-          <Button size="sm" className="gap-1" onClick={() => openRoleDialog()} data-testid="button-create-role">
-            <Plus className="w-4 h-4" /> Create Role
-          </Button>
-        </div>
-        <div className="space-y-2">
-          {roles.map(role => (
-            <Card key={role.id} data-testid={`card-role-${role.id}`}>
-              <CardContent className="flex items-center justify-between py-3 px-4">
+      <TabsContent value="roles" className="m-0">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-3">
+               <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                  <Shield className="h-[18px] w-[18px]" />
+                </span>
                 <div>
-                  <p className="font-medium">{role.name}</p>
-                  <p className="text-xs text-muted-foreground">{(role.permissions || []).length} permissions</p>
+                  <h3 className="text-sm font-semibold">Admin Roles</h3>
+                  <div className="text-xs text-muted-foreground">Manage permission groups</div>
                 </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => openRoleDialog(role)} data-testid={`button-edit-role-${role.id}`}>
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon" data-testid={`button-delete-role-${role.id}`}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Role</AlertDialogTitle>
-                        <AlertDialogDescription>This will remove the role from all assigned admins. Continue?</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => deleteRoleMutation.mutate(role.id)}>Delete</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {roles.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No roles created yet</p>}
-        </div>
+            </div>
+            <Button size="sm" className="h-8 gap-1.5" onClick={() => openRoleDialog()} data-testid="button-create-role">
+              <Plus className="w-3.5 h-3.5" /> Create Role
+            </Button>
+          </div>
+          
+          {roles.length === 0 ? (
+            <div className="px-5 py-8 text-center text-muted-foreground flex flex-col items-center justify-center">
+              <Shield className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">No roles created yet</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {roles.map(role => (
+                <li key={role.id} className="px-5 py-3.5 flex items-center justify-between group hover-elevate" data-testid={`card-role-${role.id}`}>
+                  <div>
+                    <p className="font-medium text-sm text-foreground">{role.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{(role.permissions || []).length} permissions</p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openRoleDialog(role)} data-testid={`button-edit-role-${role.id}`}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-role-${role.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Role</AlertDialogTitle>
+                          <AlertDialogDescription>This will remove the role from all assigned admins. Continue?</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteRoleMutation.mutate(role.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingRole ? "Edit Role" : "Create Role"}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
                 <Label>Role Name</Label>
                 <Input value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Tier 1 Support" data-testid="input-role-name" />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label className="mb-2 block">Permissions</Label>
-                <div className="space-y-3">
+                <div className="space-y-3 bg-muted/20 p-4 rounded-lg border border-border">
                   {ALL_PERMISSIONS.map(({ category, perms }) => (
-                    <div key={category} className="space-y-1">
-                      <p className="text-sm font-medium text-muted-foreground">{category}</p>
-                      <div className="flex flex-wrap gap-3 ml-2">
+                    <div key={category} className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{category}</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 ml-1">
                         {perms.map(p => (
-                          <label key={p} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                          <label key={p} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded-md transition-colors">
                             <Checkbox checked={rolePermissions.includes(p)} onCheckedChange={() => togglePermission(p)} data-testid={`checkbox-perm-${p}`} />
-                            {p.split(".").pop()}
+                            <span>{p.split(".").pop()}</span>
                           </label>
                         ))}
                       </div>
@@ -5732,7 +5899,7 @@ function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | nu
                 </div>
               </div>
               <Button
-                className="w-full"
+                className="w-full mt-2"
                 disabled={!roleName || createRoleMutation.isPending || updateRoleMutation.isPending}
                 onClick={() => {
                   const data = { name: roleName, permissions: rolePermissions };
@@ -5751,80 +5918,95 @@ function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | nu
         </Dialog>
       </TabsContent>
 
-      <TabsContent value="categories" className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold">Ticket Categories</h3>
-          <Button size="sm" className="gap-1" onClick={() => openCatDialog()} data-testid="button-create-category">
-            <Plus className="w-4 h-4" /> Create Category
-          </Button>
-        </div>
-        <div className="space-y-2">
-          {categories.map(cat => (
-            <Card key={cat.id} data-testid={`card-category-${cat.id}`}>
-              <CardContent className="flex items-center justify-between py-3 px-4">
+      <TabsContent value="categories" className="m-0">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-3">
+               <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                  <Tags className="h-[18px] w-[18px]" />
+                </span>
                 <div>
-                  <p className="font-medium">{cat.name}</p>
-                  <p className="text-xs text-muted-foreground">{cat.description || "No description"}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {(cat.assignedRoleIds || []).length} role(s) assigned
-                  </p>
+                  <h3 className="text-sm font-semibold">Ticket Categories</h3>
+                  <div className="text-xs text-muted-foreground">Organize support requests</div>
                 </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => openCatDialog(cat)} data-testid={`button-edit-category-${cat.id}`}>
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon" data-testid={`button-delete-category-${cat.id}`}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Category</AlertDialogTitle>
-                        <AlertDialogDescription>Tickets in this category will become uncategorized. Continue?</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => deleteCatMutation.mutate(cat.id)}>Delete</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {categories.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No categories created yet</p>}
-        </div>
+            </div>
+            <Button size="sm" className="h-8 gap-1.5" onClick={() => openCatDialog()} data-testid="button-create-category">
+              <Plus className="w-3.5 h-3.5" /> Create Category
+            </Button>
+          </div>
+          
+          {categories.length === 0 ? (
+            <div className="px-5 py-8 text-center text-muted-foreground flex flex-col items-center justify-center">
+              <Tags className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">No categories created yet</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {categories.map(cat => (
+                <li key={cat.id} className="px-5 py-3.5 flex items-center justify-between group hover-elevate" data-testid={`card-category-${cat.id}`}>
+                  <div>
+                    <p className="font-medium text-sm text-foreground">{cat.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 max-w-md truncate">{cat.description || "No description"}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1 font-medium bg-muted w-max px-2 py-0.5 rounded">
+                      {(cat.assignedRoleIds || []).length} role(s) assigned
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openCatDialog(cat)} data-testid={`button-edit-category-${cat.id}`}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" data-testid={`button-delete-category-${cat.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Category</AlertDialogTitle>
+                          <AlertDialogDescription>Tickets in this category will become uncategorized. Continue?</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteCatMutation.mutate(cat.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>{editingCat ? "Edit Category" : "Create Category"}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
                 <Label>Category Name</Label>
                 <Input value={catName} onChange={(e) => setCatName(e.target.value)} placeholder="e.g. Billing" data-testid="input-category-name" />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label>Description</Label>
                 <Input value={catDescription} onChange={(e) => setCatDescription(e.target.value)} placeholder="Optional description" data-testid="input-category-description" />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label className="mb-2 block">Assigned Admin Roles</Label>
-                <div className="space-y-2">
+                <div className="space-y-2 bg-muted/20 p-3 rounded-lg border border-border max-h-48 overflow-y-auto">
                   {roles.map(role => (
-                    <label key={role.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <label key={role.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1.5 rounded-md transition-colors">
                       <Checkbox checked={catRoleIds.includes(role.id)} onCheckedChange={() => toggleCatRole(role.id)} data-testid={`checkbox-cat-role-${role.id}`} />
-                      {role.name}
+                      <span className="font-medium">{role.name}</span>
                     </label>
                   ))}
-                  {roles.length === 0 && <p className="text-xs text-muted-foreground">Create admin roles first</p>}
+                  {roles.length === 0 && <p className="text-xs text-muted-foreground p-2">Create admin roles first</p>}
                 </div>
               </div>
               <Button
-                className="w-full"
+                className="w-full mt-2"
                 disabled={!catName || createCatMutation.isPending || updateCatMutation.isPending}
                 onClick={() => {
                   const data = {
@@ -5847,71 +6029,100 @@ function AdminManagementTab({ initialInnerTab }: { initialInnerTab?: string | nu
         </Dialog>
       </TabsContent>
 
-      <TabsContent value="user-roles" className="space-y-4">
-        <h3 className="text-lg font-semibold">Admin User Roles</h3>
-        <div className="space-y-2">
-          {adminUsers.filter(u => u.username !== "cowboymedia-support").map(u => (
-            <Card key={u.id} data-testid={`card-admin-user-${u.id}`}>
-              <CardContent className="flex items-center justify-between py-3 px-4">
+      <TabsContent value="user-roles" className="m-0">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border bg-muted/20">
+             <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <Users className="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold">Admin User Roles</h3>
+                <div className="text-xs text-muted-foreground">Assign roles to staff members</div>
+              </div>
+          </div>
+          
+          <ul className="divide-y divide-border">
+            {adminUsers.filter(u => u.username !== "cowboymedia-support").map(u => (
+              <li key={u.id} className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group hover-elevate" data-testid={`card-admin-user-${u.id}`}>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{u.fullName}</p>
-                    {u.role === "master_admin" && <Badge variant="default" className="text-xs"><Crown className="w-3 h-3 mr-1" />Master</Badge>}
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="font-medium text-sm text-foreground">{u.fullName}</p>
+                    {u.role === "master_admin" && (
+                      <Badge variant="default" className="h-5 px-1.5 text-[10px] uppercase font-semibold tracking-wider">
+                        <Crown className="w-3 h-3 mr-1" />Master
+                      </Badge>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">@{u.username}</p>
+                  <p className="text-xs text-muted-foreground font-mono">@{u.username}</p>
                 </div>
                 {u.role !== "master_admin" && (
-                  <Select
-                    value={u.adminRoleId || "_none"}
-                    onValueChange={(val) => updateUserRoleMutation.mutate({ id: u.id, adminRoleId: val === "_none" ? null : val })}
-                  >
-                    <SelectTrigger className="w-[180px]" data-testid={`select-role-${u.id}`}>
-                      <SelectValue placeholder="No role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">No Role</SelectItem>
-                      {roles.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <div className="shrink-0">
+                    <Select
+                      value={u.adminRoleId || "_none"}
+                      onValueChange={(val) => updateUserRoleMutation.mutate({ id: u.id, adminRoleId: val === "_none" ? null : val })}
+                    >
+                      <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs bg-card" data-testid={`select-role-${u.id}`}>
+                        <SelectValue placeholder="No role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No Role</SelectItem>
+                        {roles.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       </TabsContent>
 
-      <TabsContent value="broadcast" className="space-y-4">
-        <h3 className="text-lg font-semibold">Broadcast Push Notification</h3>
-        <div className="space-y-4">
-          <div>
-            <Label>Title</Label>
-            <Input value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} placeholder="Notification title" data-testid="input-broadcast-title" />
+      <TabsContent value="broadcast" className="m-0">
+        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border bg-muted/20">
+             <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400">
+                <Bell className="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold">Broadcast Push Notification</h3>
+                <div className="text-xs text-muted-foreground">Send direct alerts to admins</div>
+              </div>
           </div>
-          <div>
-            <Label>Message</Label>
-            <Textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} placeholder="Notification message" data-testid="input-broadcast-message" />
-          </div>
-          <div>
-            <Label className="mb-2 block">Select Admins</Label>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {adminUsers.filter(u => u.username !== "cowboymedia-support").map(u => (
-                <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox checked={broadcastUserIds.includes(u.id)} onCheckedChange={() => toggleBroadcastUser(u.id)} data-testid={`checkbox-broadcast-${u.id}`} />
-                  {u.fullName} (@{u.username})
-                </label>
-              ))}
+          
+          <div className="p-5 space-y-5">
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} placeholder="Notification title" data-testid="input-broadcast-title" className="max-w-md" />
+            </div>
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <Textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} placeholder="Notification message" data-testid="input-broadcast-message" className="max-w-xl resize-none h-24" />
+            </div>
+            <div className="space-y-2">
+              <Label className="mb-2 block">Select Admins to Notify</Label>
+              <div className="space-y-2 bg-muted/20 p-3 rounded-lg border border-border max-h-48 overflow-y-auto max-w-xl">
+                {adminUsers.filter(u => u.username !== "cowboymedia-support").map(u => (
+                  <label key={u.id} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1.5 rounded-md transition-colors">
+                    <Checkbox checked={broadcastUserIds.includes(u.id)} onCheckedChange={() => toggleBroadcastUser(u.id)} data-testid={`checkbox-broadcast-${u.id}`} />
+                    <span className="font-medium text-foreground">{u.fullName}</span>
+                    <span className="text-xs text-muted-foreground font-mono">(@{u.username})</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="pt-2">
+              <Button
+                className="w-full sm:w-auto"
+                disabled={!broadcastTitle || !broadcastMessage || broadcastUserIds.length === 0 || broadcastMutation.isPending}
+                onClick={() => broadcastMutation.mutate({ title: broadcastTitle, message: broadcastMessage, userIds: broadcastUserIds })}
+                data-testid="button-send-broadcast"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {broadcastMutation.isPending ? "Sending..." : `Send to ${broadcastUserIds.length} admin(s)`}
+              </Button>
             </div>
           </div>
-          <Button
-            className="w-full"
-            disabled={!broadcastTitle || !broadcastMessage || broadcastUserIds.length === 0 || broadcastMutation.isPending}
-            onClick={() => broadcastMutation.mutate({ title: broadcastTitle, message: broadcastMessage, userIds: broadcastUserIds })}
-            data-testid="button-send-broadcast"
-          >
-            <Send className="w-4 h-4 mr-2" />
-            {broadcastMutation.isPending ? "Sending..." : `Send to ${broadcastUserIds.length} admin(s)`}
-          </Button>
-        </div>
+        </section>
       </TabsContent>
     </Tabs>
   );
@@ -6095,7 +6306,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
 
   return (
     <div
-      className={`flex ${isMobile ? "" : "h-[600px]"} rounded-lg border overflow-hidden`}
+      className={`flex ${isMobile ? "" : "h-[600px]"} rounded-xl border border-card-border bg-card overflow-hidden`}
       style={
         isMobile
           ? {
@@ -6107,29 +6318,34 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
       data-testid="admin-chat-container"
     >
       {showThreadList && (
-      <div className={`${isMobile ? "w-full" : "w-1/3"} border-r flex flex-col`}>
-        <div className="p-3 border-b flex justify-between items-center">
-          <h4 className="font-semibold text-sm">Threads</h4>
+      <div className={`${isMobile ? "w-full" : "w-1/3"} border-r border-border flex flex-col`}>
+        <div className="px-5 py-4 border-b border-border flex justify-between items-center">
+          <h4 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <MessageSquare className="h-[18px] w-[18px]" />
+            </span>
+            Threads
+          </h4>
           <Button size="icon" variant="ghost" onClick={() => setNewChatOpen(true)} data-testid="button-new-chat">
             <Plus className="w-4 h-4" />
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="flex-1 overflow-y-auto overscroll-contain divide-y divide-border">
           {threads.map(thread => {
             const hasUnread = unreadThreadIds.includes(thread.id);
             return (
             <button
               key={thread.id}
-              className={`w-full text-left p-3 border-b hover:bg-accent/50 transition-colors ${activeThreadId === thread.id ? "bg-accent" : ""}`}
+              className={`w-full text-left px-5 py-3.5 hover-elevate tap-interactive transition-colors ${activeThreadId === thread.id ? "bg-accent/50" : ""}`}
               onClick={() => selectThread(thread.id)}
               data-testid={`thread-${thread.id}`}
             >
               <div className="flex items-center gap-2">
-                {hasUnread && <span className="w-2.5 h-2.5 rounded-full bg-destructive flex-shrink-0" data-testid={`unread-dot-${thread.id}`} />}
-                <p className={`font-medium text-sm truncate ${hasUnread ? "font-bold" : ""}`}>{getThreadDisplayName(thread)}</p>
+                {hasUnread && <span className="w-2 h-2 rounded-full bg-destructive flex-shrink-0" data-testid={`unread-dot-${thread.id}`} />}
+                <p className={`text-sm truncate font-medium`}>{getThreadDisplayName(thread)}</p>
               </div>
               {thread.lastMessage && (
-                <p className={`text-xs text-muted-foreground truncate mt-0.5 ${hasUnread ? "ml-[18px]" : ""}`}>{thread.lastMessage.message || "📎 File"}</p>
+                <p className={`text-xs text-muted-foreground truncate mt-0.5 ${hasUnread ? "ml-4 font-medium text-foreground" : ""}`}>{thread.lastMessage.message || "📎 File"}</p>
               )}
             </button>
           );
@@ -6143,7 +6359,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
       <div className="flex-1 flex flex-col">
         {activeThread ? (
           <>
-            <div className="p-3 border-b flex justify-between items-start">
+            <div className="px-5 py-4 border-b border-border flex justify-between items-start">
               <div className="flex items-center gap-2">
                 {isMobile && (
                   <Button
@@ -6156,12 +6372,12 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
                     <ArrowLeft className="w-4 h-4" />
                   </Button>
                 )}
-                <div>
-                  <p className="font-semibold text-sm">{getThreadDisplayName(activeThread)}</p>
-                  <p className="text-xs text-muted-foreground">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm truncate">{getThreadDisplayName(activeThread)}</p>
+                  <p className="text-xs text-muted-foreground truncate">{activeThread.participants.map(p => p.fullName).join(", ")}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -6178,7 +6394,7 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="text-destructive hover:text-destructive h-8 w-8"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
                     onClick={() => {
                       if (confirm("Delete this thread and all its messages?")) {
                         deleteThreadMutation.mutate(activeThread.id);
@@ -6192,41 +6408,41 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
                 )}
               </div>
             </div>
-            <div className="flex-1 p-3 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
-              <div className="space-y-3">
+            <div className="flex-1 p-5 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+              <div className="space-y-4">
                 {messages.map(msg => {
                   const isMe = msg.senderId === user?.id;
                   return (
                     <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`} data-testid={`chat-msg-${msg.id}`}>
-                      <div className={`max-w-[75%] min-w-0 overflow-hidden rounded-lg p-2.5 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                        {!isMe && <p className="text-xs font-medium mb-1">{msg.senderName}</p>}
-                        {msg.message && <p className="text-sm whitespace-pre-wrap overflow-hidden" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{msg.message}</p>}
+                      <div className={`max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden rounded-xl p-3 ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                        {!isMe && <p className="text-xs font-semibold mb-1 opacity-80">{msg.senderName}</p>}
+                        {msg.message && <p className="text-sm whitespace-pre-wrap overflow-hidden leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{msg.message}</p>}
                         {msg.fileUrl && msg.fileType?.startsWith("image/") && (
-                          <div className="mt-1">
-                            <ClickableImage src={msg.fileUrl} alt="attachment" className="max-w-full max-h-48 rounded" />
-                            <a href={msg.fileUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs opacity-70 hover:opacity-100 transition-opacity" data-testid="link-download-image">
-                              <Download className="w-3 h-3" />
+                          <div className="mt-2">
+                            <ClickableImage src={msg.fileUrl} alt="attachment" className="max-w-full max-h-48 rounded-md" />
+                            <a href={msg.fileUrl} download target="_blank" rel="noopener noreferrer" className="mt-1.5 flex items-center gap-1.5 text-xs opacity-70 hover:opacity-100 transition-opacity" data-testid="link-download-image">
+                              <Download className="w-3.5 h-3.5" />
                               <span>Download</span>
                             </a>
                           </div>
                         )}
                         {msg.fileUrl && msg.fileType?.startsWith("video/") && (
-                          <div className="mt-1">
-                            <ClickableVideo src={msg.fileUrl} className="max-w-full max-h-48" />
-                            <a href={msg.fileUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs opacity-70 hover:opacity-100 transition-opacity" data-testid="link-download-video">
-                              <Download className="w-3 h-3" />
+                          <div className="mt-2">
+                            <ClickableVideo src={msg.fileUrl} className="max-w-full max-h-48 rounded-md" />
+                            <a href={msg.fileUrl} download target="_blank" rel="noopener noreferrer" className="mt-1.5 flex items-center gap-1.5 text-xs opacity-70 hover:opacity-100 transition-opacity" data-testid="link-download-video">
+                              <Download className="w-3.5 h-3.5" />
                               <span>Download</span>
                             </a>
                           </div>
                         )}
                         {msg.fileUrl && !msg.fileType?.startsWith("image/") && !msg.fileType?.startsWith("video/") && (
-                          <a href={msg.fileUrl} download target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-2 p-1.5 rounded hover:bg-background/20 transition-colors" data-testid="file-attachment">
-                            <FileText className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="text-xs underline break-all">{msg.fileName || "Download file"}</span>
-                            <Download className="w-3 h-3 flex-shrink-0 ml-auto" />
+                          <a href={msg.fileUrl} download target="_blank" rel="noopener noreferrer" className="mt-2 flex items-center gap-2 p-2 rounded bg-background/10 hover:bg-background/20 transition-colors border border-border/10" data-testid="file-attachment">
+                            <FileText className="w-4 h-4 flex-shrink-0" />
+                            <span className="text-xs font-medium truncate">{msg.fileName || "Download file"}</span>
+                            <Download className="w-3.5 h-3.5 flex-shrink-0 ml-auto" />
                           </a>
                         )}
-                        <p className="text-[10px] opacity-60 mt-1">{format(new Date(msg.createdAt), "h:mm a")}</p>
+                        <p className="text-[10px] font-medium opacity-60 mt-1.5">{format(new Date(msg.createdAt), "h:mm a")}</p>
                       </div>
                     </div>
                   );
@@ -6235,13 +6451,21 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
               </div>
             </div>
             {typingUser && (
-              <div className="px-3 py-1">
-                <p className="text-xs text-muted-foreground italic" data-testid="text-chat-typing">{typingUser} is typing...</p>
+              <div className="px-5 py-2 bg-gradient-to-t from-background/50 to-transparent">
+                <p className="text-xs font-medium text-muted-foreground animate-pulse" data-testid="text-chat-typing">{typingUser} is typing...</p>
               </div>
             )}
-            <div className="p-3 border-t flex gap-2 items-end">
-              <div className="flex-1 space-y-1">
-                {chatFile && <p className="text-xs text-muted-foreground">📎 {chatFile.name}</p>}
+            <div className="p-3 sm:p-5 border-t border-border bg-card">
+              <div className="space-y-2">
+                {chatFile && (
+                  <div className="flex items-center gap-2 text-xs font-medium bg-muted/50 w-fit px-2.5 py-1.5 rounded-md text-foreground">
+                    <Paperclip className="w-3.5 h-3.5 text-muted-foreground" /> 
+                    <span className="truncate max-w-[200px]">{chatFile.name}</span>
+                    <Button variant="ghost" size="icon" className="w-5 h-5 ml-1 hover:bg-muted" onClick={() => setChatFile(null)}>
+                      <XIcon className="w-3 h-3" />
+                    </Button>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <Input
                     value={messageText}
@@ -6250,9 +6474,13 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
                       if (e.target.value.trim()) sendTypingEvent();
                     }}
                     placeholder="Type a message..."
+                    className="rounded-full px-4 bg-background"
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
+                        if ((messageText.trim() || chatFile) && !sendMessageMutation.isPending) {
+                          sendMessageMutation.mutate({ threadId: activeThreadId!, message: messageText, file: chatFile });
+                        }
                       }
                     }}
                     data-testid="input-chat-message"
@@ -6263,11 +6491,12 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
                     className="hidden"
                     onChange={(e) => setChatFile(e.target.files?.[0] || null)}
                   />
-                  <Button variant="outline" size="icon" onClick={() => document.getElementById("chat-file-input")?.click()} data-testid="button-chat-attach">
-                    <FileText className="w-4 h-4" />
+                  <Button variant="outline" size="icon" className="rounded-full shrink-0" onClick={() => document.getElementById("chat-file-input")?.click()} data-testid="button-chat-attach">
+                    <Paperclip className="w-4 h-4 text-muted-foreground" />
                   </Button>
                   <Button
                     size="icon"
+                    className="rounded-full shrink-0"
                     disabled={(!messageText.trim() && !chatFile) || sendMessageMutation.isPending}
                     onClick={() => sendMessageMutation.mutate({ threadId: activeThreadId!, message: messageText, file: chatFile })}
                     data-testid="button-chat-send"
@@ -6279,8 +6508,11 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <p className="text-sm">Select a thread or start a new chat</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+              <MessageSquare className="w-6 h-6 text-muted-foreground/50" />
+            </div>
+            <p className="text-sm font-medium">Select a thread or start a new chat</p>
           </div>
         )}
       </div>
@@ -6298,15 +6530,16 @@ function AdminChatTab({ initialThreadId }: { initialThreadId?: string | null }) 
             </div>
             <div>
               <Label className="mb-2 block">Select Participants</Label>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-1 max-h-48 overflow-y-auto border border-border rounded-md p-1 divide-y divide-border">
                 {adminUsers.map(u => (
-                  <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <label key={u.id} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-muted/50 px-2 py-2 rounded-sm transition-colors">
                     <Checkbox
                       checked={chatParticipantIds.includes(u.id)}
                       onCheckedChange={() => setChatParticipantIds(prev => prev.includes(u.id) ? prev.filter(id => id !== u.id) : [...prev, u.id])}
                       data-testid={`checkbox-participant-${u.id}`}
                     />
-                    {u.fullName} (@{u.username})
+                    <span className="font-medium">{u.fullName}</span>
+                    <span className="text-xs text-muted-foreground ml-auto">@{u.username}</span>
                   </label>
                 ))}
               </div>
@@ -6388,30 +6621,29 @@ function ChatAdminTab() {
 
   return (
     <div className="space-y-6">
-      <h3 className="font-semibold">Chat Admin</h3>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Shield className="w-4 h-4 text-orange-500" />
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-orange-500/10 text-orange-500">
+              <Shield className="h-[18px] w-[18px]" />
+            </span>
             Word Filters
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
+          </h2>
+          <p className="text-xs text-muted-foreground mt-2 ml-12">
             Add words to automatically censor in community chat messages. Filtered words will have their middle characters replaced with asterisks.
           </p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
+        </div>
+        <div className="p-5 border-b border-border bg-muted/20">
+          <div className="flex gap-2 max-w-sm">
             <Input
               value={newWord}
               onChange={(e) => setNewWord(e.target.value)}
               placeholder="Enter a word to filter..."
-              className="flex-1"
+              className="flex-1 bg-background"
               onKeyDown={(e) => { if (e.key === "Enter") handleAddWord(); }}
               data-testid="input-add-word-filter"
             />
             <Button
-              size="sm"
               onClick={handleAddWord}
               disabled={newWord.trim().length < 2 || addFilterMutation.isPending}
               data-testid="button-add-word-filter"
@@ -6420,81 +6652,91 @@ function ChatAdminTab() {
               Add
             </Button>
           </div>
+        </div>
 
+        <div className="divide-y divide-border">
           {filtersLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
-            </div>
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="px-5 py-3.5">
+                <Skeleton className="h-5 w-32" />
+              </div>
+            ))
           ) : wordFilters && wordFilters.length > 0 ? (
-            <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
-              {wordFilters.map((f) => (
-                <div key={f.id} className="flex items-center justify-between px-3 py-2" data-testid={`word-filter-${f.id}`}>
-                  <span className="text-sm font-mono">{f.word}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => deleteFilterMutation.mutate(f.id)}
-                    disabled={deleteFilterMutation.isPending}
-                    data-testid={`button-delete-filter-${f.id}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              ))}
-            </div>
+            wordFilters.map((f) => (
+              <div key={f.id} className="flex items-center justify-between px-5 py-3.5 hover-elevate transition-colors" data-testid={`word-filter-${f.id}`}>
+                <span className="text-sm font-mono">{f.word}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => deleteFilterMutation.mutate(f.id)}
+                  disabled={deleteFilterMutation.isPending}
+                  data-testid={`button-delete-filter-${f.id}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            ))
           ) : (
-            <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-word-filters">
-              No word filters configured. Add words above to keep the chat family-friendly.
-            </p>
+            <div className="px-5 py-8 flex flex-col items-center justify-center text-center">
+              <Shield className="w-8 h-8 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground" data-testid="text-no-word-filters">
+                No word filters configured. Add words above to keep the chat family-friendly.
+              </p>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="w-4 h-4 text-red-500" />
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-red-500/10 text-red-500">
+              <Users className="h-[18px] w-[18px]" />
+            </span>
             Banned Users
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
+          </h2>
+          <p className="text-xs text-muted-foreground mt-2 ml-12">
             Users banned from community chat. You can unban them to restore their access.
           </p>
-        </CardHeader>
-        <CardContent>
+        </div>
+        <div className="divide-y divide-border">
           {bannedLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
-            </div>
+            Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="px-5 py-3.5">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ))
           ) : bannedUsers && bannedUsers.length > 0 ? (
-            <div className="border rounded-md divide-y">
-              {bannedUsers.map((u) => (
-                <div key={u.id} className="flex items-center justify-between px-3 py-2.5 gap-3" data-testid={`banned-user-${u.id}`}>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{u.fullName}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      @{u.username}{u.chatUsername ? ` · Chat: ${u.chatUsername}` : ""}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => unbanMutation.mutate(u.id)}
-                    disabled={unbanMutation.isPending}
-                    data-testid={`button-unban-${u.id}`}
-                  >
-                    Unban
-                  </Button>
+            bannedUsers.map((u) => (
+              <div key={u.id} className="flex items-center justify-between px-5 py-3.5 hover-elevate transition-colors gap-3" data-testid={`banned-user-${u.id}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{u.fullName}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    @{u.username}{u.chatUsername ? ` · Chat: ${u.chatUsername}` : ""}
+                  </p>
                 </div>
-              ))}
-            </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => unbanMutation.mutate(u.id)}
+                  disabled={unbanMutation.isPending}
+                  data-testid={`button-unban-${u.id}`}
+                >
+                  Unban
+                </Button>
+              </div>
+            ))
           ) : (
-            <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-banned-users">
-              No users are currently banned from chat.
-            </p>
+            <div className="px-5 py-8 flex flex-col items-center justify-center text-center">
+              <Users className="w-8 h-8 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground" data-testid="text-no-banned-users">
+                No users are currently banned from chat.
+              </p>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 }
@@ -7089,67 +7331,99 @@ function AnnouncementsTab() {
   const activeShown = list.find(a => a.active);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div>
-          <h3 className="font-semibold">Announcements ({list.length})</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Only the newest Active announcement is shown to customers.
-          </p>
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-500">
+                <Megaphone className="h-[18px] w-[18px]" />
+              </span>
+              Announcements ({list.length})
+            </h2>
+            <p className="text-xs text-muted-foreground mt-2 sm:ml-12">
+              Only the newest Active announcement is shown to customers.
+            </p>
+          </div>
+          <Button size="sm" onClick={openCreate} data-testid="button-create-announcement" className="shrink-0">
+            <Plus className="w-4 h-4 mr-1" /> New Announcement
+          </Button>
         </div>
-        <Button size="sm" onClick={openCreate} data-testid="button-create-announcement">
-          <Plus className="w-4 h-4 mr-1" /> New Announcement
-        </Button>
-      </div>
 
-      {activeShown && (
-        <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm" data-testid="banner-active-announcement">
-          <p className="font-medium">Currently shown to customers:</p>
-          <p className="text-muted-foreground">{activeShown.title}</p>
-        </div>
-      )}
+        {activeShown && (
+          <div className="bg-primary/5 px-5 py-3 border-b border-border flex items-center gap-3" data-testid="banner-active-announcement">
+            <Megaphone className="w-4 h-4 text-primary shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-primary">Currently shown to customers</p>
+              <p className="text-sm truncate">{activeShown.title}</p>
+            </div>
+          </div>
+        )}
 
-      {isLoading ? <Skeleton className="h-32" /> : list.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">No announcements yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {list.map(a => (
-            <Card key={a.id} data-testid={`card-announcement-${a.id}`}>
-              <CardContent className="p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
+        <div className="divide-y divide-border">
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="px-5 py-4">
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ))
+          ) : list.length === 0 ? (
+            <div className="px-5 py-12 flex flex-col items-center justify-center text-center">
+              <Megaphone className="w-10 h-10 text-muted-foreground/30 mb-4" />
+              <p className="text-sm text-muted-foreground">No announcements yet.</p>
+              <Button size="sm" variant="outline" onClick={openCreate} className="mt-4">
+                Create one now
+              </Button>
+            </div>
+          ) : (
+            list.map(a => (
+              <div key={a.id} className="p-5" data-testid={`card-announcement-${a.id}`}>
+                <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       <p className="font-semibold text-sm truncate">{a.title}</p>
-                      <Badge variant={a.active ? "default" : "secondary"} data-testid={`badge-announcement-status-${a.id}`}>
-                        {a.active ? "Active" : "Inactive"}
-                      </Badge>
-                      <Badge variant="outline">
+                      {a.active ? (
+                        <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-600 dark:text-green-400" data-testid={`badge-announcement-status-${a.id}`}>
+                          Active
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-announcement-status-${a.id}`}>
+                          Inactive
+                        </Badge>
+                      )}
+                      <Badge variant="secondary" className="text-[10px]">
                         {a.frequency === "always" ? "Every open" : "Once per user"}
                       </Badge>
                       {a.linkPath && (
-                        <Badge variant="outline" className="gap-1">
+                        <Badge variant="secondary" className="text-[10px] gap-1">
                           <ExternalLink className="w-3 h-3" />
                           {getAnnouncementRouteLabel(a.linkPath) ?? a.linkPath}
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none text-sm text-muted-foreground line-clamp-2 mt-2"
+                      dangerouslySetInnerHTML={{ __html: a.bodyHtml }}
+                    />
+                    <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
                       Created {format(new Date(a.createdAt), "MMM d, yyyy h:mm a")}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <Switch
                       checked={a.active}
                       onCheckedChange={(v) => toggleActiveMutation.mutate({ id: a.id, active: v })}
                       data-testid={`switch-announcement-active-${a.id}`}
                     />
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(a)} data-testid={`button-edit-announcement-${a.id}`}>
+                    <div className="h-4 w-px bg-border mx-1" />
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(a)} data-testid={`button-edit-announcement-${a.id}`} className="h-8 w-8 text-muted-foreground hover:text-foreground">
                       <Edit className="w-4 h-4" />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" data-testid={`button-delete-announcement-${a.id}`}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
+                        <Button size="icon" variant="ghost" data-testid={`button-delete-announcement-${a.id}`} className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                          <Trash2 className="w-4 h-4" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
@@ -7165,15 +7439,11 @@ function AnnouncementsTab() {
                     </AlertDialog>
                   </div>
                 </div>
-                <div
-                  className="prose prose-sm dark:prose-invert max-w-none text-sm text-muted-foreground line-clamp-2"
-                  dangerouslySetInnerHTML={{ __html: a.bodyHtml }}
-                />
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            ))
+          )}
         </div>
-      )}
+      </section>
 
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) { setDialogOpen(false); resetForm(); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -7289,73 +7559,83 @@ function DeployTab() {
   const paused = !settings.autoDeployEnabled;
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h2 className="text-lg font-semibold flex items-center gap-2"><Rocket className="w-5 h-5 text-cyan-500" /> Deploy controls</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Pause or resume the GitHub → VPS auto-deploy pipeline. When paused, pushes to <code>main</code> are still
-          received by the webhook listener but are NOT deployed; they're acknowledged and dropped. The next push after
-          re-enabling will deploy whatever HEAD is on main at that point.
-        </p>
-      </div>
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-500">
+              <Rocket className="h-[18px] w-[18px]" />
+            </span>
+            Deploy controls
+          </h2>
+          <p className="text-xs text-muted-foreground mt-2 ml-12">
+            Pause or resume the GitHub → VPS auto-deploy pipeline. When paused, pushes to <code>main</code> are still
+            received by the webhook listener but are NOT deployed; they're acknowledged and dropped. The next push after
+            re-enabling will deploy whatever HEAD is on main at that point.
+          </p>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            {paused ? <Pause className="w-4 h-4 text-amber-500" /> : <Play className="w-4 h-4 text-green-500" />}
-            Auto-deploy from GitHub
-            <Badge variant={paused ? "destructive" : "default"} className="ml-auto" data-testid="badge-deploy-status">
+        <div className="p-5 border-b border-border bg-muted/10">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              {paused ? <Pause className="w-4 h-4 text-amber-500" /> : <Play className="w-4 h-4 text-green-500" />}
+              <span className="text-sm font-medium">Auto-deploy from GitHub</span>
+            </div>
+            <Badge variant={paused ? "destructive" : "default"} data-testid="badge-deploy-status">
               {paused ? "PAUSED" : "ENABLED"}
             </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {paused && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm" data-testid="text-deploy-paused-banner">
-              <div className="font-medium text-amber-700 dark:text-amber-300">Pipeline paused</div>
-              {settings.autoDeployPausedReason && <div className="text-xs mt-1">Reason: {settings.autoDeployPausedReason}</div>}
-              <div className="text-xs mt-1 text-muted-foreground">Last changed {formatDistanceToNow(new Date(settings.updatedAt), { addSuffix: true })}</div>
-            </div>
-          )}
-
-          {!paused && (
-            <div className="space-y-2">
-              <Label htmlFor="pause-reason" className="text-xs">Pause reason (optional)</Label>
-              <Input
-                id="pause-reason"
-                placeholder="e.g. database migration in progress"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                data-testid="input-deploy-pause-reason"
-              />
-              <Button
-                variant="destructive"
-                onClick={() => toggleMutation.mutate({ autoDeployEnabled: false, autoDeployPausedReason: reason.trim() || null })}
-                disabled={toggleMutation.isPending}
-                data-testid="button-deploy-pause"
-              >
-                <Pause className="w-4 h-4 mr-2" /> Pause auto-deploy
-              </Button>
-            </div>
-          )}
-
-          {paused && (
-            <Button
-              onClick={() => toggleMutation.mutate({ autoDeployEnabled: true })}
-              disabled={toggleMutation.isPending}
-              data-testid="button-deploy-resume"
-            >
-              <Play className="w-4 h-4 mr-2" /> Resume auto-deploy
-            </Button>
-          )}
-
-          <div className="border-t pt-3 text-xs text-muted-foreground space-y-1">
-            <div><span className="font-mono">POST /_deploy</span> on the VPS — GitHub webhook target</div>
-            <div>Listener service: <span className="font-mono">systemctl status servicehub-deploy</span></div>
-            <div>Per-deploy logs: <span className="font-mono">/var/log/servicehub-deploy/&lt;deliveryId&gt;.log</span></div>
-            <div>Manual sync from Replit: <span className="font-mono">git push origin main</span></div>
           </div>
-        </CardContent>
-      </Card>
+          
+          <div className="space-y-4">
+            {paused && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm" data-testid="text-deploy-paused-banner">
+                <div className="font-medium text-amber-700 dark:text-amber-300">Pipeline paused</div>
+                {settings.autoDeployPausedReason && <div className="text-xs mt-1">Reason: {settings.autoDeployPausedReason}</div>}
+                <div className="text-xs mt-1 text-muted-foreground">Last changed {formatDistanceToNow(new Date(settings.updatedAt), { addSuffix: true })}</div>
+              </div>
+            )}
+
+            {!paused && (
+              <div className="space-y-2">
+                <Label htmlFor="pause-reason" className="text-xs">Pause reason (optional)</Label>
+                <div className="flex gap-2 max-w-md">
+                  <Input
+                    id="pause-reason"
+                    placeholder="e.g. database migration in progress"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="flex-1 bg-background"
+                    data-testid="input-deploy-pause-reason"
+                  />
+                  <Button
+                    variant="destructive"
+                    onClick={() => toggleMutation.mutate({ autoDeployEnabled: false, autoDeployPausedReason: reason.trim() || null })}
+                    disabled={toggleMutation.isPending}
+                    data-testid="button-deploy-pause"
+                  >
+                    <Pause className="w-4 h-4 mr-1.5" /> Pause
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {paused && (
+              <Button
+                onClick={() => toggleMutation.mutate({ autoDeployEnabled: true })}
+                disabled={toggleMutation.isPending}
+                data-testid="button-deploy-resume"
+              >
+                <Play className="w-4 h-4 mr-1.5" /> Resume auto-deploy
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="px-5 py-3 text-xs text-muted-foreground space-y-1 bg-muted/5">
+          <div><span className="font-mono text-foreground">POST /_deploy</span> on the VPS — GitHub webhook target</div>
+          <div>Listener service: <span className="font-mono text-foreground">systemctl status servicehub-deploy</span></div>
+          <div>Per-deploy logs: <span className="font-mono text-foreground">/var/log/servicehub-deploy/&lt;deliveryId&gt;.log</span></div>
+          <div>Manual sync from Replit: <span className="font-mono text-foreground">git push origin main</span></div>
+        </div>
+      </section>
 
       <DeployNotifyHealthCard />
 
@@ -7400,8 +7680,8 @@ function DeployHistoryRow({ entry }: { entry: DeployHistoryEntry }) {
   const succeeded = entry.exitCode === 0;
   const Icon = succeeded ? CheckCircle2 : XIcon;
   const pillClass = succeeded
-    ? "bg-green-600 hover:bg-green-600 text-white"
-    : "bg-red-600 hover:bg-red-600 text-white";
+    ? "border-green-500/40 text-green-600 dark:text-green-400 bg-green-500/10"
+    : "border-red-500/40 text-red-600 dark:text-red-400 bg-red-500/10";
 
   const toggle = async () => {
     const next = !open;
@@ -7430,57 +7710,65 @@ function DeployHistoryRow({ entry }: { entry: DeployHistoryEntry }) {
   };
 
   return (
-    <div className="border rounded-md" data-testid={`row-deploy-${entry.deliveryId}`}>
+    <div className="flex flex-col" data-testid={`row-deploy-${entry.deliveryId}`}>
       <button
         type="button"
         onClick={toggle}
-        className="w-full flex items-center gap-3 p-2 text-left hover-elevate active-elevate-2"
+        className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover-elevate active-elevate-2 transition-colors focus-visible:outline-none focus-visible:bg-accent/50"
         data-testid={`button-deploy-row-${entry.deliveryId}`}
       >
-        <Badge className={pillClass} data-testid={`badge-deploy-status-${entry.deliveryId}`}>
+        <Badge variant="outline" className={`shrink-0 ${pillClass}`} data-testid={`badge-deploy-status-${entry.deliveryId}`}>
           <Icon className="w-3 h-3 mr-1" />
           {succeeded ? "Success" : `Failed (${entry.exitCode})`}
         </Badge>
-        <span className="font-mono text-xs" data-testid={`text-deploy-sha-${entry.deliveryId}`}>
-          {entry.sha.slice(0, 7)}
-        </span>
-        <span className="text-xs truncate flex-1" title={entry.message} data-testid={`text-deploy-message-${entry.deliveryId}`}>
-          {entry.message || "(no commit message)"}
-        </span>
-        <span className="text-xs text-muted-foreground hidden sm:inline" data-testid={`text-deploy-author-${entry.deliveryId}`}>
-          {entry.author}
-        </span>
-        <span className="text-xs text-muted-foreground" data-testid={`text-deploy-duration-${entry.deliveryId}`}>
-          {formatDeployDuration(entry.durationMs)}
-        </span>
-        <span className="text-xs text-muted-foreground hidden md:inline" data-testid={`text-deploy-when-${entry.deliveryId}`}>
-          {formatDistanceToNow(new Date(entry.startedAt), { addSuffix: true })}
-        </span>
-        {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-semibold" data-testid={`text-deploy-sha-${entry.deliveryId}`}>
+              {entry.sha.slice(0, 7)}
+            </span>
+            <span className="text-sm truncate font-medium" title={entry.message} data-testid={`text-deploy-message-${entry.deliveryId}`}>
+              {entry.message || "(no commit message)"}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+            <span className="truncate" data-testid={`text-deploy-author-${entry.deliveryId}`}>
+              {entry.author}
+            </span>
+            <span data-testid={`text-deploy-duration-${entry.deliveryId}`}>
+              {formatDeployDuration(entry.durationMs)}
+            </span>
+            <span data-testid={`text-deploy-when-${entry.deliveryId}`}>
+              {formatDistanceToNow(new Date(entry.startedAt), { addSuffix: true })}
+            </span>
+          </div>
+        </div>
+        <div className="shrink-0 text-muted-foreground">
+          {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </div>
       </button>
       {open && (
-        <div className="border-t p-2 space-y-2">
+        <div className="px-5 pb-4 pt-1 space-y-2 bg-muted/5">
           {entry.verificationLine && (
-            <div className="text-xs">
-              <span className="text-muted-foreground">Verification: </span>
-              <span className="font-mono" data-testid={`text-deploy-verification-${entry.deliveryId}`}>
+            <div className="text-xs bg-card border rounded-md p-2">
+              <span className="text-muted-foreground font-medium">Verification: </span>
+              <span className="font-mono text-foreground" data-testid={`text-deploy-verification-${entry.deliveryId}`}>
                 {entry.verificationLine}
               </span>
             </div>
           )}
           {logLoading && (
-            <div className="text-xs text-muted-foreground" data-testid={`text-deploy-log-loading-${entry.deliveryId}`}>
-              Loading log…
+            <div className="text-xs text-muted-foreground flex items-center gap-2 p-2" data-testid={`text-deploy-log-loading-${entry.deliveryId}`}>
+              <RefreshCw className="w-3 h-3 animate-spin" /> Loading log…
             </div>
           )}
           {logError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs font-mono break-all" data-testid={`text-deploy-log-error-${entry.deliveryId}`}>
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs font-mono break-all text-destructive" data-testid={`text-deploy-log-error-${entry.deliveryId}`}>
               {logError}
             </div>
           )}
           {logText !== null && (
             <pre
-              className="rounded-md bg-muted p-2 text-[11px] font-mono whitespace-pre-wrap break-all max-h-80 overflow-auto"
+              className="rounded-md border border-border bg-card p-3 text-[11px] font-mono whitespace-pre-wrap break-all max-h-80 overflow-auto text-foreground"
               data-testid={`text-deploy-log-${entry.deliveryId}`}
             >
               {logText || "(log is empty)"}
@@ -7499,60 +7787,78 @@ function DeployHistoryCard() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <ScrollText className="w-4 h-4 text-cyan-500" />
-          Recent deploys
-          <span className="ml-auto">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              data-testid="button-deploy-history-refresh"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            </Button>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-500">
+            <ScrollText className="h-[18px] w-[18px]" />
           </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
+          Recent deploys
+        </h2>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="h-8 w-8 p-0"
+          data-testid="button-deploy-history-refresh"
+        >
+          <RefreshCw className={`w-4 h-4 text-muted-foreground hover:text-foreground transition-colors ${isFetching ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+      <div className="px-5 py-3 border-b border-border bg-muted/10">
         <p className="text-xs text-muted-foreground">
           Last few deploy outcomes from the VPS listener's in-memory ring buffer. Resets on listener restart —
-          durable per-deploy logs live under <code>/var/log/servicehub-deploy/</code>. Click a row to fetch the
+          durable per-deploy logs live under <code className="text-foreground">/var/log/servicehub-deploy/</code>. Click a row to fetch the
           last 80 lines of its log.
         </p>
+      </div>
 
+      <div className="divide-y divide-border">
         {isLoading && (
-          <div className="text-xs text-muted-foreground" data-testid="text-deploy-history-loading">Loading…</div>
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="px-5 py-4 flex gap-3" data-testid={i === 0 ? "text-deploy-history-loading" : undefined}>
+              <Skeleton className="h-6 w-20 shrink-0" />
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-3 w-1/4" />
+              </div>
+            </div>
+          ))
         )}
 
         {!isLoading && !data?.available && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs" data-testid="text-deploy-history-unavailable">
-            <div className="font-medium text-amber-700 dark:text-amber-300">Deploy history unavailable</div>
-            <div className="mt-1 text-muted-foreground">{data?.reason || "Unknown reason."}</div>
-            <div className="mt-1 text-muted-foreground">
-              This is normal in the Replit dev environment — the deploy listener only runs on the VPS.
+          <div className="p-5">
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm" data-testid="text-deploy-history-unavailable">
+              <div className="font-medium text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Deploy history unavailable
+              </div>
+              <div className="mt-2 text-muted-foreground">{data?.reason || "Unknown reason."}</div>
+              <div className="mt-1 text-muted-foreground text-xs">
+                This is normal in the Replit dev environment — the deploy listener only runs on the VPS.
+              </div>
             </div>
           </div>
         )}
 
         {data?.available && data.deploys.length === 0 && (
-          <div className="text-xs text-muted-foreground" data-testid="text-deploy-history-empty">
-            No deploys recorded yet. The buffer resets when the listener restarts; push to <code>main</code> to populate it.
+          <div className="px-5 py-8 flex flex-col items-center justify-center text-center">
+            <ScrollText className="w-8 h-8 text-muted-foreground/30 mb-3" />
+            <p className="text-sm text-muted-foreground" data-testid="text-deploy-history-empty">
+              No deploys recorded yet. The buffer resets when the listener restarts; push to <code>main</code> to populate it.
+            </p>
           </div>
         )}
 
         {data?.available && data.deploys.length > 0 && (
-          <div className="space-y-2" data-testid="list-deploy-history">
+          <div className="flex flex-col" data-testid="list-deploy-history">
             {data.deploys.map((entry) => (
               <DeployHistoryRow key={entry.deliveryId} entry={entry} />
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -7635,7 +7941,7 @@ function DeployNotifyHealthCard() {
       return <Badge variant="destructive" data-testid="badge-notify-status">Not configured</Badge>;
     }
     if (data.ok === true) {
-      return <Badge className="bg-green-600 hover:bg-green-600 text-white" data-testid="badge-notify-status">Healthy</Badge>;
+      return <Badge variant="outline" className="border-green-500/40 text-green-600 dark:text-green-400 bg-green-500/10" data-testid="badge-notify-status">Healthy</Badge>;
     }
     if (data.ok === false) {
       return <Badge variant="destructive" data-testid="badge-notify-status">Failing</Badge>;
@@ -7644,78 +7950,86 @@ function DeployNotifyHealthCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Bell className="w-4 h-4 text-cyan-500" />
-          Deploy Discord notifications
-          <span className="ml-auto flex items-center gap-2">
-            {renderPill()}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => sendTest.mutate()}
-              disabled={sendTest.isPending}
-              data-testid="button-notify-test"
-            >
-              <Send className={`w-3.5 h-3.5 mr-1.5 ${sendTest.isPending ? "animate-pulse" : ""}`} />
-              {sendTest.isPending ? "Sending…" : "Send test"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              data-testid="button-notify-status-refresh"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            </Button>
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-500">
+            <Bell className="h-[18px] w-[18px]" />
           </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p className="text-xs text-muted-foreground">
+          Deploy Discord notifications
+        </h2>
+        <div className="flex items-center gap-3">
+          {renderPill()}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => sendTest.mutate()}
+            disabled={sendTest.isPending}
+            data-testid="button-notify-test"
+            className="h-8 text-xs"
+          >
+            <Send className={`w-3.5 h-3.5 mr-1.5 ${sendTest.isPending ? "animate-pulse" : ""}`} />
+            {sendTest.isPending ? "Sending…" : "Test"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="h-8 w-8 p-0"
+            data-testid="button-notify-status-refresh"
+          >
+            <RefreshCw className={`w-4 h-4 text-muted-foreground hover:text-foreground transition-colors ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+      </div>
+      <div className="p-5">
+        <p className="text-xs text-muted-foreground mb-4">
           Last-known result of the VPS webhook listener posting to its Discord channel. Updated on listener boot
           (URL validation) and on every deploy. If this shows red, the in-channel <code>:rocket:</code> /
           <code>:white_check_mark:</code> deploy posts won't arrive — usually a revoked or malformed{" "}
-          <code>DEPLOY_DISCORD_WEBHOOK</code> in <code>/etc/servicehub-deploy.env</code>.
+          <code className="text-foreground">DEPLOY_DISCORD_WEBHOOK</code> in <code className="text-foreground">/etc/servicehub-deploy.env</code>.
         </p>
 
-        {!data?.available && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs" data-testid="text-notify-status-unavailable">
-            <div className="font-medium text-amber-700 dark:text-amber-300">Listener status unavailable</div>
-            <div className="mt-1 text-muted-foreground">{data?.reason || "Unknown reason."}</div>
-            <div className="mt-1 text-muted-foreground">
+        {!data?.available ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm" data-testid="text-notify-status-unavailable">
+            <div className="font-medium text-amber-700 dark:text-amber-300 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" /> Listener status unavailable
+            </div>
+            <div className="mt-2 text-muted-foreground">{data?.reason || "Unknown reason."}</div>
+            <div className="mt-1 text-muted-foreground text-xs">
               This is normal in the Replit dev environment — the deploy listener only runs on the VPS.
             </div>
           </div>
-        )}
-
-        {data?.available && (
-          <div className="space-y-2 text-xs">
-            <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
-              <div className="text-muted-foreground">Last attempt</div>
-              <div data-testid="text-notify-status-at">
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
+              <div className="text-muted-foreground font-medium">Last attempt</div>
+              <div className="font-medium text-foreground" data-testid="text-notify-status-at">
                 {data.at ? `${formatDistanceToNow(new Date(data.at), { addSuffix: true })} (${new Date(data.at).toLocaleString()})` : "never"}
               </div>
-              <div className="text-muted-foreground">Trigger</div>
-              <div data-testid="text-notify-status-kind">
+              
+              <div className="text-muted-foreground font-medium">Trigger</div>
+              <div className="text-foreground" data-testid="text-notify-status-kind">
                 {data.kind === "boot" ? "Listener boot validation" : data.kind === "notify" ? "Deploy notification" : "—"}
               </div>
-              <div className="text-muted-foreground">HTTP status</div>
-              <div data-testid="text-notify-status-code">{data.status ?? "—"}</div>
-              <div className="text-muted-foreground">Configured</div>
-              <div data-testid="text-notify-status-configured">{data.configured ? "Yes" : "No (DEPLOY_DISCORD_WEBHOOK unset)"}</div>
+              
+              <div className="text-muted-foreground font-medium">HTTP status</div>
+              <div className="font-mono text-xs text-foreground" data-testid="text-notify-status-code">{data.status ?? "—"}</div>
+              
+              <div className="text-muted-foreground font-medium">Configured</div>
+              <div className="text-foreground" data-testid="text-notify-status-configured">{data.configured ? "Yes" : "No (DEPLOY_DISCORD_WEBHOOK unset)"}</div>
             </div>
+            
             {data.error && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-[11px] break-all" data-testid="text-notify-status-error">
-                {data.error}
+              <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-[11px] break-all text-destructive" data-testid="text-notify-status-error">
+                <span className="font-bold mr-2">Error:</span> {data.error}
               </div>
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -8291,71 +8605,83 @@ function StoreProductsSection() {
   };
 
   return (
-    <Card data-testid="card-store-products">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Tag className="w-5 h-5" /> Customer storefront</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-store-products">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Tag className="h-[18px] w-[18px]" />
+          </span>
+          Customer storefront
+        </h2>
+      </div>
+      <div className="p-5 space-y-4">
         <p className="text-sm text-muted-foreground">
           Curate the products customers can self-order from the "Order new product" button on their My Services page. Pick a WHMCS product, give it a customer-friendly name, blurb, image and category, then enable it. Only enabled products that still exist in WHMCS appear to customers.
         </p>
 
         {/* Curated products */}
         {rowOrder.length === 0 ? (
-          <p className="text-sm text-muted-foreground" data-testid="text-no-store-products">No products in the store yet.</p>
+          <div className="px-5 py-8 text-center" data-testid="text-no-store-products">
+            <Tag className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No products in the store yet.</p>
+          </div>
         ) : (
-          <div className="space-y-2" data-testid="list-store-products">
+          <div className="border rounded-md overflow-hidden" data-testid="list-store-products">
             {rowOrder.length > 1 && (
-              <p className="text-xs text-muted-foreground">Drag the handle to reorder how products appear in the customer catalogue.</p>
+              <div className="bg-muted/30 px-3 py-2 border-b">
+                <p className="text-xs text-muted-foreground">Drag the handle to reorder how products appear in the customer catalogue.</p>
+              </div>
             )}
-            {rowOrder.map((p) => (
-              <div
-                key={p.id}
-                draggable
-                onDragStart={() => setRowDragId(p.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleRowDrop(p.id)}
-                onDragEnd={() => setRowDragId(null)}
-                className={`flex items-start justify-between gap-2 rounded-md border p-3 ${rowDragId === p.id ? "opacity-50" : ""}`}
-                data-testid={`row-store-product-${p.id}`}
-              >
-                <div className="flex items-start gap-3 min-w-0">
-                  {rowOrder.length > 1 && (
-                    <span className="cursor-move text-muted-foreground mt-1 shrink-0" aria-label="Drag to reorder" data-testid={`drag-store-product-${p.id}`}>
-                      <GripVertical className="w-4 h-4" />
-                    </span>
-                  )}
-                  {p.imageUrl ? (
-                    <img src={p.imageUrl} alt="" className="w-12 h-12 rounded object-cover border shrink-0" data-testid={`img-store-product-${p.id}`} />
-                  ) : (
-                    <div className="w-12 h-12 rounded border bg-muted flex items-center justify-center shrink-0">
-                      <ImagePlus className="w-5 h-5 text-muted-foreground" />
+            <div className="divide-y divide-border">
+              {rowOrder.map((p) => (
+                <div
+                  key={p.id}
+                  draggable
+                  onDragStart={() => setRowDragId(p.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleRowDrop(p.id)}
+                  onDragEnd={() => setRowDragId(null)}
+                  className={`flex items-start justify-between gap-2 px-3 py-3 ${rowDragId === p.id ? "opacity-50" : ""}`}
+                  data-testid={`row-store-product-${p.id}`}
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    {rowOrder.length > 1 && (
+                      <span className="cursor-move text-muted-foreground mt-1 shrink-0" aria-label="Drag to reorder" data-testid={`drag-store-product-${p.id}`}>
+                        <GripVertical className="w-4 h-4" />
+                      </span>
+                    )}
+                    {p.imageUrl ? (
+                      <img src={p.imageUrl} alt="" className="w-12 h-12 rounded object-cover border shrink-0" data-testid={`img-store-product-${p.id}`} />
+                    ) : (
+                      <div className="w-12 h-12 rounded border bg-muted flex items-center justify-center shrink-0">
+                        <ImagePlus className="w-5 h-5 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate" data-testid={`text-store-product-name-${p.id}`}>{p.name || whmcsName(p.whmcsProductId)}</p>
+                        {p.enabled ? (
+                          <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-store-enabled-${p.id}`}>Enabled</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-disabled-${p.id}`}>Disabled</Badge>
+                        )}
+                        {p.category && <Badge variant="outline" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-category-${p.id}`}>{p.category}</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} (#{p.whmcsProductId})</p>
+                      {p.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
                     </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium truncate" data-testid={`text-store-product-name-${p.id}`}>{p.name || whmcsName(p.whmcsProductId)}</p>
-                      {p.enabled ? (
-                        <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-store-enabled-${p.id}`}>Enabled</Badge>
-                      ) : (
-                        <Badge variant="secondary" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-disabled-${p.id}`}>Disabled</Badge>
-                      )}
-                      {p.category && <Badge variant="outline" className="h-5 px-1.5 text-xs shrink-0" data-testid={`badge-store-category-${p.id}`}>{p.category}</Badge>}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">{whmcsName(p.whmcsProductId)} (#{p.whmcsProductId})</p>
-                    {p.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(p)} data-testid={`button-edit-store-product-${p.id}`}>
+                      <Edit className="w-3 h-3" /> Edit
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(p.id)} disabled={removeMutation.isPending} data-testid={`button-remove-store-product-${p.id}`}>
+                      <Trash2 className="w-3 h-3" /> Remove
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(p)} data-testid={`button-edit-store-product-${p.id}`}>
-                    <Edit className="w-3 h-3" /> Edit
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(p.id)} disabled={removeMutation.isPending} data-testid={`button-remove-store-product-${p.id}`}>
-                    <Trash2 className="w-3 h-3" /> Remove
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
@@ -8817,11 +9143,16 @@ function WhmcsProductMappingSection() {
   };
 
   return (
-    <Card data-testid="card-whmcs-mappings">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Server className="w-5 h-5" /> Product → Service mapping</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-whmcs-mappings">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <Server className="h-[18px] w-[18px]" />
+          </span>
+          Product → Service mapping
+        </h2>
+      </div>
+      <div className="p-5 space-y-4">
         <p className="text-sm text-muted-foreground">
           Link a WHMCS product to the monitored services it includes. Customers linked to a WHMCS client will automatically see the matching services for their active products.
         </p>
@@ -8834,54 +9165,61 @@ function WhmcsProductMappingSection() {
 
         {/* Existing mappings */}
         {rowOrder.length === 0 ? (
-          <p className="text-sm text-muted-foreground" data-testid="text-no-mappings">No product mappings yet.</p>
+          <div className="px-5 py-8 text-center" data-testid="text-no-mappings">
+            <Server className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No product mappings yet.</p>
+          </div>
         ) : (
-          <div className="space-y-2" data-testid="list-whmcs-mappings">
+          <div className="border rounded-md overflow-hidden" data-testid="list-whmcs-mappings">
             {rowOrder.length > 1 && (
-              <p className="text-xs text-muted-foreground" data-testid="text-mapping-reorder-hint">Drag the handle to reorder this list (for example to group a product's monthly, quarterly and annual variants together).</p>
+              <div className="bg-muted/30 px-3 py-2 border-b">
+                <p className="text-xs text-muted-foreground" data-testid="text-mapping-reorder-hint">Drag the handle to reorder this list (for example to group a product's monthly, quarterly and annual variants together).</p>
+              </div>
             )}
-            {rowOrder.map((m) => (
-              <div
-                key={m.whmcsProductId}
-                draggable
-                onDragStart={() => setRowDragId(m.whmcsProductId)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleRowDrop(m.whmcsProductId)}
-                onDragEnd={() => setRowDragId(null)}
-                className={`flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 rounded-md border p-3 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
-                data-testid={`row-mapping-${m.whmcsProductId}`}
-              >
-                <div className="flex items-start gap-2 min-w-0">
-                  {rowOrder.length > 1 && (
-                    <span className="mt-0.5 shrink-0 cursor-grab text-muted-foreground" data-testid={`drag-mapping-${m.whmcsProductId}`} aria-label="Drag to reorder">
-                      <GripVertical className="w-4 h-4" />
-                    </span>
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="text-sm font-medium break-words" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{mappingName(m)}</p>
-                      <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-mapping-pid-${m.whmcsProductId}`}>#{m.whmcsProductId}</span>
-                      <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {m.serviceIds.map((sid) => (
-                        <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
-                          {serviceName(sid)}
-                        </Badge>
-                      ))}
+            <div className="divide-y divide-border">
+              {rowOrder.map((m) => (
+                <div
+                  key={m.whmcsProductId}
+                  draggable
+                  onDragStart={() => setRowDragId(m.whmcsProductId)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleRowDrop(m.whmcsProductId)}
+                  onDragEnd={() => setRowDragId(null)}
+                  className={`flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 px-3 py-3.5 ${rowDragId === m.whmcsProductId ? "opacity-50" : ""}`}
+                  data-testid={`row-mapping-${m.whmcsProductId}`}
+                >
+                  <div className="flex items-start gap-2 min-w-0">
+                    {rowOrder.length > 1 && (
+                      <span className="mt-0.5 shrink-0 cursor-grab text-muted-foreground" data-testid={`drag-mapping-${m.whmcsProductId}`} aria-label="Drag to reorder">
+                        <GripVertical className="w-4 h-4" />
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="text-sm font-medium break-words" data-testid={`text-mapping-product-${m.whmcsProductId}`}>{mappingName(m)}</p>
+                        <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-mapping-pid-${m.whmcsProductId}`}>#{m.whmcsProductId}</span>
+                        <Badge className="h-5 px-1.5 text-xs shrink-0 border-green-300 bg-green-100 text-green-800 dark:border-green-700/60 dark:bg-green-950/50 dark:text-green-200" data-testid={`badge-orderable-${m.whmcsProductId}`}>Orderable</Badge>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {m.serviceIds.map((sid) => (
+                          <Badge key={sid} variant="outline" className="h-5 px-1.5 text-xs" data-testid={`badge-mapping-service-${m.whmcsProductId}-${sid}`}>
+                            {serviceName(sid)}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(m)} data-testid={`button-edit-mapping-${m.whmcsProductId}`}>
+                      <Edit className="w-3 h-3" /> Edit
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(m.whmcsProductId)} disabled={removeMutation.isPending} data-testid={`button-remove-mapping-${m.whmcsProductId}`}>
+                      <Trash2 className="w-3 h-3" /> Remove
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
-                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(m)} data-testid={`button-edit-mapping-${m.whmcsProductId}`}>
-                    <Edit className="w-3 h-3" /> Edit
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => removeMutation.mutate(m.whmcsProductId)} disabled={removeMutation.isPending} data-testid={`button-remove-mapping-${m.whmcsProductId}`}>
-                    <Trash2 className="w-3 h-3" /> Remove
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
@@ -8966,8 +9304,8 @@ function WhmcsProductMappingSection() {
             </>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -9043,36 +9381,46 @@ function WhmcsProductDnsSection() {
   };
 
   return (
-    <Card data-testid="card-whmcs-dns">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Server className="w-5 h-5" /> Product DNS (connection address)</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-whmcs-dns">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <Server className="h-[18px] w-[18px]" />
+          </span>
+          Product DNS (connection address)
+        </h2>
+      </div>
+      <div className="p-5 space-y-4">
         <p className="text-sm text-muted-foreground">
           Assign a connection address (DNS) to each WHMCS product. Customers see it next to their login under "My Services" — including brand-new signups, since the DNS belongs to the product, not the individual account.
         </p>
 
         {/* Existing DNS values */}
         {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground" data-testid="text-no-dns">No product DNS set yet.</p>
+          <div className="px-5 py-8 text-center" data-testid="text-no-dns">
+            <Server className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No product DNS set yet.</p>
+          </div>
         ) : (
-          <div className="space-y-2" data-testid="list-whmcs-dns">
-            {entries.map((row) => (
-              <div key={row.whmcsProductId} className="flex items-start justify-between gap-2 rounded-md border p-3" data-testid={`row-dns-${row.whmcsProductId}`}>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate" data-testid={`text-dns-product-${row.whmcsProductId}`}>{productName(row.whmcsProductId)}</p>
-                  <p className="mt-1 text-sm text-muted-foreground break-all font-mono" data-testid={`text-dns-value-${row.whmcsProductId}`}>{row.dns}</p>
+          <div className="border rounded-md overflow-hidden" data-testid="list-whmcs-dns">
+            <div className="divide-y divide-border">
+              {entries.map((row) => (
+                <div key={row.whmcsProductId} className="flex items-start justify-between gap-2 px-3 py-3" data-testid={`row-dns-${row.whmcsProductId}`}>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate" data-testid={`text-dns-product-${row.whmcsProductId}`}>{productName(row.whmcsProductId)}</p>
+                    <p className="mt-1 text-sm text-muted-foreground break-all font-mono" data-testid={`text-dns-value-${row.whmcsProductId}`}>{row.dns}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(row)} data-testid={`button-edit-dns-${row.whmcsProductId}`}>
+                      <Edit className="w-3 h-3" /> Edit
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => saveMutation.mutate({ whmcsProductId: row.whmcsProductId, dns: "" })} disabled={saveMutation.isPending} data-testid={`button-remove-dns-${row.whmcsProductId}`}>
+                      <Trash2 className="w-3 h-3" /> Clear
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => startEdit(row)} data-testid={`button-edit-dns-${row.whmcsProductId}`}>
-                    <Edit className="w-3 h-3" /> Edit
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => saveMutation.mutate({ whmcsProductId: row.whmcsProductId, dns: "" })} disabled={saveMutation.isPending} data-testid={`button-remove-dns-${row.whmcsProductId}`}>
-                    <Trash2 className="w-3 h-3" /> Clear
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
@@ -9130,8 +9478,8 @@ function WhmcsProductDnsSection() {
             </>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 

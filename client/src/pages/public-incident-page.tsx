@@ -1,12 +1,11 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Activity, ListTodo } from "lucide-react";
 import { RichTextContent } from "@/components/rich-text-content";
 
 type PublicIncident = {
@@ -26,15 +25,28 @@ type PublicIncident = {
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
     case "resolved":
-      return <CheckCircle className="w-4 h-4 text-emerald-500" />;
+      return <CheckCircle className="w-4 h-4 text-status-online" />;
     case "investigating":
-      return <AlertTriangle className="w-4 h-4 text-amber-500" />;
+      return <AlertTriangle className="w-4 h-4 text-status-away" />;
     case "identified":
       return <Info className="w-4 h-4 text-primary" />;
     default:
       return <Clock className="w-4 h-4 text-muted-foreground" />;
   }
 }
+
+const severityPill: Record<string, string> = {
+  critical: "bg-status-busy/15 text-status-busy",
+  warning: "bg-status-away/15 text-status-away",
+  info: "bg-status-away/15 text-status-away",
+};
+
+const statusPill: Record<string, string> = {
+  investigating: "bg-status-away/15 text-status-away",
+  identified: "bg-status-away/15 text-status-away",
+  monitoring: "bg-primary/15 text-primary",
+  resolved: "bg-status-online/15 text-status-online",
+};
 
 function formatDuration(seconds: number): string {
   if (!seconds || seconds < 60) return `${seconds}s`;
@@ -46,6 +58,14 @@ function formatDuration(seconds: number): string {
   const d = Math.floor(h / 24);
   const remH = h % 24;
   return remH ? `${d}d ${remH}h` : `${d}d`;
+}
+
+function SectionIcon({ icon: Icon, tone }: { icon: any; tone: string }) {
+  return (
+    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
 }
 
 // Maps a service category to a public-facing image used for OG/Twitter previews.
@@ -146,31 +166,45 @@ export default function PublicIncidentPage() {
 
   return (
     <div className="min-h-dvh bg-background">
-      <header className="border-b">
+      <header className="border-b border-border bg-card">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/status" className="inline-flex items-center text-sm text-primary hover:underline" data-testid="link-back-status">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back to status
+          <Link href="/status" className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-back-status">
+            <ArrowLeft className="w-4 h-4 mr-1.5" /> Back to status
           </Link>
-          <a href="/" className="text-sm text-muted-foreground hover:text-foreground" data-testid="link-signin">Sign in</a>
+          <a href="/" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-signin">Sign in</a>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-10 w-3/4" />
-            <Skeleton className="h-40 w-full" />
-            <Skeleton className="h-60 w-full" />
+          <div className="space-y-6">
+            <section className="rounded-xl border border-card-border bg-card p-6 space-y-4">
+              <Skeleton className="h-8 w-3/4" />
+              <div className="flex gap-2">
+                <Skeleton className="h-6 w-20 rounded-full" />
+                <Skeleton className="h-6 w-24 rounded-full" />
+              </div>
+              <Skeleton className="h-20 w-full" />
+            </section>
+            <section className="rounded-xl border border-card-border bg-card p-6 space-y-4">
+              <Skeleton className="h-6 w-40" />
+              <div className="pl-6 space-y-4">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            </section>
           </div>
         ) : error && !isNotFoundError(error) ? (
-          <Card>
-            <CardContent className="py-10 text-center space-y-3">
-              <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
-              <p className="font-medium" data-testid="text-incident-error">Couldn't load this incident</p>
-              <p className="text-sm text-muted-foreground">
-                Something went wrong while fetching the incident details. Please try again.
-              </p>
-              <div className="flex items-center justify-center gap-2">
+          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="py-12 px-6 text-center space-y-4">
+              <AlertTriangle className="w-10 h-10 text-status-away mx-auto opacity-80" />
+              <div>
+                <p className="font-semibold text-lg" data-testid="text-incident-error">Couldn't load this incident</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Something went wrong while fetching the incident details. Please try again.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-3 pt-2">
                 <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-retry-incident">
                   Try again
                 </Button>
@@ -178,100 +212,124 @@ export default function PublicIncidentPage() {
                   <Button variant="ghost" size="sm" data-testid="link-error-back-status">Back to status</Button>
                 </Link>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         ) : !data ? (
-          <Card>
-            <CardContent className="py-10 text-center space-y-3">
-              <p className="text-muted-foreground" data-testid="text-incident-not-found">Incident not found.</p>
-              <Link href="/status">
-                <Button variant="outline" size="sm">Back to status</Button>
-              </Link>
-            </CardContent>
-          </Card>
+          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="py-12 px-6 text-center space-y-4">
+              <Info className="w-10 h-10 text-muted-foreground mx-auto opacity-50" />
+              <div>
+                <p className="font-semibold text-lg" data-testid="text-incident-not-found">Incident not found</p>
+                <p className="text-sm text-muted-foreground mt-1">The incident you're looking for doesn't exist or has been removed.</p>
+              </div>
+              <div className="pt-2">
+                <Link href="/status">
+                  <Button variant="outline" size="sm">Back to status</Button>
+                </Link>
+              </div>
+            </div>
+          </section>
         ) : (
           <>
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="space-y-2">
-                  <CardTitle className="text-2xl" data-testid="text-incident-title">{data.title}</CardTitle>
+            <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <h2 className="text-sm font-semibold flex items-center gap-3">
+                  <SectionIcon icon={Activity} tone="bg-status-away/10 text-status-away" />
+                  Incident Details
+                </h2>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4">
+                  <h1 className="text-2xl font-bold" data-testid="text-incident-title">{data.title}</h1>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant={data.severity === "critical" ? "destructive" : data.severity === "warning" ? "default" : "secondary"}
-                      className="text-xs capitalize"
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${severityPill[data.severity] || "bg-status-away/15 text-status-away"}`}
                       data-testid="badge-severity"
                     >
                       {data.severity}
-                    </Badge>
-                    <Badge
-                      variant={data.status === "resolved" ? "secondary" : "default"}
-                      className="text-xs capitalize"
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusPill[data.status] || "bg-muted text-muted-foreground"}`}
                       data-testid="badge-status"
                     >
                       {data.status}
-                    </Badge>
-                    <Badge variant="secondary" className="text-xs" data-testid="badge-service">{data.serviceName}</Badge>
+                    </span>
+                    <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground" data-testid="badge-service">
+                      {data.serviceName}
+                    </span>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <RichTextContent content={data.description} className="text-sm" testId="text-incident-description" />
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
-                  {data.createdAt && (
-                    <span className="flex items-center gap-1" data-testid="text-opened-at">
-                      <Clock className="w-3 h-3" />
-                      Opened {format(new Date(data.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                    </span>
-                  )}
-                  {data.resolvedAt && (
-                    <span className="flex items-center gap-1" data-testid="text-resolved-at">
-                      <CheckCircle className="w-3 h-3" />
-                      Resolved {format(new Date(data.resolvedAt), "MMM d, yyyy 'at' h:mm a")}
-                    </span>
-                  )}
-                  {data.durationSeconds > 0 && (
-                    <span data-testid="text-duration">
-                      Duration: {formatDuration(data.durationSeconds)}
-                      {data.status !== "resolved" && " (ongoing)"}
-                    </span>
-                  )}
+                
+                <div className="mt-6 pt-6 border-t border-border">
+                  <RichTextContent content={data.description} className="text-sm" testId="text-incident-description" />
+                  <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground mt-6 pt-4">
+                    {data.createdAt && (
+                      <span className="flex items-center gap-1.5" data-testid="text-opened-at">
+                        <Clock className="w-3.5 h-3.5" />
+                        Opened {format(new Date(data.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                      </span>
+                    )}
+                    {data.resolvedAt && (
+                      <span className="flex items-center gap-1.5" data-testid="text-resolved-at">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Resolved {format(new Date(data.resolvedAt), "MMM d, yyyy 'at' h:mm a")}
+                      </span>
+                    )}
+                    {data.durationSeconds > 0 && (
+                      <span className="flex items-center gap-1.5" data-testid="text-duration">
+                        <Activity className="w-3.5 h-3.5" />
+                        Duration: {formatDuration(data.durationSeconds)}
+                        {data.status !== "resolved" && " (ongoing)"}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </section>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Updates Timeline</CardTitle>
-              </CardHeader>
-              <CardContent>
+            <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <h2 className="text-sm font-semibold flex items-center gap-3">
+                  <SectionIcon icon={ListTodo} tone="bg-muted text-muted-foreground" />
+                  Updates Timeline
+                </h2>
+              </div>
+              <div className="p-6">
                 {data.updates.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-updates">No updates posted yet</p>
+                  <div className="text-center py-8">
+                    <Clock className="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-50" />
+                    <p className="text-sm text-muted-foreground" data-testid="text-no-updates">No updates posted yet</p>
+                  </div>
                 ) : (
                   <div className="relative space-y-0">
-                    <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
+                    <div className="absolute left-[9px] top-3 bottom-3 w-px bg-border" />
                     {data.updates.map((update) => (
-                      <div key={update.id} className="relative pl-7 pb-6 last:pb-0" data-testid={`incident-update-${update.id}`}>
-                        <div className="absolute left-0 top-1 z-10 bg-background p-0.5 rounded-full">
+                      <div key={update.id} className="relative pl-8 pb-8 last:pb-0" data-testid={`incident-update-${update.id}`}>
+                        <div className="absolute left-0 top-1 z-10 bg-background p-0.5 rounded-full border border-border">
                           <StatusIcon status={update.status} />
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="text-xs capitalize">{update.status}</Badge>
-                            <span className="text-xs text-muted-foreground">
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${statusPill[update.status] || "bg-muted text-muted-foreground"}`}>
+                              {update.status}
+                            </span>
+                            <span className="text-xs text-muted-foreground font-medium">
                               {format(new Date(update.createdAt), "MMM d, h:mm a")}
                             </span>
                           </div>
-                          <RichTextContent content={update.message} className="text-sm" testId={`text-incident-update-message-${update.id}`} />
-                          {update.imageUrl && (
-                            <img src={update.imageUrl} alt="Update attachment" className="max-h-48 rounded-md mt-1 border" />
-                          )}
+                          <div className="text-sm bg-muted/30 rounded-lg p-4 border border-border/50">
+                            <RichTextContent content={update.message} className="text-sm" testId={`text-incident-update-message-${update.id}`} />
+                            {update.imageUrl && (
+                              <img src={update.imageUrl} alt="Update attachment" className="max-h-64 rounded-md mt-3 border shadow-sm" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           </>
         )}
       </main>
