@@ -99,25 +99,21 @@ export function HeroStackPage({ allClear }: { allClear: boolean }) {
             </div>
           </div>
         ) : (
-          <div
-            className="rounded-xl border border-status-away/50 bg-gradient-to-r from-status-away/25 via-status-away/15 to-status-away/5 p-6"
+          <button
+            className="w-full rounded-xl border border-status-away/50 bg-gradient-to-r from-status-away/25 via-status-away/15 to-status-away/5 p-6 flex items-center gap-4 text-left hover:border-status-away/70"
             data-testid="hero-status"
           >
-            <div className="flex items-center gap-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-away/25">
-                <AlertTriangle className="h-7 w-7 text-status-away" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg font-semibold text-status-away">We're currently experiencing an issue</p>
-                <p className="text-sm text-muted-foreground">
-                  {firstAlert.title} — {firstAlert.serviceNames.join(", ")} · started {firstAlert.startedAgo}
-                </p>
-              </div>
-              <button className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-status-away px-3 py-2 text-sm font-medium text-background hover:bg-status-away/90">
-                View alert <ArrowRight className="h-4 w-4" />
-              </button>
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-away/25">
+              <AlertTriangle className="h-7 w-7 text-status-away" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-lg font-semibold text-status-away">We're currently experiencing an issue</p>
+              <p className="text-sm text-muted-foreground">
+                {firstAlert.title} — {firstAlert.serviceNames.join(", ")} · started {firstAlert.startedAgo} · tap to view the alert
+              </p>
             </div>
-          </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-status-away" />
+          </button>
         )}
 
         {/* Services */}
