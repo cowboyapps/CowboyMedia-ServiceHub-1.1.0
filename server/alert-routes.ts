@@ -201,7 +201,17 @@ export function registerAlertRoutes(
       const data: Record<string, any> = {};
       if (req.body.title !== undefined) data.title = req.body.title;
       if (req.body.description !== undefined) data.description = req.body.description;
-      if (req.body.severity !== undefined) data.severity = req.body.severity;
+      if (req.body.severity !== undefined) {
+        // Same whitelist as the post-update route: an arbitrary severity string
+        // would poison the severity-keyed push/email preference checks and the
+        // UI badge. Edits send severity explicitly, so an invalid value is a
+        // client bug — reject loudly instead of silently ignoring.
+        const VALID_SEVERITIES = ["info", "warning", "critical"];
+        if (typeof req.body.severity !== "string" || !VALID_SEVERITIES.includes(req.body.severity)) {
+          return res.status(400).json({ message: "Invalid severity. Must be one of: info, warning, critical" });
+        }
+        data.severity = req.body.severity;
+      }
       if (imageUrl) data.imageUrl = imageUrl;
       if (req.body.removeImage === "true") data.imageUrl = null;
       const updated = await storage.updateAlert(getParam(req, "id"), data);
