@@ -16,5 +16,8 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard/GlanceHealth.tsx": () => import("../components/mockups/dashboard/GlanceHealth.tsx"),
   "./components/mockups/dashboard/PersonalHub.tsx": () => import("../components/mockups/dashboard/PersonalHub.tsx"),
   "./components/mockups/dashboard/Scorecard.tsx": () => import("../components/mockups/dashboard/Scorecard.tsx"),
-  "./components/mockups/dashboard/TileGrid.tsx": () => import("../components/mockups/dashboard/TileGrid.tsx")
+  "./components/mockups/dashboard/TileGrid.tsx": () => import("../components/mockups/dashboard/TileGrid.tsx"),
+  "./components/mockups/dashboard-v2/CommandCenter.tsx": () => import("../components/mockups/dashboard-v2/CommandCenter.tsx"),
+  "./components/mockups/dashboard-v2/SplitPanels.tsx": () => import("../components/mockups/dashboard-v2/SplitPanels.tsx"),
+  "./components/mockups/dashboard-v2/StatusBoard.tsx": () => import("../components/mockups/dashboard-v2/StatusBoard.tsx")
 };
