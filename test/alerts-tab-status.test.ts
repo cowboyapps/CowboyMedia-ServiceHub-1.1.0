@@ -60,6 +60,29 @@ class ResizeObserverStub implements ResizeObserver {
 g.ResizeObserver = ResizeObserverStub;
 w.ResizeObserver = ResizeObserverStub;
 
+// Radix Select needs pointer-capture + rect APIs jsdom doesn't implement.
+class DOMRectStub implements DOMRect {
+  x = 0; y = 0; width = 0; height = 0;
+  top = 0; right = 0; bottom = 0; left = 0;
+  toJSON(): unknown { return this; }
+}
+g.DOMRect = DOMRectStub;
+w.DOMRect = DOMRectStub;
+
+interface PointerCaptureProto {
+  hasPointerCapture?: (pointerId: number) => boolean;
+  setPointerCapture?: (pointerId: number) => void;
+  releasePointerCapture?: (pointerId: number) => void;
+  scrollIntoView?: () => void;
+  getBoundingClientRect: () => DOMRect;
+}
+const HEProto = window.HTMLElement.prototype as unknown as PointerCaptureProto;
+HEProto.hasPointerCapture ??= () => false;
+HEProto.setPointerCapture ??= () => {};
+HEProto.releasePointerCapture ??= () => {};
+HEProto.scrollIntoView ??= () => {};
+HEProto.getBoundingClientRect = () => new DOMRectStub();
+
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
 function jsonResponse(body: unknown, status = 200) {
@@ -345,6 +368,7 @@ test("submitting the streamlined update (advanced collapsed) POSTs the notify-on
     assert.equal(body.get("sendPush"), "true", "push notifications on by default");
     assert.equal(body.get("sendEmail"), "true", "subscriber emails on by default");
     assert.equal(body.get("serviceImpact"), "no_change", "service impact left unchanged by default");
+    assert.equal(body.get("severity"), "no_change", "severity untouched unless the admin picks one");
     assert.equal(body.get("silent"), "false", "not silent — customers are notified");
   } finally {
     c.cleanup();
@@ -383,6 +407,61 @@ test("silent status-only change: blank message + silent switch POSTs silent=true
     assert.equal(body.get("status"), "monitoring", "status = clicked pill's status");
     assert.equal(body.get("silent"), "true", "silent — no customer notifications");
     assert.match(body.get("message") as string, /Status changed to Monitoring/, "default status note substituted for the blank message");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("silent severity change: pick a severity + silent switch POSTs severity with a default note", async () => {
+  const c = await mountAlertsTab([activeAlert()]);
+  capturedUpdatePost = null;
+  try {
+    // Open the streamlined dialog via the current-status pill (status unchanged).
+    await act(async () => {
+      byTestId(c.container, "button-set-status-investigating-alert-1")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // The severity select lives in the MAIN dialog body (not the collapsed
+    // advanced section) so a severity correction is one or two taps.
+    const severityTrigger = window.document.querySelector('[data-testid="select-update-severity"]') as HTMLElement | null;
+    assert.ok(severityTrigger, "severity control visible without opening advanced options");
+    assert.equal(window.document.querySelector('[data-testid="section-update-advanced"]'), null, "advanced options stay collapsed");
+    assert.match(severityTrigger!.textContent ?? "", /Keep current severity/, "defaults to keeping the current severity");
+
+    // Drive the Radix Select: mouse-pointerType pointerdown opens it, then a
+    // plain click on the portaled item selects it.
+    await act(async () => {
+      severityTrigger!.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+    });
+    await flushFrames();
+    const items = Array.from(window.document.querySelectorAll('[role="option"]'));
+    const criticalItem = items.find((el) => /Critical/.test(el.textContent ?? "")) as HTMLElement | undefined;
+    assert.ok(criticalItem, "Critical option rendered in the open select");
+    await act(async () => {
+      criticalItem!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    // Silent + blank message: allowed, default note substituted.
+    const silentSwitch = window.document.querySelector('[data-testid="switch-update-silent"]') as HTMLElement | null;
+    assert.ok(silentSwitch, "silent switch visible in the main dialog body");
+    await act(async () => {
+      silentSwitch!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    await act(async () => {
+      (window.document.querySelector('[data-testid="button-submit-update"]') as HTMLElement).dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await flushFrames();
+
+    const captured = getCapturedUpdatePost();
+    assert.ok(captured, "silent severity change POSTed to the updates endpoint");
+    const body = captured!.body;
+    assert.equal(body.get("severity"), "critical", "new severity travels with the update");
+    assert.equal(body.get("silent"), "true", "silent — no customer notifications");
+    assert.match(body.get("message") as string, /Severity changed to Critical/, "default note records the severity change");
   } finally {
     c.cleanup();
   }

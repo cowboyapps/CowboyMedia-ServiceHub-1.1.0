@@ -309,7 +309,7 @@ test("red outage hero when a service reports outage status", async () => {
   }
 });
 
-test("blue monitoring hero when the only active alert is in monitoring status", async () => {
+test("green operational hero with a monitoring note when the only active alert is monitoring", async () => {
   const monitoring = alert("a-mon", "medium", { status: "monitoring", serviceIds: ["s1"] });
   const c = await mountDashboard({
     "/api/services": { status: 200, body: [service("s1", "operational")] },
@@ -319,11 +319,32 @@ test("blue monitoring hero when the only active alert is in monitoring status", 
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
     const text = hero!.textContent || "";
-    assert.match(text, /monitoring a recent fix/i, "monitoring hero copy");
+    assert.match(text, /All systems operational/, "reads as GREEN operational, not a problem state");
     assert.doesNotMatch(text, /experiencing an issue/i, "monitoring must not read as a problem");
     assert.doesNotMatch(text, /experiencing an outage/i);
-    assert.match(text, /Alert a-mon/, "subtitle names the monitoring alert");
+    const note = findByTestId(c.container, "text-monitoring-note");
+    assert.ok(note, "monitoring note renders");
+    assert.match(note!.textContent || "", /We're monitoring: Alert a-mon/, "note names the monitoring alert");
     assert.equal(hero!.getAttribute("href"), "/alerts/a-mon", "monitoring hero deep-links to the alert");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("multiple monitoring alerts: green hero shows first + count and links to the alerts list", async () => {
+  const mon1 = alert("a-mon1", "medium", { status: "monitoring", serviceIds: ["s1"] });
+  const mon2 = alert("a-mon2", "low", { status: "monitoring" });
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [mon1, mon2] },
+  });
+  try {
+    const hero = findByTestId(c.container, "hero-status");
+    assert.ok(hero, "hero renders");
+    assert.match(hero!.textContent || "", /All systems operational/);
+    const note = findByTestId(c.container, "text-monitoring-note");
+    assert.match(note!.textContent || "", /We're monitoring: Alert a-mon1 \(\+1 more\)/, "note shows first alert + count");
+    assert.equal(hero!.getAttribute("href"), "/alerts", "multiple monitoring alerts link to the alerts list");
   } finally {
     c.cleanup();
   }

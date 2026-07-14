@@ -227,10 +227,14 @@ export function registerAlertRoutes(
   app.post("/api/admin/alerts/:id/updates", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, silent: rawSilent, ...updateData } = req.body;
+      const { sendPush, sendEmail, serviceImpact, silent: rawSilent, severity: rawSeverity, ...updateData } = req.body;
       const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
       const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
       const silent = rawSilent === "true" || rawSilent === true;
+      // Optional severity change riding along with the update. "no_change" (or
+      // absent/invalid) leaves the alert's severity untouched.
+      const VALID_SEVERITIES = ["info", "warning", "critical"];
+      const newSeverity = typeof rawSeverity === "string" && VALID_SEVERITIES.includes(rawSeverity) ? rawSeverity : null;
       const update = await storage.createAlertUpdate({
         alertId: getParam(req, "id"),
         message: updateData.message,
@@ -238,12 +242,12 @@ export function registerAlertRoutes(
         ...(imageUrl ? { imageUrl } : {}),
       });
       if (updateData.status === "resolved") {
-        await storage.updateAlert(getParam(req, "id"), { status: "resolved", resolvedAt: new Date() });
+        await storage.updateAlert(getParam(req, "id"), { status: "resolved", resolvedAt: new Date(), ...(newSeverity ? { severity: newSeverity } : {}) });
       } else {
-        await storage.updateAlert(getParam(req, "id"), { status: updateData.status });
+        await storage.updateAlert(getParam(req, "id"), { status: updateData.status, ...(newSeverity ? { severity: newSeverity } : {}) });
       }
       broadcast({ type: "alert_update", alertId: req.params.id, update });
-      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}${silent ? " (silently)" : ""}: ${htmlToPlainTextInline(updateData.message || "").substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact, silent }) });
+      logActivity("alert", updateData.status === "resolved" ? "alert_resolved" : "alert_updated", { actorId: req.session.userId!, targetId: req.params.id, targetType: "alert", summary: `Alert ${updateData.status === "resolved" ? "resolved" : "updated"}${silent ? " (silently)" : ""}: ${htmlToPlainTextInline(updateData.message || "").substring(0, 100)}`, details: JSON.stringify({ status: updateData.status, message: updateData.message, serviceImpact, silent, ...(newSeverity ? { severity: newSeverity } : {}) }) });
       const alert = await storage.getAlert(getParam(req, "id"));
       if (alert) {
         const isResolved = updateData.status === "resolved";

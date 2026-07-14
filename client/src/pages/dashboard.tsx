@@ -125,9 +125,14 @@ export default function Dashboard() {
   const heroSubtitle = firstAlert
     ? `${firstAlert.title}${heroAlertServices ? ` — ${heroAlertServices}` : ""} · started ${formatDistanceToNow(new Date(firstAlert.createdAt), { addSuffix: true })} · tap to view the alert`
     : "One or more of your services isn't fully operational right now. Tap to see details.";
-  const monitoringSubtitle = firstAlert
-    ? `${firstAlert.title}${heroAlertServices ? ` — ${heroAlertServices}` : ""} · a fix is in place and we're watching closely · tap to view`
-    : "A fix is in place and we're keeping an eye on things.";
+  // Monitoring-only + all services operational reads as GREEN: everything is
+  // up, we're just watching a recent fix. The note names the first monitoring
+  // alert (plus a count when several) and deep-links to it.
+  const firstMonitoring = monitoringAlerts[0];
+  const monitoringNote = firstMonitoring
+    ? `We're monitoring: ${firstMonitoring.title}${monitoringAlerts.length > 1 ? ` (+${monitoringAlerts.length - 1} more)` : ""}`
+    : "";
+  const monitoringHref = monitoringAlerts.length > 1 ? "/alerts" : firstMonitoring ? `/alerts/${firstMonitoring.id}` : "/alerts";
 
   return (
     <div className="space-y-6">
@@ -165,14 +170,17 @@ export default function Dashboard() {
           </div>
         </Link>
       ) : heroState === "monitoring" ? (
-        <Link href={firstAlert ? `/alerts/${firstAlert.id}` : "/alerts"} className="block" data-testid="hero-status">
-          <div className="rounded-xl border border-primary/40 ring-1 ring-inset ring-primary/20 bg-gradient-to-br from-primary/15 via-primary/[0.07] to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-primary/40 transition cursor-pointer">
-            <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/30">
-              <Activity className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-primary" />
+        <Link href={monitoringHref} className="block" data-testid="hero-status">
+          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
+            <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
+              <CheckCircle2 className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-status-online" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-base sm:text-lg font-semibold leading-snug text-primary">All services are up — monitoring a recent fix</p>
-              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5">{monitoringSubtitle}</p>
+              <p className="text-base sm:text-lg font-semibold leading-snug text-status-online">All systems operational</p>
+              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5" data-testid="text-monitoring-note">
+                <Activity className="inline h-3.5 w-3.5 mr-1 -mt-0.5 text-primary" aria-hidden="true" />
+                {monitoringNote} · tap to view
+              </p>
             </div>
             <span
               className="hidden sm:inline rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 bg-primary/10 text-primary"
@@ -180,7 +188,7 @@ export default function Dashboard() {
             >
               Monitoring
             </span>
-            <ChevronRight className="h-5 w-5 shrink-0 text-primary" />
+            <ChevronRight className="h-5 w-5 shrink-0 text-status-online" />
           </div>
         </Link>
       ) : (

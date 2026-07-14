@@ -330,6 +330,9 @@ const addUpdateSchema = z.object({
   // substituted at submit time.
   message: z.string().default(""),
   status: z.string().min(1, "Status is required"),
+  // "no_change" leaves the alert's severity as-is; info/warning/critical
+  // persist a new severity on the parent alert alongside the update.
+  severity: z.string().default("no_change"),
   serviceImpact: z.string().default("no_change"),
   sendPush: z.boolean().default(true),
   sendEmail: z.boolean().default(true),
@@ -349,6 +352,11 @@ const ALERT_STATUS_LABELS: Record<string, string> = {
   identified: "Identified",
   monitoring: "Monitoring",
   resolved: "Resolved",
+};
+const ALERT_SEVERITY_LABELS: Record<string, string> = {
+  info: "Info",
+  warning: "Warning",
+  critical: "Critical",
 };
 const ALERT_STATUS_COLORS: Record<string, string> = {
   investigating: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
@@ -1443,7 +1451,7 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const updateForm = useForm({
     resolver: zodResolver(addUpdateSchema),
-    defaultValues: { message: "", status: "investigating", serviceImpact: "no_change", sendPush: true, sendEmail: true, silent: false },
+    defaultValues: { message: "", status: "investigating", severity: "no_change", serviceImpact: "no_change", sendPush: true, sendEmail: true, silent: false },
   });
 
   const createMutation = useMutation({
@@ -1478,8 +1486,12 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
       // Silent status-only change: substitute a default timeline note so the
       // alert history still records what happened and when.
       const isBlank = data.message.replace(/<[^>]*>/g, "").trim().length === 0;
+      const severityLabel = data.severity !== "no_change" ? ALERT_SEVERITY_LABELS[data.severity] || data.severity : null;
+      const defaultNote = severityLabel
+        ? `<p>Status changed to ${ALERT_STATUS_LABELS[data.status] || data.status}. Severity changed to ${severityLabel}.</p>`
+        : `<p>Status changed to ${ALERT_STATUS_LABELS[data.status] || data.status}.</p>`;
       const payload = data.silent && isBlank
-        ? { ...data, message: `<p>Status changed to ${ALERT_STATUS_LABELS[data.status] || data.status}.</p>` }
+        ? { ...data, message: defaultNote }
         : data;
       const formData = new FormData();
       Object.entries(payload).forEach(([k, v]) => formData.append(k, String(v)));
@@ -1618,6 +1630,7 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     updateForm.reset({
       message: draft.suggestedDescription,
       status: "monitoring",
+      severity: "no_change",
       serviceImpact: "no_change",
       sendPush: true,
       sendEmail: true,
@@ -1638,6 +1651,7 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
     updateForm.reset({
       message: "",
       status,
+      severity: "no_change",
       serviceImpact: "no_change",
       sendPush: true,
       sendEmail: true,
@@ -1828,6 +1842,19 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                       <SelectItem value="identified">Identified</SelectItem>
                       <SelectItem value="monitoring">Monitoring</SelectItem>
                       <SelectItem value="resolved">Resolved</SelectItem>
+                    </SelectContent>
+                  </Select>
+                <FormMessage /></FormItem>
+              )} />
+              <FormField control={updateForm.control} name="severity" render={({ field }) => (
+                <FormItem><FormLabel>Severity</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl><SelectTrigger data-testid="select-update-severity"><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      <SelectItem value="no_change">Keep current severity</SelectItem>
+                      <SelectItem value="info">Info</SelectItem>
+                      <SelectItem value="warning">Warning</SelectItem>
+                      <SelectItem value="critical">Critical</SelectItem>
                     </SelectContent>
                   </Select>
                 <FormMessage /></FormItem>
