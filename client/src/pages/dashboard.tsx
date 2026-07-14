@@ -157,7 +157,7 @@ export default function Dashboard() {
         </div>
       ) : heroState === "clear" ? (
         <Link href="/alerts" className="block" data-testid="hero-status">
-          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent p-6 flex items-center gap-4 shadow-sm hover:ring-status-online/40 transition cursor-pointer">
+          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent p-6 flex items-center gap-4 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
               <CheckCircle2 className="h-6 w-6 text-status-online" />
             </span>
@@ -176,8 +176,8 @@ export default function Dashboard() {
           <div
             className={
               heroState === "outage"
-                ? "w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer"
-                : "w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer"
+                ? "w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer animate-hero-breathe hero-glow-busy"
+                : "w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent p-6 flex items-center gap-4 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer animate-hero-breathe hero-glow-away"
             }
           >
             <span
