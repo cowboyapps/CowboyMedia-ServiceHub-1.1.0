@@ -105,10 +105,19 @@ function useIncidentMeta(incident: PublicIncident | undefined) {
   }, [incident]);
 }
 
+// The shared default queryFn throws `Error("<status>: <body>")` on non-ok
+// responses, so a missing incident (404) and a server/network failure both land
+// in `error`. Only a genuine 404 means "this incident doesn't exist" — anything
+// else must render an explicit "couldn't load" state (with retry), never the
+// misleading "Incident not found".
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /^404[:\s]/.test(error.message);
+}
+
 export default function PublicIncidentPage() {
   const params = useParams<{ id: string }>();
 
-  const { data, isLoading, error } = useQuery<PublicIncident>({
+  const { data, isLoading, error, refetch } = useQuery<PublicIncident>({
     queryKey: ["/api/public/incidents", params.id],
   });
 
@@ -132,7 +141,25 @@ export default function PublicIncidentPage() {
             <Skeleton className="h-40 w-full" />
             <Skeleton className="h-60 w-full" />
           </div>
-        ) : !data || error ? (
+        ) : error && !isNotFoundError(error) ? (
+          <Card>
+            <CardContent className="py-10 text-center space-y-3">
+              <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
+              <p className="font-medium" data-testid="text-incident-error">Couldn't load this incident</p>
+              <p className="text-sm text-muted-foreground">
+                Something went wrong while fetching the incident details. Please try again.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-retry-incident">
+                  Try again
+                </Button>
+                <Link href="/status">
+                  <Button variant="ghost" size="sm" data-testid="link-error-back-status">Back to status</Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        ) : !data ? (
           <Card>
             <CardContent className="py-10 text-center space-y-3">
               <p className="text-muted-foreground" data-testid="text-incident-not-found">Incident not found.</p>
