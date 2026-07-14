@@ -214,7 +214,7 @@ export default function Dashboard() {
       {/* First-run: no followed services yet */}
       {!servicesLoading && !servicesError && (services?.length || 0) > 0 && subscribedServices.length === 0 && (
         <Link
-          href="/services"
+          href="/settings#services"
           className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4 hover-elevate tap-interactive"
           data-testid="card-first-run-follow-services"
         >

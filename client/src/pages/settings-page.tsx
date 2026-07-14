@@ -400,6 +400,14 @@ export default function SettingsPage() {
     return () => window.removeEventListener(ONBOARDING_OPEN_NOTIF_PREFS_EVENT, onOpen);
   }, []);
 
+  // Deep link (/settings#services): scroll to the service-selection card once
+  // it has rendered (the services query may still be loading on mount).
+  useEffect(() => {
+    if (window.location.hash !== "#services" || isLoading) return;
+    const el = document.getElementById("services");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [isLoading]);
+
   const handlePushToggle = async (checked: boolean) => {
     setPushLoading(true);
     try {
@@ -783,7 +791,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card data-testid="card-service-subscriptions">
+      <Card id="services" data-testid="card-service-subscriptions">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Bell className="w-4 h-4" />
