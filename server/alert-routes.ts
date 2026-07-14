@@ -122,10 +122,20 @@ export function registerAlertRoutes(
   app.post("/api/admin/alerts", requirePermission("alerts.view", "alerts.manage"), withUpload("image"), async (req, res) => {
     try {
       const imageUrl = req.file ? await saveUploadedFile(req.file) : undefined;
-      const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, silent: rawSilent, ...alertData } = req.body;
+      const { sendPush, sendEmail, serviceImpact, serviceIds: rawServiceIds, silent: rawSilent } = req.body;
       const parsedSendPush = sendPush === "false" ? false : sendPush !== false;
       const parsedSendEmail = sendEmail === "false" ? false : sendEmail !== false;
       const silent = rawSilent === "true" || rawSilent === true;
+      // Explicit field-by-field pick (mirrors the PATCH edit route): the insert
+      // payload is built ONLY from the fields a create is allowed to set.
+      // Server-owned columns — id, createdAt, resolvedAt, postmortemHtml,
+      // postmortemPublishedAt, postmortemAuthorId — can never be injected by a
+      // crafted request, because nothing from req.body is spread into it.
+      const alertData: Record<string, any> = {};
+      if (req.body.title !== undefined) alertData.title = req.body.title;
+      if (req.body.description !== undefined) alertData.description = req.body.description;
+      if (req.body.severity !== undefined) alertData.severity = req.body.severity;
+      if (req.body.status !== undefined) alertData.status = req.body.status;
       if (imageUrl) alertData.imageUrl = imageUrl;
       const serviceIds = parseServiceIds(rawServiceIds);
       if (serviceIds.length === 0) {
@@ -150,17 +160,17 @@ export function registerAlertRoutes(
         return res.status(400).json({ message: "Invalid impact. Must be one of: operational, degraded, outage, maintenance" });
       }
       alertData.impact = impact;
-      // Status whitelist: `alertData` is spread straight from req.body into the
-      // insert, so without this gate an arbitrary `status` string would land on
-      // the alert row — poisoning the "active alerts" filters and timeline
-      // labels. Absent status is fine (schema defaults to "investigating"), but
-      // a present invalid value is a client bug — reject loudly.
+      // Status whitelist: without this gate an arbitrary `status` string would
+      // land on the alert row — poisoning the "active alerts" filters and
+      // timeline labels. Absent status is fine (schema defaults to
+      // "investigating"), but a present invalid value is a client bug — reject
+      // loudly.
       if (alertData.status !== undefined) {
         if (typeof alertData.status !== "string" || !VALID_CREATE_STATUSES.includes(alertData.status)) {
           return res.status(400).json({ message: "Invalid status. Must be one of: investigating, identified, monitoring" });
         }
       }
-      const alert = await storage.createAlert(alertData, serviceIds);
+      const alert = await storage.createAlert(alertData as Parameters<typeof storage.createAlert>[0], serviceIds);
       // Recompute each covered service's status so a shared service keeps its
       // most-severe active impact rather than being clobbered by this one.
       await recomputeForCoveredServices(alert.serviceIds, alertStatusDeps);

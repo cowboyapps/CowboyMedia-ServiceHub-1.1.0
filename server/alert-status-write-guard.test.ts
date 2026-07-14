@@ -139,6 +139,42 @@ for (const [label, status] of [
   });
 }
 
+// --- Create: server-owned / unknown keys never reach storage.createAlert -------
+
+test("create with injected server-owned and unknown keys strips them all from the insert", async () => {
+  const { app, createAlertCalls } = harness();
+  const res = await createAlert(app, {
+    ...baseCreate,
+    status: "identified",
+    severity: "critical",
+    id: "attacker-chosen-id",
+    createdAt: "1999-01-01T00:00:00.000Z",
+    resolvedAt: "1999-01-01T00:00:00.000Z",
+    postmortemHtml: "<script>alert(1)</script>",
+    postmortemPublishedAt: "1999-01-01T00:00:00.000Z",
+    postmortemAuthorId: "someone-else",
+    imageUrl: "https://evil.example/x.png",
+    impact: "outage",
+    totallyUnknownKey: "x",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(createAlertCalls.length, 1);
+  const data = createAlertCalls[0].data;
+  for (const key of ["id", "createdAt", "resolvedAt", "postmortemHtml", "postmortemPublishedAt", "postmortemAuthorId", "imageUrl", "totallyUnknownKey"]) {
+    assert.ok(!(key in data), `injected key "${key}" must never reach storage.createAlert (got ${JSON.stringify(data)})`);
+  }
+  // Only the explicit allowlist survives; impact comes from serviceImpact (defaulted), not the body's impact key.
+  assert.deepEqual(Object.keys(data).sort(), ["description", "impact", "severity", "status", "title"].sort());
+  assert.equal(data.impact, "degraded", "body `impact` key is ignored; only serviceImpact drives impact");
+});
+
+test("create insert payload contains only allowlisted keys for a plain request", async () => {
+  const { app, createAlertCalls } = harness();
+  const res = await createAlert(app, baseCreate);
+  assert.equal(res.status, 200);
+  assert.deepEqual(Object.keys(createAlertCalls[0].data).sort(), ["description", "impact", "title"].sort());
+});
+
 // --- Edit: status from req.body is never copied into the update payload --------
 
 for (const [label, status] of [
