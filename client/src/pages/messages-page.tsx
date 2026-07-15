@@ -672,7 +672,7 @@ function ThreadRow({ thread, isAdmin, currentUserId, onOpen, onDelete, canManage
   return (
     <li
       onClick={onOpen}
-      className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive cursor-pointer group"
+      className="stagger-item flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive cursor-pointer group"
       data-testid={`card-thread-${thread.id}`}
     >
       {!isAdmin && (

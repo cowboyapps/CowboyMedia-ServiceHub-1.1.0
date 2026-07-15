@@ -595,7 +595,7 @@ export default function ServiceUpdatesPage() {
                     id={`service-update-${group.head.id}`}
                     onClick={() => toggleGroup(group)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group); } }}
-                    className={`relative flex items-start gap-3 w-full px-5 py-3.5 cursor-pointer transition-colors hover-elevate tap-interactive ${
+                    className={`stagger-item relative flex items-start gap-3 w-full px-5 py-3.5 cursor-pointer transition-colors hover-elevate tap-interactive ${
                       isHighlightedGroup ? "bg-primary/10 ring-2 ring-inset ring-primary/50 animate-pulse" : ""
                     }`}
                     data-testid={`row-service-update-${group.head.id}`}

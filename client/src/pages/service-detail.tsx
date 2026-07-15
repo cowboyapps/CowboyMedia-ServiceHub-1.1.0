@@ -228,7 +228,7 @@ export default function ServiceDetail() {
                     const meta = alertSeverityMeta(alert.severity);
                     return (
                       <li key={alert.id}>
-                        <Link href={`/alerts/${alert.id}`} className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-service-alert-${alert.id}`}>
+                        <Link href={`/alerts/${alert.id}`} className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-service-alert-${alert.id}`}>
                           <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.dot}`} />
                           <div className="flex-1 min-w-0 space-y-1.5">
                             <h3 className="font-semibold text-sm">{alert.title}</h3>
@@ -269,7 +269,7 @@ export default function ServiceDetail() {
                 <ul className="divide-y divide-border">
                   {resolvedAlerts.map((alert) => (
                     <li key={alert.id}>
-                      <Link href={`/alerts/${alert.id}`} className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80" data-testid={`card-service-alert-resolved-${alert.id}`}>
+                      <Link href={`/alerts/${alert.id}`} className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80" data-testid={`card-service-alert-resolved-${alert.id}`}>
                         <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-status-online shrink-0" />
                         <div className="flex-1 min-w-0 space-y-1.5">
                           <h3 className="font-semibold text-sm">{alert.title}</h3>

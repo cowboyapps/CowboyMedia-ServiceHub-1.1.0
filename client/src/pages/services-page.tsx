@@ -115,7 +115,7 @@ export default function ServicesPage() {
                   <li key={service.id}>
                     <Link
                       href={`/services/${service.id}`}
-                      className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                      className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
                       data-testid={`card-service-${service.id}`}
                     >
                       <span

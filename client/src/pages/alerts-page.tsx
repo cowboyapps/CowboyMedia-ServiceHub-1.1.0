@@ -149,7 +149,7 @@ export default function AlertsPage() {
                     <li key={alert.id}>
                       <Link
                         href={`/alerts/${alert.id}`}
-                        className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                        className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
                         data-testid={`card-alert-${alert.id}`}
                       >
                         <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.dot}`} />
@@ -193,7 +193,7 @@ export default function AlertsPage() {
                   <li key={alert.id}>
                     <Link
                       href={`/alerts/${alert.id}`}
-                      className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80"
+                      className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80"
                       data-testid={`card-alert-resolved-${alert.id}`}
                     >
                       <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-status-online shrink-0" />

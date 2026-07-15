@@ -568,7 +568,7 @@ export default function SettingsPage() {
   if (!user) return null;
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
+    <div className="space-y-6 max-w-2xl mx-auto animate-fade-in">
       <PageHeader title="Settings" subtitle="Manage your account and preferences" testId="text-settings-title" />
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
