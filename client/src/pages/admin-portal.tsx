@@ -3837,6 +3837,7 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
           <ul className="divide-y divide-border">
             {templates.map((template) => {
               const unusedVars = template.customized ? getUnusedTemplateVariables(template, template.subject, template.body) : [];
+              const unknownTokens = template.customized ? getUnknownTemplateTokens(template.availableVariables || [], template.subject, template.body) : [];
               return (
               <li key={template.id} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-template-${template.templateKey}`}>
                 <div className="flex-1 min-w-0">
@@ -3855,11 +3856,26 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
                         {unusedVars.length === 1 ? "1 new variable available" : `${unusedVars.length} variables unused`}
                       </Badge>
                     )}
+                    {unknownTokens.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 gap-1"
+                        data-testid={`badge-unknown-tokens-${template.templateKey}`}
+                      >
+                        <AlertTriangle className="w-3 h-3" />
+                        {unknownTokens.length === 1 ? "1 unknown placeholder" : `${unknownTokens.length} unknown placeholders`}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
                   {unusedVars.length > 0 && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-1" data-testid={`text-unused-vars-${template.templateKey}`}>
                       This customized template doesn't use: {unusedVars.map((v) => `{${v}}`).join(", ")}. Edit it to add them, or reset to the default wording.
+                    </p>
+                  )}
+                  {unknownTokens.length > 0 && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1" data-testid={`text-unknown-tokens-${template.templateKey}`}>
+                      {unknownTokens.map((t) => `{${t}}`).join(", ")} {unknownTokens.length === 1 ? "isn't" : "aren't"} recognized and will be sent as raw text. Edit the template to fix the spelling.
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1.5 font-mono truncate">Subject: {template.subject}</p>
@@ -4190,6 +4206,7 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
               <ul className="divide-y divide-border">
                 {groupTemplates.map((template) => {
                   const unusedVars = template.customized && template.enabled ? getUnusedNotificationVariables(template, template.title, template.body) : [];
+                  const unknownTokens = template.customized && template.enabled ? getUnknownTemplateTokens(template.variables.map((v) => v.name), template.title, template.body) : [];
                   return (
                   <li key={template.templateKey} className="px-5 py-4 flex items-start justify-between gap-4 hover-elevate transition-colors group" data-testid={`card-notif-template-${template.templateKey}`}>
                     <div className="flex-1 min-w-0">
@@ -4211,11 +4228,26 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
                             {unusedVars.length === 1 ? "1 new variable available" : `${unusedVars.length} variables unused`}
                           </Badge>
                         )}
+                        {unknownTokens.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 gap-1"
+                            data-testid={`badge-notif-unknown-tokens-${template.templateKey}`}
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            {unknownTokens.length === 1 ? "1 unknown placeholder" : `${unknownTokens.length} unknown placeholders`}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
                       {unusedVars.length > 0 && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1" data-testid={`text-notif-unused-vars-${template.templateKey}`}>
                           This customized notification doesn't use: {unusedVars.map((v) => `{${v}}`).join(", ")}. Edit it to add them, or reset to the default wording.
+                        </p>
+                      )}
+                      {unknownTokens.length > 0 && (
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1" data-testid={`text-notif-unknown-tokens-${template.templateKey}`}>
+                          {unknownTokens.map((t) => `{${t}}`).join(", ")} {unknownTokens.length === 1 ? "isn't" : "aren't"} recognized and will be sent as raw text. Edit the notification to fix the spelling.
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground mt-2 font-mono truncate">{template.enabled ? template.title : template.defaultTitle}</p>

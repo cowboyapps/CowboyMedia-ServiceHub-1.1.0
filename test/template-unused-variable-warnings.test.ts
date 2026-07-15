@@ -446,6 +446,88 @@ test("getUnknownTemplateTokens flags word-only {tokens} missing from the known l
   assert.deepEqual(getUnknownTemplateTokens(["a"], "", ""), []);
 });
 
+test("email list: unknown-token badge + hint only on customized rows with a misspelled placeholder", async () => {
+  const c = await mountEmailTab([
+    // Default row with a bogus token: NO warning (defaults are trusted).
+    emailTemplate({ id: "et-1", templateKey: "welcome", customized: false, subject: "Hi {usrname}" }),
+    // Customized row with a typo: red badge + hint.
+    emailTemplate({
+      id: "et-2", templateKey: "reset", name: "Reset", customized: true,
+      subject: "Reset, {usrname}!", body: "<p>{username} {app_url}</p>",
+    }),
+    // Customized row with only valid tokens: NO warning.
+    emailTemplate({
+      id: "et-3", templateKey: "verify", name: "Verify", customized: true,
+      body: "<p>{username} go to {app_url}</p>",
+    }),
+  ]);
+  try {
+    assert.equal(byTestId(c.container, "badge-unknown-tokens-welcome"), null, "no badge on non-customized row");
+
+    const badge = byTestId(c.container, "badge-unknown-tokens-reset");
+    assert.ok(badge, "badge on customized row with unknown token");
+    assert.match(badge!.textContent ?? "", /1 unknown placeholder/);
+    const hint = byTestId(c.container, "text-unknown-tokens-reset");
+    assert.ok(hint, "hint on customized row with unknown token");
+    assert.match(hint!.textContent ?? "", /\{usrname\}/);
+    assert.match(hint!.textContent ?? "", /raw text/);
+
+    assert.equal(byTestId(c.container, "badge-unknown-tokens-verify"), null, "no badge when all tokens are known");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("email list: plural unknown-token badge copy for several typos", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({
+      templateKey: "welcome", customized: true,
+      subject: "Hi {usrname}", body: "<p>{username} {app_url} {appurl}</p>",
+    }),
+  ]);
+  try {
+    const badge = byTestId(c.container, "badge-unknown-tokens-welcome");
+    assert.ok(badge);
+    assert.match(badge!.textContent ?? "", /2 unknown placeholders/);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("notification list: unknown-token badge + hint only on customized AND enabled rows", async () => {
+  const c = await mountNotifTab([
+    // Customized + enabled with a typo: warning.
+    notifTemplate({
+      id: "nt-1", templateKey: "invoice_created", customized: true,
+      title: "New invoice {invoice_numbr}", body: "Amount due: {amount} {invoice_number}",
+    }),
+    // Customized but DISABLED (default wording used): no warning.
+    notifTemplate({
+      id: "nt-2", templateKey: "invoice_paid", label: "Invoice paid",
+      customized: true, enabled: false,
+      title: "Paid {invoice_numbr}", body: "{amount} {invoice_number}",
+    }),
+    // Not customized: no warning even with a bogus token.
+    notifTemplate({
+      id: "nt-3", templateKey: "invoice_refunded", label: "Invoice refunded",
+      customized: false, title: "Refund {invoice_numbr}", body: "{amount} {invoice_number}",
+    }),
+  ]);
+  try {
+    const badge = byTestId(c.container, "badge-notif-unknown-tokens-invoice_created");
+    assert.ok(badge, "badge on customized+enabled row");
+    assert.match(badge!.textContent ?? "", /1 unknown placeholder/);
+    const hint = byTestId(c.container, "text-notif-unknown-tokens-invoice_created");
+    assert.ok(hint, "hint on customized+enabled row");
+    assert.match(hint!.textContent ?? "", /\{invoice_numbr\}/);
+
+    assert.equal(byTestId(c.container, "badge-notif-unknown-tokens-invoice_paid"), null, "no badge on disabled row");
+    assert.equal(byTestId(c.container, "badge-notif-unknown-tokens-invoice_refunded"), null, "no badge on non-customized row");
+  } finally {
+    c.cleanup();
+  }
+});
+
 test("email edit dialog: unknown-token notice appears for a typo'd placeholder and clears when fixed", async () => {
   const c = await mountEmailTab([
     emailTemplate({ templateKey: "welcome", customized: true, subject: "Welcome, {usrname}!", body: "<p>Hello {username} {app_url}</p>" }),
