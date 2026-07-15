@@ -5,8 +5,8 @@ import type { User } from "@shared/schema";
 type RecipientUser = Pick<User, "id" | "role" | "email" | "notificationPrefs"> &
   Partial<Pick<User, "quietHoursEnabled" | "quietHoursStart" | "quietHoursEnd" | "quietHoursTimezone" | "quietHoursAllowCritical">>;
 
-function inQuietHours(u: RecipientUser, now?: Date): boolean {
-  return shouldSuppressNotification({ user: u as QuietHoursUser, categoryKey: "news", now });
+function inQuietHours(u: RecipientUser, now?: Date, categoryKey: string = "news"): boolean {
+  return shouldSuppressNotification({ user: u as QuietHoursUser, categoryKey, now });
 }
 
 /**
@@ -56,6 +56,36 @@ export function selectNewsInAppRecipients<T extends RecipientUser>(users: T[]): 
   return users
     .filter((u) =>
       userWantsChannel(u.notificationPrefs as NotificationPrefs | null | undefined, "news", "in_app"),
+    )
+    .map((u) => u.id);
+}
+
+/**
+ * Promotion recipients mirror the news selectors but honour the
+ * "promotions" notification category instead.
+ */
+export function selectPromotionPushRecipients<T extends RecipientUser>(users: T[], now?: Date): T[] {
+  return users.filter((u) =>
+    userWantsChannel(u.notificationPrefs as NotificationPrefs | null | undefined, "promotions", "push") &&
+    !inQuietHours(u, now, "promotions"),
+  );
+}
+
+export function selectPromotionEmailRecipients<T extends RecipientUser>(users: T[], now?: Date): string[] {
+  return users
+    .filter(
+      (u) =>
+        !!u.email &&
+        userWantsChannel(u.notificationPrefs as NotificationPrefs | null | undefined, "promotions", "email") &&
+        !inQuietHours(u, now, "promotions"),
+    )
+    .map((u) => u.email as string);
+}
+
+export function selectPromotionInAppRecipients<T extends RecipientUser>(users: T[]): string[] {
+  return users
+    .filter((u) =>
+      userWantsChannel(u.notificationPrefs as NotificationPrefs | null | undefined, "promotions", "in_app"),
     )
     .map((u) => u.id);
 }

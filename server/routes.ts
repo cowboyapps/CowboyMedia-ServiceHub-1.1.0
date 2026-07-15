@@ -128,8 +128,9 @@ import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
 import { selectVersionWelcome } from "@shared/version-welcome";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import { shouldSuppressNotification } from "@shared/quiet-hours";
-import { updateQuietHoursSchema } from "@shared/schema";
-import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients } from "./news-recipients";
+import { updateQuietHoursSchema, insertPromotionSchema } from "@shared/schema";
+import { selectNewsPushRecipients, selectNewsEmailRecipients, selectNewsInAppRecipients, selectPromotionPushRecipients, selectPromotionEmailRecipients, selectPromotionInAppRecipients } from "./news-recipients";
+import { fromZodError } from "zod-validation-error";
 import { buildPushPayload } from "./push-payload";
 import type { User, Service } from "@shared/schema";
 import { suggestQuickResponses, checkAiDraftRateLimit, isAiDraftEnabled, buildAiPrompt } from "./suggestions";
@@ -3341,6 +3342,97 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!req.file) return res.status(400).json({ message: "No image provided" });
       const url = await saveUploadedFile(req.file);
       res.json({ url });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  // ---- Promotions ----
+
+  // Customer-facing: active promotions only (started, not yet ended).
+  app.get("/api/promotions", requireAuth, async (_req, res) => {
+    try {
+      const now = new Date();
+      const all = await storage.getAllPromotions();
+      const active = all.filter((p) => p.startsAt <= now && (!p.endsAt || p.endsAt > now));
+      res.json(active);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.get("/api/admin/promotions", requirePermission("promotions.view", "promotions.manage"), async (_req, res) => {
+    try {
+      res.json(await storage.getAllPromotions());
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.post("/api/admin/promotions", requirePermission("promotions.view", "promotions.manage"), async (req, res) => {
+    try {
+      const { notify, ...rest } = req.body ?? {};
+      const parsed = insertPromotionSchema.safeParse(rest);
+      if (!parsed.success) {
+        return res.status(400).json({ message: fromZodError(parsed.error).message });
+      }
+      const promo = await storage.createPromotion(parsed.data);
+      logActivity("promotions", "promotion_created", { actorId: req.session.userId!, targetId: promo.id, targetType: "promotion", summary: `Promotion created: ${promo.title}` });
+      broadcast({ type: "new_promotion", promotion: promo });
+      if (notify === true) {
+        const allUsers = await storage.getAllUsers();
+        for (const u of selectPromotionPushRecipients(allUsers)) {
+          void sendPushToUser(u.id, {
+            title: "New Promotion",
+            body: `${promo.title} — code ${promo.couponCode}`,
+            url: "/promotions",
+            tag: "promotions",
+            resourceLabel: "Promotions",
+            rollupNoun: "promotions",
+          }, { type: "promotions", referenceType: "promotion", referenceId: promo.id });
+        }
+        const emails = selectPromotionEmailRecipients(allUsers);
+        if (emails.length > 0) {
+          void sendTemplatedEmail(emails, "customer_promotion", {
+            promo_title: promo.title,
+            promo_description: promo.description,
+            coupon_code: promo.couponCode,
+          }, "Customers");
+        }
+        const inAppIds = selectPromotionInAppRecipients(allUsers);
+        storage.createContentNotificationBulk(inAppIds, "promotions", promo.title, promo.id).catch(() => {});
+      }
+      res.json(promo);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.patch("/api/admin/promotions/:id", requirePermission("promotions.view", "promotions.manage"), async (req, res) => {
+    try {
+      const existing = await storage.getPromotion(getParam(req, "id"));
+      if (!existing) return res.status(404).json({ message: "Promotion not found" });
+      const parsed = insertPromotionSchema.partial().safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: fromZodError(parsed.error).message });
+      }
+      const updated = await storage.updatePromotion(getParam(req, "id"), parsed.data);
+      logActivity("promotions", "promotion_edited", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "promotion", summary: `Promotion edited: ${updated?.title || getParam(req, "id")}` });
+      broadcast({ type: "promotion_updated", promotion: updated });
+      res.json(updated);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.delete("/api/admin/promotions/:id", requirePermission("promotions.view", "promotions.manage"), async (req, res) => {
+    try {
+      const existing = await storage.getPromotion(getParam(req, "id"));
+      if (!existing) return res.status(404).json({ message: "Promotion not found" });
+      await storage.deletePromotion(getParam(req, "id"));
+      logActivity("promotions", "promotion_deleted", { actorId: req.session.userId!, targetId: getParam(req, "id"), targetType: "promotion", summary: `Promotion deleted: ${existing.title}` });
+      broadcast({ type: "promotion_deleted", promotionId: getParam(req, "id") });
+      res.json({ message: "Promotion deleted" });
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }

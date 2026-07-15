@@ -1,7 +1,9 @@
+import { liveQueryOptions } from "@/lib/queryClient";
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut, Download, Users, BookOpen, CreditCard, Server, ChevronRight } from "lucide-react";
+import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut, Download, Users, BookOpen, CreditCard, Server, ChevronRight, BadgePercent } from "lucide-react";
+import type { Promotion } from "@shared/schema";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useAuth } from "@/lib/auth";
@@ -50,6 +52,13 @@ export function BottomNav() {
     enabled: !!user,
   });
 
+  const { data: promotionsData } = useQuery<Promotion[]>({
+    queryKey: ["/api/promotions"],
+    enabled: !!user,
+    ...liveQueryOptions,
+  });
+  const hasActivePromotion = (promotionsData?.length ?? 0) > 0;
+
   const contentCounts = contentNotifData ?? {};
   const unreadMessageCount = messageData?.count ?? 0;
   const unreadReportCount = reportNotifData?.count ?? 0;
@@ -71,7 +80,7 @@ export function BottomNav() {
     { label: "More", icon: Menu, path: null, badge: overflowBadgeCount },
   ];
 
-  const overflowRoutes = ["/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings", "/admin"];
+  const overflowRoutes = ["/promotions", "/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings", "/admin"];
 
   const isActive = (path: string | null) => {
     if (path === null) return overflowRoutes.some((r) => location === r || location.startsWith(r + "/"));
@@ -82,10 +91,11 @@ export function BottomNav() {
   // iOS-Settings-style grouped menu: each group renders as an inset rounded
   // card of rows (colored icon tile · label · badge · chevron), separated by
   // hairline dividers, under a small uppercase section header.
-  const menuGroups: { label: string; items: { title: string; url: string; icon: typeof Mail; badge: number; tileBg: string; tileFg: string }[] }[] = [
+  const menuGroups: { label: string; items: { title: string; url: string; icon: typeof Mail; badge: number; tileBg: string; tileFg: string; glow?: boolean }[] }[] = [
     {
       label: "Stay informed",
       items: [
+        { title: "Promotions", url: "/promotions", icon: BadgePercent, badge: 0, tileBg: "bg-primary/10 dark:bg-primary/20", tileFg: "text-primary", glow: hasActivePromotion },
         { title: "Service Updates", url: "/service-updates", icon: RefreshCw, badge: contentCounts["service-updates"] ?? 0, tileBg: "bg-sky-500/15 dark:bg-sky-400/15", tileFg: "text-sky-600 dark:text-sky-400" },
         { title: "Messages", url: "/messages", icon: Mail, badge: unreadMessageCount, tileBg: "bg-blue-500/15 dark:bg-blue-400/15", tileFg: "text-blue-600 dark:text-blue-400" },
         { title: "Community Chat", url: "/community", icon: Users, badge: 0, tileBg: "bg-indigo-500/15 dark:bg-indigo-400/15", tileFg: "text-indigo-600 dark:text-indigo-400" },
@@ -213,12 +223,12 @@ export function BottomNav() {
                         key={item.title}
                         onClick={() => handleSheetNav(item.url)}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors motion-reduce:transition-none active:bg-accent/70 ${active ? "bg-primary/5" : "hover:bg-accent/50"}`}
-                        data-testid={`sheet-nav-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}
+                        data-testid={item.url === "/promotions" ? "link-promotions" : `sheet-nav-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}
                       >
-                        <div className={`rounded-lg p-2 shrink-0 ${item.tileBg}`}>
+                        <div className={`rounded-lg p-2 shrink-0 ${item.tileBg} ${item.glow ? "animate-pulse ring-2 ring-primary/40" : ""}`}>
                           <Icon className={`w-[18px] h-[18px] ${item.tileFg}`} />
                         </div>
-                        <span className={`flex-1 min-w-0 text-sm font-medium truncate ${active ? "text-primary" : ""}`}>{item.title}</span>
+                        <span className={`flex-1 min-w-0 text-sm font-medium truncate ${item.glow ? "text-primary animate-pulse" : active ? "text-primary" : ""}`}>{item.title}</span>
                         {item.badge > 0 && (
                           <Badge variant="destructive" className="shrink-0 text-[10px] h-5 min-w-5 flex items-center justify-center px-1" data-testid={`badge-sheet-${item.title.toLowerCase().replace(/[\s/]+/g, "-")}`}>
                             {item.badge}

@@ -122,6 +122,19 @@ export const newsStories = pgTable("news_stories", {
   createdAtIdx: index("news_stories_created_at_idx").on(table.createdAt.desc()),
 }));
 
+export const promotions = pgTable("promotions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  audience: text("audience").notNull().default("both"), // "new" | "existing" | "both"
+  couponCode: text("coupon_code").notNull(),
+  startsAt: timestamp("starts_at").defaultNow().notNull(),
+  endsAt: timestamp("ends_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  startsEndsIdx: index("promotions_starts_at_ends_at_idx").on(table.startsAt, table.endsAt),
+}));
+
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   subject: text("subject").notNull(),
@@ -381,6 +394,16 @@ export const insertServiceAlertSchema = createInsertSchema(serviceAlerts).omit({
 export const insertAlertServiceSchema = createInsertSchema(alertServices);
 export const insertAlertUpdateSchema = createInsertSchema(alertUpdates).omit({ id: true, createdAt: true });
 export const insertNewsStorySchema = createInsertSchema(newsStories).omit({ id: true, createdAt: true });
+export const insertPromotionSchema = createInsertSchema(promotions)
+  .omit({ id: true, createdAt: true })
+  .extend({
+    title: z.string().trim().min(1, "Title is required"),
+    description: z.string().trim().min(1, "Description is required"),
+    couponCode: z.string().trim().min(1, "Coupon code is required"),
+    audience: z.enum(["new", "existing", "both"]),
+    startsAt: z.coerce.date(),
+    endsAt: z.coerce.date().nullable().optional(),
+  });
 export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, closedAt: true });
 export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({ id: true, createdAt: true });
 export const insertPrivateMessageSchema = createInsertSchema(privateMessages).omit({ id: true, createdAt: true, readAt: true });
@@ -416,6 +439,8 @@ export type InsertAlertUpdate = z.infer<typeof insertAlertUpdateSchema>;
 export type AlertUpdate = typeof alertUpdates.$inferSelect;
 export type InsertNewsStory = z.infer<typeof insertNewsStorySchema>;
 export type NewsStory = typeof newsStories.$inferSelect;
+export type InsertPromotion = z.infer<typeof insertPromotionSchema>;
+export type Promotion = typeof promotions.$inferSelect;
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
 export type Ticket = typeof tickets.$inferSelect;
 export type InsertTicketMessage = z.infer<typeof insertTicketMessageSchema>;
@@ -1355,6 +1380,7 @@ export const ADMIN_PERMISSION_KEYS = [
   "services.view", "services.manage",
   "alerts.view", "alerts.manage",
   "news.view", "news.manage",
+  "promotions.view", "promotions.manage",
   "messages.view", "messages.manage",
   "quick_responses.view", "quick_responses.manage",
   "service_updates.view", "service_updates.manage",

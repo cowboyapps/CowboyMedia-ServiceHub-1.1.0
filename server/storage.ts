@@ -4,6 +4,7 @@ import {
   type ServiceAlert, type InsertServiceAlert, type ServiceAlertWithServices,
   type AlertUpdate, type InsertAlertUpdate,
   type NewsStory, type InsertNewsStory,
+  type Promotion, type InsertPromotion,
   type Ticket, type InsertTicket,
   type TicketMessage, type InsertTicketMessage,
   type PrivateMessage, type InsertPrivateMessage,
@@ -78,7 +79,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
-  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, alertDrafts, messageThreads, threadMessages, userNotifications, communityMessages, communityMessageEdits, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
+  users, services, serviceAlerts, alertServices, alertUpdates, newsStories, promotions, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, alertDrafts, messageThreads, threadMessages, userNotifications, communityMessages, communityMessageEdits, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
 import {
@@ -172,6 +173,11 @@ export interface IStorage {
   getAllNews(): Promise<NewsStory[]>;
   getNewsStory(id: string): Promise<NewsStory | undefined>;
   createNewsStory(story: InsertNewsStory): Promise<NewsStory>;
+  getAllPromotions(): Promise<Promotion[]>;
+  getPromotion(id: string): Promise<Promotion | undefined>;
+  createPromotion(promo: InsertPromotion): Promise<Promotion>;
+  updatePromotion(id: string, data: Partial<InsertPromotion>): Promise<Promotion | undefined>;
+  deletePromotion(id: string): Promise<void>;
   updateNewsStory(id: string, data: Partial<InsertNewsStory>): Promise<NewsStory | undefined>;
   deleteNewsStory(id: string): Promise<void>;
 
@@ -696,6 +702,29 @@ export class DatabaseStorage implements IStorage {
   async getNewsStory(id: string): Promise<NewsStory | undefined> {
     const [story] = await db.select().from(newsStories).where(eq(newsStories.id, id));
     return story;
+  }
+
+  async getAllPromotions(): Promise<Promotion[]> {
+    return db.select().from(promotions).orderBy(desc(promotions.startsAt));
+  }
+
+  async getPromotion(id: string): Promise<Promotion | undefined> {
+    const [promo] = await db.select().from(promotions).where(eq(promotions.id, id));
+    return promo;
+  }
+
+  async createPromotion(promo: InsertPromotion): Promise<Promotion> {
+    const [created] = await db.insert(promotions).values(promo).returning();
+    return created;
+  }
+
+  async updatePromotion(id: string, data: Partial<InsertPromotion>): Promise<Promotion | undefined> {
+    const [updated] = await db.update(promotions).set(data).where(eq(promotions.id, id)).returning();
+    return updated;
+  }
+
+  async deletePromotion(id: string): Promise<void> {
+    await db.delete(promotions).where(eq(promotions.id, id));
   }
 
   async createNewsStory(story: InsertNewsStory): Promise<NewsStory> {

@@ -377,6 +377,17 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to all customers when a new news story is published",
   },
   {
+    templateKey: "customer_promotion",
+    name: "New Promotion",
+    subject: "New Promotion: {promo_title}",
+    body: `<h2>{promo_title}</h2>
+<p>{promo_description}</p>
+<p style="text-align:center;margin:24px 0;"><span style="display:inline-block;padding:12px 24px;border:2px dashed #2563eb;border-radius:8px;font-size:20px;font-weight:700;letter-spacing:2px;">{coupon_code}</span></p>
+<p>Log in to the app to see all current promotions.</p>`,
+    availableVariables: ["promo_title", "promo_description", "coupon_code", "customer_name"],
+    description: "Sent to customers when a new promotion is published (if enabled on the promotion)",
+  },
+  {
     templateKey: "customer_private_message",
     name: "Private Message (Customer)",
     subject: "Private Message from {sender_name}",

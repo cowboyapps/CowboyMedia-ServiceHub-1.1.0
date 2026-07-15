@@ -159,6 +159,13 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["in_app", "push", "email"],
   },
   {
+    key: "promotions",
+    label: "Promotions",
+    description: "When a new promotion or coupon becomes available",
+    group: "News",
+    channels: ["in_app", "push", "email"],
+  },
+  {
     key: "setup_reminder",
     label: "Account setup reminder",
     description: "One-time reminder if you haven't finished setting up your account",

@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, Tags, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, Tags, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog, BadgePercent } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { ImageCropDialog, type CropAspectKey } from "@/components/image-crop-dialog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -39,7 +39,8 @@ import { BillingSummaryView, type BillingSummary } from "@/components/billing-su
 import { WhmcsTicketList, WhmcsTicketThread, type WhmcsTicketsListData, type WhmcsTicketDetail, type WhmcsAttachment } from "@/components/whmcs-tickets";
 import { Download, ImagePlus, X as XIcon, Paperclip, GripVertical, Star, Package } from "lucide-react";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
-import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, AlertDraft, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle } from "@shared/schema";
+import type { User, Service, ServiceAlert, ServiceAlertWithServices, AlertUpdate, AlertDraft, NewsStory, QuickResponse, QuickResponseCategory, ReportRequest, ServiceUpdate, EmailTemplate, AdminRole, TicketCategory, Download as DownloadItem, UrlMonitor, MonitorIncident, Announcement, KbCategory, KbArticle, Promotion } from "@shared/schema";
+import { insertPromotionSchema } from "@shared/schema";
 import { slugify } from "@shared/kb";
 import { RichTextEditor, stripHtml, clearTiptapDraft } from "@/components/rich-text-editor";
 import { RichTextContent } from "@/components/rich-text-content";
@@ -2475,6 +2476,342 @@ function NewsTab({ canManage = true }: { canManage?: boolean }) {
           </Form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+const promotionFormSchema = insertPromotionSchema.extend({
+  startsAt: z.string().min(1, "Start date is required"),
+  endsAt: z.string().optional(),
+  notify: z.boolean().default(false),
+});
+type PromotionFormValues = z.infer<typeof promotionFormSchema>;
+
+const PROMO_AUDIENCE_LABELS: Record<string, string> = {
+  new: "New customers",
+  existing: "Existing customers",
+  both: "All customers",
+};
+
+// Convert a Date into the value format expected by <input type="datetime-local">
+// ("YYYY-MM-DDTHH:mm"), in the browser's local timezone.
+function toDatetimeLocalValue(d: Date): string {
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function promotionStatus(promo: Promotion, now: Date): { label: string; className: string } {
+  const starts = new Date(promo.startsAt);
+  const ends = promo.endsAt ? new Date(promo.endsAt) : null;
+  if (now < starts) {
+    return { label: "Scheduled", className: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" };
+  }
+  if (ends && now > ends) {
+    return { label: "Expired", className: "bg-muted text-muted-foreground border-transparent" };
+  }
+  return { label: "Active", className: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20" };
+}
+
+function PromotionsTab({ canManage = true }: { canManage?: boolean }) {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingPromo, setEditingPromo] = useState<Promotion | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const now = new Date();
+
+  const { data: promotions, isLoading } = useQuery<Promotion[]>({
+    queryKey: ["/api/admin/promotions"],
+  });
+
+  const form = useForm<PromotionFormValues>({
+    resolver: zodResolver(promotionFormSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      audience: "both",
+      couponCode: "",
+      startsAt: toDatetimeLocalValue(new Date()),
+      endsAt: "",
+      notify: false,
+    },
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/promotions"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/promotions"] });
+  };
+
+  const buildPayload = (data: PromotionFormValues, includeNotify: boolean) => {
+    const payload: Record<string, unknown> = {
+      title: data.title,
+      description: data.description,
+      audience: data.audience,
+      couponCode: data.couponCode,
+      startsAt: new Date(data.startsAt).toISOString(),
+      endsAt: data.endsAt ? new Date(data.endsAt).toISOString() : null,
+    };
+    if (includeNotify) payload.notify = data.notify;
+    return payload;
+  };
+
+  const createMutation = useMutation({
+    mutationFn: async (data: PromotionFormValues) => {
+      await apiRequest("POST", "/api/admin/promotions", buildPayload(data, true));
+    },
+    onSuccess: () => {
+      invalidate();
+      setDialogOpen(false);
+      setEditingPromo(null);
+      form.reset();
+      toast({ title: "Promotion created" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: PromotionFormValues) => {
+      await apiRequest("PATCH", `/api/admin/promotions/${editingPromo!.id}`, buildPayload(data, false));
+    },
+    onSuccess: () => {
+      invalidate();
+      setDialogOpen(false);
+      setEditingPromo(null);
+      form.reset();
+      toast({ title: "Promotion updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/promotions/${id}`);
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Promotion deleted" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const openCreateDialog = () => {
+    setEditingPromo(null);
+    form.reset({
+      title: "",
+      description: "",
+      audience: "both",
+      couponCode: "",
+      startsAt: toDatetimeLocalValue(new Date()),
+      endsAt: "",
+      notify: false,
+    });
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (promo: Promotion) => {
+    setEditingPromo(promo);
+    form.reset({
+      title: promo.title,
+      description: promo.description,
+      audience: promo.audience as "new" | "existing" | "both",
+      couponCode: promo.couponCode,
+      startsAt: toDatetimeLocalValue(new Date(promo.startsAt)),
+      endsAt: promo.endsAt ? toDatetimeLocalValue(new Date(promo.endsAt)) : "",
+      notify: false,
+    });
+    setDialogOpen(true);
+  };
+
+  const onSubmit = (data: PromotionFormValues) => {
+    if (editingPromo) updateMutation.mutate(data);
+    else createMutation.mutate(data);
+  };
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <BadgePercent className="h-[18px] w-[18px]" />
+            </span>
+            Promotions ({promotions?.length || 0})
+          </h2>
+          {canManage && (
+            <Button size="sm" onClick={openCreateDialog} data-testid="button-add-promotion">
+              <Plus className="w-4 h-4 mr-1" /> Add Promotion
+            </Button>
+          )}
+        </div>
+
+        {isLoading ? (
+          <ul className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <li key={i} className="px-5 py-4 flex items-start gap-4">
+                <div className="flex-1 space-y-2 py-1">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+                <div className="flex gap-1 py-1">
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : promotions?.length === 0 ? (
+          <div className="px-5 py-8 text-center flex flex-col items-center justify-center">
+            <BadgePercent className="w-8 h-8 mb-3 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No promotions yet</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Coupon</TableHead>
+                  <TableHead>Audience</TableHead>
+                  <TableHead>Window</TableHead>
+                  <TableHead>Status</TableHead>
+                  {canManage && <TableHead className="text-right">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {promotions?.map((promo) => {
+                  const status = promotionStatus(promo, now);
+                  return (
+                    <TableRow key={promo.id} data-testid={`row-promotion-${promo.id}`}>
+                      <TableCell className="font-medium max-w-[220px] truncate">{promo.title}</TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center rounded-md bg-primary/10 dark:bg-primary/20 text-primary px-2 py-0.5 text-xs font-mono font-medium">
+                          {promo.couponCode}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {PROMO_AUDIENCE_LABELS[promo.audience] ?? promo.audience}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {format(new Date(promo.startsAt), "MMM d, yyyy")}
+                        {promo.endsAt ? ` – ${format(new Date(promo.endsAt), "MMM d, yyyy")}` : " – No end"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-xs ${status.className}`} data-testid={`badge-promotion-status-${promo.id}`}>
+                          {status.label}
+                        </Badge>
+                      </TableCell>
+                      {canManage && (
+                        <TableCell className="text-right">
+                          <div className="flex gap-1 justify-end">
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(promo)} data-testid={`button-edit-promotion-${promo.id}`}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget({ id: promo.id, title: promo.title })} data-testid={`button-delete-promotion-${promo.id}`}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); setEditingPromo(null); } }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{editingPromo ? "Edit Promotion" : "Add Promotion"}</DialogTitle></DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+              <FormField control={form.control} name="title" render={({ field }) => (
+                <FormItem><FormLabel>Title</FormLabel><FormControl><Input data-testid="input-promo-title" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="description" render={({ field }) => (
+                <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea rows={4} data-testid="input-promo-description" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="audience" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Audience</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-promo-audience"><SelectValue /></SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="new">New customers</SelectItem>
+                      <SelectItem value="existing">Existing customers</SelectItem>
+                      <SelectItem value="both">All customers</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="couponCode" render={({ field }) => (
+                <FormItem><FormLabel>Coupon Code</FormLabel><FormControl><Input data-testid="input-promo-coupon" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="startsAt" render={({ field }) => (
+                <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="datetime-local" data-testid="input-promo-start" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="endsAt" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>End Date (optional)</FormLabel>
+                  <div className="flex items-center gap-2">
+                    <FormControl>
+                      <Input type="datetime-local" data-testid="input-promo-end" {...field} value={field.value ?? ""} />
+                    </FormControl>
+                    {field.value ? (
+                      <Button type="button" size="sm" variant="outline" onClick={() => field.onChange("")} data-testid="button-clear-promo-end">
+                        Clear
+                      </Button>
+                    ) : null}
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              {!editingPromo && (
+                <FormField control={form.control} name="notify" render={({ field }) => (
+                  <FormItem className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                    <div className="min-w-0">
+                      <FormLabel className="text-sm">Notify customers</FormLabel>
+                      <p className="text-xs text-muted-foreground">Send push + email + in-app</p>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-promo-notify" />
+                    </FormControl>
+                  </FormItem>
+                )} />
+              )}
+              <Button type="submit" className="w-full" disabled={isSaving} data-testid="button-save-promotion">
+                {isSaving ? "Saving..." : editingPromo ? "Save Changes" : "Create Promotion"}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete promotion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{deleteTarget?.title ?? "this promotion"}". This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-promotion">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id); setDeleteTarget(null); }}
+              data-testid="button-confirm-delete-promotion"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -7160,6 +7497,7 @@ const TILE_PERM_MAP: Record<string, string> = {
   "services": "services.view",
   "alerts": "alerts.view",
   "news": "news.view",
+  "promotions": "promotions.view",
   "messages": "messages.view",
   "quick-responses": "quick_responses.view",
   "service-updates": "service_updates.view",
@@ -7184,6 +7522,7 @@ const TILE_MANAGE_MAP: Record<string, string> = {
   "services": "services.manage",
   "alerts": "alerts.manage",
   "news": "news.manage",
+  "promotions": "promotions.manage",
   "messages": "messages.manage",
   "quick-responses": "quick_responses.manage",
   "service-updates": "service_updates.manage",
@@ -11733,6 +12072,7 @@ export default function AdminPortal() {
     { key: "services", label: "Services", icon: Server, color: "text-green-500", bg: "bg-green-500/10", group: "status" },
     { key: "alerts", label: "Alerts", icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-500/10", group: "status" },
     { key: "news", label: "News", icon: Newspaper, color: "text-purple-500", bg: "bg-purple-500/10", group: "content" },
+    { key: "promotions", label: "Promotions", icon: BadgePercent, color: "text-primary", bg: "bg-primary/10", group: "content" },
     { key: "messages", label: "Messages", icon: Mail, color: "text-rose-500", bg: "bg-rose-500/10", navigateTo: "/messages", group: "support" },
     { key: "quick-responses", label: "Quick Responses", icon: Zap, color: "text-orange-500", bg: "bg-orange-500/10", group: "support" },
     { key: "service-updates", label: "Service Updates", icon: RefreshCw, color: "text-teal-500", bg: "bg-teal-500/10", group: "status" },
@@ -11791,6 +12131,7 @@ export default function AdminPortal() {
       case "services": return <ServicesTab canManage={canManageSection("services")} />;
       case "alerts": return <AlertsTab canManage={canManageSection("alerts")} />;
       case "news": return <NewsTab canManage={canManageSection("news")} />;
+      case "promotions": return <PromotionsTab canManage={canManageSection("promotions")} />;
       case "quick-responses": return <QuickResponsesTab canManage={canManageSection("quick-responses")} />;
       case "service-updates": return <ServiceUpdatesTab canManage={canManageSection("service-updates")} />;
       case "reports-requests": return <ReportsRequestsTab canManage={canManageSection("reports-requests")} />;

@@ -47,6 +47,7 @@ import AlertsPage from "@/pages/alerts-page";
 import AlertDetail from "@/pages/alert-detail";
 import NewsPage from "@/pages/news-page";
 import NewsDetail from "@/pages/news-detail";
+import PromotionsPage from "@/pages/promotions";
 import TicketsPage from "@/pages/tickets-page";
 import TicketDetail from "@/pages/ticket-detail";
 import WhmcsTicketDetail from "@/pages/whmcs-ticket-detail";
@@ -147,6 +148,7 @@ function AppRouter() {
         <Route path="/alerts/:id" component={AlertDetail} />
         <Route path="/news" component={NewsPage} />
         <Route path="/news/:id" component={NewsDetail} />
+        <Route path="/promotions" component={PromotionsPage} />
         <Route path="/tickets" component={TicketsPage} />
         <Route path="/tickets/:id" component={TicketDetail} />
         <Route path="/whmcs-tickets/:id" component={WhmcsTicketDetail} />
