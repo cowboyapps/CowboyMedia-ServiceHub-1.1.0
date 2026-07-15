@@ -310,6 +310,37 @@ body {
 .animate-hero-breathe {
   animation: hero-breathe 3.2s ease-in-out infinite;
 }
+
+/* Slow light sweep across the status hero — a faint diagonal highlight that
+   drifts left→right so the hero feels alive without drawing attention. Apply
+   to an absolutely-positioned overlay inside a relative, overflow-hidden hero. */
+@keyframes hero-sweep {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+.animate-hero-sweep {
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.05) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: hero-sweep 5s linear infinite;
+}
+
+/* "All clear" checkmark draw-in for empty states. */
+@keyframes draw-check {
+  0% { stroke-dashoffset: 50; opacity: 0; }
+  20% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+.animate-draw-check {
+  stroke-dasharray: 50;
+  stroke-dashoffset: 50;
+  animation: draw-check 1.2s var(--motion-ease) 200ms both;
+}
 .hero-glow-online { --hero-glow: rgb(34 197 94 / 0.35); }
 .hero-glow-away { --hero-glow: rgb(245 158 11 / 0.4); }
 .hero-glow-busy { --hero-glow: rgb(239 68 68 / 0.4); }
@@ -388,6 +419,15 @@ body {
   }
   .animate-hero-breathe {
     animation: none;
+  }
+  .animate-hero-sweep {
+    animation: none;
+    background: none;
+  }
+  .animate-draw-check {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
   }
   ::view-transition-old(root),
   ::view-transition-new(root) {

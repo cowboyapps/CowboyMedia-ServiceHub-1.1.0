@@ -44,12 +44,35 @@ function RowSkeletons({ rows = 3 }: { rows?: number }) {
     <div className="divide-y divide-border">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-5 py-3.5">
-          <Skeleton className="h-2.5 w-2.5 rounded-full" />
-          <Skeleton className="h-4 flex-1 max-w-48" />
-          <Skeleton className="h-5 w-20 rounded-full" />
+          <Skeleton className="h-2.5 w-2.5 rounded-full animate-shimmer" />
+          <Skeleton className="h-4 flex-1 max-w-48 animate-shimmer" />
+          <Skeleton className="h-5 w-20 rounded-full animate-shimmer" />
         </div>
       ))}
     </div>
+  );
+}
+
+type UptimeSummary = Record<string, { uptime30d: number | null; dailyBuckets: { date: string; status: string; downtimeSeconds: number }[] }>;
+
+function sparkColor(state: string): string {
+  switch (state) {
+    case "up": return "bg-status-online";
+    case "partial": return "bg-status-away";
+    case "down": return "bg-status-busy";
+    default: return "bg-muted";
+  }
+}
+
+/* Tiny 30-day uptime strip shown on a dashboard service row — one 3px-wide
+   bar per day, colored like the public status page's sparkline. */
+function MiniSparkline({ buckets, serviceId }: { buckets: { date: string; status: string }[]; serviceId: string }) {
+  return (
+    <span className="hidden sm:flex items-end gap-px h-3.5 shrink-0 opacity-80" data-testid={`sparkline-service-${serviceId}`} aria-hidden="true">
+      {buckets.map((b, i) => (
+        <span key={i} title={`${b.date}: ${b.status}`} className={`w-[3px] h-full rounded-[1px] ${sparkColor(b.status)}`} />
+      ))}
+    </span>
   );
 }
 
@@ -58,6 +81,10 @@ export default function Dashboard() {
 
   const { data: services, isLoading: servicesLoading, isError: servicesError, error: servicesErrorObj, refetch: refetchServices, isFetching: servicesFetching } = useQuery<Service[]>({
     queryKey: ["/api/services"],
+  });
+
+  const { data: uptimeSummary } = useQuery<UptimeSummary>({
+    queryKey: ["/api/services-uptime-summary"],
   });
 
   const { data: alerts, isLoading: alertsLoading, isError: alertsError, error: alertsErrorObj, refetch: refetchAlerts, isFetching: alertsFetching } = useQuery<ServiceAlertWithServices[]>({
@@ -155,7 +182,8 @@ export default function Dashboard() {
         </div>
       ) : heroState === "clear" ? (
         <Link href="/alerts" className="block" data-testid="hero-status">
-          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
+          <div className="relative overflow-hidden rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
+            <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
             <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
               <CheckCircle2 className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-status-online" />
             </span>
@@ -171,7 +199,8 @@ export default function Dashboard() {
         </Link>
       ) : heroState === "monitoring" ? (
         <Link href={monitoringHref} className="block" data-testid="hero-status">
-          <div className="rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
+          <div className="relative overflow-hidden rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
+            <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
             <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
               <CheckCircle2 className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-status-online" />
             </span>
@@ -196,10 +225,11 @@ export default function Dashboard() {
           <div
             className={
               heroState === "outage"
-                ? "w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer animate-hero-breathe hero-glow-busy"
-                : "w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer animate-hero-breathe hero-glow-away"
+                ? "relative overflow-hidden w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer animate-hero-breathe hero-glow-busy"
+                : "relative overflow-hidden w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer animate-hero-breathe hero-glow-away"
             }
           >
+            <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
             <span
               className={
                 heroState === "outage"
@@ -276,7 +306,7 @@ export default function Dashboard() {
             {displayServices.map((service) => {
               const meta = statusMeta[service.status] || statusMeta.maintenance;
               return (
-                <li key={service.id}>
+                <li key={service.id} className="stagger-item">
                   <Link
                     href={`/services/${service.id}`}
                     className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
@@ -284,6 +314,9 @@ export default function Dashboard() {
                   >
                     <span className={`h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0 ${service.status !== "operational" ? "animate-status-pulse" : ""}`} />
                     <span className="flex-1 min-w-0 truncate text-sm font-medium">{service.name}</span>
+                    {uptimeSummary?.[service.id]?.dailyBuckets?.length ? (
+                      <MiniSparkline buckets={uptimeSummary[service.id].dailyBuckets} serviceId={service.id} />
+                    ) : null}
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>{meta.label}</span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   </Link>
@@ -320,6 +353,13 @@ export default function Dashboard() {
           />
         ) : openTickets.length === 0 ? (
           <div className="px-5 py-8 text-center">
+            <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-status-online/10">
+              <svg className="h-7 w-7 text-status-online" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01" className="animate-draw-check"></polyline>
+              </svg>
+            </span>
+            <p className="text-sm font-medium mb-1">All clear!</p>
             <p className="text-sm text-muted-foreground mb-4">You don't have any open tickets.</p>
             <Link href="/tickets" className="inline-block">
               <Button data-testid="button-open-ticket">
@@ -330,7 +370,7 @@ export default function Dashboard() {
         ) : (
           <ul className="divide-y divide-border">
             {openTickets.slice(0, 4).map((ticket) => (
-              <li key={ticket.id}>
+              <li key={ticket.id} className="stagger-item">
                 <Link
                   href={`/tickets/${ticket.id}`}
                   className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
@@ -380,7 +420,7 @@ export default function Dashboard() {
         ) : (
           <ul className="divide-y divide-border">
             {serviceUpdates.slice(0, 3).map((update) => (
-              <li key={update.id}>
+              <li key={update.id} className="stagger-item">
                 <Link
                   href={`/service-updates?highlight=${update.id}`}
                   className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
@@ -431,7 +471,7 @@ export default function Dashboard() {
         ) : (
           <ul className="divide-y divide-border">
             {news.slice(0, 3).map((story) => (
-              <li key={story.id}>
+              <li key={story.id} className="stagger-item">
                 <Link
                   href={`/news/${story.id}`}
                   className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"

@@ -5649,6 +5649,35 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
+  // Batch uptime summary for the dashboard's service rows: one call returns
+  // the last-30-day buckets + 30d percentage for every service that has a
+  // monitor linked. Services without monitors are omitted so the client can
+  // simply skip the sparkline. Result is cached in-process for 30s — the data
+  // only changes when a monitor incident opens/closes, so every dashboard
+  // load within the window shares one computation instead of fanning out
+  // per-service/per-monitor queries.
+  let uptimeSummaryCache: { at: number; data: unknown } | null = null;
+  app.get("/api/services-uptime-summary", requireAuth, async (_req, res) => {
+    try {
+      if (uptimeSummaryCache && Date.now() - uptimeSummaryCache.at < 30_000) {
+        return res.json(uptimeSummaryCache.data);
+      }
+      const services = await storage.getAllServices();
+      const out: Record<string, { uptime30d: number | null; dailyBuckets: { date: string; status: string; downtimeSeconds: number }[] }> = {};
+      await Promise.all(services.map(async (s) => {
+        const monitors = await storage.getMonitorsByService(s.id);
+        if (monitors.length === 0) return;
+        const incArrays = await Promise.all(monitors.map((m) => storage.getMonitorIncidents(m.id)));
+        const uptime = computeUptimeFn(incArrays.flat(), true);
+        out[s.id] = { uptime30d: uptime.uptime30d, dailyBuckets: uptime.dailyBuckets.slice(-30) };
+      }));
+      uptimeSummaryCache = { at: Date.now(), data: out };
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
   // Logged-in service uptime block (used by /services/:id detail page)
   app.get("/api/services/:id/uptime", requireAuth, async (req, res) => {
     try {
