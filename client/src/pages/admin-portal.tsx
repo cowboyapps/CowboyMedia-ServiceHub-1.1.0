@@ -48,7 +48,7 @@ import { APP_VERSION } from "@shared/version";
 import { countBulletsInBody } from "@shared/changelog-append";
 import { ROLLING_DRAFT_VERSION } from "@shared/changelog-rollover";
 import DOMPurify from "dompurify";
-import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable } from "@shared/quick-response-vars";
+import { applySuggestionsToTemplate, findUnknownPlaceholders, suggestKnownVariable, suggestClosestVariable } from "@shared/quick-response-vars";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_GROUPS, countEnabledGroups, userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { parseAdminPortalQuery, computeInitialActiveSection, computeInitialUserAction, ADMIN_MENU_SENTINEL } from "./admin-portal-deeplink";
@@ -3713,6 +3713,12 @@ export function getUnknownTemplateTokens(known: string[], ...texts: string[]): s
   return out;
 }
 
+// Replace every `{typo}` occurrence with `{suggestion}` in a template field.
+// Exact single-brace token match only, so nothing else in the text can shift.
+export function replaceTemplateToken(text: string, from: string, to: string): string {
+  return (text || "").split(`{${from}}`).join(`{${to}}`);
+}
+
 export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean }) {
   const { toast } = useToast();
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
@@ -3958,6 +3964,27 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                       <span>
                         {unknown.map((t) => `{${t}}`).join(", ")} {unknown.length === 1 ? "isn't a known variable" : "aren't known variables"} for this template, so customers would see {unknown.length === 1 ? "it" : "them"} as raw text. Check for typos or remove {unknown.length === 1 ? "it" : "them"} — the valid variables are listed above.
+                        {unknown.map((t) => {
+                          const suggestion = suggestClosestVariable(t, editingTemplate.availableVariables || []);
+                          if (!suggestion) return null;
+                          return (
+                            <span key={t} className="block mt-1">
+                              Did you mean{" "}
+                              <button
+                                type="button"
+                                className="font-mono underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
+                                onClick={() => {
+                                  setEditSubject((s) => replaceTemplateToken(s, t, suggestion));
+                                  setEditBody((b) => replaceTemplateToken(b, t, suggestion));
+                                }}
+                                data-testid={`button-fix-token-${t}`}
+                              >
+                                {`{${suggestion}}`}
+                              </button>
+                              ? Click to replace {`{${t}}`}.
+                            </span>
+                          );
+                        })}
                       </span>
                     </div>
                   );
@@ -4332,6 +4359,27 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                       <span>
                         {unknown.map((t) => `{${t}}`).join(", ")} {unknown.length === 1 ? "isn't a known variable" : "aren't known variables"} for this notification, so customers would see {unknown.length === 1 ? "it" : "them"} as raw text. Check for typos or remove {unknown.length === 1 ? "it" : "them"} — the valid variables are listed above.
+                        {unknown.map((t) => {
+                          const suggestion = suggestClosestVariable(t, editingTemplate.variables.map((v) => v.name));
+                          if (!suggestion) return null;
+                          return (
+                            <span key={t} className="block mt-1">
+                              Did you mean{" "}
+                              <button
+                                type="button"
+                                className="font-mono underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
+                                onClick={() => {
+                                  setEditTitle((s) => replaceTemplateToken(s, t, suggestion));
+                                  setEditBody((b) => replaceTemplateToken(b, t, suggestion));
+                                }}
+                                data-testid={`button-fix-notif-token-${t}`}
+                              >
+                                {`{${suggestion}}`}
+                              </button>
+                              ? Click to replace {`{${t}}`}.
+                            </span>
+                          );
+                        })}
                       </span>
                     </div>
                   );

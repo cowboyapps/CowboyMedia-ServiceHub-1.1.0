@@ -247,20 +247,36 @@ function levenshtein(a: string, b: string): number {
  *      `null` so we never auto-apply a guess we aren't confident in.
  */
 export function suggestKnownVariable(token: string): QuickResponseVariable | null {
-  if (!token) return null;
+  return suggestClosestVariable(token, QUICK_RESPONSE_VARIABLES) as QuickResponseVariable | null;
+}
+
+/**
+ * Generic version of `suggestKnownVariable`: suggest the closest match from an
+ * arbitrary list of known variable names. Accepts a bare name or a token
+ * wrapped in `{...}` / `{{...}}` (with optional inner whitespace). Same
+ * matching strategy: normalized exact match first, then unique-closest
+ * Levenshtein within a small budget (1 edit for short names, 2 for longer);
+ * ambiguous ties yield `null`. Used by the Admin Portal template editors,
+ * whose valid-variable lists differ per template.
+ */
+export function suggestClosestVariable(
+  token: string,
+  known: readonly string[],
+): string | null {
+  if (!token || known.length === 0) return null;
   const inner = token
-    .replace(/^\{\{\s*/, "")
-    .replace(/\s*\}\}$/, "")
+    .replace(/^\{\{?\s*/, "")
+    .replace(/\s*\}?\}$/, "")
     .trim();
   const norm = normalizeVariableName(inner);
   if (!norm) return null;
-  for (const v of QUICK_RESPONSE_VARIABLES) {
+  for (const v of known) {
     if (normalizeVariableName(v) === norm) return v;
   }
   const maxDist = norm.length <= 4 ? 1 : 2;
-  let best: { v: QuickResponseVariable; d: number } | null = null;
+  let best: { v: string; d: number } | null = null;
   let secondBestDist = Infinity;
-  for (const v of QUICK_RESPONSE_VARIABLES) {
+  for (const v of known) {
     const d = levenshtein(norm, normalizeVariableName(v));
     if (d > maxDist) continue;
     if (!best || d < best.d) {

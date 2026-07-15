@@ -117,7 +117,9 @@ const {
   getUnusedTemplateVariables,
   getUnusedNotificationVariables,
   getUnknownTemplateTokens,
+  replaceTemplateToken,
 } = await import("../client/src/pages/admin-portal");
+const { suggestClosestVariable } = await import("../shared/quick-response-vars");
 
 setupComponentTestTeardown({ queryClient, window });
 
@@ -558,6 +560,106 @@ test("email edit dialog: unknown-token notice appears for a typo'd placeholder a
     const again = bodyByTestId("notice-unknown-tokens");
     assert.ok(again, "notice returns for a new unknown token in the body");
     assert.match(again!.textContent ?? "", /\{appurl\}/);
+  } finally {
+    c.cleanup();
+  }
+});
+
+// --- "did you mean?" suggestion + one-click fix -------------------------------
+
+test("suggestClosestVariable suggests the unique near-miss and stays quiet otherwise", () => {
+  assert.equal(suggestClosestVariable("usrname", ["username", "app_url"]), "username");
+  assert.equal(suggestClosestVariable("user_name", ["username", "app_url"]), "username");
+  assert.equal(suggestClosestVariable("appurl", ["username", "app_url"]), "app_url");
+  assert.equal(suggestClosestVariable("invoice_numbr", ["invoice_number", "amount"]), "invoice_number");
+  // Way off: no suggestion.
+  assert.equal(suggestClosestVariable("zzzzz", ["username", "app_url"]), null);
+  // Empty inputs are safe.
+  assert.equal(suggestClosestVariable("", ["username"]), null);
+  assert.equal(suggestClosestVariable("usrname", []), null);
+});
+
+test("replaceTemplateToken swaps every exact {token} occurrence and nothing else", () => {
+  assert.equal(replaceTemplateToken("Hi {usrname}, {usrname}!", "usrname", "username"), "Hi {username}, {username}!");
+  assert.equal(replaceTemplateToken("Hi {usrname2}", "usrname", "username"), "Hi {usrname2}");
+  assert.equal(replaceTemplateToken("", "a", "b"), "");
+});
+
+test("email edit dialog: unknown-token notice offers a suggestion and one click fixes subject+body", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({
+      templateKey: "welcome", customized: true,
+      subject: "Welcome, {usrname}!", body: "<p>Hello {usrname}, visit {app_url}</p>",
+    }),
+  ]);
+  try {
+    fireClick(byTestId(c.container, "button-edit-template-welcome")!);
+    await flushFrames();
+
+    const notice = bodyByTestId("notice-unknown-tokens");
+    assert.ok(notice, "unknown-token notice visible");
+    assert.match(notice!.textContent ?? "", /Did you mean/);
+
+    const fix = bodyByTestId("button-fix-token-usrname");
+    assert.ok(fix, "suggestion button rendered");
+    assert.match(fix!.textContent ?? "", /\{username\}/);
+
+    fireClick(fix!);
+    await flushFrames();
+
+    const subject = bodyByTestId("input-template-subject") as HTMLInputElement;
+    const ta = bodyByTestId("textarea-template-body") as HTMLTextAreaElement;
+    assert.equal(subject.value, "Welcome, {username}!", "typo replaced in the subject");
+    assert.equal(ta.value, "<p>Hello {username}, visit {app_url}</p>", "typo replaced in the body");
+    assert.equal(bodyByTestId("notice-unknown-tokens"), null, "notice clears after the one-click fix");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("email edit dialog: no suggestion button when the typo isn't a near-miss", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({
+      templateKey: "welcome", customized: true,
+      subject: "Welcome!", body: "<p>Hello {username} {totally_bogus}</p>",
+    }),
+  ]);
+  try {
+    fireClick(byTestId(c.container, "button-edit-template-welcome")!);
+    await flushFrames();
+
+    const notice = bodyByTestId("notice-unknown-tokens");
+    assert.ok(notice, "unknown-token notice still shown");
+    assert.doesNotMatch(notice!.textContent ?? "", /Did you mean/, "no confident suggestion offered");
+    assert.equal(bodyByTestId("button-fix-token-totally_bogus"), null);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("notification edit dialog: suggestion click fixes the typo in title+body", async () => {
+  const c = await mountNotifTab([
+    notifTemplate({
+      templateKey: "invoice_created", customized: true,
+      title: "New invoice {invoice_numbr}", body: "Invoice {invoice_numbr}: {amount}",
+    }),
+  ]);
+  try {
+    fireClick(byTestId(c.container, "button-edit-notif-template-invoice_created")!);
+    await flushFrames();
+
+    const fix = bodyByTestId("button-fix-notif-token-invoice_numbr");
+    assert.ok(fix, "suggestion button rendered in notification dialog");
+    assert.match(fix!.textContent ?? "", /\{invoice_number\}/);
+
+    fireClick(fix!);
+    await flushFrames();
+
+    const title = bodyByTestId("input-notif-template-title") as HTMLInputElement;
+    const ta = bodyByTestId("textarea-notif-template-body") as HTMLTextAreaElement;
+    assert.equal(title.value, "New invoice {invoice_number}", "typo replaced in the title");
+    assert.equal(ta.value, "Invoice {invoice_number}: {amount}", "typo replaced in the body");
+    assert.equal(bodyByTestId("notice-notif-unknown-tokens"), null, "notice clears after the fix");
   } finally {
     c.cleanup();
   }
