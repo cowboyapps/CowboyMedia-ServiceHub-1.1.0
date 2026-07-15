@@ -128,14 +128,15 @@ export default function NewsDetail() {
         </Button>
       </Link>
 
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden animate-fade-in">
         {story.imageUrl && (
-          <div className="border-b border-border">
+          <div className="relative border-b border-border">
             <ClickableImage
               src={story.imageUrl}
               alt={story.title}
               className="w-full h-64 object-cover"
             />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
           </div>
         )}
         

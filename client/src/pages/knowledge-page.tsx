@@ -6,7 +6,6 @@ import DOMPurify from "dompurify";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Eye, LifeBuoy, Search, ThumbsDown, ThumbsUp } from "lucide-react";
@@ -125,7 +124,7 @@ function ArticleDetail({ slug }: { slug: string }) {
           {article.tags?.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
               {article.tags.map((t) => (
-                <Badge key={t} variant="secondary" className="text-[10px]" data-testid={`badge-kb-tag-${t}`}>{t}</Badge>
+                <span key={t} className="rounded-full bg-primary/10 dark:bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary" data-testid={`badge-kb-tag-${t}`}>{t}</span>
               ))}
             </div>
           )}
@@ -294,9 +293,11 @@ function KnowledgeIndex() {
         />
       ) : isSearching ? (
         articles.length === 0 ? (
-          <Card>
+          <Card className="animate-fade-in">
             <CardContent className="py-12 text-center">
-              <Search className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/20 animate-scale-in">
+                <Search className="w-6 h-6 text-primary" />
+              </span>
               <p className="text-sm text-muted-foreground">No articles match "{debouncedSearch}".</p>
               <p className="text-xs text-muted-foreground mt-1">Try a different search, or open a ticket and we'll help.</p>
             </CardContent>
@@ -306,14 +307,14 @@ function KnowledgeIndex() {
             {articles.map((a) => {
               const cat = categories.find((c) => c.id === a.categoryId);
               return (
-                <Link key={a.id} href={`/knowledge/${a.slug}`}>
+                <Link key={a.id} href={`/knowledge/${a.slug}`} className="stagger-item block">
                   <Card className="hover-elevate tap-interactive cursor-pointer" data-testid={`card-kb-article-${a.id}`}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1 space-y-1">
                           <p className="font-medium text-sm">{a.title}</p>
                           {a.summary && <p className="text-xs text-muted-foreground line-clamp-2">{a.summary}</p>}
-                          {cat && <Badge variant="outline" className="text-[10px] mt-1">{cat.name}</Badge>}
+                          {cat && <span className="inline-block mt-1 rounded-full bg-primary/10 dark:bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">{cat.name}</span>}
                         </div>
                         <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                       </div>
@@ -325,9 +326,11 @@ function KnowledgeIndex() {
           </div>
         )
       ) : visibleCategories.length === 0 ? (
-        <Card>
+        <Card className="animate-fade-in">
           <CardContent className="py-12 text-center">
-            <BookOpen className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/20 animate-scale-in">
+              <BookOpen className="w-6 h-6 text-primary" />
+            </span>
             <p className="text-sm text-muted-foreground">No articles available yet.</p>
           </CardContent>
         </Card>
@@ -337,7 +340,7 @@ function KnowledgeIndex() {
             const items = grouped.get(cat.id) ?? [];
             const isOpen = openCategoryIds.has(cat.id);
             return (
-              <Card key={cat.id} data-testid={`card-kb-category-${cat.id}`}>
+              <Card key={cat.id} className="stagger-item" data-testid={`card-kb-category-${cat.id}`}>
                 <Collapsible open={isOpen} onOpenChange={() => toggleCategory(cat.id)}>
                   <CollapsibleTrigger asChild>
                     <button

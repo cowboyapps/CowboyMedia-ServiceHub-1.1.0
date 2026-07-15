@@ -349,7 +349,7 @@ function ReactionBadges({ reactions, userId, onToggle }: { reactions: ReactionGr
           <button
             key={r.emoji}
             onClick={() => onToggle(r.emoji)}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 min-h-[28px] rounded-full text-xs border transition-colors ${isMine ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted border-border hover:bg-muted/80 active:bg-muted/60"}`}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 min-h-[28px] rounded-full text-xs border transition-colors animate-scale-in ${isMine ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted border-border hover:bg-muted/80 active:bg-muted/60"}`}
             data-testid={`reaction-badge-${r.emoji}`}
           >
             <span>{r.emoji}</span>

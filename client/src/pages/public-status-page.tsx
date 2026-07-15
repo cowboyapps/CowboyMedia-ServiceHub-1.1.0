@@ -72,11 +72,11 @@ function RowSkeletons({ rows = 3 }: { rows?: number }) {
     <div className="divide-y divide-border">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-5 py-3.5">
-          <Skeleton className="h-2.5 w-2.5 rounded-full shrink-0" />
+          <Skeleton className="h-2.5 w-2.5 rounded-full shrink-0 animate-shimmer" />
           <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-40 animate-shimmer" />
           </div>
-          <Skeleton className="h-8 w-20 rounded-md shrink-0" />
+          <Skeleton className="h-8 w-20 rounded-md shrink-0 animate-shimmer" />
         </div>
       ))}
     </div>
@@ -195,9 +195,9 @@ function computeBanner(services: PublicService[]): Banner {
 }
 
 const bannerStyles: Record<Banner["tone"], string> = {
-  ok: "border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent text-status-online",
-  warn: "border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent text-status-away",
-  bad: "border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent text-status-busy",
+  ok: "border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent text-status-online hero-glow-online",
+  warn: "border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent text-status-away hero-glow-away",
+  bad: "border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent text-status-busy hero-glow-busy",
 };
 
 const FOURTEEN_DAYS_MS = 14 * 86400000;
@@ -256,7 +256,7 @@ export default function PublicStatusPage() {
 
   const renderIncident = (a: PublicAlert) => {
     return (
-      <li key={a.id} data-testid={`item-incident-${a.id}`}>
+      <li key={a.id} className="stagger-item" data-testid={`item-incident-${a.id}`}>
         <Link
           href={`/status/incidents/${a.id}`}
           className="flex items-start gap-3 px-5 py-4 hover-elevate tap-interactive"
@@ -323,13 +323,14 @@ export default function PublicStatusPage() {
         ) : (
         <>
         <div
-          className={`flex items-center gap-4 rounded-xl border p-6 shadow-sm ${bannerStyles[banner.tone]}`}
+          className={`relative overflow-hidden flex items-center gap-4 rounded-xl border p-6 shadow-sm animate-hero-breathe animate-fade-in ${bannerStyles[banner.tone]}`}
           data-testid={`banner-overall-${banner.tone}`}
         >
-          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ring-1 ${banner.tone === 'ok' ? 'bg-status-online/15 ring-status-online/30' : banner.tone === 'warn' ? 'bg-status-away/15 ring-status-away/30' : 'bg-status-busy/15 ring-status-busy/30'}`}>
+          <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
+          <span className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full ring-1 ${banner.tone === 'ok' ? 'bg-status-online/15 ring-status-online/30' : banner.tone === 'warn' ? 'bg-status-away/15 ring-status-away/30' : 'bg-status-busy/15 ring-status-busy/30'}`}>
             <BannerIcon className={`h-6 w-6 ${banner.tone !== 'ok' ? 'animate-status-pulse' : ''} ${banner.tone === 'ok' ? 'text-status-online' : banner.tone === 'warn' ? 'text-status-away' : 'text-status-busy'}`} />
           </span>
-          <div className="min-w-0 flex-1">
+          <div className="relative min-w-0 flex-1">
             <p className="text-lg font-semibold" data-testid="text-banner-title">{banner.title}</p>
             <p className="text-sm opacity-90">Based on live monitoring of all active systems</p>
           </div>
@@ -356,7 +357,7 @@ export default function PublicStatusPage() {
               </div>
               <ul className="divide-y divide-border">
                 {list.map((s) => (
-                  <li key={s.id} className="px-5 py-4 space-y-3" data-testid={`row-service-${s.id}`}>
+                  <li key={s.id} className="stagger-item px-5 py-4 space-y-3" data-testid={`row-service-${s.id}`}>
                     <div className="flex items-center justify-between gap-3">
                       <span className="font-medium text-sm">{s.name}</span>
                       <div className="flex items-center gap-4">
@@ -467,7 +468,7 @@ export default function PublicStatusPage() {
             </div>
             <ul className="divide-y divide-border">
               {updates.map((u) => (
-                <li key={u.id} data-testid={`item-update-${u.id}`} className="px-5 py-4">
+                <li key={u.id} data-testid={`item-update-${u.id}`} className="stagger-item px-5 py-4">
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">

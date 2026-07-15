@@ -116,9 +116,10 @@ export const PullToRefresh = forwardRef<HTMLDivElement, PullToRefreshProps>(
               transform: `scale(${scale}) rotate(${rotation}deg)`,
               transition: pulling ? "none" : "all 0.3s ease",
             }}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-background/90 shadow-md backdrop-blur-sm dark:bg-background/80"
           >
             <RefreshCw
-              className={`w-6 h-6 text-muted-foreground ${refreshing ? "animate-spin" : ""}`}
+              className={`w-5 h-5 ${pullDistance >= threshold || refreshing ? "text-primary" : "text-muted-foreground"} ${refreshing ? "animate-spin" : ""} transition-colors`}
             />
           </div>
         </div>

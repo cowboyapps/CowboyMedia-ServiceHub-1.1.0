@@ -174,18 +174,18 @@ export default function PublicIncidentPage() {
         {isLoading ? (
           <div className="space-y-6">
             <section className="rounded-xl border border-card-border bg-card p-6 space-y-4">
-              <Skeleton className="h-8 w-3/4" />
+              <Skeleton className="h-8 w-3/4 animate-shimmer" />
               <div className="flex gap-2">
-                <Skeleton className="h-6 w-20 rounded-full" />
-                <Skeleton className="h-6 w-24 rounded-full" />
+                <Skeleton className="h-6 w-20 rounded-full animate-shimmer" />
+                <Skeleton className="h-6 w-24 rounded-full animate-shimmer" />
               </div>
-              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full animate-shimmer" />
             </section>
             <section className="rounded-xl border border-card-border bg-card p-6 space-y-4">
-              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-6 w-40 animate-shimmer" />
               <div className="pl-6 space-y-4">
-                <Skeleton className="h-16 w-full" />
-                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full animate-shimmer" />
+                <Skeleton className="h-16 w-full animate-shimmer" />
               </div>
             </section>
           </div>
@@ -226,7 +226,7 @@ export default function PublicIncidentPage() {
           </section>
         ) : (
           <>
-            <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <section className="rounded-xl border border-card-border bg-card overflow-hidden animate-fade-in">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <h2 className="text-sm font-semibold flex items-center gap-3">
                   <SectionIcon icon={Activity} tone="bg-status-away/10 text-status-away" />
@@ -282,7 +282,7 @@ export default function PublicIncidentPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <section className="rounded-xl border border-card-border bg-card overflow-hidden animate-slide-up">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <h2 className="text-sm font-semibold flex items-center gap-3">
                   <SectionIcon icon={ListTodo} tone="bg-muted text-muted-foreground" />
@@ -299,7 +299,7 @@ export default function PublicIncidentPage() {
                   <div className="relative space-y-0">
                     <div className="absolute left-[9px] top-3 bottom-3 w-px bg-border" />
                     {data.updates.map((update) => (
-                      <div key={update.id} className="relative pl-8 pb-8 last:pb-0" data-testid={`incident-update-${update.id}`}>
+                      <div key={update.id} className="stagger-item relative pl-8 pb-8 last:pb-0" data-testid={`incident-update-${update.id}`}>
                         <div className="absolute left-0 top-1 z-10 bg-background p-0.5 rounded-full border border-border">
                           <StatusIcon status={update.status} />
                         </div>

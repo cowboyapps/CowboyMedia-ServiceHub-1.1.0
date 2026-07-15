@@ -115,7 +115,8 @@ export default function AuthPage() {
             <p className="text-sm text-muted-foreground">Monitor services, get alerts, submit tickets</p>
           </div>
 
-          <div className="rounded-xl border border-card-border bg-card overflow-hidden shadow-sm">
+          <div className="relative rounded-xl border border-card-border bg-card overflow-hidden shadow-sm animate-slide-up">
+            <span className="pointer-events-none absolute inset-0 animate-hero-sweep" aria-hidden="true" />
             <div className="p-6 sm:p-8">
               {pendingChallengeId ? (
                 <form onSubmit={handleVerifyTwoFactor} className="space-y-6" data-testid="form-two-factor">

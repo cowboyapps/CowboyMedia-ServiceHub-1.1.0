@@ -24,7 +24,7 @@ function SectionIcon({ icon: Icon, tone }: { icon: typeof Newspaper; tone: strin
 
 function NewBadge() {
   return (
-    <span className="rounded-full bg-status-busy px-1.5 py-0.5 text-[10px] font-semibold uppercase text-background shrink-0">
+    <span className="rounded-full bg-primary/10 dark:bg-primary/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary shrink-0">
       New
     </span>
   );
@@ -74,7 +74,7 @@ export default function NewsPage() {
     <div className="space-y-6">
       <PageHeader title="News & Updates" subtitle="Stay up to date with the latest company news" testId="text-news-title" />
 
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+      <section className="rounded-xl border border-card-border bg-card overflow-hidden animate-fade-in">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold flex items-center gap-3">
             <SectionIcon icon={Newspaper} tone="bg-status-online/10 text-status-online" />
@@ -116,11 +116,14 @@ export default function NewsPage() {
                   data-testid={`card-news-${story.id}`}
                 >
                   {story.imageUrl ? (
-                    <LazyImage
-                      src={story.imageUrl}
-                      alt=""
-                      className="h-14 w-20 rounded-md object-cover shrink-0"
-                    />
+                    <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-md">
+                      <LazyImage
+                        src={story.imageUrl}
+                        alt=""
+                        className="h-14 w-20 object-cover"
+                      />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    </div>
                   ) : (
                     <span className="mt-0.5 shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-primary">
                       {format(new Date(story.createdAt), "MMM d")}

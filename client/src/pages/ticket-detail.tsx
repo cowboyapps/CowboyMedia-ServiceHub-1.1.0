@@ -96,8 +96,8 @@ type OptimisticMessage = {
 
 function PriorityPill({ priority }: { priority: string }) {
   const variants: Record<string, string> = {
-    high: "bg-status-busy/15 text-status-busy",
-    medium: "bg-primary/15 text-primary",
+    high: "bg-destructive/10 dark:bg-destructive/20 text-destructive",
+    medium: "bg-primary/10 dark:bg-primary/20 text-primary",
     low: "bg-muted text-muted-foreground",
   };
   return <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${variants[priority] || "bg-muted text-muted-foreground"}`}>{priority}</span>;
@@ -105,7 +105,7 @@ function PriorityPill({ priority }: { priority: string }) {
 
 function StatusPill({ status }: { status: string }) {
   const variants: Record<string, string> = {
-    open: "bg-status-online/15 text-status-online",
+    open: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     closed: "bg-muted text-muted-foreground",
   };
   return <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${variants[status] || "bg-muted text-muted-foreground"}`}>{status}</span>;

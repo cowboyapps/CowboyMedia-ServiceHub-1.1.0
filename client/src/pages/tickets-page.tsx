@@ -120,8 +120,8 @@ const createTicketSchema = z.object({
 
 function PriorityBadge({ priority }: { priority: string }) {
   const variants: Record<string, string> = {
-    high: "bg-status-busy/15 text-status-busy",
-    medium: "bg-primary/15 text-primary",
+    high: "bg-destructive/10 dark:bg-destructive/20 text-destructive",
+    medium: "bg-primary/10 dark:bg-primary/20 text-primary",
     low: "bg-muted text-muted-foreground",
   };
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${variants[priority] || "bg-muted text-muted-foreground"}`}>{priority}</span>;
@@ -129,7 +129,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {
-    open: "bg-status-online/15 text-status-online",
+    open: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     closed: "bg-muted text-muted-foreground",
   };
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${variants[status] || "bg-muted text-muted-foreground"}`}>{status}</span>;
@@ -694,7 +694,7 @@ export default function TicketsPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {openTickets.map((ticket) => (
-                  <li key={ticket.id}>
+                  <li key={ticket.id} className="stagger-item">
                     <Link href={`/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive" data-testid={`card-ticket-${ticket.id}`}>
                       <div className="flex-1 min-w-0">
                         <p className="truncate text-sm font-medium">{ticket.subject}</p>
@@ -752,7 +752,7 @@ export default function TicketsPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {closedTickets.map((ticket) => (
-                  <li key={ticket.id}>
+                  <li key={ticket.id} className="stagger-item">
                     <div className="flex items-center justify-between gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80" data-testid={`card-ticket-closed-${ticket.id}`}>
                       <Link href={`/tickets/${ticket.id}`} className="flex-1 min-w-0 flex items-center gap-3">
                         <div className="flex-1 min-w-0">

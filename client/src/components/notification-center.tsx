@@ -36,6 +36,34 @@ function getIcon(type: string) {
   return typeIcons[type] || Bell;
 }
 
+const typeTones: Record<string, string> = {
+  message: "bg-primary/10 dark:bg-primary/20 text-primary",
+  ticket_update: "bg-primary/10 dark:bg-primary/20 text-primary",
+  new_ticket: "bg-primary/10 dark:bg-primary/20 text-primary",
+  alert: "bg-destructive/10 text-destructive",
+  monitor_down: "bg-destructive/10 text-destructive",
+  news: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  service_status: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  service_update: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  report_update: "bg-primary/10 dark:bg-primary/20 text-primary",
+  new_report: "bg-primary/10 dark:bg-primary/20 text-primary",
+  new_signup: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  monitor_up: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+};
+
+function getTone(type: string) {
+  return typeTones[type] || "bg-muted text-muted-foreground";
+}
+
+function TypeIconCircle({ type }: { type: string }) {
+  const Icon = getIcon(type);
+  return (
+    <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${getTone(type)}`}>
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
+  );
+}
+
 function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
   return (
     <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${tone}`}>
@@ -230,7 +258,7 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
       <div className="p-4 space-y-3">
         {[1, 2, 3].map(i => (
           <div key={i} className="flex gap-3 animate-pulse">
-            <div className="w-8 h-8 rounded-full bg-muted" />
+            <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
             <div className="flex-1 space-y-2">
               <div className="h-3 bg-muted rounded w-3/4" />
               <div className="h-3 bg-muted rounded w-1/2" />
@@ -337,6 +365,7 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
                           exit={{ opacity: 0, height: 0 }}
                           transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
                           style={{ overflow: "hidden" }}
+                          className="stagger-item"
                         >
                           <div
                             role="button"
@@ -347,7 +376,12 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
                             className={`flex items-start gap-3 w-full px-5 py-3.5 text-left transition-colors tap-interactive hover:bg-muted/50 cursor-pointer hover-elevate ${isUnread ? "" : "opacity-80"}`}
                             data-testid={`notification-item-${notif.id}`}
                           >
-                            <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${isUnread ? "bg-status-busy animate-status-pulse" : "bg-transparent"}`} />
+                            <div className="relative shrink-0">
+                              <TypeIconCircle type={notif.type} />
+                              {isUnread && (
+                                <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-status-busy ring-2 ring-card animate-status-pulse" />
+                              )}
+                            </div>
                             
                             <div className="flex-1 min-w-0 space-y-1">
                               <p className={`text-sm flex items-center gap-2 ${isUnread ? "font-medium" : "font-normal text-muted-foreground"}`}>
