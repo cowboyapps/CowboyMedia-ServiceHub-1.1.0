@@ -319,9 +319,9 @@ export default function Dashboard() {
             data-testid="error-dashboard-tickets"
           />
         ) : openTickets.length === 0 ? (
-          <div className="px-5 py-8 text-center space-y-3">
-            <p className="text-sm text-muted-foreground">You don't have any open tickets.</p>
-            <Link href="/tickets">
+          <div className="px-5 py-8 text-center">
+            <p className="text-sm text-muted-foreground mb-4">You don't have any open tickets.</p>
+            <Link href="/tickets" className="inline-block">
               <Button data-testid="button-open-ticket">
                 <Plus className="h-4 w-4 mr-1.5" /> Open a ticket
               </Button>
