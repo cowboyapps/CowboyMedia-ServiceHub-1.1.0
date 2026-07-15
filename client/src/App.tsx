@@ -266,9 +266,9 @@ function AuthenticatedLayout() {
           <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
             <div className="z-10">
               {isMobile ? (
-                <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-lg px-2.5 py-1.5 bg-primary hover:bg-primary/90 transition-colors" data-testid="link-header-dashboard">
-                  <Home className="w-4 h-4 text-primary-foreground" />
-                  <span className="text-xs font-semibold text-primary-foreground">Dashboard</span>
+                <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-lg px-2.5 py-1.5 border border-border bg-background/60 hover-elevate transition-colors" data-testid="link-header-dashboard">
+                  <Home className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-semibold text-foreground">Dashboard</span>
                 </Link>
               ) : (
                 <SidebarTrigger className="h-10 w-10 min-h-[40px] min-w-[40px] [&_svg]:!h-5 [&_svg]:!w-5" data-testid="button-sidebar-toggle" />
