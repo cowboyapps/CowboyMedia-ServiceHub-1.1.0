@@ -3725,6 +3725,7 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
   const [editSubject, setEditSubject] = useState("");
   const [editBody, setEditBody] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [confirmSaveTokens, setConfirmSaveTokens] = useState<string[] | null>(null);
 
   const { data: templates, isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["/api/admin/email-templates"],
@@ -4072,7 +4073,14 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
                     size="sm"
                     className="gap-1"
                     disabled={updateMutation.isPending}
-                    onClick={() => updateMutation.mutate({ id: editingTemplate.id, subject: editSubject, body: editBody })}
+                    onClick={() => {
+                      const unknown = getUnknownTemplateTokens(editingTemplate.availableVariables || [], editSubject, editBody);
+                      if (unknown.length > 0) {
+                        setConfirmSaveTokens(unknown);
+                        return;
+                      }
+                      updateMutation.mutate({ id: editingTemplate.id, subject: editSubject, body: editBody });
+                    }}
                     data-testid="button-save-template"
                   >
                     {updateMutation.isPending ? "Saving..." : "Save Changes"}
@@ -4083,6 +4091,29 @@ export function EmailTemplatesTab({ canManage = true }: { canManage?: boolean })
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmSaveTokens} onOpenChange={(open) => { if (!open) setConfirmSaveTokens(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm" data-testid="dialog-confirm-broken-tokens">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save with broken placeholders?</AlertDialogTitle>
+            <AlertDialogDescription data-testid="text-confirm-broken-tokens">
+              This template still contains {(confirmSaveTokens || []).map((t) => `{${t}}`).join(", ")} — {(confirmSaveTokens || []).length === 1 ? "it isn't a known variable" : "they aren't known variables"}, so customers will see {(confirmSaveTokens || []).length === 1 ? "it" : "them"} as raw text in their emails. Save anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-broken-save">Go back and fix</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmSaveTokens(null);
+                if (editingTemplate) updateMutation.mutate({ id: editingTemplate.id, subject: editSubject, body: editBody });
+              }}
+              data-testid="button-confirm-broken-save"
+            >
+              Save anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -4114,6 +4145,7 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
   const [editingTemplate, setEditingTemplate] = useState<NotificationTemplateRow | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
+  const [confirmSaveTokens, setConfirmSaveTokens] = useState<string[] | null>(null);
 
   const { data: templates, isLoading } = useQuery<NotificationTemplateRow[]>({
     queryKey: ["/api/admin/notification-templates"],
@@ -4447,7 +4479,15 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
                     size="sm"
                     className="gap-1"
                     disabled={updateMutation.isPending}
-                    onClick={() => editingTemplate.id && updateMutation.mutate({ id: editingTemplate.id, title: editTitle, body: editBody })}
+                    onClick={() => {
+                      if (!editingTemplate.id) return;
+                      const unknown = getUnknownTemplateTokens(editingTemplate.variables.map((v) => v.name), editTitle, editBody);
+                      if (unknown.length > 0) {
+                        setConfirmSaveTokens(unknown);
+                        return;
+                      }
+                      updateMutation.mutate({ id: editingTemplate.id, title: editTitle, body: editBody });
+                    }}
                     data-testid="button-save-notif-template"
                   >
                     {updateMutation.isPending ? "Saving..." : "Save Changes"}
@@ -4458,6 +4498,29 @@ export function NotificationTemplatesTab({ canManage = true }: { canManage?: boo
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmSaveTokens} onOpenChange={(open) => { if (!open) setConfirmSaveTokens(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm" data-testid="dialog-confirm-notif-broken-tokens">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save with broken placeholders?</AlertDialogTitle>
+            <AlertDialogDescription data-testid="text-confirm-notif-broken-tokens">
+              This notification still contains {(confirmSaveTokens || []).map((t) => `{${t}}`).join(", ")} — {(confirmSaveTokens || []).length === 1 ? "it isn't a known variable" : "they aren't known variables"}, so customers will see {(confirmSaveTokens || []).length === 1 ? "it" : "them"} as raw text. Save anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-notif-broken-save">Go back and fix</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmSaveTokens(null);
+                if (editingTemplate?.id) updateMutation.mutate({ id: editingTemplate.id, title: editTitle, body: editBody });
+              }}
+              data-testid="button-confirm-notif-broken-save"
+            >
+              Save anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

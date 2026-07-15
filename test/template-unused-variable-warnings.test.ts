@@ -704,3 +704,132 @@ test("notification edit dialog: unknown-token notice appears for a typo'd placeh
     c.cleanup();
   }
 });
+
+// --- save confirmation when broken placeholders remain ------------------------
+
+interface RecordedFetch { calls: { url: string; method: string }[]; restore: () => void }
+
+function recordFetches(): RecordedFetch {
+  const prev = g.fetch;
+  const calls: { url: string; method: string }[] = [];
+  const recorder = (async (input: unknown, init?: { method?: string }) => {
+    const method = init?.method ?? "GET";
+    calls.push({ url: String(input), method });
+    // GET refetches (fired by post-save invalidation) must return a list, or
+    // the tab's `templates.map` render crashes mid-test.
+    return jsonResponse(method === "GET" ? [] : {});
+  }) as unknown as typeof fetch;
+  g.fetch = recorder;
+  w.fetch = recorder;
+  return {
+    calls,
+    restore: () => {
+      g.fetch = prev;
+      w.fetch = prev;
+    },
+  };
+}
+
+test("email edit dialog: Save with a broken placeholder asks for confirmation instead of saving", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({ templateKey: "welcome", customized: true, subject: "Welcome, {usrname}!", body: "<p>{username} {app_url}</p>" }),
+  ]);
+  const rec = recordFetches();
+  try {
+    fireClick(byTestId(c.container, "button-edit-template-welcome")!);
+    await flushFrames();
+
+    fireClick(bodyByTestId("button-save-template")!);
+    await flushFrames();
+
+    const confirm = bodyByTestId("dialog-confirm-broken-tokens");
+    assert.ok(confirm, "confirm dialog opens when broken tokens remain");
+    assert.match(bodyByTestId("text-confirm-broken-tokens")!.textContent ?? "", /\{usrname\}/);
+    assert.equal(rec.calls.filter((f) => f.method !== "GET").length, 0, "no save request fired yet");
+
+    // Go back and fix: dialog closes, still no save.
+    fireClick(bodyByTestId("button-cancel-broken-save")!);
+    await flushFrames();
+    assert.equal(bodyByTestId("dialog-confirm-broken-tokens"), null, "confirm dialog dismissed");
+    assert.equal(rec.calls.filter((f) => f.method !== "GET").length, 0, "cancel does not save");
+
+    // Save again and confirm "Save anyway": the write fires.
+    fireClick(bodyByTestId("button-save-template")!);
+    await flushFrames();
+    fireClick(bodyByTestId("button-confirm-broken-save")!);
+    await flushFrames();
+    const writes = rec.calls.filter((f) => f.method !== "GET");
+    assert.equal(writes.length, 1, "save anyway fires exactly one write");
+    assert.match(writes[0].url, /email-templates/);
+  } finally {
+    rec.restore();
+    c.cleanup();
+  }
+});
+
+test("email edit dialog: Save with only valid placeholders saves immediately without a confirm step", async () => {
+  const c = await mountEmailTab([
+    emailTemplate({ templateKey: "welcome", customized: true, body: "<p>{username} {app_url}</p>" }),
+  ]);
+  const rec = recordFetches();
+  try {
+    fireClick(byTestId(c.container, "button-edit-template-welcome")!);
+    await flushFrames();
+    fireClick(bodyByTestId("button-save-template")!);
+    await flushFrames();
+    assert.equal(bodyByTestId("dialog-confirm-broken-tokens"), null, "no confirm dialog for a clean template");
+    assert.equal(rec.calls.filter((f) => f.method !== "GET").length, 1, "save fires directly");
+  } finally {
+    rec.restore();
+    c.cleanup();
+  }
+});
+
+test("notification edit dialog: Save with a broken placeholder asks for confirmation, Save anyway proceeds", async () => {
+  const c = await mountNotifTab([
+    notifTemplate({
+      templateKey: "invoice_created", customized: true,
+      title: "New invoice {invoice_numbr}", body: "Amount due: {amount} {invoice_number}",
+    }),
+  ]);
+  const rec = recordFetches();
+  try {
+    fireClick(byTestId(c.container, "button-edit-notif-template-invoice_created")!);
+    await flushFrames();
+
+    fireClick(bodyByTestId("button-save-notif-template")!);
+    await flushFrames();
+
+    const confirm = bodyByTestId("dialog-confirm-notif-broken-tokens");
+    assert.ok(confirm, "confirm dialog opens when broken tokens remain");
+    assert.match(bodyByTestId("text-confirm-notif-broken-tokens")!.textContent ?? "", /\{invoice_numbr\}/);
+    assert.equal(rec.calls.filter((f) => f.method !== "GET").length, 0, "no save request fired yet");
+
+    fireClick(bodyByTestId("button-confirm-notif-broken-save")!);
+    await flushFrames();
+    const writes = rec.calls.filter((f) => f.method !== "GET");
+    assert.equal(writes.length, 1, "save anyway fires exactly one write");
+    assert.match(writes[0].url, /notification-templates/);
+  } finally {
+    rec.restore();
+    c.cleanup();
+  }
+});
+
+test("notification edit dialog: clean template saves directly with no confirm step", async () => {
+  const c = await mountNotifTab([
+    notifTemplate({ templateKey: "invoice_created", customized: true }),
+  ]);
+  const rec = recordFetches();
+  try {
+    fireClick(byTestId(c.container, "button-edit-notif-template-invoice_created")!);
+    await flushFrames();
+    fireClick(bodyByTestId("button-save-notif-template")!);
+    await flushFrames();
+    assert.equal(bodyByTestId("dialog-confirm-notif-broken-tokens"), null, "no confirm dialog for a clean template");
+    assert.equal(rec.calls.filter((f) => f.method !== "GET").length, 1, "save fires directly");
+  } finally {
+    rec.restore();
+    c.cleanup();
+  }
+});
