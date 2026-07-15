@@ -2,6 +2,8 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { liveQueryOptions } from "@/lib/queryClient";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
@@ -11,12 +13,14 @@ import {
   Bell,
   CheckCircle2,
   ChevronRight,
+  Gift,
   MessageSquare,
   Newspaper,
   Plus,
   Sparkles,
+  X,
 } from "lucide-react";
-import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType, ServiceUpdate } from "@shared/schema";
+import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType, ServiceUpdate, Promotion } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
 import { stripHtml } from "@/components/rich-text-editor";
 import { QueryErrorState } from "@/components/query-error-state";
@@ -50,6 +54,69 @@ function RowSkeletons({ rows = 3 }: { rows?: number }) {
         </div>
       ))}
     </div>
+  );
+}
+
+const PROMO_DISMISS_KEY = "promo-banner-dismissed-ids";
+
+function readDismissedPromoIds(): string[] {
+  try {
+    const raw = localStorage.getItem(PROMO_DISMISS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/* Dismissible "new promotion" banner shown under the status hero whenever an
+   unexpired promotion exists. Dismissal is per-promotion (localStorage), so a
+   later, different promotion brings the banner back. */
+function PromoBanner({ promotions }: { promotions: Promotion[] }) {
+  const [dismissedIds, setDismissedIds] = useState<string[]>(readDismissedPromoIds);
+
+  const undismissed = promotions.filter((p) => !dismissedIds.includes(p.id));
+  if (undismissed.length === 0) return null;
+
+  const dismiss = () => {
+    // Keep only ids of currently active promotions so the list can't grow forever.
+    const next = Array.from(new Set([...dismissedIds, ...promotions.map((p) => p.id)])).filter((id) =>
+      promotions.some((p) => p.id === id)
+    );
+    setDismissedIds(next);
+    try {
+      localStorage.setItem(PROMO_DISMISS_KEY, JSON.stringify(next));
+    } catch {
+      // Storage unavailable (private mode etc.) — banner still hides for this session.
+    }
+  };
+
+  return (
+    <Link href="/promotions" className="block" data-testid="banner-promotion">
+      <div className="relative flex items-center gap-3 overflow-hidden rounded-lg border border-card-border bg-card px-4 py-3 shadow-sm transition hover-elevate cursor-pointer">
+        <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+        <Gift className="ml-1 h-[18px] w-[18px] shrink-0 text-primary" aria-hidden="true" />
+        <p className="min-w-0 flex-1 text-sm text-foreground">
+          <span className="font-semibold">
+            {undismissed.length === 1 ? "You have a new promotion available!" : `You have ${undismissed.length} promotions available!`}
+          </span>{" "}
+          <span className="text-muted-foreground">Tap to see the details.</span>
+        </p>
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dismiss();
+          }}
+          className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
+          aria-label="Dismiss promotion banner"
+          data-testid="button-dismiss-promo-banner"
+        >
+          <X className="h-[15px] w-[15px]" />
+        </button>
+      </div>
+    </Link>
   );
 }
 
@@ -124,6 +191,12 @@ export default function Dashboard() {
     },
     enabled: !!user,
     refetchInterval: 15000,
+  });
+
+  const { data: promotions } = useQuery<Promotion[]>({
+    queryKey: ["/api/promotions"],
+    enabled: !!user,
+    ...liveQueryOptions,
   });
 
   const unreadUpdateSet = new Set(unreadUpdateIds || []);
@@ -260,6 +333,8 @@ export default function Dashboard() {
           </Link>
         </div>
       )}
+
+      {(promotions?.length ?? 0) > 0 && <PromoBanner promotions={promotions!} />}
 
       {/* First-run: no followed services yet */}
       {!servicesLoading && !servicesError && (services?.length || 0) > 0 && subscribedServices.length === 0 && (
