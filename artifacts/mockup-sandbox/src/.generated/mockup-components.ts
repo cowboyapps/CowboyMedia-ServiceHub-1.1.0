@@ -21,5 +21,8 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-v2/HeroStack.tsx": () => import("../components/mockups/dashboard-v2/HeroStack.tsx"),
   "./components/mockups/dashboard-v2/HeroStackAllClear.tsx": () => import("../components/mockups/dashboard-v2/HeroStackAllClear.tsx"),
   "./components/mockups/dashboard-v2/SplitPanels.tsx": () => import("../components/mockups/dashboard-v2/SplitPanels.tsx"),
-  "./components/mockups/dashboard-v2/StatusBoard.tsx": () => import("../components/mockups/dashboard-v2/StatusBoard.tsx")
+  "./components/mockups/dashboard-v2/StatusBoard.tsx": () => import("../components/mockups/dashboard-v2/StatusBoard.tsx"),
+  "./components/mockups/v9-pop/Alive.tsx": () => import("../components/mockups/v9-pop/Alive.tsx"),
+  "./components/mockups/v9-pop/Depth.tsx": () => import("../components/mockups/v9-pop/Depth.tsx"),
+  "./components/mockups/v9-pop/Gradient.tsx": () => import("../components/mockups/v9-pop/Gradient.tsx")
 };
