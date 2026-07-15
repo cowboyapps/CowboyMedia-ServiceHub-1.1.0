@@ -145,10 +145,10 @@ export function BottomNav() {
                   className="group flex flex-col items-center justify-center flex-1 h-full relative tap-interactive"
                   data-testid="button-bottom-nav-more"
                 >
-                  <div className="relative transition-transform duration-150 ease-out group-active:scale-90 motion-reduce:transition-none motion-reduce:group-active:scale-100">
+                  <div className={`relative flex items-center justify-center rounded-full px-4 py-1 transition-all duration-200 ease-out group-active:scale-90 motion-reduce:transition-none motion-reduce:group-active:scale-100 ${moreHighlighted ? "bg-primary/10 dark:bg-primary/20" : "bg-transparent"}`}>
                     <Icon className={`w-[22px] h-[22px] ${moreHighlighted ? "text-primary" : "text-muted-foreground"}`} strokeWidth={moreHighlighted ? 2.4 : 2} />
                     {(tab.badge ?? 0) > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-destructive rounded-full" data-testid="badge-bottom-nav-more" />
+                      <span className="absolute -top-1 right-2 w-2.5 h-2.5 bg-destructive rounded-full" data-testid="badge-bottom-nav-more" />
                     )}
                   </div>
                   <span className={`text-[10px] mt-0.5 ${moreHighlighted ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tab.label}</span>
@@ -164,10 +164,10 @@ export function BottomNav() {
                 className="group flex flex-col items-center justify-center flex-1 h-full relative tap-interactive no-underline"
                 data-testid={`link-bottom-nav-${tab.label.toLowerCase()}`}
               >
-                <div className="relative transition-transform duration-150 ease-out group-active:scale-90 motion-reduce:transition-none motion-reduce:group-active:scale-100">
+                <div className={`relative flex items-center justify-center rounded-full px-4 py-1 transition-all duration-200 ease-out group-active:scale-90 motion-reduce:transition-none motion-reduce:group-active:scale-100 ${active ? "bg-primary/10 dark:bg-primary/20" : "bg-transparent"}`}>
                   <Icon className={`w-[22px] h-[22px] ${active ? "text-primary" : "text-muted-foreground"}`} strokeWidth={active ? 2.4 : 2} />
                   {(tab.badge ?? 0) > 0 && (
-                    <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1" data-testid={`badge-bottom-nav-${tab.label.toLowerCase()}`}>
+                    <span className="absolute -top-1 -right-0.5 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1" data-testid={`badge-bottom-nav-${tab.label.toLowerCase()}`}>
                       {tab.badge}
                     </span>
                   )}
