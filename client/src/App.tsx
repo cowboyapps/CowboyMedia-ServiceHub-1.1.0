@@ -277,7 +277,7 @@ function AuthenticatedLayout() {
             </div>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <Link href="/" className="pointer-events-auto" data-testid="link-header-home">
-                <BrandLogo className="h-20 md:h-8 cursor-pointer" />
+                <BrandLogo className="h-9 md:h-8 cursor-pointer" />
               </Link>
             </div>
             <div className="z-10 ml-auto flex items-center gap-1">
