@@ -69,6 +69,7 @@ import KnowledgePage from "@/pages/knowledge-page";
 import WhatsNewPage from "@/pages/whats-new-page";
 import { ServicesPickerWizard } from "@/pages/services-picker-wizard";
 import { ChangelogPublishPrompt } from "@/components/changelog-publish-prompt";
+import { VersionBadge } from "@/components/version-badge";
 import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
 import { SetupReminderDialog } from "@/components/setup-reminder-dialog";
 import { PrivateMessagePopup } from "@/components/private-message-popup";
@@ -275,10 +276,13 @@ function AuthenticatedLayout() {
                 <SidebarTrigger className="h-10 w-10 min-h-[40px] min-w-[40px] [&_svg]:!h-5 [&_svg]:!w-5" data-testid="button-sidebar-toggle" />
               )}
             </div>
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center gap-1.5 pointer-events-none">
               <Link href="/" className="pointer-events-auto" data-testid="link-header-home">
                 <BrandLogo className="h-20 md:h-8 cursor-pointer" />
               </Link>
+              <span className="pointer-events-auto">
+                <VersionBadge />
+              </span>
             </div>
             <div className="z-10 ml-auto flex items-center gap-1">
               <Button

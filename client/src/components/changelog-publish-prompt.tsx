@@ -13,10 +13,11 @@ import { useModalSlot } from "@/lib/modal-queue";
 import DOMPurify from "dompurify";
 
 // After a version change, the collected notes are stamped with the new
-// APP_VERSION and flipped to "awaiting_publish" — but the customer-facing
-// "Welcome to version X" popup stays silent until a master admin clicks
-// Publish. This prompt nudges them to preview + publish the moment they open
-// the app after such a change. Dismissable (per version, via localStorage) so
+// APP_VERSION and flipped to "awaiting_publish" — nothing is customer-visible
+// until a master admin clicks Publish, which simply makes the entry live on
+// the What's New page (no popup, no notification — the header version badge
+// shows a subtle dot instead). This prompt nudges them to preview + publish
+// the moment they open the app after such a change. Dismissable (per version, via localStorage) so
 // it doesn't nag once acknowledged. Master admin only.
 type PendingPublish = { version: string; title: string; bodyHtml: string } | null;
 
@@ -66,7 +67,7 @@ export function ChangelogPublishPrompt() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/changelog/pending-publish"] });
       setOpen(false);
-      toast({ title: "Published", description: "Customers will see the welcome popup the next time they open the app." });
+      toast({ title: "Published", description: "The release notes are now live on the What's New page. No popups or notifications were sent." });
     },
     onError: (e: any) =>
       e instanceof TimeoutError
@@ -103,7 +104,7 @@ export function ChangelogPublishPrompt() {
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground text-center">
-          The release notes for v{pending.version} are staged. Publishing fires the "Welcome to version {pending.version}" popup for every customer the next time they open the app.
+          The release notes for v{pending.version} are staged. Publishing makes them live on the What's New page — customers aren't interrupted; the header version badge quietly shows a dot until they take a look.
         </p>
 
         {showPreview && (
