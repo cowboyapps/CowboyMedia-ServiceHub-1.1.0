@@ -60,8 +60,8 @@ export function SetupReminderDialog() {
   };
 
   // Claim a modal slot so the reminder never stacks on top of another
-  // focus-trapping surface (onboarding tour, version-welcome, message popup).
-  // It sits below the tour (70) and version-welcome (50) so those present
+  // focus-trapping surface (onboarding tour, announcements, message popup).
+  // It sits below the tour (70) and the announcement dialogs so those present
   // first, then the reminder appears cleanly once they release.
   const isMine = useModalSlot("setup-reminder", 45, showReminder);
 

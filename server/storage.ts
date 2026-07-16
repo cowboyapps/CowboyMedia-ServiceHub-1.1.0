@@ -496,7 +496,6 @@ export interface IStorage {
   getChangelogEntry(version: string): Promise<ChangelogEntry | undefined>;
   getAllChangelogEntries(): Promise<ChangelogEntry[]>;
   getPublishedChangelogEntries(): Promise<ChangelogEntry[]>;
-  getLatestPublishedChangelogEntry(): Promise<ChangelogEntry | undefined>;
   createChangelogEntry(entry: InsertChangelogEntry): Promise<ChangelogEntry>;
   updateChangelogEntry(version: string, patch: Partial<InsertChangelogEntry>): Promise<ChangelogEntry | undefined>;
   publishChangelogEntry(version: string, publishedBy: string): Promise<ChangelogEntry | undefined>;
@@ -2944,13 +2943,6 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(changelogEntries)
       .where(eq(changelogEntries.status, "published"))
       .orderBy(desc(changelogEntries.publishedAt));
-  }
-  async getLatestPublishedChangelogEntry(): Promise<ChangelogEntry | undefined> {
-    const [row] = await db.select().from(changelogEntries)
-      .where(eq(changelogEntries.status, "published"))
-      .orderBy(desc(changelogEntries.publishedAt))
-      .limit(1);
-    return row;
   }
   async createChangelogEntry(entry: InsertChangelogEntry): Promise<ChangelogEntry> {
     const [created] = await db.insert(changelogEntries).values(entry).returning();

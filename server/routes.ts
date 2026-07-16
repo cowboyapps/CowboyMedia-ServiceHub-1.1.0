@@ -125,7 +125,6 @@ import { APP_VERSION } from "@shared/version";
 import { requireAgentToken } from "./agent-auth";
 import { computeUserBadges, computeAccountAgeDays } from "@shared/badges";
 import { isAllowedAnnouncementPath } from "@shared/announcement-routes";
-import { selectVersionWelcome } from "@shared/version-welcome";
 import { userWantsChannel, NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_KEYS, isCategoryVisibleToRole, getNotificationCategory, type NotificationPrefs, type AppRole } from "@shared/notification-categories";
 import { shouldSuppressNotification } from "@shared/quiet-hours";
 import { updateQuietHoursSchema, insertPromotionSchema } from "@shared/schema";
@@ -1453,20 +1452,6 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/users/me/version-welcome-seen", requireAuth, async (req, res) => {
-    try {
-      const { version } = req.body || {};
-      if (typeof version !== "string" || !version.trim()) {
-        return res.status(400).json({ message: "version required" });
-      }
-      const updated = await storage.updateUser(req.session.userId!, { lastVersionWelcomeSeen: version.trim() });
-      if (!updated) return res.status(404).json({ message: "User not found" });
-      res.json(sanitizeUser(updated));
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
-
   // One-time v7 "Welcome to ServiceHub / account linking" announcement popup.
   // Permanently dismissed once the customer clicks either button (link or
   // dismiss). Idempotent — re-stamps the timestamp, never errors on repeat.
@@ -1475,26 +1460,6 @@ export async function registerRoutes(
       const updated = await storage.updateUser(req.session.userId!, { welcomeV7DismissedAt: new Date() });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(sanitizeUser(updated));
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
-
-  // Latest published changelog entry the current user hasn't dismissed yet.
-  // Returns null when there's nothing to show (no published entries, or the
-  // newest one matches users.lastVersionWelcomeSeen). The admin-write side
-  // (publish flag) is the gate — bumping APP_VERSION alone never fires the
-  // popup; only Publish does.
-  app.get("/api/version-welcome", requireAuth, async (req, res) => {
-    try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      const latest = await storage.getLatestPublishedChangelogEntry();
-      const selected = selectVersionWelcome(
-        latest ? { version: latest.version, title: latest.title } : null,
-        user.lastVersionWelcomeSeen,
-      );
-      res.json(selected);
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
     }

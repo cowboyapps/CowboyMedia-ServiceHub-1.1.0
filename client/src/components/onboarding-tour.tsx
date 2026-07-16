@@ -155,7 +155,7 @@ export function OnboardingTour() {
   const autoTriggeredRef = useRef(false);
 
   // Claim the modal slot the moment we KNOW we'll show the tour (incl. the
-  // 600ms layout-settle delay) so the announcement / version-welcome dialogs
+  // 600ms layout-settle delay) so the announcement dialogs
   // don't briefly flash first and then get yanked away when the tour starts.
   const isMine = useModalSlot("onboarding-tour", 70, active || pendingActivation);
 

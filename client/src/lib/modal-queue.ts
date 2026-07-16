@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 // to false), the next highest one automatically becomes active.
 //
 // This is what prevents the new-customer flood where the onboarding tour,
-// admin announcement and version-welcome dialog all popped at once and
+// admin announcement and other welcome dialogs all popped at once and
 // locked up the device.
 
 const requests = new Map<string, number>();

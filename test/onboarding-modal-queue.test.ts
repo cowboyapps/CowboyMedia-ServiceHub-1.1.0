@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 // Guards the fix from the "app looks frozen on first run" regression: the
-// onboarding tour, version-welcome dialog, setup reminder and private-message
+// onboarding tour, announcement dialogs, setup reminder and private-message
 // popup all used to be able to pop at once, stacking Radix focus traps until
 // the device locked up. The modal queue (client/src/lib/modal-queue.ts) now
 // arbitrates so only ONE focus-trapping surface is ever active — the highest
@@ -69,7 +69,6 @@ function extractSlots(relPath: string): Record<string, number> {
 const SLOT_PRIORITIES: Record<string, number> = {
   ...extractSlots("client/src/App.tsx"),
   ...extractSlots("client/src/components/onboarding-tour.tsx"),
-  ...extractSlots("client/src/components/version-welcome-dialog.tsx"),
   ...extractSlots("client/src/components/welcome-v7-dialog.tsx"),
   ...extractSlots("client/src/components/changelog-publish-prompt.tsx"),
   ...extractSlots("client/src/components/setup-reminder-dialog.tsx"),

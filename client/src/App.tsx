@@ -68,7 +68,6 @@ import CommunityChatPage from "@/pages/community-chat-page";
 import KnowledgePage from "@/pages/knowledge-page";
 import WhatsNewPage from "@/pages/whats-new-page";
 import { ServicesPickerWizard } from "@/pages/services-picker-wizard";
-import { VersionWelcomeDialog } from "@/components/version-welcome-dialog";
 import { ChangelogPublishPrompt } from "@/components/changelog-publish-prompt";
 import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
 import { SetupReminderDialog } from "@/components/setup-reminder-dialog";
@@ -490,11 +489,10 @@ function WelcomeDialog() {
   }, []);
 
   // Coordinated through the modal queue so the post-registration welcome
-  // doesn't render its Radix Dialog on top of the tour / announcement /
-  // version-welcome — two open Radix Dialogs collide on focus trapping and
-  // a dismissal can swallow the dialog underneath. Order on a brand-new
-  // signup: tour (70) → announcement (60) → this welcome (55) →
-  // version-welcome (50).
+  // doesn't render its Radix Dialog on top of the tour / announcement —
+  // two open Radix Dialogs collide on focus trapping and a dismissal can
+  // swallow the dialog underneath. Order on a brand-new signup:
+  // tour (70) → announcement (60) → this welcome (55).
   const isMineWelcome = useModalSlot("welcome", 55, showWelcome);
   if (showWelcome && !isMineWelcome) return null;
 
@@ -859,8 +857,7 @@ function AnnouncementPopup() {
 
   // Coordinated through the modal queue so a brand-new customer doesn't see
   // this stacked on top of the onboarding tour. Tour (priority 70) shows
-  // first; this announcement (priority 60) takes its turn after tour ends;
-  // version-welcome (priority 50) goes last.
+  // first; this announcement (priority 60) takes its turn after tour ends.
   const isMine = useModalSlot("announcement", 60, open && !!current);
 
   if (!current || !isMine) return null;
@@ -1110,7 +1107,6 @@ function AppContentInner({ user, isLoading, isAdmin, location }: { user: any; is
       <WelcomeV7Dialog />
       <WhmcsLinkPrompt />
       <WelcomeDialog />
-      <VersionWelcomeDialog />
       <ChangelogPublishPrompt />
       <SetupReminderDialog />
       <PwaInstallBanner />
