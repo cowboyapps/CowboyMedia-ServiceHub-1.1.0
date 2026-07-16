@@ -197,6 +197,9 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
+  // Skip the catch-up invalidation on the very first socket open — the
+  // initial messages query is already fetching at that point.
+  const hasOpenedOnceRef = useRef(false);
   const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     wsRef,
@@ -204,6 +207,13 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
     onOpen: (ws) => {
       if (user?.id) {
         ws.send(JSON.stringify({ type: "viewing_thread", threadId, userId: user.id }));
+      }
+      if (hasOpenedOnceRef.current) {
+        // Reconnected socket (network blip or forced replace after the app
+        // was backgrounded): broadcasts sent in the gap were missed — refetch.
+        queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
+      } else {
+        hasOpenedOnceRef.current = true;
       }
     },
     onMessage: (event) => {
@@ -233,6 +243,9 @@ function ThreadChatView({ threadId, onBack }: { threadId: string; onBack: () => 
       if (user?.id) {
         ws.send(JSON.stringify({ type: "viewing_thread", threadId, userId: user.id }));
       }
+      // Short hide with a healthy socket — cheap re-sync in case a frame
+      // slipped through around the hide/show boundary.
+      queryClient.invalidateQueries({ queryKey: ["/api/message-threads", threadId, "messages"] });
     },
     onBeforeUnmount: (ws) => {
       if (user?.id) {

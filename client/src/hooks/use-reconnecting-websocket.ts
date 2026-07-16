@@ -40,6 +40,19 @@ export interface ReconnectingWebSocketOptions {
    * of these change. Defaults to `[]` (mount/unmount only).
    */
   deps?: unknown[];
+  /**
+   * If the document was hidden for at least this long, an apparently-OPEN
+   * (or still-CONNECTING) socket is treated as a potential "zombie" on the
+   * next visibilitychange → "visible" and is force-replaced with a fresh
+   * connection. iOS PWAs silently kill sockets when the app is suspended,
+   * but on resume `readyState` often still reads OPEN — no close event ever
+   * fires, so without this the page keeps "listening" on a dead pipe.
+   * Callers re-establish presence/subscriptions in `onOpen`, which fires on
+   * the replacement socket. Short hides (quick tab switches) below the
+   * threshold keep the socket and use the `onVisible` path instead.
+   * Defaults to 5000ms.
+   */
+  staleAfterHiddenMs?: number;
 }
 
 /**
@@ -68,6 +81,7 @@ export function useReconnectingWebSocket(
     reconnectDelayMs = 2000,
     wsRef: externalWsRef,
     deps = [],
+    staleAfterHiddenMs = 5000,
   } = opts;
 
   const [status, setStatus] = useState<ReconnectingWebSocketStatus>("connecting");
@@ -124,12 +138,55 @@ export function useReconnectingWebSocket(
 
     connect();
 
+    // Silently discard the current socket (no `onclose` → no 2s backoff, no
+    // "closed" status flap) and dial a fresh one. Used on resume when the
+    // existing socket can't be trusted (iOS zombie: reads OPEN but the pipe
+    // is dead) or is stuck CONNECTING from before the app was suspended.
+    function forceReconnect() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      const current = ws;
+      setActiveSocket(null);
+      if (current) {
+        current.onopen = null;
+        current.onmessage = null;
+        current.onclose = null;
+        current.onerror = null;
+        try {
+          current.close();
+        } catch {
+          /* already dead — that's the point */
+        }
+      }
+      connect();
+    }
+
+    let hiddenAt: number | null = null;
+
     const handleVisibility = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        hiddenAt = Date.now();
+        return;
+      }
+      const hiddenFor = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
       const current = ws;
       if (current && current.readyState === WebSocket.OPEN) {
-        onVisibleRef.current?.(current);
-      } else if (!current || current.readyState === WebSocket.CLOSED) {
+        if (hiddenFor >= staleAfterHiddenMs) {
+          // Long-hidden "OPEN" socket may be a zombie — replace it. The new
+          // socket's onOpen re-establishes presence/subscriptions.
+          forceReconnect();
+        } else {
+          onVisibleRef.current?.(current);
+        }
+      } else if (current && current.readyState === WebSocket.CONNECTING) {
+        // A connect attempt that started before the app was suspended can
+        // hang forever; abandon it and re-dial.
+        if (hiddenFor >= staleAfterHiddenMs) forceReconnect();
+      } else {
+        // CLOSED or no socket — reconnect immediately, skipping the backoff.
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
@@ -164,7 +221,7 @@ export function useReconnectingWebSocket(
     // etc.) so they intentionally aren't deps; caller-supplied reconnect
     // triggers come in via the `...deps` spread, which ESLint can't verify.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, reconnectDelayMs, ...deps]);
+  }, [path, reconnectDelayMs, staleAfterHiddenMs, ...deps]);
 
   return status;
 }

@@ -579,6 +579,9 @@ export default function TicketDetail() {
     markTicketRead();
   }, [params.id, markTicketRead]);
 
+  // Skip the catch-up invalidation on the very first socket open — the
+  // initial messages query is already fetching at that point.
+  const hasOpenedOnceRef = useRef(false);
   const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     wsRef,
@@ -586,6 +589,13 @@ export default function TicketDetail() {
     onOpen: (ws) => {
       if (userIdRef.current) {
         ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
+      }
+      if (hasOpenedOnceRef.current) {
+        // Reconnected socket (network blip or forced replace after the app
+        // was backgrounded): broadcasts sent in the gap were missed — refetch.
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+      } else {
+        hasOpenedOnceRef.current = true;
       }
     },
     onMessage: (event) => {
@@ -645,6 +655,9 @@ export default function TicketDetail() {
       if (userIdRef.current) {
         ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
       }
+      // Short hide with a healthy socket — cheap re-sync in case a frame
+      // slipped through around the hide/show boundary.
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
     },
     onBeforeUnmount: (ws) => {
       if (userIdRef.current) {

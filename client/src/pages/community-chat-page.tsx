@@ -1127,10 +1127,35 @@ export default function CommunityChatPage() {
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.id ?? null;
 
+  // Skip the catch-up invalidation on the very first socket open — the
+  // initial page queries are already (re)fetching at that point.
+  const hasOpenedOnceRef = useRef(false);
+  const catchUpOnMissedMessages = useCallback(() => {
+    // Anything broadcast while the app was backgrounded / the socket was down
+    // never reached us — refetch the list instead of trusting the cache.
+    queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/community-chat/participants"] });
+  }, []);
+
   const wsStatus = useReconnectingWebSocket({
     path: "/ws",
     wsRef,
     deps: [user?.id],
+    onOpen: () => {
+      if (!hasOpenedOnceRef.current) {
+        hasOpenedOnceRef.current = true;
+        return;
+      }
+      // Reconnected (network blip, or forced replace after the app was
+      // backgrounded) — pull whatever was missed while we weren't listening.
+      catchUpOnMissedMessages();
+    },
+    onVisible: () => {
+      // App became visible again with the socket still healthy (short hide).
+      // Cheap safety net: a frame can still slip through right around the
+      // hide/show boundary, so re-sync the list.
+      catchUpOnMissedMessages();
+    },
     onMessage: (event) => {
       try {
         const data = JSON.parse(event.data);
