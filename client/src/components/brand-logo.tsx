@@ -1,5 +1,5 @@
-import lightBgLogo from "@assets/CowboyMedia_Logo_LightBG_trimmed.png";
-import darkBgLogo from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import lightBgLogo from "@assets/cowboymedia_servicehub_light_trimmed.png";
+import darkBgLogo from "@assets/cowboymedia_servicehub_dark_trimmed.png";
 
 interface BrandLogoProps {
   className?: string;

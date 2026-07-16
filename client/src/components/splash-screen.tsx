@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { APP_VERSION } from "@shared/version";
-import logoImg from "@assets/CowboyMedia_Uodated_Logo_1778328129619.png";
+import logoImg from "@assets/cowboymedia_servicehub_dark_trimmed.png";
 import splashVideoUrl from "@assets/ServiceHub_Loading_Screen_1778502829390.mp4";
 
 const MIN_VISIBLE_MS = 800;
