@@ -39,6 +39,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { useAppBadge } from "@/hooks/use-app-badge";
+import { useViewportUnpan } from "@/hooks/use-viewport-unpan";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
 import Dashboard from "@/pages/dashboard";
@@ -245,6 +246,7 @@ function AuthenticatedLayout() {
   const scrollRef = useRef<HTMLDivElement>(null);
   useScrollRestore(scrollRef);
   useAppBadge();
+  useViewportUnpan();
 
   const style = {
     "--sidebar-width": "16rem",
