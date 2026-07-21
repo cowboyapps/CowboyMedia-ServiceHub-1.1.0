@@ -372,6 +372,7 @@ export interface IStorage {
   getThreadMessages(threadId: string): Promise<ThreadMessage[]>;
   createThreadMessage(data: InsertThreadMessage): Promise<ThreadMessage>;
   markThreadMessagesRead(threadId: string, userId: string): Promise<void>;
+  markAllThreadMessagesRead(userId: string): Promise<void>;
   markThreadMessagesDelivered(threadId: string, recipientUserId: string): Promise<void>;
   markUndeliveredThreadMessagesForUser(userId: string): Promise<MessageThread[]>;
   getUnreadThreadMessageCount(userId: string): Promise<number>;
@@ -2107,6 +2108,24 @@ export class DatabaseStorage implements IStorage {
       )
     );
     return db.select().from(messageThreads).where(inArray(messageThreads.id, ids));
+  }
+
+  async markAllThreadMessagesRead(userId: string): Promise<void> {
+    // Marks every unread message sent TO this user (in any thread they're a
+    // participant of) as read — used by "Clear all" so the app badge can't be
+    // held hostage by a stale unread message with no visible notification row.
+    await db.update(threadMessages).set({ readAt: new Date() }).where(
+      and(
+        isNull(threadMessages.readAt),
+        sql`${threadMessages.senderId} != ${userId}`,
+        inArray(
+          threadMessages.threadId,
+          db.select({ id: messageThreads.id }).from(messageThreads).where(
+            sql`(${messageThreads.customerId} = ${userId} OR ${messageThreads.adminId} = ${userId})`
+          )
+        )
+      )
+    );
   }
 
   async getUnreadThreadMessageCount(userId: string): Promise<number> {

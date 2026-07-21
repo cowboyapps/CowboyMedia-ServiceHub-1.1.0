@@ -172,6 +172,19 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
     refetchInterval: 30000,
   });
 
+  // Per-area unread counters (shared cache with useAppBadge). The app badge is
+  // their sum, so "Clear all" must be reachable whenever any of them is
+  // non-zero — even if the visible notification list is empty (phantom badge).
+  const { data: ticketCount } = useQuery<{ count: number }>({ queryKey: ["/api/ticket-notifications/unread-count"] });
+  const { data: messageCount } = useQuery<{ count: number }>({ queryKey: ["/api/message-threads/unread-count"] });
+  const { data: reportCount } = useQuery<{ count: number }>({ queryKey: ["/api/report-notifications/unread-count"] });
+  const { data: contentCounts } = useQuery<Record<string, number>>({ queryKey: ["/api/content-notifications/counts"] });
+  const badgeTotal =
+    (ticketCount?.count ?? 0) +
+    (messageCount?.count ?? 0) +
+    (reportCount?.count ?? 0) +
+    Object.values(contentCounts ?? {}).reduce((sum, c) => sum + c, 0);
+
   const dismissMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       await Promise.all(
@@ -320,7 +333,7 @@ export function NotificationList({ onNavigate }: { onNavigate: (url: string) => 
           <SectionIcon icon={Bell} tone="bg-status-online/10 text-status-online" />
           Notifications
         </h3>
-        {notifications.length > 0 && (
+        {!isLoading && (notifications.length > 0 || badgeTotal > 0) && (
           <Button
             variant="ghost"
             size="sm"

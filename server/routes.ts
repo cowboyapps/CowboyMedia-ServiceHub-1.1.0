@@ -5359,6 +5359,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       await storage.dismissAllUserNotifications(userId);
       await storage.markTicketNotificationsRead(userId);
       await storage.markReportNotificationsRead(userId);
+      await storage.markAllThreadMessagesRead(userId);
       await storage.markContentNotificationsRead(userId, "alerts");
       await storage.markContentNotificationsRead(userId, "news");
       await storage.markContentNotificationsRead(userId, "service-updates");
