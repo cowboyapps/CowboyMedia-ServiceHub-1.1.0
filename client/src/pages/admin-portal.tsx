@@ -10653,10 +10653,74 @@ function WhmcsTab() {
         </div>
       </section>
 
+      <WhmcsLinkAdoptionSection />
+
       <StoreProductsSection />
       <WhmcsProductMappingSection />
       <WhmcsProductDnsSection />
     </div>
+  );
+}
+
+// Customer link-adoption breakdown — shows whether the post-signup "link your
+// billing account" prompt is working. Only rendered when WHMCS is configured
+// (credentials + base URL); the server returns stats: null otherwise.
+function WhmcsLinkAdoptionSection() {
+  const { data, isLoading } = useQuery<{
+    configured: boolean;
+    stats: { linked: number; dismissed: number; unlinked: number; total: number } | null;
+  }>({
+    queryKey: ["/api/admin/whmcs/link-stats"],
+    ...liveQueryOptions,
+  });
+
+  if (isLoading) return <Skeleton className="h-32 w-full rounded-xl" />;
+  if (!data?.configured || !data.stats) return null;
+
+  const { linked, dismissed, unlinked, total } = data.stats;
+  const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+  const buckets = [
+    { key: "linked", label: "Linked", count: linked, hint: "Connected to a billing account", color: "text-green-600 dark:text-green-400", bar: "bg-green-500" },
+    { key: "unlinked", label: "Not linked yet", count: unlinked, hint: "Haven't linked or dismissed", color: "text-amber-600 dark:text-amber-400", bar: "bg-amber-500" },
+    { key: "dismissed", label: "Dismissed prompt", count: dismissed, hint: "Chose \u201cremind me later\u201d", color: "text-muted-foreground", bar: "bg-muted-foreground/50" },
+  ];
+
+  return (
+    <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="section-whmcs-link-adoption">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <Users className="h-[18px] w-[18px]" />
+          </span>
+          Customer Link Adoption
+        </h2>
+        <span className="text-xs text-muted-foreground" data-testid="text-link-adoption-total">
+          {total} customer{total === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          {buckets.map((b) => (
+            <div key={b.key} className="rounded-md border p-3" data-testid={`stat-link-${b.key}`}>
+              <p className={`text-2xl font-semibold ${b.color}`} data-testid={`text-link-${b.key}-count`}>{b.count}</p>
+              <p className="text-sm font-medium mt-0.5">{b.label} <span className="text-xs text-muted-foreground font-normal">({pct(b.count)}%)</span></p>
+              <p className="text-xs text-muted-foreground mt-0.5">{b.hint}</p>
+            </div>
+          ))}
+        </div>
+        {total > 0 && (
+          <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex" data-testid="bar-link-adoption">
+            {buckets.map((b) => b.count > 0 && (
+              <div key={b.key} className={b.bar} style={{ width: `${(b.count / total) * 100}%` }} />
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          New customers are prompted to link their billing account after signup. A high "not linked" share may mean unlinked customers need another nudge.
+        </p>
+      </div>
+    </section>
   );
 }
 

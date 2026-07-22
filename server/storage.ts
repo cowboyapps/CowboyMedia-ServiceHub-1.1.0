@@ -416,6 +416,7 @@ export interface IStorage {
   updateWhmcsSettings(data: UpdateWhmcsSettingsData): Promise<WhmcsSettings>;
   getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
   getWhmcsLinkedUsers(): Promise<User[]>;
+  getWhmcsLinkStats(): Promise<{ linked: number; dismissed: number; unlinked: number }>;
   getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>>;
   recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void>;
   getWhmcsInvoiceNotifyState(userId: string): Promise<Record<string, string>>;
@@ -1651,6 +1652,22 @@ export class DatabaseStorage implements IStorage {
 
   async getWhmcsLinkedUsers(): Promise<User[]> {
     return db.select().from(users).where(isNotNull(users.whmcsClientId));
+  }
+
+  // Customer-only breakdown of billing-link adoption for the admin WHMCS page.
+  // Staff accounts (admin/master_admin) are excluded — the prompt targets
+  // customers. Buckets are mutually exclusive: linked wins over dismissed
+  // (a customer who dismissed then later linked counts as linked).
+  async getWhmcsLinkStats(): Promise<{ linked: number; dismissed: number; unlinked: number }> {
+    const [row] = await db
+      .select({
+        linked: sql<number>`count(*) filter (where ${users.whmcsClientId} is not null)::int`,
+        dismissed: sql<number>`count(*) filter (where ${users.whmcsClientId} is null and ${users.whmcsLinkPromptDismissedAt} is not null)::int`,
+        unlinked: sql<number>`count(*) filter (where ${users.whmcsClientId} is null and ${users.whmcsLinkPromptDismissedAt} is null)::int`,
+      })
+      .from(users)
+      .where(sql`${users.role} not in ('admin', 'master_admin')`);
+    return row ?? { linked: 0, dismissed: 0, unlinked: 0 };
   }
 
   async getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>> {

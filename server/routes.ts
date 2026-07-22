@@ -80,6 +80,7 @@ import { createUpgradeOptionsHandler, createSubmitUpgradeHandler } from "./whmcs
 import { createAdminServiceActionHandler } from "./whmcs-admin-service-action-route";
 import { createWhmcsLinkHandler, createWhmcsUnlinkHandler, createWhmcsAutoMatchHandler } from "./whmcs-admin-link-route";
 import { createWhmcsLinkReadHandler } from "./whmcs-admin-link-read-route";
+import { createWhmcsLinkStatsHandler } from "./whmcs-link-stats-route";
 import { createAdminUserNotificationsHandler } from "./admin-user-notifications-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
@@ -6515,6 +6516,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     normalizeBaseUrl: normalizeWhmcsBaseUrl,
     getClientById: getWhmcsClientById,
     getClientByEmail: getWhmcsClientByEmail,
+  }));
+
+  // Customer billing-link adoption breakdown (linked / dismissed / unlinked)
+  // for the Admin Portal WHMCS Billing page. Pure read; stats are null when
+  // WHMCS is not configured. Tested against the real handler
+  // (see server/whmcs-link-stats-route.test.ts).
+  app.get("/api/admin/whmcs/link-stats", requireAdmin, createWhmcsLinkStatsHandler({
+    getWhmcsSettings: () => storage.getWhmcsSettings(),
+    getWhmcsLinkStats: () => storage.getWhmcsLinkStats(),
+    hasWhmcsCredentials,
+    normalizeBaseUrl: normalizeWhmcsBaseUrl,
   }));
 
   // Staff WHMCS account-LINKING writes — manual link, unlink, and auto-match by
