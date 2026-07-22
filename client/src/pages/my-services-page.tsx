@@ -1765,7 +1765,7 @@ function NoServicesNotice() {
       </p>
       {needsLink && (
         <Button asChild variant="outline" size="sm" className="mt-4" data-testid="button-link-account">
-          <Link href="/settings">Link your account</Link>
+          <Link href="/settings#link-account">Link your account</Link>
         </Button>
       )}
     </section>

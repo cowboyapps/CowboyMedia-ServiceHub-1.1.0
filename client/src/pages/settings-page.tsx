@@ -434,6 +434,23 @@ export default function SettingsPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [isLoading]);
 
+  // Deep link (/settings#link-account): scroll to the WHMCS link card and
+  // briefly flash it so the customer sent here from My Services knows why.
+  // Fires once, only after the card has rendered (whmcs status query loaded).
+  const [flashLinkCard, setFlashLinkCard] = useState(false);
+  useEffect(() => {
+    if (window.location.hash !== "#link-account" || !whmcsConfigured) return;
+    const el = document.getElementById("link-account");
+    if (!el) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    if (!whmcsLinked && !reducedMotion) {
+      setFlashLinkCard(true);
+      const t = setTimeout(() => setFlashLinkCard(false), 2600);
+      return () => clearTimeout(t);
+    }
+  }, [whmcsConfigured, whmcsLinked]);
+
   const handlePushToggle = async (checked: boolean) => {
     setPushLoading(true);
     try {
@@ -646,7 +663,13 @@ export default function SettingsPage() {
       </section>
 
       {whmcsConfigured && (
-        <section className="rounded-xl border border-card-border bg-card overflow-hidden" data-testid="card-whmcs-link">
+        <section
+          id="link-account"
+          className={`rounded-xl border border-card-border bg-card overflow-hidden scroll-mt-20 transition-shadow duration-700 ${
+            flashLinkCard ? "animate-pulse ring-2 ring-primary shadow-lg shadow-primary/20" : ""
+          }`}
+          data-testid="card-whmcs-link"
+        >
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold flex items-center gap-3">
               <SectionIcon icon={CreditCard} tone="bg-primary/10 text-primary" />
