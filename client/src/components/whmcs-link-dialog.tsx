@@ -50,9 +50,15 @@ interface WhmcsLinkDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Called once the account has been successfully linked. */
   onLinked?: () => void;
+  /**
+   * When provided (auto-prompt context), the email step shows a "do this later
+   * in Settings" escape hatch. The caller is expected to dismiss the prompt and
+   * deep-link to /settings#link-account so the card scroll + flash kicks in.
+   */
+  onGoToSettings?: () => void;
 }
 
-export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialogProps) {
+export function WhmcsLinkDialog({ open, onOpenChange, onLinked, onGoToSettings }: WhmcsLinkDialogProps) {
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -290,6 +296,19 @@ export function WhmcsLinkDialog({ open, onOpenChange, onLinked }: WhmcsLinkDialo
                 >
                   Proceed to ServiceHub without account linking
                 </Button>
+              )}
+              {onGoToSettings && (
+                <p className="text-center text-sm text-muted-foreground">
+                  Prefer to do this later?{" "}
+                  <button
+                    type="button"
+                    className="text-primary underline-offset-2 hover:underline"
+                    onClick={onGoToSettings}
+                    data-testid="button-whmcs-link-go-to-settings"
+                  >
+                    Find it anytime in Settings
+                  </button>
+                </p>
               )}
             </form>
           </>

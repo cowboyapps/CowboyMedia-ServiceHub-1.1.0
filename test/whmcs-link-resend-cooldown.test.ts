@@ -145,7 +145,7 @@ interface MountResult {
   cleanup: () => void;
 }
 
-async function mountDialog(): Promise<MountResult> {
+async function mountDialog(extraProps: Record<string, unknown> = {}): Promise<MountResult> {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
 
@@ -165,6 +165,7 @@ async function mountDialog(): Promise<MountResult> {
       React.createElement(WhmcsLinkDialog, {
         open: true,
         onOpenChange: () => {},
+        ...extraProps,
       }),
     );
 
@@ -208,6 +209,41 @@ async function sendCode(): Promise<void> {
   });
   await flush();
 }
+
+// --- "Do this later in Settings" escape hatch (auto-prompt context only) -----
+// The post-signup auto prompt passes onGoToSettings so a new customer can defer
+// linking and be deep-linked to /settings#link-account (scroll + flash). The
+// Settings page itself mounts the dialog WITHOUT the prop, so no self-link loop.
+
+test("email step shows the Settings escape hatch only when onGoToSettings is provided, and clicking it fires the callback", async () => {
+  requestHandler = () => jsonResponse({ status: "code_sent" });
+
+  // Without the prop (Settings-page context): no escape hatch.
+  const plain = await mountDialog();
+  try {
+    assert.equal(
+      findByTestId("button-whmcs-link-go-to-settings"),
+      null,
+      "escape hatch hidden when onGoToSettings is not passed",
+    );
+  } finally {
+    plain.cleanup();
+  }
+
+  // With the prop (auto-prompt context): visible and wired to the callback.
+  let calls = 0;
+  const prompted = await mountDialog({ onGoToSettings: () => calls++ });
+  try {
+    const hatch = findByTestId("button-whmcs-link-go-to-settings") as HTMLButtonElement | null;
+    assert.ok(hatch, "escape hatch rendered on the email step");
+    await act(async () => {
+      hatch!.click();
+    });
+    assert.equal(calls, 1, "clicking the escape hatch invokes onGoToSettings once");
+  } finally {
+    prompted.cleanup();
+  }
+});
 
 test("after a code is sent, the resend button is disabled with a live countdown", async () => {
   requestHandler = () => jsonResponse({ status: "code_sent" });

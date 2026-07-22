@@ -433,6 +433,7 @@ interface WhmcsLinkStatus {
 // never auto-fires again. The Settings entry point stays available regardless.
 function WhmcsLinkPrompt() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [resolved, setResolved] = useState(false);
 
@@ -466,8 +467,21 @@ function WhmcsLinkPrompt() {
     if (!next) dismissMutation.mutate();
   };
 
+  // "Do this later" — dismiss the prompt and land the customer on the
+  // Settings link card (the #link-account hash triggers scroll + flash).
+  const handleGoToSettings = () => {
+    handleOpenChange(false);
+    navigate("/settings#link-account");
+  };
+
   if (!open || !isMine) return null;
-  return <WhmcsLinkDialog open={open} onOpenChange={handleOpenChange} />;
+  return (
+    <WhmcsLinkDialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      onGoToSettings={handleGoToSettings}
+    />
+  );
 }
 
 function WelcomeDialog() {
