@@ -1739,6 +1739,17 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           ))}
         </div>
       )}
+      {/* View-only admins can't see the manager toggle, so when suggestions are
+          switched off they'd have no clue why the "Suggested drafts" card never
+          appears — surface a subtle inline note in its place. */}
+      {!canManage && draftSettings && !draftSettings.enabled && (
+        <div className="flex items-start gap-2 rounded-lg border p-3" data-testid="notice-draft-suggestions-off">
+          <BellOff className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
+            Draft suggestions are turned off. Monitoring won't suggest outage or recovery drafts until a manager turns them back on.
+          </p>
+        </div>
+      )}
       {canManage && draftSettings && (
         <div className="flex items-center justify-between gap-2 rounded-lg border p-3" data-testid="row-draft-suggestions-toggle">
           <div className="min-w-0">
