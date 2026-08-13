@@ -451,7 +451,7 @@ export interface IStorage {
   getDiscordSettings(): Promise<DiscordSettings | undefined>;
   updateDiscordSettings(data: { webhookUrl?: string | null; enabled?: boolean; sendAlerts?: boolean; sendServiceUpdates?: boolean; sendNews?: boolean }): Promise<DiscordSettings>;
   getAppSettings(): Promise<AppSettings>;
-  updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null }): Promise<AppSettings>;
+  updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null; alertDraftsEnabled?: boolean }): Promise<AppSettings>;
   getBusinessHours(): Promise<BusinessHours>;
   updateBusinessHours(data: UpdateBusinessHoursData): Promise<BusinessHours>;
   getSupportAway(): Promise<SupportAwayMessage>;
@@ -2437,10 +2437,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null }): Promise<AppSettings> {
+  async updateAppSettings(data: { autoDeployEnabled?: boolean; autoDeployPausedReason?: string | null; autoDeployPausedBy?: string | null; alertDraftsEnabled?: boolean }): Promise<AppSettings> {
     await this.getAppSettings(); // ensure row exists
     const patch: Record<string, any> = { updatedAt: new Date() };
     if (data.autoDeployEnabled !== undefined) patch.autoDeployEnabled = data.autoDeployEnabled;
+    if (data.alertDraftsEnabled !== undefined) patch.alertDraftsEnabled = data.alertDraftsEnabled;
     if (data.autoDeployPausedReason !== undefined) patch.autoDeployPausedReason = data.autoDeployPausedReason;
     if (data.autoDeployPausedBy !== undefined) patch.autoDeployPausedBy = data.autoDeployPausedBy;
     const [updated] = await db.update(appSettings).set(patch).where(eq(appSettings.id, "singleton")).returning();

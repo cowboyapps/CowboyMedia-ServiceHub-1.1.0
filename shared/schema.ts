@@ -1234,6 +1234,10 @@ export const appSettings = pgTable("app_settings", {
   autoDeployEnabled: boolean("auto_deploy_enabled").notNull().default(true),
   autoDeployPausedReason: text("auto_deploy_paused_reason"),
   autoDeployPausedBy: varchar("auto_deploy_paused_by"),
+  // Master switch for monitor-driven outage/recovery draft suggestions. Off →
+  // the monitoring loop never creates alert drafts (existing pending drafts
+  // remain reviewable).
+  alertDraftsEnabled: boolean("alert_drafts_enabled").notNull().default(true),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

@@ -325,9 +325,20 @@ function makeHarness() {
     (req as any).session = sessionUserId ? { userId: sessionUserId } : {};
     next();
   });
-  registerAlertDraftRoutes(app, { requirePermission: requirePermission as any }, { storage: mem.storage });
+  // In-memory app-settings singleton backing the draft-suggestions toggle.
+  const appSettings = { alertDraftsEnabled: true };
+  registerAlertDraftRoutes(app, { requirePermission: requirePermission as any }, {
+    storage: {
+      ...mem.storage,
+      getAppSettings: async () => ({ ...appSettings }),
+      updateAppSettings: async (data: { alertDraftsEnabled?: boolean }) => {
+        if (data.alertDraftsEnabled !== undefined) appSettings.alertDraftsEnabled = data.alertDraftsEnabled;
+        return { ...appSettings };
+      },
+    },
+  });
 
-  return { ...mem, app, setUser(id: string | null) { sessionUserId = id; } };
+  return { ...mem, app, appSettings, setUser(id: string | null) { sessionUserId = id; } };
 }
 
 async function call(app: express.Express, method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
@@ -390,4 +401,31 @@ test("PATCH validates the body (bad status → 400) and requires manage permissi
   h.setUser("admin-view"); // view-only cannot act on drafts
   assert.equal((await call(h.app, "PATCH", `/api/admin/alert-drafts/${a!.id}`, { status: "dismissed" })).status, 403);
   assert.equal(h.drafts.get(a!.id)!.status, "pending");
+});
+
+test("alert-draft-settings: GET needs view, PATCH needs manage, persists and returns stored value", async () => {
+  const h = makeHarness();
+
+  h.setUser(null);
+  assert.equal((await call(h.app, "GET", "/api/admin/alert-draft-settings")).status, 401);
+  h.setUser("cust");
+  assert.equal((await call(h.app, "GET", "/api/admin/alert-draft-settings")).status, 403);
+
+  h.setUser("admin-view");
+  const g = await call(h.app, "GET", "/api/admin/alert-draft-settings");
+  assert.equal(g.status, 200);
+  assert.equal(g.body.enabled, true);
+  // view-only cannot toggle
+  assert.equal((await call(h.app, "PATCH", "/api/admin/alert-draft-settings", { enabled: false })).status, 403);
+  assert.equal(h.appSettings.alertDraftsEnabled, true);
+
+  h.setUser("admin-manage");
+  assert.equal((await call(h.app, "PATCH", "/api/admin/alert-draft-settings", { enabled: "no" })).status, 400);
+  const p = await call(h.app, "PATCH", "/api/admin/alert-draft-settings", { enabled: false });
+  assert.equal(p.status, 200);
+  assert.equal(p.body.enabled, false);
+  assert.equal(h.appSettings.alertDraftsEnabled, false);
+
+  const g2 = await call(h.app, "GET", "/api/admin/alert-draft-settings");
+  assert.equal(g2.body.enabled, false);
 });

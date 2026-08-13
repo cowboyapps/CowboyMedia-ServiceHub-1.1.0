@@ -8233,8 +8233,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         await notifyAdminsMonitorDown(monitor, failureReason);
         await storage.updateMonitorIncident(incident.id, { notifiedDown: true });
         // Suggest a DRAFT service alert for admins to review — never auto-posts.
+        // Skipped entirely when the admin has turned draft suggestions off.
         try {
-          await onMonitorDownCreateDraft(monitor, incident, now, { storage, notifyAdminsDraftReady });
+          if ((await storage.getAppSettings()).alertDraftsEnabled) {
+            await onMonitorDownCreateDraft(monitor, incident, now, { storage, notifyAdminsDraftReady });
+          }
         } catch (err) {
           console.error(`Alert draft (outage) error for ${monitor.name}:`, err);
         }
@@ -8264,7 +8267,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
           ? Math.round((now.getTime() - new Date(openIncidents[0].startedAt).getTime()) / 1000)
           : 0;
         try {
-          await onMonitorUpCreateRecoveryDraft(monitor, downtimeSeconds, now, { storage, notifyAdminsDraftReady });
+          if ((await storage.getAppSettings()).alertDraftsEnabled) {
+            await onMonitorUpCreateRecoveryDraft(monitor, downtimeSeconds, now, { storage, notifyAdminsDraftReady });
+          }
         } catch (err) {
           console.error(`Alert draft (recovery) error for ${monitor.name}:`, err);
         }

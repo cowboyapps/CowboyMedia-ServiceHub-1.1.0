@@ -1,0 +1,1 @@
+ALTER TABLE "app_settings" ADD COLUMN "alert_drafts_enabled" boolean DEFAULT true NOT NULL;

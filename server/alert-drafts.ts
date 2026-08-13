@@ -194,6 +194,8 @@ export interface AlertDraftRouteDeps {
   storage: AlertDraftStorage & {
     getAlertDrafts(status?: string): Promise<AlertDraft[]>;
     getAlertDraft(id: string): Promise<AlertDraft | undefined>;
+    getAppSettings(): Promise<{ alertDraftsEnabled: boolean }>;
+    updateAppSettings(data: { alertDraftsEnabled?: boolean }): Promise<unknown>;
   };
 }
 
@@ -211,6 +213,32 @@ export function registerAlertDraftRoutes(
 ): void {
   const { requirePermission } = middleware;
   const { storage } = deps;
+
+  // Feature toggle for the monitor-driven draft generator. Turning it off
+  // stops NEW suggestions; pending drafts remain reviewable and the alert
+  // routes are untouched.
+  app.get("/api/admin/alert-draft-settings", requirePermission("alerts.view"), async (_req, res) => {
+    try {
+      const settings = await storage.getAppSettings();
+      res.json({ enabled: settings.alertDraftsEnabled });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
+
+  app.patch("/api/admin/alert-draft-settings", requirePermission("alerts.view", "alerts.manage"), async (req, res) => {
+    try {
+      const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid body: enabled must be a boolean" });
+      }
+      await storage.updateAppSettings({ alertDraftsEnabled: parsed.data.enabled });
+      const settings = await storage.getAppSettings();
+      res.json({ enabled: settings.alertDraftsEnabled });
+    } catch (e) {
+      res.status(500).json({ message: getErrorMessage(e) });
+    }
+  });
 
   app.get("/api/admin/alert-drafts", requirePermission("alerts.view"), async (req, res) => {
     try {

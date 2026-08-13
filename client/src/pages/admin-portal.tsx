@@ -1442,6 +1442,9 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
   const { data: pendingDrafts } = useQuery<AlertDraft[]>({
     queryKey: ["/api/admin/alert-drafts?status=pending"],
   });
+  const { data: draftSettings } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/admin/alert-draft-settings"],
+  });
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
@@ -1674,6 +1677,22 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
 
   const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
 
+  // Toggle for monitor-driven draft suggestions. Off = monitoring stops
+  // creating new outage/recovery drafts; existing pending ones stay reviewable.
+  const draftSettingsMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      await apiRequest("PATCH", "/api/admin/alert-draft-settings", { enabled });
+    },
+    onSuccess: (_d, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/alert-draft-settings"] });
+      toast({ title: enabled ? "Draft suggestions on" : "Draft suggestions off", description: enabled ? "Monitoring will suggest outage and recovery drafts again." : "Monitoring will no longer suggest outage or recovery drafts." });
+    },
+    onError: (e: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/alert-draft-settings"] });
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
+
   const openEditAlert = (alert: ServiceAlertWithServices) => {
     setEditingAlert(alert);
     setEditAlertTitle(alert.title);
@@ -1718,6 +1737,20 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {canManage && draftSettings && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border p-3" data-testid="row-draft-suggestions-toggle">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Outage draft suggestions</p>
+            <p className="text-xs text-muted-foreground">When monitoring detects an outage or recovery, suggest a draft alert for review. Nothing is ever posted automatically.</p>
+          </div>
+          <Switch
+            checked={draftSettings.enabled}
+            onCheckedChange={(v) => draftSettingsMutation.mutate(v)}
+            disabled={draftSettingsMutation.isPending}
+            data-testid="switch-draft-suggestions"
+          />
         </div>
       )}
       <div className="flex items-center justify-between gap-2 flex-wrap">
