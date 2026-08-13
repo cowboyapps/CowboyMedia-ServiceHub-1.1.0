@@ -23,7 +23,7 @@ import { z } from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, Tags, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog, BadgePercent } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Server, AlertTriangle, Newspaper, RotateCcw, Shield, ShieldCheck, ShieldOff, Mail, MailX, Send, Clock, Zap, FileText, RefreshCw, Bell, BellOff, MailOpen, Copy, Eye, EyeOff, RotateCw, MessageSquare, Crown, Tag, BellRing, Tags, LifeBuoy, ChevronDown, ChevronRight, ScrollText, Search, ArrowLeft, Globe, Activity, Circle, ExternalLink, Pause, Play, Megaphone, Check, Minus, BookOpen, Hash, LayoutDashboard, Bug, CheckCircle2, Rocket, Sparkles, CreditCard, Link2, Unlink, Smartphone, Wallet, TrendingUp, ServerCog, BadgePercent } from "lucide-react";
 import AdminDashboard from "./admin-dashboard";
 import { ImageCropDialog, type CropAspectKey } from "@/components/image-crop-dialog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -10666,12 +10666,35 @@ function WhmcsTab() {
 // billing account" prompt is working. Only rendered when WHMCS is configured
 // (credentials + base URL); the server returns stats: null otherwise.
 function WhmcsLinkAdoptionSection() {
+  const { toast } = useToast();
+  const [includeDismissed, setIncludeDismissed] = useState(false);
   const { data, isLoading } = useQuery<{
     configured: boolean;
     stats: { linked: number; dismissed: number; unlinked: number; total: number } | null;
   }>({
     queryKey: ["/api/admin/whmcs/link-stats"],
     ...liveQueryOptions,
+  });
+
+  const reminderMutation = useMutation({
+    mutationFn: async (opts: { includeDismissed: boolean }) => {
+      const res = await apiRequest("POST", "/api/admin/whmcs/link-reminder", opts);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed to send reminders");
+      return body as { notified: number; skippedThrottled: number; skippedNoChannel: number; totalCandidates: number };
+    },
+    onSuccess: (r) => {
+      const parts: string[] = [];
+      if (r.skippedThrottled > 0) parts.push(`${r.skippedThrottled} skipped (reminded in the last 7 days)`);
+      if (r.skippedNoChannel > 0) parts.push(`${r.skippedNoChannel} unreachable (notifications turned off)`);
+      toast({
+        title: r.notified > 0
+          ? `Reminder sent to ${r.notified} customer${r.notified === 1 ? "" : "s"}`
+          : "No reminders sent",
+        description: parts.length > 0 ? parts.join(" · ") : undefined,
+      });
+    },
+    onError: (e: Error) => toast({ title: "Reminder failed", description: e.message, variant: "destructive" }),
   });
 
   if (isLoading) return <Skeleton className="h-32 w-full rounded-xl" />;
@@ -10719,6 +10742,53 @@ function WhmcsLinkAdoptionSection() {
         <p className="text-xs text-muted-foreground">
           New customers are prompted to link their billing account after signup. A high "not linked" share may mean unlinked customers need another nudge.
         </p>
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={reminderMutation.isPending || (unlinked === 0 && dismissed === 0)}
+                data-testid="button-send-link-reminder"
+              >
+                <BellRing className="h-4 w-4 mr-2" />
+                {reminderMutation.isPending ? "Sending..." : "Send reminder"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Send a billing-link reminder?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Unlinked customers get an in-app notification and/or an email (per their notification preferences) inviting them to connect their billing account. Anyone reminded in the last 7 days is skipped automatically.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                <Checkbox
+                  checked={includeDismissed}
+                  onCheckedChange={(v) => setIncludeDismissed(v === true)}
+                  className="mt-0.5"
+                  data-testid="checkbox-reminder-include-dismissed"
+                />
+                <span>
+                  Also remind customers who dismissed the prompt
+                  <span className="block text-xs text-muted-foreground">Includes the {dismissed} customer{dismissed === 1 ? "" : "s"} who chose "remind me later".</span>
+                </span>
+              </label>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-link-reminder">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => reminderMutation.mutate({ includeDismissed })}
+                  data-testid="button-confirm-link-reminder"
+                >
+                  Send reminder
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <span className="text-xs text-muted-foreground">
+            Nudges {includeDismissed ? unlinked + dismissed : unlinked} customer{(includeDismissed ? unlinked + dismissed : unlinked) === 1 ? "" : "s"} at most once per week.
+          </span>
+        </div>
       </div>
     </section>
   );

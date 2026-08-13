@@ -261,6 +261,18 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     description: "Sent to the customer when one of their WHMCS invoices is due soon or becomes overdue",
   },
   {
+    templateKey: "customer_whmcs_link_reminder",
+    name: "Billing Account Link Reminder (Customer)",
+    subject: "Reminder: Connect your billing account",
+    body: `<h2>Connect Your Billing Account</h2>
+<p>Hi {customer_name},</p>
+<p>You haven't connected your billing account to your ServiceHub profile yet. Linking takes under a minute and unlocks invoices, services, and billing support right inside the app.</p>
+<p><a href="{link_url}" style="display:inline-block;padding:12px 24px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Link my billing account</a></p>
+<p>Or open <strong>Settings</strong> in the app and choose <strong>Link billing account</strong>.</p>`,
+    availableVariables: ["customer_name", "link_url"],
+    description: "Sent when an admin nudges unlinked customers to connect their billing account",
+  },
+  {
     templateKey: "customer_whmcs_service_renewal",
     name: "Service Renewal Reminder (Customer)",
     subject: "Reminder: {service_name} {renew_phrase}",

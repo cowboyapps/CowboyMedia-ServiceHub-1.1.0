@@ -417,6 +417,7 @@ export interface IStorage {
   getUserByWhmcsClientId(whmcsClientId: number): Promise<User | undefined>;
   getWhmcsLinkedUsers(): Promise<User[]>;
   getWhmcsLinkStats(): Promise<{ linked: number; dismissed: number; unlinked: number }>;
+  getWhmcsUnlinkedCustomers(): Promise<User[]>;
   getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>>;
   recordWhmcsTicketNotified(userId: string, whmcsTicketId: number, lastNotifiedReply: string): Promise<void>;
   getWhmcsInvoiceNotifyState(userId: string): Promise<Record<string, string>>;
@@ -1668,6 +1669,15 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(sql`${users.role} not in ('admin', 'master_admin')`);
     return row ?? { linked: 0, dismissed: 0, unlinked: 0 };
+  }
+
+  // All unlinked, non-staff customers (dismissed-prompt users included — the
+  // reminder route filters those per the admin's includeDismissed choice).
+  async getWhmcsUnlinkedCustomers(): Promise<User[]> {
+    return db
+      .select()
+      .from(users)
+      .where(and(isNull(users.whmcsClientId), sql`${users.role} not in ('admin', 'master_admin')`));
   }
 
   async getWhmcsTicketNotifyState(userId: string): Promise<Record<string, string>> {

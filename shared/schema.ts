@@ -47,6 +47,11 @@ export const users = pgTable("users", {
   // null means the auto-popup is still eligible to fire. The Settings entry
   // point ignores this; it's available whenever the user is unlinked.
   whmcsLinkPromptDismissedAt: timestamp("whmcs_link_prompt_dismissed_at"),
+  // When an admin-triggered "link your billing account" reminder was last
+  // delivered to this customer (in-app and/or email). Nullable — null means
+  // never reminded. Used to throttle the Admin Portal "send reminder" action
+  // so repeat clicks can't spam the same customer within the cooldown window.
+  whmcsLinkReminderLastSentAt: timestamp("whmcs_link_reminder_last_sent_at"),
   // When the customer dismissed the one-time v7 "Welcome to ServiceHub /
   // account linking" announcement popup. Null = still eligible to show.
   welcomeV7DismissedAt: timestamp("welcome_v7_dismissed_at"),

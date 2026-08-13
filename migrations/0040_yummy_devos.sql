@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "whmcs_link_reminder_last_sent_at" timestamp;

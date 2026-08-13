@@ -103,6 +103,13 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     channels: ["push"],
   },
   {
+    key: "whmcs_link_reminder",
+    label: "Billing account link reminders",
+    description: "Occasional reminders to connect your billing account if you haven't yet",
+    group: "Billing",
+    channels: ["in_app", "email"],
+  },
+  {
     key: "report_received",
     label: "Report submission confirmation",
     description: "Confirmation that we received your report or request",

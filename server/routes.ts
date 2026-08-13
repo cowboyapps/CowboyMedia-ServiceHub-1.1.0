@@ -81,6 +81,7 @@ import { createAdminServiceActionHandler } from "./whmcs-admin-service-action-ro
 import { createWhmcsLinkHandler, createWhmcsUnlinkHandler, createWhmcsAutoMatchHandler } from "./whmcs-admin-link-route";
 import { createWhmcsLinkReadHandler } from "./whmcs-admin-link-read-route";
 import { createWhmcsLinkStatsHandler } from "./whmcs-link-stats-route";
+import { createWhmcsLinkReminderHandler } from "./whmcs-link-reminder-route";
 import { createAdminUserNotificationsHandler } from "./admin-user-notifications-route";
 import {
   loadTicketsList as loadWhmcsTicketsList,
@@ -6527,6 +6528,47 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     getWhmcsLinkStats: () => storage.getWhmcsLinkStats(),
     hasWhmcsCredentials,
     normalizeBaseUrl: normalizeWhmcsBaseUrl,
+  }));
+
+  // One-click "nudge unlinked customers" action for the Customer Link Adoption
+  // card. Sends each eligible unlinked customer an in-app bell card and/or email
+  // (per their "whmcs_link_reminder" prefs) inviting them to connect billing.
+  // Throttled: a customer reminded in the last 7 days is skipped; the marker is
+  // stamped only when something was actually delivered. Extracted into
+  // createWhmcsLinkReminderHandler and tested against the real handler
+  // (see server/whmcs-link-reminder-route.test.ts).
+  app.post("/api/admin/whmcs/link-reminder", requireAdmin, createWhmcsLinkReminderHandler({
+    getLinkConfig: async () => {
+      const settings = await storage.getWhmcsSettings();
+      const baseUrl = normalizeWhmcsBaseUrl(settings?.baseUrl ?? null);
+      return { configured: hasWhmcsCredentials() && !!baseUrl, enabled: !!settings?.enabled };
+    },
+    listUnlinkedCustomers: () => storage.getWhmcsUnlinkedCustomers(),
+    wantsInApp: (user) => customerWantsInApp(user as unknown as NotifUser, "whmcs_link_reminder"),
+    wantsEmail: (user) => customerWantsEmail(user as unknown as NotifUser, "whmcs_link_reminder"),
+    createInApp: (user) =>
+      storage.createUserNotification({
+        userId: user.id,
+        type: "whmcs_link_reminder",
+        title: "Connect your billing account",
+        body: "Link your billing account to see invoices, services, and billing support right inside the app. It takes under a minute.",
+        url: "/settings#link-account",
+      }),
+    sendEmail: (user) => {
+      if (!user.email) return;
+      const base = (process.env.APP_BASE_URL || "http://localhost:5000").replace(/\/+$/, "");
+      void sendTemplatedEmail(
+        user.email,
+        "customer_whmcs_link_reminder",
+        {
+          customer_name: user.fullName || "there",
+          link_url: `${base}/settings#link-account`,
+        },
+        user.fullName || undefined,
+      );
+    },
+    markReminded: (userId, at) => storage.updateUser(userId, { whmcsLinkReminderLastSentAt: at }),
+    logActivity,
   }));
 
   // Staff WHMCS account-LINKING writes — manual link, unlink, and auto-match by
