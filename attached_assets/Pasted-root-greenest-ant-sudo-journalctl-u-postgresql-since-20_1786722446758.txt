@@ -1,0 +1,85 @@
+root@greenest-ant:~# sudo journalctl -u 'postgresql@*' --since "2026-08-14 10:00" --no-pager | tail -60
+
+-- No entries --
+root@greenest-ant:~# sudo tail -80 /var/log/postgresql/postgresql-*-main.log
+2026-08-13 19:04:53.255 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=39 kB, estimate=109 kB; lsn=0/AE9187B8, redo lsn=0/AE918780
+2026-08-13 19:09:52.355 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:09:53.468 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.108 s, sync=0.002 s, total=1.113 s; sync files=3, longest=0.001 s, average=0.001 s; distance=80 kB, estimate=106 kB; lsn=0/AE92C908, redo lsn=0/AE92C8D0
+2026-08-13 19:14:52.525 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:14:55.339 UTC [896656] LOG:  checkpoint complete: wrote 29 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.809 s, sync=0.002 s, total=2.814 s; sync files=13, longest=0.001 s, average=0.001 s; distance=172 kB, estimate=172 kB; lsn=0/AE957938, redo lsn=0/AE957900
+2026-08-13 19:19:52.434 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:19:53.543 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=79 kB, estimate=162 kB; lsn=0/AE96B710, redo lsn=0/AE96B6D8
+2026-08-13 19:24:52.570 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:24:53.679 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=42 kB, estimate=150 kB; lsn=0/AE975FC0, redo lsn=0/AE975F88
+2026-08-13 19:29:52.778 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:29:53.987 UTC [896656] LOG:  checkpoint complete: wrote 13 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.204 s, sync=0.002 s, total=1.209 s; sync files=4, longest=0.001 s, average=0.001 s; distance=82 kB, estimate=143 kB; lsn=0/AE98A998, redo lsn=0/AE98A960
+2026-08-13 19:34:53.085 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:34:54.195 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=80 kB, estimate=137 kB; lsn=0/AE99EB60, redo lsn=0/AE99EB28
+2026-08-13 19:39:53.265 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:39:54.546 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.105 s, sync=0.143 s, total=1.282 s; sync files=3, longest=0.142 s, average=0.048 s; distance=84 kB, estimate=132 kB; lsn=0/AE9B3D40, redo lsn=0/AE9B3D08
+2026-08-13 19:44:53.625 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:44:56.239 UTC [896656] LOG:  checkpoint complete: wrote 27 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.609 s, sync=0.002 s, total=2.615 s; sync files=16, longest=0.001 s, average=0.001 s; distance=156 kB, estimate=156 kB; lsn=0/AE9E36D0, redo lsn=0/AE9DAD58
+2026-08-13 19:49:53.336 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:49:55.247 UTC [896656] LOG:  checkpoint complete: wrote 20 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.906 s, sync=0.002 s, total=1.912 s; sync files=8, longest=0.001 s, average=0.001 s; distance=88 kB, estimate=149 kB; lsn=0/AE9F0ED8, redo lsn=0/AE9F0EA0
+2026-08-13 19:54:53.310 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:54:55.926 UTC [896656] LOG:  checkpoint complete: wrote 27 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.609 s, sync=0.002 s, total=2.616 s; sync files=16, longest=0.001 s, average=0.001 s; distance=158 kB, estimate=158 kB; lsn=0/AEA18A08, redo lsn=0/AEA189D0
+2026-08-13 19:59:53.976 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 19:59:55.286 UTC [896656] LOG:  checkpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.305 s, sync=0.002 s, total=1.310 s; sync files=4, longest=0.001 s, average=0.001 s; distance=79 kB, estimate=150 kB; lsn=0/AEA2C9C0, redo lsn=0/AEA2C988
+2026-08-13 20:04:53.385 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:04:54.493 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=84 kB, estimate=144 kB; lsn=0/AEA41B58, redo lsn=0/AEA41B20
+2026-08-13 20:09:53.570 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:09:54.682 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.106 s, sync=0.002 s, total=1.112 s; sync files=3, longest=0.001 s, average=0.001 s; distance=82 kB, estimate=138 kB; lsn=0/AEA564D0, redo lsn=0/AEA56498
+2026-08-13 20:14:53.781 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:14:54.889 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.001 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=86 kB, estimate=132 kB; lsn=0/AEA6BCD8, redo lsn=0/AEA6BCA0
+2026-08-13 20:19:53.957 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:19:55.065 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=43 kB, estimate=123 kB; lsn=0/AEA76C10, redo lsn=0/AEA76BD8
+2026-08-13 20:24:53.165 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:24:54.275 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=86 kB, estimate=120 kB; lsn=0/AEA8C528, redo lsn=0/AEA8C4F0
+2026-08-13 20:29:53.371 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:29:54.480 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.001 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=81 kB, estimate=116 kB; lsn=0/AEAA0CA0, redo lsn=0/AEAA0C68
+2026-08-13 20:34:53.577 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:34:54.688 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.106 s, sync=0.002 s, total=1.111 s; sync files=3, longest=0.001 s, average=0.001 s; distance=78 kB, estimate=112 kB; lsn=0/AEAB4530, redo lsn=0/AEAB44F8
+2026-08-13 20:39:53.786 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:39:54.894 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=83 kB, estimate=109 kB; lsn=0/AEAC9160, redo lsn=0/AEAC9128
+2026-08-13 20:44:53.943 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:44:54.050 UTC [896656] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.102 s, sync=0.001 s, total=0.107 s; sync files=2, longest=0.001 s, average=0.001 s; distance=9 kB, estimate=99 kB; lsn=0/AEACB6C0, redo lsn=0/AEACB688
+2026-08-13 20:49:53.103 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:49:54.213 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=85 kB, estimate=98 kB; lsn=0/AEAE0AD0, redo lsn=0/AEAE0A98
+2026-08-13 20:54:53.312 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:54:54.420 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=80 kB, estimate=96 kB; lsn=0/AEAF4DB0, redo lsn=0/AEAF4D78
+2026-08-13 20:59:53.489 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 20:59:54.600 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.106 s, sync=0.001 s, total=1.112 s; sync files=3, longest=0.001 s, average=0.001 s; distance=79 kB, estimate=94 kB; lsn=0/AEB089B0, redo lsn=0/AEB08978
+2026-08-13 21:04:53.697 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:04:54.807 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=83 kB, estimate=93 kB; lsn=0/AEB1D818, redo lsn=0/AEB1D7E0
+2026-08-13 21:09:53.905 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:09:55.013 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=44 kB, estimate=88 kB; lsn=0/AEB28840, redo lsn=0/AEB28808
+2026-08-13 21:14:53.113 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:14:54.221 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=84 kB, estimate=88 kB; lsn=0/AEB3D928, redo lsn=0/AEB3D8F0
+2026-08-13 21:19:53.271 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:19:54.380 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.109 s; sync files=3, longest=0.001 s, average=0.001 s; distance=83 kB, estimate=87 kB; lsn=0/AEB52750, redo lsn=0/AEB52718
+2026-08-13 21:24:53.479 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:24:54.588 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=79 kB, estimate=86 kB; lsn=0/AEB66698, redo lsn=0/AEB66660
+2026-08-13 21:29:53.685 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:29:54.797 UTC [896656] LOG:  checkpoint complete: wrote 13 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.106 s, sync=0.002 s, total=1.112 s; sync files=3, longest=0.001 s, average=0.001 s; distance=83 kB, estimate=86 kB; lsn=0/AEB7B5A0, redo lsn=0/AEB7B568
+2026-08-13 21:34:53.889 UTC [896656] LOG:  checkpoint starting: time
+2026-08-13 21:34:54.999 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.104 s, sync=0.002 s, total=1.110 s; sync files=3, longest=0.001 s, average=0.001 s; distance=81 kB, estimate=86 kB; lsn=0/AEB8FA28, redo lsn=0/AEB8F9F0
+2026-08-13 21:36:20.372 UTC [896655] LOG:  received fast shutdown request
+2026-08-13 21:36:20.373 UTC [896655] LOG:  aborting any active transactions
+2026-08-13 21:36:20.379 UTC [896655] LOG:  background worker "logical replication launcher" (PID 896661) exited with exit code 1
+2026-08-13 21:36:20.382 UTC [298869] servicehub@servicehub FATAL:  terminating connection due to administrator command
+2026-08-13 21:36:20.390 UTC [896656] LOG:  shutting down
+2026-08-13 21:36:20.391 UTC [896656] LOG:  checkpoint starting: shutdown immediate
+2026-08-13 21:36:20.399 UTC [896656] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.002 s, sync=0.002 s, total=0.010 s; sync files=3, longest=0.001 s, average=0.001 s; distance=37 kB, estimate=81 kB; lsn=0/AEB98F28, redo lsn=0/AEB98F28
+2026-08-13 21:36:20.443 UTC [896655] LOG:  database system is shut down
+2026-08-13 21:36:25.712 UTC [300361] LOG:  starting PostgreSQL 16.15 (Ubuntu 16.15-1.pgdg22.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, 64-bit
+2026-08-13 21:36:25.712 UTC [300361] LOG:  listening on IPv4 address "127.0.0.1", port 5432
+2026-08-13 21:36:25.713 UTC [300361] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-08-13 21:36:25.727 UTC [300366] LOG:  database system was shut down at 2026-08-13 21:36:20 UTC
+2026-08-13 21:36:25.749 UTC [300361] LOG:  database system is ready to accept connections
+2026-08-13 21:41:25.816 UTC [300364] LOG:  checkpoint starting: time
+2026-08-13 21:41:25.823 UTC [300364] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.002 s, sync=0.001 s, total=0.008 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/AEB99010, redo lsn=0/AEB98FD8
+2026-08-14 15:36:43.387 UTC [300364] LOG:  checkpoint starting: time
+2026-08-14 15:36:58.746 UTC [300364] LOG:  checkpoint complete: wrote 154 buffers (0.9%); 0 WAL file(s) added, 0 removed, 0 recycled; write=15.353 s, sync=0.002 s, total=15.360 s; sync files=29, longest=0.001 s, average=0.001 s; distance=556 kB, estimate=556 kB; lsn=0/AEC4D4D0, redo lsn=0/AEC240F8
+2026-08-14 15:41:43.831 UTC [300364] LOG:  checkpoint starting: time
+2026-08-14 15:41:47.850 UTC [300364] LOG:  checkpoint complete: wrote 41 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.014 s, sync=0.002 s, total=4.019 s; sync files=17, longest=0.001 s, average=0.001 s; distance=263 kB, estimate=526 kB; lsn=0/AEC66F30, redo lsn=0/AEC65DF8
+root@greenest-ant:~# 
