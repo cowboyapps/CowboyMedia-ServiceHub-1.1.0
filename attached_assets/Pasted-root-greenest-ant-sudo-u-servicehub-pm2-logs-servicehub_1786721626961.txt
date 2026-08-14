@@ -1,0 +1,125 @@
+root@greenest-ant:~# sudo -u servicehub pm2 logs servicehub --lines 60 --nostream
+[TAILING] Tailing last 60 lines for [servicehub] process (change the value with --lines option)
+/home/servicehub/.pm2/logs/servicehub-out.log last 60 lines:
+0|serviceh | 7:13:48 PM [express] GET /api/notifications/unread-count 304 in 18ms :: {"count":0}
+0|serviceh | 7:13:48 PM [express] GET /api/message-threads/unread-count 304 in 18ms :: {"count":0}
+0|serviceh | 7:13:48 PM [express] GET /api/ticket-notifications/unread-count 304 in 17ms :: {"count":0}
+0|serviceh | 7:13:48 PM [express] GET /api/notifications 304 in 18ms :: []
+0|serviceh | 7:13:48 PM [express] GET /api/content-notifications/counts 304 in 15ms :: {"promotions":1}
+0|serviceh | 7:13:48 PM [express] GET /api/report-notifications/unread-count 304 in 7ms :: {"count":0}
+0|serviceh | Email sent to info@cowboymedia.net: Reminder: Invoice #836 is due today
+0|serviceh | [Push] User 8992445f-e010-4209-bdf6-f46774533d32 — 5 sent, 0 failed out of 5 subscription(s)
+0|serviceh | 7:47:54 PM [express] GET /api/auth/me 304 in 8ms :: {"id":"2d3152a6-eea0-48d7-b754-ad1421049257","username":"Stowe85","email":"stowe85@duck.com","fullName":"James Stowe","role":"customer","adminRoleId":null,"subscribedServices":["1cfb2313-dbe9-4b3c-808…
+0|serviceh | 7:47:54 PM [express] GET /api/support-away/status 200 in 17ms :: {"enabled":true,"isActive":false,"startAt":"2026-06-04T08:00:00.000Z","endAt":"2026-06-04T21:00:00.000Z","message":"Hello all...I am traveling for work and have an important meeting on June 4, 2026 an…
+0|serviceh | 7:47:54 PM [express] GET /api/broadcasts/unread 304 in 18ms :: []
+0|serviceh | 7:47:54 PM [express] GET /api/announcements/active 200 in 23ms :: {"id":"fb9d77a7-33b6-43da-8ae9-7a6fab05cf5f","title":"Save 25% Off Your Service Today!","bodyHtml":"<p>You can currently save 25% off any service with CowboyMedia, new and existing customers!</p><p></…
+0|serviceh | 7:47:54 PM [express] GET /api/message-threads/unread-count 304 in 5ms :: {"count":0}
+0|serviceh | 7:47:54 PM [express] POST /api/push/subscribe 200 in 6ms :: {"id":"c50cd908-a0d5-4a5f-a5c8-20c10114a40f","userId":"2d3152a6-eea0-48d7-b754-ad1421049257","endpoint":"https://web.push.apple.com/QOHW4ieLcxUSngPiL3zsQrAcALLdKcm_0Ptew6oOLY3QjsyXbpje1dQRnL4lP89ajifa…
+0|serviceh | 7:47:54 PM [express] GET /api/report-notifications/unread-count 304 in 8ms :: {"count":0}
+0|serviceh | 7:47:54 PM [express] GET /api/ticket-notifications/unread-count 304 in 9ms :: {"count":0}
+0|serviceh | 7:47:54 PM [express] GET /api/whmcs/service-announcements 304 in 13ms :: []
+0|serviceh | 7:47:54 PM [express] GET /api/content-notifications/counts 304 in 16ms :: {"promotions":1}
+0|serviceh | 7:47:54 PM [express] GET /api/notifications/unread-count 304 in 16ms :: {"count":0}
+0|serviceh | 7:47:54 PM [express] GET /api/services 304 in 18ms :: [{"id":"3282d828-a3f9-486c-a015-3dd02e642d57","name":"CowboyELITE","description":"","status":"operational","category":"","isDefault":false},{"id":"e9c68b8e-146d-4db0-8aff-3539f02cec5f","name":"CowboyX…
+0|serviceh | 7:47:54 PM [express] GET /api/whmcs/link/status 304 in 55ms :: {"configured":true,"enabled":true,"linked":false,"dismissed":true}
+0|serviceh | 7:47:54 PM [express] GET /api/services-uptime-summary 200 in 53ms :: {"3282d828-a3f9-486c-a015-3dd02e642d57":{"uptime30d":99.9941626967232,"dailyBuckets":[{"date":"2026-07-15","status":"up","downtimeSeconds":0},{"date":"2026-07-16","status":"up","downtimeSeconds":0},{"…
+0|serviceh | 7:47:54 PM [express] GET /api/tickets 304 in 10ms :: [{"id":"da493ef7-b9b0-4c59-a1e9-7cab0173f2b1","subject":"Server name","description":"What is the server name?","serviceId":"1cfb2313-dbe9-4b3c-808f-47c4d2fb242a","categoryId":"e634d5b9-dc47-4bbb-a32b-…
+0|serviceh | 7:47:54 PM [express] GET /api/content-notifications/unread-references/service-updates 304 in 5ms :: []
+0|serviceh | 7:47:54 PM [express] GET /api/service-updates 304 in 9ms :: [{"id":"cfdd5baf-21c4-4ac7-938e-bba6a5681403","title":"Data center Issue","description":"<p>From provider:</p><p><span>We’re aware that some channels are offline, our datacenter had a small outage thi…
+0|serviceh | 7:47:54 PM [express] GET /api/push/vapid-key 304 in 5ms :: {"publicKey":"BNfZ_OAaS0yfD5vru7huE8kEzAJ981p3RBI05jq53cHz78KUQUoaJ9n4H_dlqQkMBbwuSIvoXlf9uHcXcwKGuKg"}
+0|serviceh | 7:47:54 PM [express] GET /api/alerts 304 in 16ms :: [{"id":"0c9f6fd9-8604-4a77-bc54-1114bb387b88","title":"CowboyLIVE Datacenter Issues","description":"<p><span>FROM THE DATACENTER:</span></p><p></p><p><span>We are currently experiencing cooling issues…
+0|serviceh | 7:47:54 PM [express] GET /api/news 304 in 15ms :: [{"id":"be0bb538-fb91-4c4f-9f69-7cb07b18e37c","title":"Tivimate will be getting an upgrade!","content":"<p><strong>It's about time!</strong> We have been using a customized version of Tivimate version…
+0|serviceh | 7:47:54 PM [express] GET /api/promotions 304 in 14ms :: []
+0|serviceh | 7:47:54 PM [express] GET /api/content-notifications/unread-references/news 304 in 18ms :: []
+0|serviceh | 7:47:55 PM [express] POST /api/push/subscribe 200 in 5ms :: {"id":"c50cd908-a0d5-4a5f-a5c8-20c10114a40f","userId":"2d3152a6-eea0-48d7-b754-ad1421049257","endpoint":"https://web.push.apple.com/QOHW4ieLcxUSngPiL3zsQrAcALLdKcm_0Ptew6oOLY3QjsyXbpje1dQRnL4lP89ajifa…
+0|serviceh | Email sent to info@cowboymedia.net: Reminder: Invoice #837 is due today
+0|serviceh | [Push] User 8992445f-e010-4209-bdf6-f46774533d32 — 5 sent, 0 failed out of 5 subscription(s)
+0|serviceh | 8:17:19 PM [express] GET /api/auth/me 401 in 1ms :: {"message":"Not authenticated"}
+0|serviceh | 8:48:18 PM [express] POST /api/graphql 200 in 1ms
+0|serviceh | 8:48:18 PM [express] GET /api/.env 200 in 5ms
+0|serviceh | 8:48:18 PM [express] POST /api/graphql 200 in 2ms
+0|serviceh | 8:48:18 PM [express] GET /api/.env 200 in 3ms
+0|serviceh | 8:48:19 PM [express] GET /api/v1/settings 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/config 200 in 3ms
+0|serviceh | 8:48:19 PM [express] GET /api/settings 200 in 1ms
+0|serviceh | 8:48:19 PM [express] GET /api/v2/config 200 in 4ms
+0|serviceh | 8:48:19 PM [express] GET /api/v2/settings 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/v1/config 200 in 3ms
+0|serviceh | 8:48:19 PM [express] GET /api/env 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/config 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/settings 200 in 5ms
+0|serviceh | 8:48:19 PM [express] GET /api/openapi.json 200 in 1ms
+0|serviceh | 8:48:19 PM [express] GET /api/v1/settings 200 in 5ms
+0|serviceh | 8:48:19 PM [express] GET /api/account 200 in 4ms
+0|serviceh | 8:48:19 PM [express] GET /api/v1/env 200 in 4ms
+0|serviceh | 8:48:19 PM [express] GET /api/v2/settings 200 in 4ms
+0|serviceh | 8:48:19 PM [express] GET /api/env 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/v1/config 200 in 3ms
+0|serviceh | 8:48:19 PM [express] GET /api/v2/config 200 in 4ms
+0|serviceh | 8:48:19 PM [express] GET /api/openapi.json 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/account 200 in 2ms
+0|serviceh | 8:48:19 PM [express] GET /api/v1/env 200 in 3ms
+0|serviceh | 8:48:19 PM [express] GET /api/graphql 200 in 6ms
+0|serviceh | 8:48:19 PM [express] GET /api/graphql 200 in 7ms
+
+/home/servicehub/.pm2/logs/servicehub-error.log last 60 lines:
+0|serviceh |     },
+0|serviceh |     user: 'servicehub',
+0|serviceh |     database: 'servicehub',
+0|serviceh |     port: 5432,
+0|serviceh |     host: '127.0.0.1',
+0|serviceh |     replication: undefined,
+0|serviceh |     _Promise: [Function: Promise],
+0|serviceh |     _types: Uy { _types: [Object], text: {}, binary: {} },
+0|serviceh |     _ending: true,
+0|serviceh |     _ended: false,
+0|serviceh |     _connecting: false,
+0|serviceh |     _connected: true,
+0|serviceh |     _connectionError: false,
+0|serviceh |     _queryable: false,
+0|serviceh |     enableChannelBinding: false,
+0|serviceh |     connection: tA {
+0|serviceh |       _events: [Object: null prototype],
+0|serviceh |       _eventsCount: 23,
+0|serviceh |       _maxListeners: undefined,
+0|serviceh |       stream: [Socket],
+0|serviceh |       _keepAlive: false,
+0|serviceh |       _keepAliveInitialDelayMillis: 0,
+0|serviceh |       lastBuffer: false,
+0|serviceh |       parsedStatements: {},
+0|serviceh |       ssl: false,
+0|serviceh |       _ending: true,
+0|serviceh |       _emitMessage: false,
+0|serviceh |       _connecting: true,
+0|serviceh |       [Symbol(shapeMode)]: false,
+0|serviceh |       [Symbol(kCapture)]: false
+0|serviceh |     },
+0|serviceh |     queryQueue: [],
+0|serviceh |     binary: false,
+0|serviceh |     processID: 298869,
+0|serviceh |     secretKey: -1133262659,
+0|serviceh |     ssl: false,
+0|serviceh |     _connectionTimeoutMillis: 0,
+0|serviceh |     _connectionCallback: null,
+0|serviceh |     saslSession: null,
+0|serviceh |     release: [Function (anonymous)],
+0|serviceh |     activeQuery: null,
+0|serviceh |     readyForQuery: true,
+0|serviceh |     hasExecuted: true,
+0|serviceh |     _poolUseCount: 11,
+0|serviceh |     [Symbol(shapeMode)]: false,
+0|serviceh |     [Symbol(kCapture)]: false
+0|serviceh |   }
+0|serviceh | }
+0|serviceh | Error: connect ECONNREFUSED 127.0.0.1:5432
+0|serviceh |     at /opt/servicehub/dist/index.cjs:54:13356
+0|serviceh |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|serviceh |     at async Pve (/opt/servicehub/dist/index.cjs:446:341)
+0|serviceh |     at async Hz (/opt/servicehub/dist/index.cjs:465:392)
+0|serviceh |     at async /opt/servicehub/dist/index.cjs:465:2578 {
+0|serviceh |   errno: -111,
+0|serviceh |   code: 'ECONNREFUSED',
+0|serviceh |   syscall: 'connect',
+0|serviceh |   address: '127.0.0.1',
+0|serviceh |   port: 5432
+0|serviceh | }
