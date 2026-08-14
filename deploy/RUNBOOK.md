@@ -343,6 +343,21 @@ Worst-case detection latency: 60s + Discord delivery. The alerter seeds
 its cursor on the first poll so a process restart doesn't replay
 history.
 
+**Site-down watchdog** (in the deploy listener, so it survives when the
+app is dead — the in-app alerter can't fire if the app itself is down):
+`servicehub-deploy.service` polls `http://127.0.0.1:5000/api/health`
+every 60s. After **3 consecutive failures** (~3 min: HTTP error, 10s
+timeout, or `ok:false`) it posts a single `:rotating_light:` "Site is
+DOWN" alert to `DEPLOY_DISCORD_WEBHOOK`, then stays quiet until the
+first healthy check, which posts one "back up" message with the
+downtime duration. Tunables (optional, in `/etc/servicehub-deploy.env`):
+`WATCHDOG_HEALTH_URL`, `WATCHDOG_INTERVAL_MS` (default 60000),
+`WATCHDOG_FAIL_THRESHOLD` (default 3). Restart the listener after
+changing them. During planned maintenance, stop the listener
+(`sudo systemctl stop servicehub-deploy`) to silence it — and start it
+again afterwards. A listener restart mid-outage re-arms the counter and
+re-alerts within ~3 minutes (at most one duplicate post per restart).
+
 ### Day-2 ops: alerts and secrets
 
 **Silence alerts during a planned maintenance window:**

@@ -115,13 +115,16 @@ function recordDiscordResult(partial) {
   };
 }
 
-async function notifyDiscord(content) {
+async function notifyDiscord(content, { timeoutMs } = {}) {
   if (!DISCORD_URL) return;
   try {
     const res = await fetch(DISCORD_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
+      // Optional bounded delivery — used by the watchdog so a stalled
+      // Discord endpoint can never block health polling.
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
     // fetch() only throws on network errors, NOT on HTTP 4xx/5xx. Without
     // this check, a malformed/revoked/rate-limited webhook URL silently
@@ -517,9 +520,139 @@ const server = http.createServer((req, res) => {
 // Module-level single-flight lock for deploy execution. See usage above.
 let deployInFlight = null;
 
+// ---------------------------------------------------------------------------
+// Site health watchdog.
+//
+// Why here: this listener is a separate process (systemd, not PM2) on the
+// same VPS, so it survives when the app itself dies — the Aug 2026 outage
+// went unnoticed for ~18h precisely because nothing outside the app watched
+// it. Ping /api/health every WATCHDOG_INTERVAL_MS; after
+// WATCHDOG_FAIL_THRESHOLD consecutive failures post ONE Discord "site DOWN"
+// alert, then stay silent until the first success, which posts a single
+// "site back up" message with the downtime duration. State is in-memory:
+// a listener restart mid-outage re-arms the threshold and re-alerts within
+// ~3 minutes, which is acceptable (never silent, at most one extra post).
+const WATCHDOG_URL = process.env.WATCHDOG_HEALTH_URL || "http://127.0.0.1:5000/api/health";
+// Tunables must be finite positive numbers, otherwise fall back to the
+// defaults — a negative/0/Infinity/NaN value would either spin the loop
+// or silently disable monitoring.
+function positiveIntEnv(name, fallback) {
+  const n = Number(process.env[name]);
+  if (!Number.isFinite(n) || n < 1) {
+    if (process.env[name] !== undefined) {
+      console.warn(`[watchdog] ignoring invalid ${name}=${process.env[name]}; using ${fallback}`);
+    }
+    return fallback;
+  }
+  return Math.floor(n);
+}
+const WATCHDOG_INTERVAL_MS = positiveIntEnv("WATCHDOG_INTERVAL_MS", 60_000);
+const WATCHDOG_FAIL_THRESHOLD = positiveIntEnv("WATCHDOG_FAIL_THRESHOLD", 3);
+const WATCHDOG_TIMEOUT_MS = 10_000;
+const WATCHDOG_NOTIFY_TIMEOUT_MS = 15_000;
+
+// Fire-and-forget Discord post with a bounded timeout. The watchdog must
+// never let a slow/stalled Discord endpoint delay the next health tick,
+// so alerts are dispatched without awaiting delivery; notifyDiscord()
+// already logs + records failures internally.
+function notifyDiscordDetached(content) {
+  notifyDiscord(content, { timeoutMs: WATCHDOG_NOTIFY_TIMEOUT_MS }).catch((e) => {
+    console.error("[watchdog] discord notify failed:", e?.message);
+  });
+}
+
+const watchdog = {
+  consecutiveFailures: 0,
+  alerting: false,       // true once the DOWN alert has been posted (de-dup)
+  downSince: null,       // ms epoch of the first failed check in this outage
+  lastError: null,
+};
+
+function fmtDowntime(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+async function checkAppHealth() {
+  try {
+    const res = await fetch(WATCHDOG_URL, {
+      signal: AbortSignal.timeout(WATCHDOG_TIMEOUT_MS),
+    });
+    if (!res.ok) return { up: false, error: `HTTP ${res.status}` };
+    // /api/health returns {"ok":true,...}; treat ok:false (e.g. DB down)
+    // as an outage too — the site is effectively broken for users.
+    let j = null;
+    try {
+      j = await res.json();
+    } catch {
+      return { up: false, error: "health endpoint returned non-JSON" };
+    }
+    if (j && j.ok === false) return { up: false, error: `health ok:false (db: ${j.db ?? "?"})` };
+    return { up: true };
+  } catch (e) {
+    return { up: false, error: e?.name === "TimeoutError" ? `timeout after ${WATCHDOG_TIMEOUT_MS}ms` : (e?.message || "network error") };
+  }
+}
+
+async function watchdogTick() {
+  const { up, error } = await checkAppHealth();
+  if (up) {
+    if (watchdog.alerting) {
+      const downtime = fmtDowntime(Date.now() - watchdog.downSince);
+      console.log(`[watchdog] site RECOVERED after ${downtime}`);
+      notifyDiscordDetached(
+        `:white_check_mark: **Site is back up** after ${downtime} of downtime. (\`${WATCHDOG_URL}\` healthy again)`,
+      );
+    }
+    watchdog.consecutiveFailures = 0;
+    watchdog.alerting = false;
+    watchdog.downSince = null;
+    watchdog.lastError = null;
+    return;
+  }
+  watchdog.consecutiveFailures += 1;
+  watchdog.lastError = error;
+  if (watchdog.downSince === null) watchdog.downSince = Date.now();
+  console.warn(
+    `[watchdog] health check failed (${watchdog.consecutiveFailures}/${WATCHDOG_FAIL_THRESHOLD}): ${error}`,
+  );
+  if (watchdog.consecutiveFailures === WATCHDOG_FAIL_THRESHOLD && !watchdog.alerting) {
+    watchdog.alerting = true;
+    notifyDiscordDetached(
+      `:rotating_light: **Site is DOWN** — \`${WATCHDOG_URL}\` failed ${WATCHDOG_FAIL_THRESHOLD} consecutive checks ` +
+        `(~${Math.round((WATCHDOG_FAIL_THRESHOLD * WATCHDOG_INTERVAL_MS) / 60000)} min). Last error: \`${error}\`\n` +
+        `Runbook: docs/OPERATIONS.md → "Manual deploy" / deploy/RUNBOOK.md § VPS 502. ` +
+        `First checks: \`sudo -u servicehub pm2 status\`, \`curl -s http://127.0.0.1:5000/api/health\`, \`systemctl status postgresql\`, disk (\`df -h\`).`,
+    );
+  }
+}
+
+function startWatchdog() {
+  console.log(
+    `[watchdog] monitoring ${WATCHDOG_URL} every ${WATCHDOG_INTERVAL_MS / 1000}s (alert after ${WATCHDOG_FAIL_THRESHOLD} consecutive failures)`,
+  );
+  // Chain ticks with setTimeout rather than setInterval so a slow/hung
+  // check (up to the 10s fetch timeout) can never stack overlapping ticks.
+  const loop = async () => {
+    try {
+      await watchdogTick();
+    } catch (e) {
+      // Never let the watchdog kill the listener.
+      console.error("[watchdog] tick crashed:", e?.message);
+    }
+    setTimeout(loop, WATCHDOG_INTERVAL_MS).unref?.();
+  };
+  setTimeout(loop, WATCHDOG_INTERVAL_MS).unref?.();
+}
+
 server.listen(PORT, HOST, () => {
   console.log(`[webhook] listening on ${HOST}:${PORT}`);
   // Fire-and-forget; logs its own outcome. Non-fatal — listener still
   // serves deploys even if Discord notifications are misconfigured.
   validateDiscordWebhookOnBoot();
+  startWatchdog();
 });
