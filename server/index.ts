@@ -223,8 +223,49 @@ app.use((req, res, next) => {
   next();
 });
 
+// Boot-time DB retry: a database that is briefly unreachable (restarting
+// during unattended upgrades, VPS reboot ordering, etc.) must NOT make the
+// app give up — PM2 exhausts its restart budget within a minute and the site
+// then stays down until a human intervenes. Retry connection-level failures
+// with backoff for up to ~5 minutes before letting the process die.
+// Real migration failures (SQL errors, schema drift) are NOT retried.
+const RETRYABLE_DB_CODES = new Set([
+  "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH",
+  "57P03", // cannot_connect_now: postgres is starting up / shutting down
+  "53300", // too_many_connections
+]);
+
+function isRetryableDbError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; errors?: Array<{ code?: string }> } | undefined;
+  if (!e) return false;
+  if (e.code && RETRYABLE_DB_CODES.has(e.code)) return true;
+  // pg's pool connect timeout (connectionTimeoutMillis) rejects with a plain
+  // Error carrying no code — match its message.
+  if (typeof e.message === "string" && /timeout exceeded when trying to connect/i.test(e.message)) return true;
+  // AggregateError from net.connect (e.g. IPv4+IPv6 both refused)
+  return Array.isArray(e.errors) && e.errors.some((s) => s?.code && RETRYABLE_DB_CODES.has(s.code));
+}
+
+async function runMigrationsWithRetry(): Promise<void> {
+  const deadline = Date.now() + 5 * 60 * 1000;
+  let delayMs = 2000;
+  for (;;) {
+    try {
+      await runMigrations();
+      return;
+    } catch (err) {
+      if (!isRetryableDbError(err) || Date.now() + delayMs > deadline) throw err;
+      console.error(
+        `[boot] database unreachable (${(err as { code?: string }).code ?? "unknown"}), retrying in ${Math.round(delayMs / 1000)}s...`,
+      );
+      await new Promise((r) => setTimeout(r, delayMs));
+      delayMs = Math.min(delayMs * 2, 30000);
+    }
+  }
+}
+
 void (async () => {
-  await runMigrations();
+  await runMigrationsWithRetry();
   await registerRoutes(httpServer, app);
 
   // Start the in-app alerter. Polls error_logs every 60s and posts to the

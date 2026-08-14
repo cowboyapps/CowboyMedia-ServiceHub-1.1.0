@@ -12,5 +12,5 @@ Rule: a production 502 with the deploy listener healthy (`https://cowboyhub.app/
 **How to apply:**
 - From workspace: `curl https://cowboyhub.app/api/health` (app) vs `/_deploy/health` (listener). Authenticated listener endpoints need DEPLOY_GATE_TOKEN, which is NOT a workspace secret — ask the user for Discord deploy message or SSH output instead.
 - Ask user to run: `sudo -u servicehub pm2 logs servicehub --lines 60 --nostream`, `sudo systemctl status postgresql`, `df -h`, `dmesg | grep -i oom`.
-- Boot has no DB-connect retry (see follow-up task about reconnect-with-backoff); until fixed, app needs manual restart after any DB outage.
+- Root cause found (Aug 2026): unattended-upgrades restarted postgres for ~5s; the app crashed and PM2's max_restarts=10 was exhausted. Since fixed: boot retries connection-level failures ~5 min with backoff (server/index.ts), pool has an error listener + connectionTimeoutMillis (server/db.ts), PM2 uses exp_backoff_restart_delay. PM2 config changes need `pm2 startOrReload deploy/ecosystem.config.cjs && pm2 save` on the VPS once.
 - Scanner noise in logs (`GET /api/.env 200` etc.) is the SPA catch-all answering bots — not a leak.
