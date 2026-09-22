@@ -68,7 +68,7 @@ export function BottomNav() {
     unreadMessageCount +
     unreadReportCount +
     (contentCounts["service-updates"] ?? 0) +
-    (isAdmin ? adminBadgeCount : 0);
+    (isAdmin ? (contentCounts["news"] ?? 0) : 0);
 
   if (!isMobile || keyboardInset > 0) return null;
 
@@ -76,11 +76,13 @@ export function BottomNav() {
     { label: "Services", icon: Activity, path: "/services" },
     { label: "Tickets", icon: MessageSquare, path: "/tickets", badge: unreadTicketCount },
     { label: "Alerts", icon: AlertTriangle, path: "/alerts" },
-    { label: "News", icon: Newspaper, path: "/news" },
+    isAdmin
+      ? { label: "Admin", icon: Shield, path: "/admin", badge: adminBadgeCount }
+      : { label: "News", icon: Newspaper, path: "/news" },
     { label: "More", icon: Menu, path: null, badge: overflowBadgeCount },
   ];
 
-  const overflowRoutes = ["/promotions", "/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings", "/admin"];
+  const overflowRoutes = ["/promotions", "/service-updates", "/messages", "/community", "/report-request", "/downloads", "/knowledge", "/my-services", "/billing", "/settings", ...(isAdmin ? ["/news"] : [])];
 
   const isActive = (path: string | null) => {
     if (path === null) return overflowRoutes.some((r) => location === r || location.startsWith(r + "/"));
@@ -95,6 +97,7 @@ export function BottomNav() {
     {
       label: "Stay informed",
       items: [
+        ...(isAdmin ? [{ title: "News", url: "/news", icon: Newspaper, badge: contentCounts["news"] ?? 0, tileBg: "bg-cyan-500/15 dark:bg-cyan-400/15", tileFg: "text-cyan-600 dark:text-cyan-400" }] : []),
         { title: "Promotions", url: "/promotions", icon: BadgePercent, badge: 0, tileBg: "bg-primary/10 dark:bg-primary/20", tileFg: "text-primary", glow: hasActivePromotion },
         { title: "Service Updates", url: "/service-updates", icon: RefreshCw, badge: contentCounts["service-updates"] ?? 0, tileBg: "bg-sky-500/15 dark:bg-sky-400/15", tileFg: "text-sky-600 dark:text-sky-400" },
         { title: "Messages", url: "/messages", icon: Mail, badge: unreadMessageCount, tileBg: "bg-blue-500/15 dark:bg-blue-400/15", tileFg: "text-blue-600 dark:text-blue-400" },
@@ -117,14 +120,6 @@ export function BottomNav() {
         { title: "Settings", url: "/settings", icon: Settings, badge: 0, tileBg: "bg-slate-500/15 dark:bg-slate-400/15", tileFg: "text-slate-600 dark:text-slate-400" },
       ],
     },
-    ...(isAdmin
-      ? [{
-          label: "Admin",
-          items: [
-            { title: "Admin Portal", url: "/admin", icon: Shield, badge: adminBadgeCount, tileBg: "bg-orange-500/15 dark:bg-orange-400/15", tileFg: "text-orange-600 dark:text-orange-400" },
-          ],
-        }]
-      : []),
   ];
 
   const handleSheetNav = (url: string) => {

@@ -111,6 +111,8 @@ const CUSTOMER_USER = {
   id: "cust-1", role: "customer", fullName: "Casey Customer", username: "casey",
   email: "casey@example.com",
 };
+let currentRole = "customer";
+let newsCount = 4;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -124,10 +126,11 @@ g.fetch = async (input: unknown): Promise<Response> => {
   const url = typeof input === "string" ? input : String((input as { url?: string }).url ?? input);
   const pathname = url.split("?")[0];
 
-  if (pathname === "/api/auth/me") return jsonResponse(CUSTOMER_USER);
+  if (pathname === "/api/auth/me") return jsonResponse({ ...CUSTOMER_USER, role: currentRole });
   if (pathname === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
   if (pathname.endsWith("/unread-count")) return jsonResponse({ count: 0 });
-  if (pathname === "/api/content-notifications/counts") return jsonResponse({});
+  if (pathname === "/api/content-notifications/counts") return jsonResponse({ "admin-reports": 2, "admin-users": 3, news: newsCount });
+  if (pathname === "/api/promotions") return jsonResponse([]);
   return jsonResponse({});
 };
 
@@ -166,7 +169,7 @@ interface MountResult {
   cleanup: () => void;
 }
 
-async function mountNav(): Promise<MountResult> {
+async function mountNav(path = "/services"): Promise<MountResult> {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
 
@@ -177,7 +180,7 @@ async function mountNav(): Promise<MountResult> {
     },
   });
 
-  const { hook } = memoryLocation({ path: "/services" });
+  const { hook } = memoryLocation({ path });
 
   const Wrapper: React.FC = () =>
     React.createElement(
@@ -201,6 +204,7 @@ async function mountNav(): Promise<MountResult> {
     root,
     cleanup: () => {
       act(() => root.unmount());
+      queryClient.clear();
       container.remove();
     },
   };
@@ -209,6 +213,52 @@ async function mountNav(): Promise<MountResult> {
 function navEl(container: HTMLElement): Element | null {
   return container.querySelector('[data-testid="nav-bottom"]');
 }
+
+test("customers retain five tabs with News and no Admin shortcut", async () => {
+  currentRole = "customer";
+  const { container, cleanup } = await mountNav();
+  try {
+    assert.ok(container.querySelector('[data-testid="link-bottom-nav-news"]'));
+    assert.equal(container.querySelector('[data-testid="link-bottom-nav-admin"]'), null);
+    assert.equal(navEl(container)?.querySelectorAll("a, button").length, 5);
+  } finally { cleanup(); }
+});
+
+for (const role of ["admin", "master_admin"]) {
+  test(`${role} gets a one-tap Admin tab with its own badge, not a More badge`, async () => {
+    currentRole = role;
+    newsCount = 0;
+    const { container, cleanup } = await mountNav("/admin");
+    try {
+      const admin = container.querySelector('[data-testid="link-bottom-nav-admin"]');
+      assert.equal(admin?.getAttribute("href"), "/admin");
+      assert.ok(admin?.textContent?.includes("Admin"));
+      assert.equal(container.querySelector('[data-testid="badge-bottom-nav-admin"]')?.textContent, "5");
+      assert.equal(container.querySelector('[data-testid="link-bottom-nav-news"]'), null);
+      assert.equal(navEl(container)?.querySelectorAll("a, button").length, 5);
+      assert.match(admin?.lastElementChild?.className ?? "", /font-semibold/);
+      const more = container.querySelector('[data-testid="button-bottom-nav-more"]');
+      assert.doesNotMatch(more?.lastElementChild?.className ?? "", /font-semibold/);
+      // Admin-only attention must not also light up More.
+      assert.equal(container.querySelector('[data-testid="badge-bottom-nav-more"]'), null);
+    } finally { cleanup(); currentRole = "customer"; newsCount = 4; }
+  });
+}
+
+test("admin News routes highlight More instead of Admin", async () => {
+  currentRole = "admin";
+  const { container, cleanup } = await mountNav("/news/example");
+  try {
+    const more = container.querySelector('[data-testid="button-bottom-nav-more"]');
+    assert.ok(container.querySelector('[data-testid="badge-bottom-nav-more"]'), "unread News lights up More");
+    assert.match(more?.lastElementChild?.className ?? "", /font-semibold/);
+    assert.doesNotMatch(container.querySelector('[data-testid="link-bottom-nav-admin"]')?.lastElementChild?.className ?? "", /font-semibold/);
+    await act(async () => { (more as HTMLButtonElement).click(); });
+    await flush();
+    const news = [...window.document.querySelectorAll("button")].find(el => el.textContent?.includes("News"));
+    assert.ok(news, "News is available in the More sheet");
+  } finally { cleanup(); currentRole = "customer"; }
+});
 
 async function setKeyboardCoverage(px: number): Promise<void> {
   visualViewportStub.height = 800 - px;
