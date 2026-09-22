@@ -12,6 +12,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import type { KbArticle } from "@shared/schema";
 import { useForm } from "react-hook-form";
+import { ActiveAlertNotice } from "@/components/ticket/active-alert-notice";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
@@ -391,6 +392,7 @@ export default function TicketsPage() {
           {(() => {
             const ticketForm = (
               <Form {...form}>
+                {dialogOpen && <ActiveAlertNotice serviceId={form.watch("serviceId")} />}
                 {afterHoursNotice && (
                   <div
                     className="mb-3 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 flex gap-2 items-start"
