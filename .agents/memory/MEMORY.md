@@ -46,3 +46,4 @@
 - [Wouter route exit animations](wouter-route-exit-animations.md) — don't remount the outgoing route in a 2nd Router (re-fires mount POSTs); use View Transitions on a single tree pinned to renderedLocation w/ the real navigate.
 - [VPS 502 diagnosis](vps-502-postgres-down.md) — listener healthy + app 502 = PM2 process down; suspect Postgres/disk/OOM before the deploy; boot has no DB retry, needs manual pm2 restart.
 - [TipTap typing in jsdom tests](tiptap-jsdom-typing.md) — fill a ProseMirror field by setting innerHTML + dispatching InputEvent("input"); such mutation-firing tests need setupComponentTestTeardown (mutation gcTime:0).
+- [Ticket deletion requirement](ticket-delete-for-everyone.md) — admin deletion must remove sent messages for everyone and from future transcripts, not merely hide the admin copy.
