@@ -16,3 +16,9 @@ description: Measure iOS keyboard occlusion from the visual viewport bottom edge
 **How to apply:** Preserve zero Android padding, use focus plus viewport shrink for visibility (not focus alone), and retain the pre-focus baseline through small animation steps. Browser layout checks must wait for the resize event before asserting settled geometry; desktop viewport emulation does not establish physical-device compatibility.
 
 **Rotation constraint:** Never estimate the unobscured landscape viewport by adding the portrait keyboard height. Keyboard heights differ by orientation, so that estimate can keep navigation hidden after dismissal. Learn each orientation's closed baseline; for a new orientation reached while typing, track the open viewport's rebound rather than carrying portrait occlusion over.
+
+**Verification scope:** A passing shared-dialog keyboard test does not establish that the affected screen uses that dialog layout. Check the actual named create and edit forms as well as the shared primitive.
+
+**Why:** A mobile scrolling correction covered alert forms but missed the separate service-update forms; the shared-dialog test still passed while the customer's posting button remained unreachable.
+
+**How to apply:** Match the user's screen and action to the actual form, pin its scrolling/action containment, and distinguish structural checks from physical-device scroll verification.

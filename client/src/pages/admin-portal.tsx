@@ -3891,12 +3891,13 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
             {canManage && <DialogTrigger asChild>
               <Button size="sm" data-testid="button-add-service-update"><Plus className="w-4 h-4 mr-1" />Add Update</Button>
             </DialogTrigger>}
-          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+          <AlertEditorDialogContent data-testid="dialog-create-service-update">
             <DialogHeader>
               <DialogTitle>Add Service Update</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
+              <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="flex min-h-0 flex-1 flex-col gap-4">
+                <AlertEditorScrollArea className="space-y-4">
                 <FormField control={form.control} name="serviceId" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Service</FormLabel>
@@ -3953,12 +3954,15 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                     </div>
                   </FormItem>
                 )} />
+                </AlertEditorScrollArea>
+                <AlertEditorActions>
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-service-update">
                   {createMutation.isPending ? "Creating..." : "Create & Notify Subscribers"}
                 </Button>
+                </AlertEditorActions>
               </form>
             </Form>
-          </DialogContent>
+          </AlertEditorDialogContent>
         </Dialog>
       </div>
 
@@ -4027,11 +4031,12 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
       </section>
 
       <Dialog open={!!editingUpdate} onOpenChange={(open) => { if (!open) setEditingUpdate(null); }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
+        <AlertEditorDialogContent data-testid="dialog-edit-service-update">
           <DialogHeader>
             <DialogTitle>Edit Service Update</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <AlertEditorScrollArea className="space-y-4">
             <div>
               <Label className="text-sm font-medium">Service</Label>
               <p className="text-sm text-muted-foreground mt-1">{editingUpdate ? getServiceName(editingUpdate.serviceId) : ""}</p>
@@ -4060,6 +4065,8 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
                 <span className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${editMatureContent ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
+            </AlertEditorScrollArea>
+            <AlertEditorActions>
             <Button
               className="w-full"
               disabled={editMutation.isPending || !editTitle.trim() || !stripHtml(editDescription).trim()}
@@ -4072,8 +4079,9 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
             >
               {editMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
+            </AlertEditorActions>
           </div>
-        </DialogContent>
+        </AlertEditorDialogContent>
       </Dialog>
     </div>
   );
