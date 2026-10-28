@@ -5,6 +5,9 @@ import { join } from "node:path";
 import vm from "node:vm";
 
 interface SWModule {
+  isUncacheableApi: (url: URL) => boolean;
+  handleApi: (req: Request) => Promise<Response>;
+  handleOther: (req: Request) => Promise<Response>;
   isHashedAsset: (url: URL) => boolean;
   isNavigationRequest: (req: { mode?: string; method: string; headers: { get: (k: string) => string | null } }) => boolean;
   handleHashedAsset: (req: Request) => Promise<Response>;
@@ -69,6 +72,9 @@ function loadServiceWorker(): SWModule {
   vm.runInContext(src, ctx);
 
   return {
+    isUncacheableApi: ctx.isUncacheableApi,
+    handleApi: ctx.handleApi,
+    handleOther: ctx.handleOther,
     isHashedAsset: ctx.isHashedAsset,
     isNavigationRequest: ctx.isNavigationRequest,
     handleHashedAsset: ctx.handleHashedAsset,
@@ -81,6 +87,25 @@ function loadServiceWorker(): SWModule {
     },
   };
 }
+
+test("ticket messages and revocable attachments always fetch without HTTP cache and fail closed offline", async () => {
+  const sw = loadServiceWorker();
+  const reply = new Request("https://example.test/api/tickets/ticket/messages");
+  assert.equal(sw.isUncacheableApi(new URL(reply.url)), true);
+  assert.equal(sw.isUncacheableApi(new URL("https://example.test/api/tickets")), true);
+  assert.equal(sw.isUncacheableApi(new URL("https://example.test/api/services")), false);
+  const modes: unknown[] = [];
+  sw.__setFetch(async (_request, options) => {
+    modes.push(options?.cache);
+    return new Response("current");
+  });
+  assert.equal(await (await sw.handleApi(reply)).text(), "current");
+  assert.equal(await (await sw.handleOther(new Request("https://example.test/uploads/revocable.png"))).text(), "current");
+  assert.deepEqual(modes, ["no-store", "no-store"]);
+  sw.__setFetch(async () => { throw new Error("offline"); });
+  assert.equal((await sw.handleApi(reply)).status, 503);
+  assert.equal((await sw.handleOther(new Request("https://example.test/uploads/revocable.png"))).status, 503);
+});
 
 const sw = loadServiceWorker();
 

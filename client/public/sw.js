@@ -44,7 +44,21 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => !allowed.has(k)).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    ).then(async () => {
+      // Clear legacy conversation/media caches, including when updating the
+      // stable dev worker. Revocable content must not survive in offline cache.
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) {
+          const pathname = new URL(request.url).pathname;
+          if (pathname === '/api/tickets' || pathname.startsWith('/api/tickets/') || pathname.startsWith('/uploads/') ||
+              (pathname === '/' && !isShellDocument(await cache.match(request)))) {
+            await cache.delete(request);
+          }
+        }
+      }
+      return self.clients.claim();
+    })
   );
 });
 
@@ -75,6 +89,13 @@ async function notifyClientsToReload(reason) {
   } catch {}
 }
 
+function isShellDocument(response) {
+  if (!response || !response.headers.get('Content-Type')?.toLowerCase().includes('text/html')) return false;
+  if (!response.url) return true;
+  const url = new URL(response.url);
+  return url.origin === self.location.origin && !url.pathname.startsWith('/uploads/') && !url.pathname.startsWith('/api/');
+}
+
 async function handleNavigation(request) {
   try {
     const fresh = await Promise.race([
@@ -83,7 +104,7 @@ async function handleNavigation(request) {
         setTimeout(() => reject(new Error('nav-timeout')), NAV_TIMEOUT_MS)
       ),
     ]);
-    if (fresh && fresh.ok) {
+    if (fresh && fresh.ok && isShellDocument(fresh)) {
       const clone = fresh.clone();
       caches.open(SHELL_CACHE).then((cache) => cache.put('/', clone)).catch(() => {});
       return fresh;
@@ -93,7 +114,7 @@ async function handleNavigation(request) {
     // network failed or timed out — fall through to cached shell
   }
   const cached = (await caches.match(request)) || (await caches.match('/'));
-  if (cached) return cached;
+  if (isShellDocument(cached)) return cached;
   return new Response(
     '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:system-ui;padding:2rem;text-align:center"><h1>Offline</h1><p>Please reconnect and try again.</p></body>',
     { status: 503, headers: { 'Content-Type': 'text/html' } }
@@ -129,6 +150,7 @@ function isUncacheableApi(url) {
   if (url.pathname.startsWith('/api/admin/')) return true;
   if (url.pathname.startsWith('/api/auth/')) return true;
   if (url.pathname === '/api/user') return true;
+  if (url.pathname === '/api/tickets' || url.pathname.startsWith('/api/tickets/')) return true;
   return false;
 }
 
@@ -137,7 +159,7 @@ async function handleApi(request) {
   try { url = new URL(request.url); } catch { url = null; }
   const skipCache = url ? isUncacheableApi(url) : false;
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, skipCache ? { cache: 'no-store' } : undefined);
     if (response.ok && !skipCache) {
       const clone = response.clone();
       caches.open(API_CACHE).then((cache) => cache.put(request, clone)).catch(() => {});
@@ -156,6 +178,10 @@ async function handleApi(request) {
 }
 
 async function handleOther(request) {
+  if (new URL(request.url).pathname.startsWith('/uploads/')) {
+    try { return await fetch(request, { cache: 'no-store' }); }
+    catch { return new Response('', { status: 503 }); }
+  }
   try {
     const response = await fetch(request);
     return response;
@@ -182,6 +208,13 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(handleApi(request));
+    return;
+  }
+
+  // Attachment links opened in another tab have mode=navigate too. Never let
+  // them reach the shell handler (which caches HTML under "/" for offline use).
+  if (url.pathname.startsWith('/uploads/')) {
+    event.respondWith(handleOther(request));
     return;
   }
 

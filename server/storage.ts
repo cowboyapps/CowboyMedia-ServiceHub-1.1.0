@@ -194,6 +194,7 @@ export interface IStorage {
   createTicketMessage(message: InsertTicketMessage): Promise<TicketMessage>;
   updateTicketMessage(id: string, data: Partial<Pick<TicketMessage, "message">>): Promise<TicketMessage | undefined>;
   deleteTicketMessage(id: string): Promise<void>;
+  deleteTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string): Promise<TicketMessage | undefined>;
   markTicketMessagesRead(ticketId: string, readerId: string): Promise<void>;
 
   createPrivateMessage(message: InsertPrivateMessage): Promise<PrivateMessage>;
@@ -808,6 +809,23 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTicketMessage(id: string): Promise<void> {
     await db.delete(ticketMessages).where(eq(ticketMessages.id, id));
+  }
+
+  async deleteTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string): Promise<TicketMessage | undefined> {
+    return db.transaction(async (tx) => {
+      const [removed] = await tx.delete(ticketMessages).where(and(
+        eq(ticketMessages.id, messageId), eq(ticketMessages.ticketId, ticketId),
+      )).returning();
+      if (!removed) return undefined;
+      await tx.insert(adminActivityLogs).values({
+        category: "ticket",
+        action: removed.isInternal ? "ticket_internal_note_deleted" : "ticket_message_deleted",
+        actorId, targetId: ticketId, targetType: "ticket",
+        summary: removed.isInternal ? "Internal note deleted" : "Ticket message deleted for everyone",
+        details: JSON.stringify({ messageId, deletedAt: new Date().toISOString() }),
+      });
+      return removed;
+    });
   }
 
   async createPrivateMessage(message: InsertPrivateMessage): Promise<PrivateMessage> {

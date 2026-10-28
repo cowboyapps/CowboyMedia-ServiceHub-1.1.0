@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { registerAlertRoutes } from "./alert-routes";
 import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft, sweepAlertDrafts } from "./alert-drafts";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
+import { createTicketMessageDeleteHandler } from "./ticket-message-delete";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { createCommunityMessageEditHandler, createCommunityMessageHistoryHandler, type CommunityEditDeps } from "./community-chat-edit";
 import { stripChatFormatting } from "@shared/chat-markdown";
@@ -942,7 +943,8 @@ export async function registerRoutes(
       }
       const buffer = Buffer.from(file.data, "base64");
       res.set("Content-Type", file.mimetype);
-      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      // Uploads can be revoked when their owning message is deleted.
+      res.set("Cache-Control", "no-store");
       res.send(buffer);
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
@@ -2551,6 +2553,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   });
 
   app.get("/api/tickets/:id/messages", requireAuth, async (req, res) => {
+   res.set("Cache-Control", "no-store");
    try {
     const ticket = await storage.getTicket(getParam(req, "id"));
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
@@ -2927,29 +2930,38 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, async (req, res) => {
-    try {
-      const ticket = await storage.getTicket(getParam(req, "id"));
-      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-      const msg = await storage.getTicketMessage(getParam(req, "messageId"));
-      const actor = await storage.getUser(req.session.userId!);
-      const check = canMutateInternalNote(msg, ticket.id, actor);
-      if (!check.ok) return res.status(check.status).json({ message: check.message });
-      await storage.deleteTicketMessage(getParam(req, "messageId"));
-      await deleteUploadedFileIfUnreferenced(msg!.imageUrl);
-      logActivity("ticket", "ticket_internal_note_deleted", {
-        actorId: req.session.userId!,
-        targetId: ticket.id,
-        targetType: "ticket",
-        summary: `Internal note deleted by ${actor?.fullName || "admin"} on ticket "${ticket.subject}"`,
-        details: JSON.stringify({ messageId: msg!.id, body: msg!.message }),
-      });
-      broadcastToAdmins({ type: "ticket_message_deleted", ticketId: ticket.id, messageId: msg!.id });
-      res.json({ message: "Deleted" });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
+  const canAccessTicketForDeletion = async (actor: User, ticket: import("@shared/schema").Ticket) => {
+    if (actor.role === "master_admin") return true;
+    if (actor.role !== "admin") return false;
+    if (ticket.categoryId) {
+      const categories = await getAdminCategoryAccess(actor.id);
+      if (!categories.includes("*") && !categories.includes(ticket.categoryId)) return false;
     }
-  });
+    if (ticket.claimedBy && ticket.claimedBy !== actor.id) {
+      const transfer = await storage.getPendingTransferByTicketId(ticket.id);
+      if (transfer?.toAdminId !== actor.id) return false;
+    }
+    return true;
+  };
+  app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, createTicketMessageDeleteHandler({
+    getUser: (id) => storage.getUser(id),
+    getTicket: (id) => storage.getTicket(id),
+    getMessage: (id) => storage.getTicketMessage(id),
+    canManage: async (actor, ticket) => {
+      if (!await canAccessTicketForDeletion(actor, ticket)) return false;
+      if (actor.role === "master_admin") return true;
+      const role = actor.adminRoleId ? await storage.getAdminRole(actor.adminRoleId) : undefined;
+      return !!role?.permissions?.includes("support_tickets");
+    },
+    recipients: async (ticket, internal) => {
+      const admins = (await storage.getAllUsers()).filter((u) => isAdminRole(u.role));
+      const allowed = await Promise.all(admins.map(async (u) => await canAccessTicketForDeletion(u, ticket) ? u.id : null));
+      return [...new Set([...allowed.filter((id): id is string => !!id), ...(!internal ? [ticket.customerId] : [])])];
+    },
+    remove: (ticketId, messageId, actorId) => storage.deleteTicketMessageWithAudit(ticketId, messageId, actorId),
+    cleanup: deleteUploadedFileIfUnreferenced,
+    broadcast: broadcastToUserIds,
+  }));
 
   // Admin routes
   app.get("/api/admin/users", requirePermission("users.view", "users.manage"), async (_req, res) => {

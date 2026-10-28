@@ -46,6 +46,7 @@ import {
   removeOptimisticById,
 } from "@shared/ticket-message-reconcile";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { applyTicketMessageDeletion, withoutDeletedTicketMessages, ticketMessagesQueryFn } from "@/lib/ticket-message-deletions";
 import {
   persistFailedMessage,
   removePersistedFailedMessage,
@@ -214,6 +215,8 @@ interface TicketRowProps {
   onEditingTextChange: (text: string) => void;
   onSaveEdit: (id: string, text: string) => void;
   onDeleteNote: (id: string) => void;
+  canDeleteMessage: boolean;
+  onDeleteMessage: (id: string) => void;
   onRetry: (opt: any) => void;
   onDismiss: (opt: any) => void;
 }
@@ -226,7 +229,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
     rowClass, isAdmin, userAvatarUrl, userFullName,
     editNotePending, deleteNotePending,
     onProfileClick, onStartEdit, onCancelEdit, onEditingTextChange,
-    onSaveEdit, onDeleteNote, onRetry, onDismiss,
+    onSaveEdit, onDeleteNote, onRetry, onDismiss, canDeleteMessage, onDeleteMessage,
   } = props;
   return (
     <div className={rowClass || undefined}>
@@ -447,6 +450,14 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                   {isAdmin && isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
                 </p>
               )}
+              {canDeleteMessage && !isOptimistic && (
+                <Button type="button" variant="ghost" size="sm"
+                  className="min-h-9 px-2 text-xs text-destructive"
+                  onClick={() => onDeleteMessage(msg.id)}
+                  data-testid={`button-delete-message-${msg.id}`}>
+                  <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete for everyone
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -457,7 +468,8 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
 
 export default function TicketDetail() {
   const params = useParams<{ id: string }>();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -511,8 +523,13 @@ export default function TicketDetail() {
 
   const { data: messages, isLoading: messagesLoading } = useQuery<EnrichedTicketMessage[]>({
     queryKey: ["/api/tickets", params.id, "messages"],
+    queryFn: ticketMessagesQueryFn as import("@tanstack/react-query").QueryFunction<EnrichedTicketMessage[]>,
     refetchInterval: 5000,
-    staleTime: 2000,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   });
 
   const { data: services } = useQuery<Service[]>({
@@ -601,12 +618,20 @@ export default function TicketDetail() {
     onMessage: (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.type === "ticket_message_deleted" && data.ticketId === params.id && typeof data.messageId === "string") {
+          void applyTicketMessageDeletion(data.ticketId, data.messageId);
+          setDeletingMessageId((current) => current === data.messageId ? null : current);
+          if (editingNoteId === data.messageId) setEditingNoteId(null);
+        }
+        if (data.type === "ticket_message_edited" && data.ticketId === params.id) {
+          void queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+        }
         if (data.type === "ticket_message" && data.ticketId === params.id) {
           // Snappy texting: merge the broadcast message directly into the cache instead of
           // round-tripping a refetch. Dedupe by id (the sender already has it from their POST,
           // and the server sometimes broadcasts twice via the internal-notes/admin-only path).
           const incoming = data.message as EnrichedTicketMessage | undefined;
-          if (incoming?.id) {
+          if (incoming?.id && withoutDeletedTicketMessages(params.id!, [incoming]).length) {
             queryClient.setQueryData<EnrichedTicketMessage[] | undefined>(
               ["/api/tickets", params.id, "messages"],
               (prev) => mergeIncomingMessageIntoCache(prev, incoming),
@@ -977,20 +1002,34 @@ export default function TicketDetail() {
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/tickets/${params.id}/messages/${id}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+    onSuccess: (_data, id) => {
+      void applyTicketMessageDeletion(params.id!, id);
     },
     onError: (e: Error) => {
       toast({ title: "Failed to delete note", description: serverActionErrorMessage(e, "Couldn't delete the note. Please try again."), variant: "destructive" });
     },
   });
 
+  const deleteMessageMutation = useMutation({
+    mutationFn: async ({ ticketId, messageId }: { ticketId: string; messageId: string }) => {
+      await apiRequest("DELETE", `/api/tickets/${ticketId}/messages/${messageId}`);
+    },
+    onSuccess: async (_data, { ticketId, messageId }) => {
+      await applyTicketMessageDeletion(ticketId, messageId);
+      setDeletingMessageId(null);
+      toast({ title: "Message deleted for everyone" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't delete message", description: serverActionErrorMessage(error, "Please try again."), variant: "destructive" });
+    },
+  });
+
   const allMessages = useMemo(() => {
-    const real = (messages || []) as (EnrichedTicketMessage & { _optimistic?: false })[];
+    const real = withoutDeletedTicketMessages(params.id!, messages || []) as (EnrichedTicketMessage & { _optimistic?: false })[];
     const realIds = new Set(real.map((m) => m.id));
     const pending = optimisticMessages.filter((m) => !realIds.has(m.id));
     return [...real, ...pending.map((m) => ({ ...m, _optimistic: true as const }))];
-  }, [messages, optimisticMessages]);
+  }, [messages, optimisticMessages, params.id]);
 
   // Snapshot the IDs present on the very first non-loading render so that
   // every subsequent message (new poll result, optimistic send, push, etc.)
@@ -1010,14 +1049,14 @@ export default function TicketDetail() {
   const [resolutionNote, setResolutionNote] = useState("");
 
   useEffect(() => {
-    if (!customerInfoOpen && !historyOpen && !transferDialogOpen && !closeDialogOpen && !internalNotesOpen) {
+    if (!customerInfoOpen && !historyOpen && !transferDialogOpen && !closeDialogOpen && !internalNotesOpen && !deletingMessageId) {
       cleanupBodyStyles();
       const t1 = setTimeout(cleanupBodyStyles, 100);
       const t2 = setTimeout(cleanupBodyStyles, 300);
       const t3 = setTimeout(cleanupBodyStyles, 500);
       return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }
-  }, [customerInfoOpen, historyOpen, transferDialogOpen, closeDialogOpen, internalNotesOpen]);
+  }, [customerInfoOpen, historyOpen, transferDialogOpen, closeDialogOpen, internalNotesOpen, deletingMessageId]);
 
   const closeMutation = useMutation({
     mutationFn: async (note?: string) => {
@@ -1810,6 +1849,8 @@ export default function TicketDetail() {
                       onEditingTextChange={setEditingNoteText}
                       onSaveEdit={handleSaveEdit}
                       onDeleteNote={handleDeleteNote}
+                      canDeleteMessage={isAdmin && hasPermission("support_tickets")}
+                      onDeleteMessage={setDeletingMessageId}
                       onRetry={retryMessage}
                       onDismiss={dismissFailedMessage}
                     />
@@ -1915,6 +1956,24 @@ export default function TicketDetail() {
             >
               Send anyway
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!deletingMessageId} onOpenChange={(open) => { if (!open && !deleteMessageMutation.isPending) setDeletingMessageId(null); }}>
+        <AlertDialogContent data-testid="dialog-delete-ticket-message">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete message for everyone?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the message and its attachments from this ticket for you and the customer, and from future transcripts. This cannot be undone. Already delivered emails, downloads and screenshots cannot be recalled.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMessageMutation.isPending} data-testid="button-cancel-delete-message">Cancel</AlertDialogCancel>
+            <Button variant="destructive" disabled={deleteMessageMutation.isPending}
+              data-testid="button-confirm-delete-message"
+              onClick={() => { if (deletingMessageId && params.id) deleteMessageMutation.mutate({ ticketId: params.id, messageId: deletingMessageId }); }}>
+              {deleteMessageMutation.isPending ? "Deleting…" : "Delete for everyone"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
