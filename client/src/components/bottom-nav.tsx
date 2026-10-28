@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, MessageSquare, AlertTriangle, Newspaper, Menu, RefreshCw, Mail, FileText, Settings, Shield, LogOut, Download, Users, BookOpen, CreditCard, Server, ChevronRight, BadgePercent } from "lucide-react";
 import type { Promotion } from "@shared/schema";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useAuth } from "@/lib/auth";
 import { hapticLight } from "@/lib/haptics";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -21,7 +21,7 @@ export function BottomNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   // Hide the nav while the on-screen keyboard is open: on iOS the fixed bar
   // would otherwise float mid-screen above the keyboard.
-  const keyboardInset = useKeyboardInset();
+  const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => {
     setMoreOpen(false);
@@ -70,7 +70,7 @@ export function BottomNav() {
     (contentCounts["service-updates"] ?? 0) +
     (isAdmin ? (contentCounts["news"] ?? 0) : 0);
 
-  if (!isMobile || keyboardInset > 0) return null;
+  if (!isMobile || keyboardOpen) return null;
 
   const tabs = [
     { label: "Services", icon: Activity, path: "/services" },

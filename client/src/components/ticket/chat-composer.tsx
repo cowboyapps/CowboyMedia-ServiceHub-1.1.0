@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState, useRef, useEffect, useMemo, useCallback, useLayoutEffect, useImperativeHandle, forwardRef } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,7 @@ import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-articl
 import { apiRequest } from "@/lib/queryClient";
 import { handleSendButtonOnlyComposerKeyDown } from "@/lib/chat-composer-keyboard";
 import { useToast } from "@/hooks/use-toast";
+import { useTicketComposerSize } from "@/hooks/use-ticket-composer-size";
 import {
   findUnfilledPlaceholders,
   walkPlaceholderOverlay,
@@ -111,6 +112,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const [openTokenKey, setOpenTokenKey] = useState<string | null>(null);
 
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
   const placeholderOverlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Set by the "Quick responses" menu item; consumed in the menu's
@@ -130,14 +133,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     setOpenTokenKey(null);
   }, [ticketId]);
 
-  // Auto-grow textarea once per frame instead of doing layout thrash on every keystroke.
-  useLayoutEffect(() => {
-    const el = messageInputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    const maxPx = Math.round(window.innerHeight * 0.5);
-    el.style.height = Math.min(el.scrollHeight, maxPx) + "px";
-  }, [message]);
+  useTicketComposerSize(containerRef, toolsRef, messageInputRef, message);
 
   // Keep the placeholder overlay scroll in sync with the textarea scroll.
   const syncPlaceholderOverlayScroll = useCallback(() => {
@@ -265,9 +261,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
 
   return (
     <div
-      className={`border-t flex-shrink-0 ${isInternal ? "bg-amber-50/40 dark:bg-amber-950/20" : "bg-card"}`}
+      ref={containerRef}
+      className={`border-t flex flex-col min-h-0 max-h-full flex-shrink-0 overflow-hidden ${isInternal ? "bg-amber-50/40 dark:bg-amber-950/20" : "bg-card"}`}
       data-testid="composer-container"
     >
+      <div ref={toolsRef} className="min-h-0 overflow-y-auto overscroll-contain" data-testid="composer-tools">
       {isAdmin && canReply && (
         <div className="flex items-center gap-1 px-2 sm:px-3 pt-2">
           <Button
@@ -323,7 +321,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
           )}
         </div>
       )}
-      <div className="p-2 sm:p-3">
+      <div className="px-2 sm:px-3">
         {isAdmin && canReply && composerMode === "reply" && ((suggestions && suggestions.length > 0) || aiStatus?.enabled) && (
           <div className="mb-2" data-testid="row-suggestions">
             {aiSuggestCollapsed && suggestions && suggestions.length > 0 ? (
@@ -450,6 +448,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
             </span>
           </div>
         )}
+      </div>
+      </div>
+      <div className="p-2 sm:p-3 shrink-0">
         <div className="relative flex items-end gap-1.5 sm:gap-2">
           <input
             ref={fileInputRef}
@@ -704,7 +705,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
               }
               disabled={!canReply}
               className={`relative w-full min-h-[80px] resize-none text-base sm:text-sm py-2 leading-5 whitespace-pre-wrap break-words ${isInternal ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700" : "bg-transparent"}`}
-              style={{ maxHeight: "50dvh" }}
+              style={{ overflowY: "auto", overscrollBehavior: "contain" }}
               rows={4}
               data-testid="input-message"
             />

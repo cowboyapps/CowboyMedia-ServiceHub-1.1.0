@@ -470,3 +470,49 @@ test("a file at exactly the cap is allowed and does not warn", async () => {
     h.cleanup();
   }
 });
+
+for (const isAdmin of [false, true]) {
+  test(`long ${isAdmin ? "admin/internal" : "customer"} draft resizes with available panel space`, async () => {
+    const h = await mountComposer({ isAdmin });
+    const previousHeight = window.innerHeight;
+    let panelHeight = 600;
+    try {
+      const input = h.textarea();
+      const composer = findByTestId(h.container, "composer-container") as HTMLElement;
+      const tools = findByTestId(h.container, "composer-tools") as HTMLElement;
+      Object.defineProperty(h.container, "clientHeight", { configurable: true, get: () => panelHeight });
+      Object.defineProperty(input, "scrollHeight", { configurable: true, get: () => 1200 });
+      Object.defineProperty(input, "offsetHeight", { configurable: true, get: () => parseFloat(input.style.height) || 80 });
+      Object.defineProperty(composer, "offsetHeight", { configurable: true, get: () => input.offsetHeight + (isAdmin ? 100 : 18) });
+      Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+      const draft = "Long message line.\n".repeat(60);
+      await typeIntoTextarea(input, draft);
+      const before = parseFloat(input.style.height);
+      await act(async () => input.focus());
+      panelHeight = 250;
+      Object.defineProperty(window, "innerHeight", { value: 450, configurable: true, writable: true });
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      await flushFrames();
+      assert.ok(parseFloat(input.style.height) < before, "existing long draft shrinks without another keystroke");
+      assert.ok(parseFloat(input.style.height) <= panelHeight - 24 - (isAdmin ? 100 : 18));
+      assert.equal(input.style.overflowY, "auto");
+      assert.ok(parseFloat(tools.style.maxHeight) <= (panelHeight - 24) * 0.4);
+      assert.equal(input.value, draft);
+      assert.equal(h.sendCalls.length, 0);
+      if (isAdmin) {
+        await act(async () => (findByTestId(h.container, "tab-composer-internal") as HTMLButtonElement).click());
+        assert.equal(input.value, draft, "internal-note tab preserves draft");
+        assert.equal((findByTestId(h.container, "button-send-message") as HTMLButtonElement).title, "Save internal note");
+      }
+      panelHeight = 600;
+      Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      await flushFrames();
+      assert.equal(parseFloat(input.style.height), before, "closing keyboard restores editor capacity");
+      assert.equal(input.value, draft);
+    } finally {
+      h.cleanup();
+      Object.defineProperty(window, "innerHeight", { value: previousHeight, configurable: true, writable: true });
+    }
+  });
+}

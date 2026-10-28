@@ -1665,10 +1665,11 @@ export default function TicketDetail() {
 
       <div className="flex-1 flex flex-col min-h-0 relative rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 relative">
+          <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden" data-testid="ticket-history-region">
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto overscroll-contain"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
           >
             <div className="px-5 py-4 border-b border-border bg-card">
@@ -1821,7 +1822,7 @@ export default function TicketDetail() {
           </div>
 
           {showNewMessagesPill && (
-            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10">
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10">
               <Button
                 size="sm"
                 variant="secondary"
@@ -1833,9 +1834,9 @@ export default function TicketDetail() {
               </Button>
             </div>
           )}
-
+          </div>
           {typingUser && (
-            <div className="px-3 sm:px-4 py-1" data-testid="typing-indicator">
+            <div className="shrink-0 px-3 sm:px-4 py-1" data-testid="typing-indicator">
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <span className="italic">{typingUser}</span>
                 <BouncingDots />

@@ -154,6 +154,14 @@ const { AuthProvider } = await import("../client/src/lib/auth");
 const { Router } = await import("wouter");
 const { memoryLocation } = await import("wouter/memory-location");
 const { BottomNav } = await import("../client/src/components/bottom-nav");
+const { useKeyboardInset } = await import("../client/src/hooks/use-keyboard-inset");
+const { useKeyboardOpen } = await import("../client/src/hooks/use-keyboard-open");
+
+function KeyboardProbe() {
+  const inset = useKeyboardInset();
+  const open = useKeyboardOpen();
+  return React.createElement("output", { "data-testid": "keyboard-probe", "data-inset": inset, "data-open": String(open) });
+}
 
 async function flush(): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -189,7 +197,7 @@ async function mountNav(path = "/services"): Promise<MountResult> {
       React.createElement(
         AuthProvider,
         null,
-        React.createElement(Router, { hook, children: React.createElement(BottomNav) }),
+        React.createElement(Router, { hook, children: React.createElement(React.Fragment, null, React.createElement(BottomNav), React.createElement(KeyboardProbe)) }),
       ),
     );
 
@@ -371,5 +379,106 @@ test("iOS visual-viewport pan (offsetTop) must not cancel keyboard detection", a
     assert.ok(navEl(container), "nav must return once the keyboard closes");
   } finally {
     cleanup();
+  }
+});
+
+test("Android resize hides nav without adding padding; Back, reopen and rotation retain drafts", async () => {
+  Object.defineProperty(window, "innerWidth", { value: 390, configurable: true, writable: true });
+  Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+  visualViewportStub.height = 800;
+  visualViewportStub.offsetTop = 0;
+  const { container, cleanup } = await mountNav();
+  const input = document.createElement("textarea");
+  input.value = "Keep this long draft.\n".repeat(30);
+  document.body.append(input);
+  const original = input.value;
+  const resize = async (height: number, width = 390) => {
+    Object.defineProperty(window, "innerHeight", { value: height, configurable: true, writable: true });
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
+    visualViewportStub.height = height;
+    await act(async () => {
+      window.dispatchEvent(new window.Event("resize"));
+      fireViewportResize();
+    });
+    await flush();
+  };
+  try {
+    await act(async () => input.focus());
+    assert.ok(navEl(container), "hardware keyboard focus alone does not hide nav");
+    // Small intermediate animation steps must not overwrite the baseline.
+    for (const height of [750, 700, 650, 600, 500]) await resize(height);
+    assert.equal(navEl(container), null, "both viewports shrinking hides navigation");
+    assert.equal(container.querySelector('[data-testid="keyboard-probe"]')?.getAttribute("data-inset"), "0");
+    await resize(450);
+    assert.equal(navEl(container), null, "keyboard suggestion-height changes keep nav hidden");
+    await resize(800);
+    assert.ok(navEl(container), "Android Back restores nav without blur");
+    assert.equal(document.activeElement, input);
+    await resize(500);
+    assert.equal(navEl(container), null);
+    await resize(240, 800);
+    await act(async () => fireOrientationChange());
+    await flush();
+    assert.equal(container.querySelector('[data-testid="keyboard-probe"]')?.getAttribute("data-open"), "true");
+    assert.equal(container.querySelector('[data-testid="keyboard-probe"]')?.getAttribute("data-inset"), "0");
+    await resize(430, 800);
+    assert.equal(container.querySelector('[data-testid="keyboard-probe"]')?.getAttribute("data-open"), "false");
+    await resize(800, 390);
+    assert.ok(navEl(container));
+    await resize(740);
+    assert.ok(navEl(container), "small browser-toolbar changes do not hide nav while focused");
+    assert.equal(input.value, original);
+  } finally {
+    input.remove();
+    cleanup();
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true, writable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+    visualViewportStub.height = 800;
+  }
+});
+
+test("first Android rotation learns the shorter landscape baseline on keyboard dismissal", async () => {
+  Object.defineProperty(window, "innerWidth", { value: 390, configurable: true, writable: true });
+  Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+  visualViewportStub.height = 800;
+  visualViewportStub.offsetTop = 0;
+  const { container, cleanup } = await mountNav();
+  const input = document.createElement("textarea");
+  document.body.append(input);
+  const resize = async (height: number, width: number) => {
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
+    Object.defineProperty(window, "innerHeight", { value: height, configurable: true, writable: true });
+    visualViewportStub.height = height;
+    await act(async () => {
+      window.dispatchEvent(new window.Event("resize"));
+      fireViewportResize();
+    });
+    await flush();
+  };
+  try {
+    await act(async () => input.focus());
+    await resize(440, 390);
+    assert.equal(navEl(container), null);
+    await resize(190, 740);
+    assert.equal(navEl(container), null);
+    // Keyboard closes in stages without blur (Android Back).
+    await resize(250, 740);
+    assert.equal(navEl(container), null);
+    await resize(390, 740);
+    assert.ok(navEl(container), "nav restores despite landscape being shorter than portrait keyboard loss estimate");
+    assert.equal(document.activeElement, input);
+    assert.equal(container.querySelector('[data-testid="keyboard-probe"]')?.getAttribute("data-inset"), "0");
+    await resize(190, 740);
+    assert.equal(navEl(container), null, "reopen uses learned real landscape baseline");
+    await resize(390, 740);
+    assert.ok(navEl(container));
+    await act(async () => input.blur());
+    assert.ok(navEl(container), "blur cannot re-latch keyboard state");
+  } finally {
+    input.remove();
+    cleanup();
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true, writable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+    visualViewportStub.height = 800;
   }
 });

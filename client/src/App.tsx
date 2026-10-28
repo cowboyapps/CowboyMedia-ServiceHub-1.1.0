@@ -19,6 +19,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { BottomNav } from "@/components/bottom-nav";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { Link } from "wouter";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -230,6 +231,7 @@ function AdminAwayBanner() {
 function AuthenticatedLayout() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
   const { user } = useAuth();
 
   useEffect(() => {
@@ -300,7 +302,7 @@ function AuthenticatedLayout() {
               <NotificationCenter />
             </div>
           </header>
-          <PullToRefresh ref={scrollRef} id="app-scroll-container" className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile ? 'pb-[calc(3.5rem+var(--sab,env(safe-area-inset-bottom,0px)))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
+          <PullToRefresh ref={scrollRef} id="app-scroll-container" className={`flex-1 min-h-0 ${isFullHeightChat ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${isMobile && !keyboardOpen ? 'pb-[calc(3.5rem+var(--sab,env(safe-area-inset-bottom,0px)))]' : ''}`} disabled={isFullHeightChat || isNewsPage || isAdminPortal}>
             <main className={isFullHeightChat ? "flex-1 flex flex-col min-h-0" : "p-3 sm:p-6"}>
               <AppRouter />
             </main>
