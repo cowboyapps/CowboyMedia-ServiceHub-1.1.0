@@ -141,6 +141,9 @@ const {
 const {
   AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription,
 } = await import("../client/src/components/ui/alert-dialog");
+const {
+  AlertEditorDialogContent, AlertEditorScrollArea, AlertEditorActions,
+} = await import("../client/src/components/alert-editor-dialog");
 
 async function flush(): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -278,6 +281,55 @@ test("caller-supplied inline style wins over the generic keyboard fix", async ()
     await setKeyboardCoverage(0);
   } finally {
     cleanup();
+  }
+});
+
+test("long alert editor keeps its submit action outside the touch-scrolling fields through keyboard changes", async () => {
+  visualViewportStub.height = 800;
+  visualViewportStub.offsetTop = 0;
+  Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+  const longDraft = "Service update with lots of detail. ".repeat(120);
+  let submissions = 0;
+  const node = React.createElement(Dialog, { open: true },
+    React.createElement(AlertEditorDialogContent, null,
+      React.createElement(DialogTitle, null, "Create Service Alert"),
+      React.createElement(DialogDescription, null, "Write an update"),
+      React.createElement("form", {
+        className: "flex min-h-0 flex-1 flex-col gap-3",
+        onSubmit: (event: React.FormEvent) => { event.preventDefault(); submissions++; },
+      },
+      React.createElement(AlertEditorScrollArea, { "aria-label": "Alert fields" },
+        React.createElement("div", { contentEditable: true, suppressContentEditableWarning: true }, longDraft)),
+      React.createElement(AlertEditorActions, null,
+        React.createElement("button", { type: "submit" }, "Create Alert")))));
+  const { content, cleanup } = await mount(node, "dialog");
+  try {
+    const fields = content.querySelector<HTMLElement>('[aria-label="Alert fields"]')!;
+    const button = content.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    assert.ok(content.classList.contains("flex"));
+    assert.ok(!content.classList.contains("grid"), "dialog must use flex sizing");
+    assert.ok(content.classList.contains("max-h-[calc(100dvh-2rem)]"), "closed keyboard still has a dynamic viewport cap");
+    for (const cls of ["min-h-0", "overflow-y-auto", "touch-pan-y", "overscroll-contain"]) {
+      assert.ok(fields.classList.contains(cls), cls);
+    }
+    assert.equal(fields.contains(button), false, "posting never requires scrolling past the draft");
+    assert.ok(button.parentElement!.classList.contains("shrink-0"));
+    assert.equal(button.form, fields.closest("form"), "fixed actions retain form submission");
+    await setKeyboardCoverage(320);
+    assert.equal(content.style.maxHeight, serializedMaxHeight("calc(100dvh - 320px - 2rem)"));
+    assert.equal(content.style.overflowY, "hidden", "only the fields scroll, not the whole dialog");
+    // Pixel resizes both viewports: no extra keyboard subtraction.
+    Object.defineProperty(window, "innerHeight", { value: 480, configurable: true, writable: true });
+    await setKeyboardCoverage(320);
+    assert.equal(content.style.maxHeight, "");
+    assert.equal(content.style.overflowY, "hidden");
+    assert.equal(fields.textContent, longDraft, "resizing does not replace the draft");
+    await act(async () => { button.click(); });
+    assert.equal(submissions, 1);
+  } finally {
+    cleanup();
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+    visualViewportStub.height = 800;
   }
 });
 

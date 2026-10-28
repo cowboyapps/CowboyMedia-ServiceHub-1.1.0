@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { AlertEditorDialogContent, AlertEditorScrollArea, AlertEditorActions } from "@/components/alert-editor-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -1770,10 +1771,11 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
           {canManage && <DialogTrigger asChild>
             <Button size="sm" data-testid="button-create-alert"><Plus className="w-4 h-4 mr-1" /> Create Alert</Button>
           </DialogTrigger>}
-          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <AlertEditorDialogContent data-testid="dialog-create-alert">
             <DialogHeader><DialogTitle>Create Service Alert</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-3">
+              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="flex min-h-0 flex-1 flex-col gap-3">
+                <AlertEditorScrollArea>
                 <FormField control={form.control} name="title" render={({ field }) => (
                   <FormItem><FormLabel>Title</FormLabel><FormControl><Input data-testid="input-alert-title" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
@@ -1865,20 +1867,24 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                     <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-alert-silent" /></FormControl>
                   </FormItem>
                 )} />
+                </AlertEditorScrollArea>
+                <AlertEditorActions>
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-alert">
                   {createMutation.isPending ? "Creating..." : form.watch("silent") ? "Create Silently" : "Create Alert"}
                 </Button>
+                </AlertEditorActions>
               </form>
             </Form>
-          </DialogContent>
+          </AlertEditorDialogContent>
         </Dialog>
       </div>
 
       <Dialog open={updateDialogOpen} onOpenChange={(open) => { setUpdateDialogOpen(open); if (!open) { setUpdateImageFile(null); setActiveDraft(null); setShowUpdateAdvanced(false); } }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
+        <AlertEditorDialogContent data-testid="dialog-post-alert-update">
           <DialogHeader><DialogTitle>Post Update</DialogTitle></DialogHeader>
           <Form {...updateForm}>
-            <form onSubmit={updateForm.handleSubmit((d) => addUpdateMutation.mutate(d))} className="space-y-3">
+            <form onSubmit={updateForm.handleSubmit((d) => addUpdateMutation.mutate(d))} className="flex min-h-0 flex-1 flex-col gap-3">
+              <AlertEditorScrollArea>
               <FormField control={updateForm.control} name="status" render={({ field }) => (
                 <FormItem><FormLabel>Status</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
@@ -1956,18 +1962,22 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
                   )} />
                 </div>
               )}
+              </AlertEditorScrollArea>
+              <AlertEditorActions>
               <Button type="submit" className="w-full" disabled={addUpdateMutation.isPending} data-testid="button-submit-update">
                 {addUpdateMutation.isPending ? "Posting..." : updateForm.watch("silent") ? "Post Silently" : "Post Update"}
               </Button>
+              </AlertEditorActions>
             </form>
           </Form>
-        </DialogContent>
+        </AlertEditorDialogContent>
       </Dialog>
 
       <Dialog open={editAlertDialogOpen} onOpenChange={(open) => { if (!open) { setEditAlertDialogOpen(false); setEditingAlert(null); setEditAlertImageFile(null); setEditAlertRemoveImage(false); } }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
+        <AlertEditorDialogContent data-testid="dialog-edit-alert">
           <DialogHeader><DialogTitle>Edit Alert</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <AlertEditorScrollArea>
             <div className="space-y-2">
               <Label>Services</Label>
               <div className="space-y-2 rounded-md border p-3 max-h-48 overflow-y-auto" data-testid="checkboxes-edit-alert-services">
@@ -2016,6 +2026,8 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
               <Input type="file" accept="image/*" onChange={(e) => { setEditAlertImageFile(e.target.files?.[0] || null); setEditAlertRemoveImage(false); }} data-testid="input-edit-alert-image" />
               {editAlertImageFile && <img src={URL.createObjectURL(editAlertImageFile)} alt="Preview" className="max-h-20 rounded-md" />}
             </div>
+            </AlertEditorScrollArea>
+            <AlertEditorActions>
             <Button
               className="w-full"
               disabled={editAlertMutation.isPending || !editAlertTitle.trim() || !stripHtml(editAlertDesc) || editAlertServiceIds.length === 0}
@@ -2024,8 +2036,9 @@ export function AlertsTab({ canManage = true }: { canManage?: boolean }) {
             >
               {editAlertMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
+            </AlertEditorActions>
           </div>
-        </DialogContent>
+        </AlertEditorDialogContent>
       </Dialog>
 
       <Dialog open={resolveDialogOpen} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolveAlertId(null); setResolveMessage(""); setResolveImageFile(null); setResolveSilent(false); setActiveDraft(null); } }}>
