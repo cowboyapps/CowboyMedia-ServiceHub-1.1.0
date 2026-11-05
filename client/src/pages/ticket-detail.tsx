@@ -29,6 +29,7 @@ import { ArrowLeft, Send, Paperclip, X, CheckCircle, User as UserIcon, Shield, Z
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useTicketConversationScroll } from "@/hooks/use-ticket-conversation-scroll";
 import { ClickableImage, ClickableVideo } from "@/components/image-lightbox";
 import { queryClient, apiRequest, uploadRequest, TimeoutError } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
@@ -522,16 +523,12 @@ export default function TicketDetail() {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const [onlineViewers, setOnlineViewers] = useState<Map<string, string>>(new Map());
-  const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
-  const isNearBottomRef = useRef(true);
   // Tracks message IDs present on first render so we only fade-in messages
   // that arrived after mount (initial paint stays jank-free).
   const initialMessageIdsRef = useRef<Set<string> | null>(null);
   const searchParams = new URLSearchParams(window.location.search);
   const originTicketId = searchParams.get("from");
   const originTicketSubject = searchParams.get("fromSubject");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
@@ -554,6 +551,13 @@ export default function TicketDetail() {
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
+  });
+  const { scrollContainerRef, contentRef, requestFollow, jumpToLatest, showLatest, hasNewMessages } = useTicketConversationScroll({
+    conversationId: params.id,
+    enabled: !!ticket && !isLoading && !isError,
+    messages,
+    optimisticMessages,
+    actorId: user?.id,
   });
   useEffect(() => {
     // Poll/reconnect is authoritative too: a missed deletion socket event must
@@ -754,77 +758,12 @@ export default function TicketDetail() {
     if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
     readFlushTimerRef.current = null;
     setOnlineViewers(new Map());
-    setShowNewMessagesPill(false);
-    isNearBottomRef.current = true;
-    prevMessageCountRef.current = 0;
 
     cleanupBodyStyles();
     const interval = setInterval(cleanupBodyStyles, 50);
     const timeout = setTimeout(() => clearInterval(interval), 500);
     return () => { clearInterval(interval); clearTimeout(timeout); };
   }, [params.id]);
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const el = scrollContainerRef.current;
-    if (el) {
-      if (typeof el.scrollTo === "function") {
-        el.scrollTo({ top: el.scrollHeight, behavior });
-      } else {
-        el.scrollTop = el.scrollHeight;
-      }
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior });
-    }
-    setShowNewMessagesPill(false);
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const threshold = 100;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    isNearBottomRef.current = nearBottom;
-    if (nearBottom) setShowNewMessagesPill(false);
-  }, []);
-
-  useEffect(() => {
-    if (keyboardInset <= 0) return;
-
-    // Keep the active reply surface visible after iOS finishes resizing its
-    // visual viewport. This only scrolls the message pane; it never moves the
-    // document or disturbs the typed draft in ChatComposer.
-    const active = document.activeElement;
-    if (!(active instanceof HTMLTextAreaElement) || active.dataset.testid !== "input-message") return;
-    const timer = setTimeout(() => scrollToBottom("auto"), 50);
-    return () => clearTimeout(timer);
-  }, [keyboardInset, scrollToBottom]);
-
-  const prevMessageCountRef = useRef(0);
-  useEffect(() => {
-    const count = messages?.length || 0;
-    const prev = prevMessageCountRef.current;
-    prevMessageCountRef.current = count;
-    if (count > prev && prev > 0) {
-      if (isNearBottomRef.current) {
-        scrollToBottom();
-      } else {
-        setShowNewMessagesPill(true);
-      }
-    } else if (count > 0 && prev === 0) {
-      // First load: images/avatars may still be sizing, so one synchronous scroll
-      // lands short of the bottom. Re-pin across the next few frames so we settle
-      // at the true bottom once content finishes laying out.
-      scrollToBottom("auto");
-      const raf = requestAnimationFrame(() => scrollToBottom("auto"));
-      const t1 = setTimeout(() => scrollToBottom("auto"), 120);
-      const t2 = setTimeout(() => scrollToBottom("auto"), 350);
-      return () => {
-        cancelAnimationFrame(raf);
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
-    }
-  }, [messages, scrollToBottom]);
 
   const sendTypingEvent = () => {
     const now = Date.now();
@@ -859,11 +798,7 @@ export default function TicketDetail() {
       setOptimisticMessages((prev) => markOptimisticSending(prev, optimisticId));
     }
 
-    if (isNearBottomRef.current) {
-      // Native-texting feel: scroll instantly + synchronously so the bubble lands the moment
-      // the user taps Send. The previous 50ms smooth-scroll made own-send feel laggy.
-      scrollToBottom("auto");
-    }
+    requestFollow();
 
     const formData = new FormData();
     formData.append("message", msgText);
@@ -911,7 +846,7 @@ export default function TicketDetail() {
           imageFile: optimistic.imageFile ?? null,
         }).catch(() => {});
       });
-  }, [params.id, user, isAdmin, scrollToBottom]);
+  }, [params.id, user, isAdmin, requestFollow]);
 
   const [pendingPlaceholderSend, setPendingPlaceholderSend] = useState<{
     msgText: string;
@@ -1053,7 +988,7 @@ export default function TicketDetail() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => { observer.disconnect(); document.removeEventListener("visibilitychange", onVisibility); };
-  }, [messages, optimisticMessages, flushVisibleReads, viewingMedia]);
+  }, [messages, optimisticMessages, flushVisibleReads, viewingMedia, scrollContainerRef]);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
     doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null);
@@ -1819,12 +1754,13 @@ export default function TicketDetail() {
           <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden" data-testid="ticket-history-region">
           <div
             ref={scrollContainerRef}
-            onScroll={handleScroll}
-            onLoadCapture={() => { if (isNearBottomRef.current) scrollToBottom("auto"); }}
-            onLoadedMetadataCapture={() => { if (isNearBottomRef.current) scrollToBottom("auto"); }}
+            data-testid="ticket-message-scroll"
+            tabIndex={0}
+            aria-label="Ticket conversation"
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
           >
+            <div ref={contentRef}>
             <div className="px-5 py-4 border-b border-border bg-card">
               <p className="text-[15px] whitespace-pre-wrap text-card-foreground leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
               {ticket.imageUrl && (
@@ -1972,22 +1908,29 @@ export default function TicketDetail() {
                     />
                   );
                 })}
-                <div ref={messagesEndRef} />
               </div>
             )}
             </div>
+            </div>
           </div>
 
-          {showNewMessagesPill && (
+          {showLatest && (
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10">
               <Button
                 size="sm"
                 variant="secondary"
                 className="rounded-full shadow-lg text-xs gap-1 px-3 py-1.5"
-                onClick={() => scrollToBottom()}
+                onPointerDown={event => {
+                  // Preserve an already-open keyboard without opening it when
+                  // the reader is navigating history with the keyboard closed.
+                  if (document.activeElement instanceof HTMLTextAreaElement) event.preventDefault();
+                }}
+                onMouseDown={event => event.preventDefault()}
+                onClick={jumpToLatest}
+                aria-label={hasNewMessages ? "Go to latest message. New messages available." : "Go to latest message"}
                 data-testid="button-new-messages"
               >
-                New messages <ChevronDown className="w-3 h-3" />
+                Latest {hasNewMessages && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />}<ChevronDown className="w-3 h-3" />
               </Button>
             </div>
           )}

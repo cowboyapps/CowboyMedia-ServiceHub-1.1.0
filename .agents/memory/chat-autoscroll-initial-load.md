@@ -1,31 +1,30 @@
 ---
-name: Chat auto-scroll on open
-description: Why chat pages must scroll the container to scrollHeight and re-pin across frames on first load.
+name: Conversation scroll intent
+description: Separate following intent from measured distance; commit outgoing bubbles before scrolling and preserve history browsing.
 ---
 
-# Chat auto-scroll to newest on open
+# Conversation scroll intent
 
-All three chat surfaces (support ticket detail, admin↔customer messages, community
-chat) share the same scroll pattern: a `scrollContainerRef` (the `overflow-y-auto`
-div), a zero-height `messagesEndRef` marker at the bottom, an `isNearBottomRef`,
-and a `prevMessageCountRef` effect that scrolls on first load / on new messages.
+Following the newest message is user intent, not just the measured distance from
+the current bottom. An outgoing send or retry must request following regardless
+of the sender's previous position; scrolling must happen after the bubble commits.
+Explicit upward browsing cancels continued following, and incoming replies must
+not pull someone out of older history. A Latest control should depend on scroll
+position, not require a newly arrived message.
 
-**Rule:** `scrollToBottom` must scroll the explicit container
-(`el.scrollTo({ top: el.scrollHeight, behavior })`), keeping
-`messagesEndRef.scrollIntoView` only as a fallback. On **first message load**,
-re-pin to the bottom across a `requestAnimationFrame` plus a couple of short
-timeouts (~120ms / ~350ms), with cleanup (`cancelAnimationFrame`/`clearTimeout`
-returned from the effect).
+**Why:** Scrolling synchronously after a React state setter measures the old
+message list. Late image sizing, optimistic-to-saved replacement, and keyboard or
+composer resizing then grow the bottom gap without the user choosing to scroll
+away. Treating that gap as intent makes the latest outgoing message disappear.
+The user explicitly said they should not have to close the keyboard to find it.
 
-**Why:** `scrollIntoView` on a zero-height trailing marker is unreliable on open —
-it defaults to aligning the marker to the *top* and targets the nearest scrollable
-ancestor, and it fires in the commit phase *before* images/avatars finish sizing,
-so the single synchronous scroll lands short of the true bottom. Users then had to
-tap the "New messages" pill to reach the newest message. Re-pinning across frames
-lets the view settle once async content grows the scroll height.
+**How to apply:** Scroll the conversation pane itself, not the document or a
+zero-height marker through `scrollIntoView`. Follow committed content and later
+layout changes with coalesced, cleaned-up callbacks; stop following on deliberate
+history browsing. Do not infer keyboard visibility solely from positive inset:
+Android can resize both viewports and report zero.
 
-**How to apply:** when touching any chat scroll logic, do NOT guard the first-load
-re-pin timeouts on `isNearBottomRef` — late-loading images grow `scrollHeight`
-without moving `scrollTop`, which makes `isNearBottom` read false and would skip
-the very re-pin that fixes the bug. The 350ms window can fight a user who scrolls
-up immediately on open; that tradeoff is intentional (open == show newest).
+Legacy chat surfaces may still use first-load frame/short-timeout re-pinning.
+Do not gate those initial callbacks solely on a near-bottom measurement: late
+images can make that measurement false. Preserve their existing behavior unless
+that surface is explicitly in scope.

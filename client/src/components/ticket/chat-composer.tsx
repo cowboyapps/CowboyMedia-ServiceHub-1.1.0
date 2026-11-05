@@ -160,7 +160,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         const el = messageInputRef.current;
         if (el) {
           el.style.height = "auto";
-          el.focus();
+          el.focus({ preventScroll: true });
         }
       });
     },
@@ -724,6 +724,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
             }
             onClick={handleSend}
             data-testid="button-send-message"
+            onPointerDown={event => {
+              if (document.activeElement === messageInputRef.current) event.preventDefault();
+            }}
+            onMouseDown={event => {
+              if (document.activeElement === messageInputRef.current) event.preventDefault();
+            }}
             title={isInternal ? "Save internal note" : "Send message"}
           >
             {isInternal ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}

@@ -7,6 +7,8 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/tickets/ticket-1",
 });
 const { window } = dom;
+const originalFormData = globalThis.FormData;
+globalThis.FormData = window.FormData as unknown as typeof FormData;
 type GlobalShim = Record<string, unknown>;
 const g = globalThis as unknown as GlobalShim;
 const w = window as unknown as GlobalShim;
@@ -107,19 +109,32 @@ const TICKET = {
   customerId: "cust-1", claimedBy: null, imageUrl: null, resolutionNote: null,
   closedBy: null, createdAt: "2026-09-08T00:00:00.000Z", closedAt: null,
 };
+let activeUser = USER;
+let claimedBy: string | null = null;
+let serverMessages: Array<Record<string, unknown>> = [];
+let pendingReply: ((response: Response) => void) | undefined;
+let failReply = false;
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
 }
 const realFetch = globalThis.fetch;
-g.fetch = async (input: unknown): Promise<Response> => {
+g.fetch = async (input: unknown, init?: RequestInit): Promise<Response> => {
   const path = (typeof input === "string" ? input : String((input as { url?: string }).url ?? input)).split("?")[0];
-  if (path === "/api/auth/me") return jsonResponse(USER);
+  if (path === "/api/auth/me") return jsonResponse(activeUser);
   if (path === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
-  if (path === "/api/tickets/ticket-1") return jsonResponse(TICKET);
-  if (path === "/api/tickets/ticket-1/messages") return jsonResponse([]);
+  if (path === "/api/tickets/ticket-1") return jsonResponse({ ...TICKET, claimedBy });
+  if (path === "/api/tickets/ticket-1/customer") return jsonResponse({ customer: USER, ticket: TICKET });
+  if (path === "/api/tickets/ticket-1/messages") {
+    if (init?.method === "POST") {
+      if (failReply) return new Response("Send failed", { status: 500 });
+      return new Promise<Response>(resolve => { pendingReply = resolve; });
+    }
+    return jsonResponse(serverMessages);
+  }
   if (path === "/api/services" || path === "/api/ticket-categories") return jsonResponse([]);
   if (path === "/api/business-hours/status") return jsonResponse({ isOpen: true });
+  if (/suggestions|quick-responses/.test(path)) return jsonResponse([]);
   return jsonResponse({});
 };
 
@@ -130,6 +145,7 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { getQueryFn } = await import("../client/src/lib/queryClient");
+const { queryClient: ticketQueryClient } = await import("../client/src/lib/queryClient");
 const { AuthProvider } = await import("../client/src/lib/auth");
 const { Router, Route } = await import("wouter");
 const { memoryLocation } = await import("wouter/memory-location");
@@ -212,7 +228,147 @@ test("ticket-detail composer tracks panned iPhone keyboard through rotation, del
   }
 });
 
+for (const admin of [false, true]) {
+  test(`${admin ? "admin" : "customer"} sends follow committed text/attachments with keyboard open and Latest is available for older history`, async () => {
+    activeUser = { ...USER, id: admin ? "admin-1" : USER.id, role: admin ? "master_admin" : "customer" };
+    claimedBy = admin ? activeUser.id : null;
+    serverMessages = Array.from({ length: 12 }, (_, index) => ({
+      id: `old-${index}`, ticketId: TICKET.id, senderId: "support", senderName: "Support",
+      message: `Older reply ${index}`, createdAt: "2026-09-08T00:00:00Z", isInternal: false,
+      imageUrl: null, readAt: null, reactions: [],
+    }));
+    visualViewportStub.height = 470;
+    visualViewportStub.offsetTop = 0;
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true, writable: true });
+    const container = window.document.createElement("div");
+    window.document.body.append(container);
+    const defaults = ticketQueryClient.getDefaultOptions();
+    ticketQueryClient.setDefaultOptions({
+      queries: { queryFn: getQueryFn({ on401: "returnNull" }), retry: false, staleTime: Infinity, gcTime: 0 },
+      mutations: { retry: false, gcTime: 0 },
+    });
+    const { hook } = memoryLocation({ path: "/tickets/ticket-1" });
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(React.createElement(QueryClientProvider, { client: ticketQueryClient },
+          React.createElement(AuthProvider, null,
+            React.createElement(Router, { hook, children: React.createElement(Route, { path: "/tickets/:id", component: TicketDetail }) }))));
+      });
+      await flush();
+      const pane = container.querySelector<HTMLElement>('[data-testid="ticket-message-scroll"]')!;
+      const editor = container.querySelector<HTMLTextAreaElement>('[data-testid="input-message"]')!;
+      assert.ok(pane && editor);
+      let viewport = 200, top = 0, mediaGrowth = 0;
+      const height = () => 100 + pane.querySelectorAll('[data-testid^="message-old-"],[data-testid^="message-optimistic-"],[data-testid^="message-saved-"]').length * 100 + mediaGrowth;
+      Object.defineProperties(pane, {
+        clientHeight: { get: () => viewport },
+        scrollHeight: { get: height },
+        scrollTop: { get: () => top, set: (value: number) => { top = Math.max(0, Math.min(value, height() - viewport)); } },
+      });
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      await flush();
+      assert.equal(top, height() - viewport);
+      const browse = async () => {
+        top = 100;
+        await act(async () => pane.dispatchEvent(new window.Event("scroll")));
+        assert.ok(container.querySelector('[data-testid="button-new-messages"]'), "scrolling older history reveals Latest without incoming messages");
+      };
+      const type = async (value: string) => {
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(editor, value);
+        await act(async () => editor.dispatchEvent(new window.Event("input", { bubbles: true })));
+      };
+      await act(async () => editor.focus());
+      for (const [index, extension] of ["text", "png", "mp4", "pdf"].entries()) {
+        await browse();
+        await type(extension === "text" ? "A new outgoing reply" : "");
+        if (extension !== "text") {
+          // Multipart requests are mocked, but the actual composer/file/send
+          // and optimistic-to-saved render path are exercised.
+          const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+          const file = new window.File(["fixture"], `reply.${extension}`, { type: "application/octet-stream" });
+          Object.defineProperty(input, "files", { configurable: true, value: { 0: file, length: 1, item: () => file } });
+          await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+        }
+        await act(async () => (container.querySelector('[data-testid="button-send-message"]') as HTMLButtonElement).click());
+        await flush();
+        assert.equal(top, height() - viewport, "optimistic bubble is visible before the POST completes");
+        assert.equal(window.document.activeElement, editor);
+        assert.ok(pendingReply);
+        const saved = {
+          id: `saved-${index}`, ticketId: TICKET.id, senderId: activeUser.id, senderName: activeUser.fullName,
+          message: extension === "text" ? "A new outgoing reply" : "", createdAt: new Date().toISOString(),
+          imageUrl: extension === "text" ? null : `/uploads/reply.${extension}`, isInternal: false, readAt: null, reactions: [],
+        };
+        serverMessages = [...serverMessages, saved];
+        await act(async () => { pendingReply!(jsonResponse(saved)); pendingReply = undefined; });
+        await flush();
+        assert.ok(pane.querySelector(`[data-testid="message-${saved.id}"]`));
+        assert.equal(pane.querySelectorAll('[data-testid^="message-optimistic-"]').length, 0);
+        mediaGrowth += 150;
+        await act(async () => pane.querySelector("img")?.dispatchEvent(new window.Event("load")));
+        await act(async () => window.dispatchEvent(new window.Event("resize")));
+        await flush();
+        assert.equal(top, height() - viewport, "settled attachment geometry stays visible");
+        assert.equal(editor.value, "");
+      }
+      await browse();
+      await type("Retry this reply");
+      failReply = true;
+      await act(async () => (container.querySelector('[data-testid="button-send-message"]') as HTMLButtonElement).click());
+      await flush();
+      const retry = container.querySelector<HTMLButtonElement>('[data-testid^="button-retry-"]');
+      assert.ok(retry, "failed outgoing reply stays retryable");
+      failReply = false;
+      await browse();
+      await act(async () => retry.click());
+      await flush();
+      assert.equal(top, height() - viewport, "retry follows even without adding a new optimistic row");
+      const savedRetry = {
+        ...serverMessages[0], id: "saved-retry", senderId: activeUser.id, senderName: activeUser.fullName,
+        message: "Retry this reply", createdAt: new Date().toISOString(),
+      };
+      serverMessages = [...serverMessages, savedRetry];
+      await act(async () => { pendingReply!(jsonResponse(savedRetry)); pendingReply = undefined; });
+      await flush();
+      assert.equal(pane.querySelectorAll('[data-testid^="message-optimistic-"]').length, 0);
+      await browse();
+      const incoming = { ...serverMessages[0], id: "old-new-incoming", message: "New reply while reading history" };
+      await act(async () => {
+        ticketQueryClient.setQueryData<Array<Record<string, unknown>>>(["/api/tickets", TICKET.id, "messages"], [...serverMessages, incoming]);
+      });
+      await flush();
+      assert.equal(top, 100, "incoming replies must not steal older-history position");
+      const latest = container.querySelector<HTMLButtonElement>('[data-testid="button-new-messages"]')!;
+      assert.match(latest.getAttribute("aria-label")!, /New messages available/);
+      await act(async () => latest.click());
+      await flush();
+      assert.equal(top, height() - viewport);
+      assert.equal(container.querySelector('[data-testid="button-new-messages"]'), null);
+      assert.equal(window.document.activeElement, editor);
+      viewport = 110; // Android resize + short phone landscape
+      visualViewportStub.height = 390;
+      Object.defineProperty(window, "innerHeight", { value: 390, configurable: true, writable: true });
+      await act(async () => fireOrientationChange());
+      await flush();
+      assert.equal(top, height() - viewport);
+      assert.equal(window.scrollY, 0);
+    } finally {
+      act(() => root.unmount());
+      ticketQueryClient.clear();
+      ticketQueryClient.setDefaultOptions(defaults);
+      container.remove();
+      pendingReply = undefined;
+      failReply = false;
+      activeUser = USER;
+      claimedBy = null;
+      serverMessages = [];
+    }
+  });
+}
+
 after(() => {
   g.fetch = realFetch;
+  globalThis.FormData = originalFormData;
   window.close();
 });

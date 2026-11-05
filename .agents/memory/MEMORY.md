@@ -21,7 +21,7 @@
 - [Audit parser scans raw SQL comments](audit-parser-scans-comments.md) — never put DDL token sequences (CREATE INDEX, etc.) in migration comments; the drift audit regex captures them as phantom objects and swallows real statements.
 - [iOS PWA safe-area height](ios-pwa-safe-area-height.md) — `body` safe-area padding + a `100dvh`/`h-dvh` root double-counts → whole document scrolls on iPhone PWA, sliding the header away; subtract the insets in the height calc.
 - [Prod-only pre-drizzle schema drift](prod-pre-drizzle-schema-drift.md) — prod (built via legacy SQL/db:push) carries legacy names+extras dev lacks; deploy audits fail prod-only — rename-migration for name drift, allowlist for unmanaged extras.
-- [Chat auto-scroll on open](chat-autoscroll-initial-load.md) — scroll the container to scrollHeight + re-pin across frames on first load; scrollIntoView on the zero-height marker lands short before images size.
+- [Conversation scroll intent](chat-autoscroll-initial-load.md) — follow outgoing bubbles after commit and later layout changes; distinguish user history browsing from a growing bottom gap.
 - [WHMCS ready-notify retry marker](whmcs-ready-notify-retry-marker.md) — failed ready in-app create must pin the marker at "pending", not just skip fulfilling; else next pass loses the pending->active transition. Test 2 passes.
 - [WHMCS has no invoice-PDF-bytes API](whmcs-no-pdf-bytes-api.md) — `GetInvoicePDF` isn't a real action; serve the PDF via an SSO redirect to `dl.php?type=i&id=<id>`, not a byte fetch.
 - [kb_articles search_vector drift](kb-articles-search-vector-drift.md) — search_vector column+trigger live outside migrations; a drifted dev DB may have the trigger but not the column, breaking every kb_articles insert (42703).
