@@ -26,3 +26,9 @@ Phones should not switch into a sideways desktop layout. The user prefers preven
 **Why:** The user said sideways phone screens with the menu down the side look very bad and are not designed to fit.
 
 **How to apply:** Respect portrait preference where supported and ensure any unavoidable landscape fallback remains a phone interface. Do not treat a landscape phone as desktop merely because its viewport is wider.
+
+A usable phone landscape ticket screen must preserve conversation space, not just keep navigation on the bottom. Long drafts and support-availability notices must not consume the entire short screen.
+
+**Why:** Browser verification found that bottom navigation alone still left almost no visible conversation when the ordinary after-hours notice and a four-line empty composer were present.
+
+**How to apply:** Keep phone composers compact with bounded growth and scrollable tools; expose availability details without permanently reserving their full height in short landscape views. Preserve the normal desktop/tablet layout.

@@ -614,6 +614,36 @@ body {
 }
 
 /* Brief highlight when jumping to a quoted message */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  [data-ticket-phone="true"][data-testid="ticket-detail-view"] {
+    padding: 0 0.75rem;
+  }
+  [data-ticket-phone="true"] .ticket-conversation-header {
+    min-height: 36px !important;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+  }
+  [data-ticket-phone="true"] [data-testid="banner-after-hours"] {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+  }
+  [data-ticket-phone="true"] .ticket-landscape-hours-summary {
+    display: flex;
+    min-height: 24px;
+  }
+  [data-ticket-phone="true"] #ticket-hours-details[data-landscape-expanded="false"] {
+    display: none;
+  }
+  [data-ticket-phone="true"] #ticket-hours-details[data-landscape-expanded="true"] {
+    margin-top: 6px;
+    max-height: 76px;
+    overflow-y: auto;
+  }
+  [data-ticket-phone="true"] [data-testid="composer-container"] > div:last-child {
+    padding: 8px;
+  }
+}
+
 .chat-jump-highlight {
   animation: chat-jump-flash 1.5s ease-out both;
   border-radius: 0.75rem;

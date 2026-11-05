@@ -472,6 +472,43 @@ test("a file at exactly the cap is allowed and does not warn", async () => {
 });
 
 for (const isAdmin of [false, true]) {
+  test(`phone ${isAdmin ? "admin" : "customer"} composer keeps room for conversation and retains the long draft`, async () => {
+    const h = await mountComposer({ isAdmin });
+    const previousHeight = window.innerHeight;
+    let panelHeight = 500;
+    try {
+      h.container.dataset.ticketPhone = "true";
+      const input = h.textarea();
+      const composer = findByTestId(h.container, "composer-container") as HTMLElement;
+      const tools = findByTestId(h.container, "composer-tools") as HTMLElement;
+      Object.defineProperty(h.container, "clientHeight", { configurable: true, get: () => panelHeight });
+      Object.defineProperty(window, "innerHeight", { value: 844, configurable: true, writable: true });
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      await flushFrames();
+      assert.equal(input.style.minHeight, "40px", "empty phone composer starts as a compact texting field");
+      Object.defineProperty(input, "scrollHeight", { configurable: true, get: () => 1200 });
+      Object.defineProperty(input, "offsetHeight", { configurable: true, get: () => parseFloat(input.style.height) || 40 });
+      Object.defineProperty(composer, "offsetHeight", { configurable: true, get: () => input.offsetHeight + (isAdmin ? 100 : 18) });
+      const draft = "Keep my long phone draft.\n".repeat(80);
+      await typeIntoTextarea(input, draft);
+      assert.ok(parseFloat(input.style.height) <= 160);
+      panelHeight = 180;
+      Object.defineProperty(window, "innerHeight", { value: 390, configurable: true, writable: true });
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      await flushFrames();
+      assert.ok(parseFloat(input.style.height) <= (panelHeight - 24) * 0.45, "landscape editor must not consume the conversation");
+      assert.ok(parseFloat(tools.style.maxHeight) <= (panelHeight - 24) * 0.25);
+      assert.equal(input.value, draft);
+      assert.equal(h.sendCalls.length, 0);
+      assert.ok(findByTestId(h.container, "button-send-message"));
+    } finally {
+      h.cleanup();
+      Object.defineProperty(window, "innerHeight", { value: previousHeight, configurable: true, writable: true });
+    }
+  });
+}
+
+for (const isAdmin of [false, true]) {
   test(`long ${isAdmin ? "admin/internal" : "customer"} draft resizes with available panel space`, async () => {
     const h = await mountComposer({ isAdmin });
     const previousHeight = window.innerHeight;

@@ -5,6 +5,8 @@ import { registerAlertRoutes } from "./alert-routes";
 import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft, sweepAlertDrafts } from "./alert-drafts";
 import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { createTicketMessageDeleteHandler } from "./ticket-message-delete";
+import { createTicketMessagingHandlers } from "./ticket-messaging-routes";
+import { getTicketReactions, setTicketReaction, markVisibleTicketMessagesRead } from "./ticket-messaging-storage";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { createCommunityMessageEditHandler, createCommunityMessageHistoryHandler, type CommunityEditDeps } from "./community-chat-edit";
 import { stripChatFormatting } from "@shared/chat-markdown";
@@ -2577,29 +2579,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     const isCustomer = user.role === "customer";
     const includeInternal = !isCustomer;
     const messages = await storage.getTicketMessages(getParam(req, "id"), includeInternal);
-    if (isCustomer) {
-      const hasUnread = messages.some(m => m.senderId !== user.id && !m.readAt);
-      if (hasUnread) {
-        await storage.markTicketMessagesRead(getParam(req, "id"), user.id);
-        const updatedMessages = await storage.getTicketMessages(getParam(req, "id"), false);
-        const senderIds = [...new Set(updatedMessages.map(m => m.senderId))];
-        const senderMap = new Map<string, { name: string; role: string; avatarUrl: string | null }>();
-        await Promise.all(senderIds.map(async (id) => {
-          const sender = await storage.getUser(id);
-          if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role, avatarUrl: sender.avatarUrl || null });
-        }));
-        const kbBySlug = await enrichKbArticlesForMessages(updatedMessages, storage);
-        const enriched = updatedMessages.map(m => ({
-          ...m,
-          senderName: senderMap.get(m.senderId)?.name || "Unknown",
-          senderRole: senderMap.get(m.senderId)?.role || "customer",
-          senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
-          kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
-        }));
-        broadcast({ type: "ticket_messages_read", ticketId: req.params.id, readBy: user.id });
-        return res.json(enriched);
-      }
-    }
     const senderIds = [...new Set(messages.map(m => m.senderId))];
     const senderMap = new Map<string, { name: string; role: string; avatarUrl: string | null }>();
     await Promise.all(senderIds.map(async (id) => {
@@ -2607,12 +2586,14 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (sender) senderMap.set(id, { name: sender.fullName, role: sender.role, avatarUrl: sender.avatarUrl || null });
     }));
     const kbBySlug = await enrichKbArticlesForMessages(messages, storage);
+    const reactions = await getTicketReactions(messages.filter(m => !m.isInternal).map(m => m.id), user.id);
     const enriched = messages.map(m => ({
       ...m,
       senderName: senderMap.get(m.senderId)?.name || "Unknown",
       senderRole: senderMap.get(m.senderId)?.role || "customer",
       senderAvatarUrl: senderMap.get(m.senderId)?.avatarUrl || null,
       kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
+      ...(!m.isInternal ? { reactions: reactions[m.id] ?? [] } : {}),
     }));
     res.json(enriched);
    } catch (e) {
@@ -2772,7 +2753,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         isInternal,
         kbArticleSlug,
       });
-      const messageWithKb = { ...message, kbArticle: kbArticleInfo };
+      const messageWithKb = {
+        ...message, kbArticle: kbArticleInfo,
+        senderName: user.fullName, senderRole: user.role, senderAvatarUrl: user.avatarUrl ?? null,
+        ...(!isInternal ? { reactions: [] } : {}),
+      };
       const msgCustomer = isAdmin ? await storage.getUser(ticket.customerId) : user;
       if (isInternal) {
         logActivity("ticket", "ticket_internal_note_created", {
@@ -2943,6 +2928,27 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
     return true;
   };
+  const ticketMessaging = createTicketMessagingHandlers({
+    getUser: id => storage.getUser(id),
+    getTicket: id => storage.getTicket(id),
+    getMessage: id => storage.getTicketMessage(id),
+    canAccess: (actor, ticket) => isAdminRole(actor.role)
+      ? canAccessTicketForDeletion(actor, ticket)
+      : Promise.resolve(actor.role === "customer" && actor.id === ticket.customerId),
+    recipients: async ticket => {
+      const admins = (await storage.getAllUsers()).filter(u => isAdminRole(u.role));
+      const allowed = await Promise.all(admins.map(async actor => await canAccessTicketForDeletion(actor, ticket) ? actor.id : null));
+      return [...new Set([ticket.customerId, ...allowed.filter((id): id is string => !!id)])];
+    },
+    setReaction: setTicketReaction,
+    reactions: getTicketReactions,
+    markRead: markVisibleTicketMessagesRead,
+    getUpload: async filename => (await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1))[0],
+    broadcast: broadcastToUserIds,
+  });
+  app.put("/api/tickets/:id/messages/:messageId/reaction", requireAuth, createCommunityChatReactionLimiter(), ticketMessaging.reaction);
+  app.post("/api/tickets/:id/read", requireAuth, ticketMessaging.read);
+  app.get("/api/tickets/:id/messages/:messageId/attachment", requireAuth, ticketMessaging.attachment);
   app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, createTicketMessageDeleteHandler({
     getUser: (id) => storage.getUser(id),
     getTicket: (id) => storage.getTicket(id),

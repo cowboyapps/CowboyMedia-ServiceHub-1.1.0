@@ -178,6 +178,16 @@ export const ticketMessages = pgTable("ticket_messages", {
   ticketCreatedIdx: index("ticket_messages_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
 }));
 
+export const ticketMessageReactions = pgTable("ticket_message_reactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  messageId: varchar("message_id").notNull().references(() => ticketMessages.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  emoji: text("emoji").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  messageUserIdx: uniqueIndex("ticket_message_reactions_message_user_idx").on(table.messageId, table.userId),
+}));
+
 export const privateMessages = pgTable("private_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   recipientId: varchar("recipient_id").notNull(),

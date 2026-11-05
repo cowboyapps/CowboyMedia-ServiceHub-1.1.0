@@ -18,14 +18,17 @@ export function useTicketComposerSize(
       const viewport = window.visualViewport?.height ?? window.innerHeight;
       const panelHeight = panel.clientHeight || viewport;
       const available = Math.max(36, panelHeight - 24);
+      const phoneLayout = !!root.closest('[data-ticket-phone="true"]');
       // Optional chips/tools scroll separately, leaving room for the editor
       // and its Send button even in a short landscape keyboard viewport.
-      tools.style.maxHeight = `${Math.max(0, available * 0.4)}px`;
+      tools.style.maxHeight = `${Math.max(0, available * (phoneLayout ? 0.25 : 0.4))}px`;
       const overhead = Math.max(0, root.offsetHeight - input.offsetHeight);
-      const cap = Math.max(36, Math.min(viewport * 0.5, available - overhead));
-      input.style.minHeight = `${Math.min(80, cap)}px`;
+      const cap = Math.max(36, Math.min(viewport * 0.5, available - overhead, phoneLayout ? Math.min(160, available * 0.45) : Infinity));
+      input.style.minHeight = `${Math.min(phoneLayout ? 40 : 80, cap)}px`;
       input.style.maxHeight = `${cap}px`;
-      input.style.height = "auto";
+      // Zero before measuring so the HTML rows attribute cannot force an empty
+      // phone composer to remain four lines tall.
+      input.style.height = "0px";
       input.style.height = `${Math.min(cap, Math.max(36, input.scrollHeight + 2))}px`;
       if (document.activeElement === input) {
         if (input.selectionEnd === input.value.length) {

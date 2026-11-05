@@ -18,7 +18,7 @@ import { onlineManager } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { BottomNav } from "@/components/bottom-nav";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile, usePhonePortraitPreference } from "@/hooks/use-mobile";
 import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { Link } from "wouter";
 
@@ -229,6 +229,7 @@ function AdminAwayBanner() {
 }
 
 function AuthenticatedLayout() {
+  usePhonePortraitPreference();
   const [location] = useLocation();
   const isMobile = useIsMobile();
   const keyboardOpen = useKeyboardOpen();
@@ -281,7 +282,7 @@ function AuthenticatedLayout() {
             </div>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <Link href="/" className="pointer-events-auto" data-testid="link-header-home">
-                <BrandLogo className="h-9 md:h-8 cursor-pointer" />
+                <BrandLogo className={`${isMobile ? "h-9" : "h-8"} cursor-pointer`} />
               </Link>
             </div>
             <div className="z-10 ml-auto flex items-center gap-1">
@@ -294,8 +295,8 @@ function AuthenticatedLayout() {
                 aria-label="Open search"
               >
                 <Search className="w-4 h-4" />
-                <span className="hidden md:inline text-xs">Search</span>
-                <kbd className="hidden md:inline ml-1 pointer-events-none h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+                <span className={`${isMobile ? "hidden" : "inline"} text-xs`}>Search</span>
+                <kbd className={`${isMobile ? "hidden" : "inline"} ml-1 pointer-events-none h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100`}>
                   ⌘K
                 </kbd>
               </Button>

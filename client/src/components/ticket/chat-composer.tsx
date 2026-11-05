@@ -13,6 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { handleSendButtonOnlyComposerKeyDown } from "@/lib/chat-composer-keyboard";
 import { useToast } from "@/hooks/use-toast";
 import { useTicketComposerSize } from "@/hooks/use-ticket-composer-size";
+import { PendingTicketAttachment } from "./pending-attachment";
 import {
   findUnfilledPlaceholders,
   walkPlaceholderOverlay,
@@ -385,6 +386,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         )}
         {imageFile && (
           <>
+            <PendingTicketAttachment file={imageFile} />
             <div
               className={`flex items-center gap-2 mb-2 p-2 rounded-md ${attachmentOversize ? "border border-destructive/50 bg-destructive/10 text-destructive" : "bg-accent"}`}
               data-testid="chip-attachment"

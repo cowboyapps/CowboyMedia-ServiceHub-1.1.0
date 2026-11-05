@@ -53,8 +53,13 @@ import {
   loadPersistedFailedMessages,
 } from "@/lib/failed-message-store";
 import { BookOpen, ChevronRight } from "lucide-react";
+import { MessageBody } from "@/components/ticket/message-body";
+import { AttachmentViewer, TicketAttachment, type TicketMedia } from "@/components/ticket/attachment-viewer";
+import { MessageActions, type TicketReaction } from "@/components/ticket/message-actions";
+import { PendingTicketAttachment } from "@/components/ticket/pending-attachment";
+import { CheckCheck } from "lucide-react";
 
-type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null };
+type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null; reactions?: TicketReaction[] };
 
 function KbArticleCard({ article, msgId, onBubble }: { article: KbArticleRef; msgId: string; onBubble?: boolean }) {
   return (
@@ -142,14 +147,24 @@ function formatDateSeparator(date: Date): string {
 }
 
 function getFileType(url: string): "image" | "video" | "other" {
-  const ext = url.split(".").pop()?.toLowerCase() || "";
+  let pathname = url;
+  try { pathname = new URL(url, window.location.origin).pathname; } catch {}
+  const ext = pathname.split(".").pop()?.toLowerCase() || "";
   if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)) return "image";
   if (["mp4", "webm", "mov", "avi", "mkv", "m4v"].includes(ext)) return "video";
   return "other";
 }
 
 function getFileName(url: string): string {
-  return url.split("/").pop() || "file";
+  try { return decodeURIComponent(new URL(url, window.location.origin).pathname.split("/").pop() || "file"); }
+  catch { return url.split("/").pop() || "file"; }
+}
+
+function getTicketMedia(ticketId: string, messageId: string, url: string): TicketMedia {
+  const name = getFileName(url);
+  const extension = name.split(".").pop()?.toLowerCase() || "";
+  const kind = getFileType(url) === "image" ? "image" : getFileType(url) === "video" ? "video" : "file";
+  return { ticketId, messageId, name, kind, contentType: kind === "image" ? `image/${extension === "jpg" ? "jpeg" : extension}` : undefined };
 }
 
 function FileAttachment({ url, className }: { url: string; className?: string }) {
@@ -219,6 +234,8 @@ interface TicketRowProps {
   onDeleteMessage: (id: string) => void;
   onRetry: (opt: any) => void;
   onDismiss: (opt: any) => void;
+  ticketId: string;
+  onOpenMedia: (media: TicketMedia) => void;
 }
 
 const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
@@ -229,10 +246,10 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
     rowClass, isAdmin, userAvatarUrl, userFullName,
     editNotePending, deleteNotePending,
     onProfileClick, onStartEdit, onCancelEdit, onEditingTextChange,
-    onSaveEdit, onDeleteNote, onRetry, onDismiss, canDeleteMessage, onDeleteMessage,
+    onSaveEdit, onDeleteNote, onRetry, onDismiss, canDeleteMessage, onDeleteMessage, ticketId, onOpenMedia,
   } = props;
   return (
-    <div className={rowClass || undefined}>
+    <div className={rowClass || undefined} data-read-message-id={!isMe && !isInternal && !isOptimistic && !msg.readAt ? msg.id : undefined}>
       {showDateSep && (
         <div className="flex items-center gap-3 my-3 sm:my-4" data-testid={`date-separator-${msg.id}`}>
           <div className="flex-1 h-px bg-border" />
@@ -404,61 +421,64 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                 )}
               </div>
             )}
-            <div
-              className={`rounded-2xl p-3 sm:p-4 text-[15px] leading-relaxed whitespace-pre-wrap overflow-hidden shadow-sm border${tailClass} ${
-                isFailed
-                  ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50 text-red-900 dark:text-red-200"
-                  : isSending
-                    ? "bg-primary/80 border-transparent text-primary-foreground opacity-70"
-                    : isMe
-                      ? "bg-primary border-transparent text-primary-foreground"
-                      : "bg-card border-card-border text-card-foreground"
-              }`}
-              style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-            >
-              {msg.message}
-              {msg.imageUrl && <FileAttachment url={msg.imageUrl} />}
-              {isOptimistic && optimisticData?.imageFile && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs opacity-70">
-                  <Paperclip className="w-3 h-3" />
-                  <span className="truncate">{optimisticData.imageFile.name}</span>
-                </div>
-              )}
-              {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
-                <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} onBubble />
-              )}
-            </div>
-            <div className={`flex items-center gap-1.5 ${isMe ? "justify-end" : ""}`}>
-              {isSending && (
-                <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
-              )}
-              {isFailed && (
-                <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
-                  <AlertCircle className="w-3 h-3 text-red-500" />
-                  <span className="text-[10px] text-red-500">Failed to send</span>
-                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => onRetry(optimisticData!)} data-testid={`button-retry-${msg.id}`}>
-                    <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => onDismiss(optimisticData!)} data-testid={`button-dismiss-${msg.id}`}>
-                    Dismiss
-                  </Button>
-                </div>
-              )}
-              {!isOptimistic && (
+            <MessageActions
+              ticketId={ticketId}
+              messageId={msg.id}
+              message={msg.message || ""}
+              reactions={msg.reactions}
+              enabled={!isOptimistic}
+              canDelete={canDeleteMessage && !isOptimistic}
+              onDelete={onDeleteMessage}
+              footer={!isOptimistic && (
                 <p className="text-[10px] sm:text-xs text-muted-foreground">
                   {format(new Date(msg.createdAt), "h:mm a")}
-                  {isAdmin && isMe && msg.readAt && <span className="ml-1.5">· Read</span>}
+                  {isMe && <span className={`ml-1.5 inline-flex items-center gap-0.5 ${msg.readAt ? "text-primary" : ""}`} aria-label={msg.readAt ? "Read by recipient" : "Sent to server"}>
+                    {msg.readAt ? <CheckCheck className="h-3 w-3" aria-hidden /> : <Check className="h-3 w-3" aria-hidden />}
+                    {msg.readAt ? "Read" : "Sent"}
+                  </span>}
                 </p>
               )}
-              {canDeleteMessage && !isOptimistic && (
-                <Button type="button" variant="ghost" size="sm"
-                  className="min-h-9 px-2 text-xs text-destructive"
-                  onClick={() => onDeleteMessage(msg.id)}
-                  data-testid={`button-delete-message-${msg.id}`}>
-                  <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete for everyone
-                </Button>
-              )}
-            </div>
+            >
+              <div
+                className={`rounded-2xl p-3 sm:p-4 text-[15px] leading-relaxed whitespace-pre-wrap overflow-hidden shadow-sm border${tailClass} ${
+                  isFailed
+                    ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50 text-red-900 dark:text-red-200"
+                    : isSending
+                      ? "bg-primary/80 border-transparent text-primary-foreground opacity-70"
+                      : isMe
+                        ? "bg-primary border-transparent text-primary-foreground"
+                        : "bg-card border-card-border text-card-foreground"
+                }`}
+                style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+              >
+                {msg.message && <MessageBody message={msg.message} id={msg.id} />}
+                {msg.imageUrl && !isOptimistic && <TicketAttachment media={getTicketMedia(ticketId, msg.id, msg.imageUrl)} onOpen={onOpenMedia} />}
+                {msg.imageUrl && isOptimistic && <FileAttachment url={msg.imageUrl} />}
+                {isOptimistic && optimisticData?.imageFile && (
+                  <PendingTicketAttachment file={optimisticData.imageFile} />
+                )}
+                {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
+                  <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} onBubble />
+                )}
+              </div>
+              <div className={`flex items-center gap-1.5 ${isMe ? "justify-end" : ""}`}>
+                {isSending && (
+                  <span className="text-[10px] text-muted-foreground italic" data-testid={`status-sending-${msg.id}`}>Sending...</span>
+                )}
+                {isFailed && (
+                  <div className="flex items-center gap-1.5" data-testid={`status-failed-${msg.id}`}>
+                    <AlertCircle className="w-3 h-3 text-red-500" />
+                    <span className="text-[10px] text-red-500">Failed to send</span>
+                    <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => onRetry(optimisticData!)} data-testid={`button-retry-${msg.id}`}>
+                      <RotateCcw className="w-3 h-3 mr-0.5" /> Retry
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => onDismiss(optimisticData!)} data-testid={`button-dismiss-${msg.id}`}>
+                      Dismiss
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </MessageActions>
           </div>
         </div>
       )}
@@ -470,6 +490,7 @@ export default function TicketDetail() {
   const params = useParams<{ id: string }>();
   const { user, isAdmin, hasPermission } = useAuth();
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [viewingMedia, setViewingMedia] = useState<TicketMedia | null>(null);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -514,6 +535,9 @@ export default function TicketDetail() {
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
+  const markedVisibleMessageIdsRef = useRef(new Set<string>());
+  const visibleReadQueueRef = useRef(new Set<string>());
+  const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const keyboardInset = useKeyboardInset();
 
@@ -531,6 +555,13 @@ export default function TicketDetail() {
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
   });
+  useEffect(() => {
+    // Poll/reconnect is authoritative too: a missed deletion socket event must
+    // not leave an image blob or a playing video open after its row disappears.
+    if (viewingMedia && messages && !messages.some(message => message.id === viewingMedia.messageId)) {
+      setViewingMedia(null);
+    }
+  }, [messages, viewingMedia]);
 
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -592,10 +623,6 @@ export default function TicketDetail() {
   userNameRef.current = user?.fullName ?? null;
   userRoleRef.current = isAdmin ? "admin" : "user";
 
-  useEffect(() => {
-    markTicketRead();
-  }, [params.id, markTicketRead]);
-
   // Skip the catch-up invalidation on the very first socket open — the
   // initial messages query is already fetching at that point.
   const hasOpenedOnceRef = useRef(false);
@@ -621,6 +648,7 @@ export default function TicketDetail() {
         if (data.type === "ticket_message_deleted" && data.ticketId === params.id && typeof data.messageId === "string") {
           void applyTicketMessageDeletion(data.ticketId, data.messageId);
           setDeletingMessageId((current) => current === data.messageId ? null : current);
+          setViewingMedia((current) => current?.messageId === data.messageId ? null : current);
           if (editingNoteId === data.messageId) setEditingNoteId(null);
         }
         if (data.type === "ticket_message_edited" && data.ticketId === params.id) {
@@ -645,7 +673,9 @@ export default function TicketDetail() {
             queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
           }
           setTypingUser(null);
-          markTicketRead();
+        }
+        if (data.type === "ticket_reactions_updated" && data.ticketId === params.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
         }
         if (data.type === "ticket_messages_read" && data.ticketId === params.id && data.readBy !== userIdRef.current) {
           queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
@@ -676,7 +706,6 @@ export default function TicketDetail() {
       } catch {}
     },
     onVisible: (ws) => {
-      markTicketRead();
       if (userIdRef.current) {
         ws.send(JSON.stringify({ type: "viewing_ticket", ticketId: params.id, userId: userIdRef.current, userRole: userRoleRef.current }));
       }
@@ -694,6 +723,7 @@ export default function TicketDetail() {
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
     };
   }, []);
 
@@ -718,6 +748,11 @@ export default function TicketDetail() {
     setCloseDialogOpen(false);
     composerRef.current?.clear();
     setOptimisticMessages([]);
+    setViewingMedia(null);
+    markedVisibleMessageIdsRef.current.clear();
+    visibleReadQueueRef.current.clear();
+    if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+    readFlushTimerRef.current = null;
     setOnlineViewers(new Map());
     setShowNewMessagesPill(false);
     isNearBottomRef.current = true;
@@ -841,10 +876,23 @@ export default function TicketDetail() {
         if (!res.ok) throw new Error("Failed to send");
         return res.json();
       })
-      .then(() => {
+      .then((responseMessage: EnrichedTicketMessage) => {
+        const saved: EnrichedTicketMessage | undefined = responseMessage?.id ? {
+          ...responseMessage,
+          senderName: responseMessage.senderName || user?.fullName || "You",
+          senderRole: responseMessage.senderRole || (isAdmin ? "admin" : "user"),
+          senderAvatarUrl: responseMessage.senderAvatarUrl ?? user?.avatarUrl ?? null,
+          reactions: responseMessage.reactions ?? [],
+        } : undefined;
+        if (saved?.id && withoutDeletedTicketMessages(params.id!, [saved]).length) {
+          queryClient.setQueryData<EnrichedTicketMessage[] | undefined>(
+            ["/api/tickets", params.id, "messages"],
+            (previous) => mergeIncomingMessageIntoCache(previous, saved),
+          );
+        }
         setOptimisticMessages((prev) => removeOptimisticById(prev, tempId));
         removePersistedFailedMessage(params.id!, tempId).catch(() => {});
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+        if (!saved?.id) queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
       })
       .catch(() => {
         setOptimisticMessages((prev) => markOptimisticFailed(prev, tempId));
@@ -945,6 +993,68 @@ export default function TicketDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const flushVisibleReads = useCallback(async () => {
+    if (document.visibilityState !== "visible" || viewingMedia || !params.id || visibleReadQueueRef.current.size === 0) return;
+    const batch = Array.from(visibleReadQueueRef.current).slice(0, 100);
+    batch.forEach((id) => visibleReadQueueRef.current.delete(id));
+    try {
+      const response = await apiRequest("POST", `/api/tickets/${params.id}/read`, { messageIds: batch });
+      const result = await response.json() as { changed?: boolean };
+      if (result.changed) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id, "messages"] });
+        markTicketRead();
+      }
+      if (visibleReadQueueRef.current.size > 0 && document.visibilityState === "visible") {
+        if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+        readFlushTimerRef.current = setTimeout(() => { void flushVisibleReads(); }, 120);
+      }
+    } catch {
+      batch.forEach((id) => markedVisibleMessageIdsRef.current.delete(id));
+    }
+  }, [params.id, markTicketRead, viewingMedia]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root || viewingMedia || !("IntersectionObserver" in window)) return;
+    const schedule = () => {
+      if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+      readFlushTimerRef.current = setTimeout(() => { void flushVisibleReads(); }, 350);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      if (document.visibilityState !== "visible") return;
+      for (const entry of entries) {
+        // Very long messages can exceed ten viewport heights, so a percentage
+        // threshold alone would prevent them from ever being acknowledged.
+        if (!entry.isIntersecting) continue;
+        const id = (entry.target as HTMLElement).dataset.readMessageId;
+        if (id && !markedVisibleMessageIdsRef.current.has(id)) {
+          markedVisibleMessageIdsRef.current.add(id);
+          visibleReadQueueRef.current.add(id);
+        }
+      }
+      schedule();
+    }, { root, rootMargin: "-16px 0px", threshold: [0, 0.1, 0.55, 0.8] });
+    root.querySelectorAll<HTMLElement>("[data-read-message-id]").forEach((row) => observer.observe(row));
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        root.querySelectorAll<HTMLElement>("[data-read-message-id]").forEach((row) => {
+          const rect = row.getBoundingClientRect();
+          const bounds = root.getBoundingClientRect();
+          if (rect.bottom > bounds.top && rect.top < bounds.bottom) {
+            const id = row.dataset.readMessageId;
+            if (id && !markedVisibleMessageIdsRef.current.has(id)) {
+              markedVisibleMessageIdsRef.current.add(id);
+              visibleReadQueueRef.current.add(id);
+            }
+          }
+        });
+        schedule();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { observer.disconnect(); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [messages, optimisticMessages, flushVisibleReads, viewingMedia]);
+
   const retryMessage = useCallback((msg: OptimisticMessage) => {
     doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null);
   }, [doSendMessage]);
@@ -1017,6 +1127,7 @@ export default function TicketDetail() {
     onSuccess: async (_data, { ticketId, messageId }) => {
       await applyTicketMessageDeletion(ticketId, messageId);
       setDeletingMessageId(null);
+      setViewingMedia((current) => current?.messageId === messageId ? null : current);
       toast({ title: "Message deleted for everyone" });
     },
     onError: (error: Error) => {
@@ -1166,6 +1277,7 @@ export default function TicketDetail() {
     <div
       className="flex flex-col flex-1 min-h-0 overflow-hidden px-3 pt-2 sm:px-6 sm:pt-3"
       data-testid="ticket-detail-view"
+      data-ticket-phone={isMobile}
       style={{
         overscrollBehavior: "none",
         paddingBottom: keyboardInset
@@ -1178,7 +1290,7 @@ export default function TicketDetail() {
       }}
     >
       <div
-        className="flex items-center gap-2 pb-3 flex-shrink-0 min-w-0 border-b border-border mb-3"
+        className="ticket-conversation-header flex items-center gap-2 pb-3 flex-shrink-0 min-w-0 border-b border-border mb-3"
         style={{ minHeight: "48px" }}
       >
         <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLocation("/tickets")} data-testid="button-back-tickets">
@@ -1708,6 +1820,8 @@ export default function TicketDetail() {
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
+            onLoadCapture={() => { if (isNearBottomRef.current) scrollToBottom("auto"); }}
+            onLoadedMetadataCapture={() => { if (isNearBottomRef.current) scrollToBottom("auto"); }}
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
           >
@@ -1853,6 +1967,8 @@ export default function TicketDetail() {
                       onDeleteMessage={setDeletingMessageId}
                       onRetry={retryMessage}
                       onDismiss={dismissFailedMessage}
+                      ticketId={params.id!}
+                      onOpenMedia={setViewingMedia}
                     />
                   );
                 })}
@@ -1982,6 +2098,7 @@ export default function TicketDetail() {
         open={!!profileUserId}
         onOpenChange={(o) => { if (!o) setProfileUserId(null); }}
       />
+      <AttachmentViewer media={viewingMedia} onClose={() => setViewingMedia(null)} />
     </div>
   );
 }
@@ -2017,6 +2134,7 @@ function formatBhNextOpen(iso: string | null, tz: string): string {
 }
 
 function BusinessHoursBanner({ show }: { show: boolean }) {
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [dismissed, setDismissed] = useState<boolean>(() => {
     try {
       return sessionStorage.getItem(BH_DISMISS_KEY) === "1";
@@ -2040,7 +2158,14 @@ function BusinessHoursBanner({ show }: { show: boolean }) {
       className="flex-shrink-0 mb-2 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3"
       data-testid="banner-after-hours"
     >
-      <div className="flex items-start gap-2">
+      <button type="button" className="ticket-landscape-hours-summary hidden w-full items-center gap-2 text-left text-xs text-amber-900 dark:text-amber-100"
+        aria-expanded={detailsExpanded} aria-controls="ticket-hours-details" onClick={() => setDetailsExpanded(value => !value)}>
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span className="flex-1">Outside support hours</span>
+        <span>{detailsExpanded ? "Hide details" : "Details"}</span>
+        <ChevronDown className={`h-3 w-3 ${detailsExpanded ? "rotate-180" : ""}`} />
+      </button>
+      <div id="ticket-hours-details" data-landscape-expanded={detailsExpanded} className="flex items-start gap-2">
         <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
         <div className="flex-1 min-w-0 text-xs text-amber-900 dark:text-amber-100">
           <p data-testid="text-banner-message">{bhStatus.message}</p>
