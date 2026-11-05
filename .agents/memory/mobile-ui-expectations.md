@@ -9,6 +9,12 @@ Support-ticket messaging should feel smoother and visually cleaner, especially p
 
 **How to apply:** Judge changes against conversation readability and usability, preserving existing messaging behaviors and permissions.
 
+The user wants the entire support-ticket experience upgraded in appearance and function to behave like texting, Telegram, or Messenger. This includes full-screen photo/video viewing, customer saving of images/videos/other attachments, customer/admin emoji reactions, copying full messages, and compact long links. They prefer a long-press message menu for reactions, Copy, and authorized admin Delete for everyone, with a three-dot menu as an alternative.
+
+**Why:** The user explicitly expanded the support-ticket scope beyond visual cleanup.
+
+**How to apply:** Treat these as functional customer/admin requirements, not cosmetic placeholders. Keep the separate restriction against restyling the rest of the app.
+
 The user narrowed the UI work to “support ticket work and phone horizontal appearence” and said to “leave the app the way it looks throughout alone otherwise.”
 
 **Why:** The user explicitly excluded broader app restyling.
