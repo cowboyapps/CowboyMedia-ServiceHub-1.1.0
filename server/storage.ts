@@ -193,6 +193,7 @@ export interface IStorage {
   getTicketMessage(id: string): Promise<TicketMessage | undefined>;
   createTicketMessage(message: InsertTicketMessage): Promise<TicketMessage>;
   updateTicketMessage(id: string, data: Partial<Pick<TicketMessage, "message">>): Promise<TicketMessage | undefined>;
+  editTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string, text: string, original?: string): Promise<TicketMessage | undefined>;
   deleteTicketMessage(id: string): Promise<void>;
   deleteTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string): Promise<TicketMessage | undefined>;
   markTicketMessagesRead(ticketId: string, readerId: string): Promise<void>;
@@ -809,6 +810,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTicketMessage(id: string): Promise<void> {
     await db.delete(ticketMessages).where(eq(ticketMessages.id, id));
+  }
+
+  async editTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string, text: string, original?: string): Promise<TicketMessage | undefined> {
+    return db.transaction(async (tx) => {
+      const [updated] = await tx.update(ticketMessages).set({ message: text }).where(and(
+        eq(ticketMessages.id, messageId), eq(ticketMessages.ticketId, ticketId), eq(ticketMessages.senderId, actorId),
+        original === undefined ? undefined : eq(ticketMessages.message, original),
+      )).returning();
+      if (!updated) return undefined;
+      await tx.insert(adminActivityLogs).values({
+        category: "ticket",
+        action: updated.isInternal ? "ticket_internal_note_edited" : "ticket_message_edited",
+        actorId, targetId: ticketId, targetType: "ticket",
+        summary: updated.isInternal ? "Internal note edited" : "Sent ticket reply edited",
+        // Do not retain old/new message bodies after Delete for everyone.
+        details: JSON.stringify({ messageId }),
+      });
+      return updated;
+    });
   }
 
   async deleteTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string): Promise<TicketMessage | undefined> {

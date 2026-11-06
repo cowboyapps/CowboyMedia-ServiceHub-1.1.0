@@ -57,6 +57,7 @@ import { BookOpen, ChevronRight } from "lucide-react";
 import { MessageBody } from "@/components/ticket/message-body";
 import { AttachmentViewer, TicketAttachment, type TicketMedia } from "@/components/ticket/attachment-viewer";
 import { MessageActions, type TicketReaction } from "@/components/ticket/message-actions";
+import { EditTicketMessageDialog } from "@/components/ticket/edit-message-dialog";
 import { PendingTicketAttachment } from "@/components/ticket/pending-attachment";
 import { CheckCheck } from "lucide-react";
 
@@ -232,6 +233,7 @@ interface TicketRowProps {
   onSaveEdit: (id: string, text: string) => void;
   onDeleteNote: (id: string) => void;
   canDeleteMessage: boolean;
+  onEditMessage: (id: string) => void;
   onDeleteMessage: (id: string) => void;
   onRetry: (opt: any) => void;
   onDismiss: (opt: any) => void;
@@ -245,7 +247,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
     isFailed, isSending, createdAtMs, showDateSep, dateSepLabel, isInternal,
     canEditNote, isEditingThis, editingNoteText, isFirstInRun, tailClass,
     rowClass, isAdmin, userAvatarUrl, userFullName,
-    editNotePending, deleteNotePending,
+    editNotePending, deleteNotePending, onEditMessage,
     onProfileClick, onStartEdit, onCancelEdit, onEditingTextChange,
     onSaveEdit, onDeleteNote, onRetry, onDismiss, canDeleteMessage, onDeleteMessage, ticketId, onOpenMedia,
   } = props;
@@ -430,6 +432,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
               enabled={!isOptimistic}
               canDelete={canDeleteMessage && !isOptimistic}
               onDelete={onDeleteMessage}
+              onEdit={canDeleteMessage && isMe && !isOptimistic ? onEditMessage : undefined}
               footer={!isOptimistic && (
                 <p className="text-[10px] sm:text-xs text-muted-foreground">
                   {format(new Date(msg.createdAt), "h:mm a")}
@@ -491,6 +494,7 @@ export default function TicketDetail() {
   const params = useParams<{ id: string }>();
   const { user, isAdmin, hasPermission } = useAuth();
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [viewingMedia, setViewingMedia] = useState<TicketMedia | null>(null);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -753,6 +757,7 @@ export default function TicketDetail() {
     composerRef.current?.clear();
     setOptimisticMessages([]);
     setViewingMedia(null);
+    setEditingMessageId(null);
     markedVisibleMessageIdsRef.current.clear();
     visibleReadQueueRef.current.clear();
     if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
@@ -1095,14 +1100,14 @@ export default function TicketDetail() {
   const [resolutionNote, setResolutionNote] = useState("");
 
   useEffect(() => {
-    if (!customerInfoOpen && !historyOpen && !transferDialogOpen && !closeDialogOpen && !internalNotesOpen && !deletingMessageId) {
+    if (!customerInfoOpen && !historyOpen && !transferDialogOpen && !closeDialogOpen && !internalNotesOpen && !deletingMessageId && !editingMessageId) {
       cleanupBodyStyles();
       const t1 = setTimeout(cleanupBodyStyles, 100);
       const t2 = setTimeout(cleanupBodyStyles, 300);
       const t3 = setTimeout(cleanupBodyStyles, 500);
       return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }
-  }, [customerInfoOpen, historyOpen, transferDialogOpen, closeDialogOpen, internalNotesOpen, deletingMessageId]);
+  }, [customerInfoOpen, historyOpen, transferDialogOpen, closeDialogOpen, internalNotesOpen, deletingMessageId, editingMessageId]);
 
   const closeMutation = useMutation({
     mutationFn: async (note?: string) => {
@@ -1901,6 +1906,7 @@ export default function TicketDetail() {
                       onDeleteNote={handleDeleteNote}
                       canDeleteMessage={isAdmin && hasPermission("support_tickets")}
                       onDeleteMessage={setDeletingMessageId}
+                      onEditMessage={setEditingMessageId}
                       onRetry={retryMessage}
                       onDismiss={dismissFailedMessage}
                       ticketId={params.id!}
@@ -2018,6 +2024,13 @@ export default function TicketDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {(() => {
+        const message = messages?.find(item => item.id === editingMessageId && item.senderId === user?.id && !item.isInternal);
+        return isAdmin && hasPermission("support_tickets") && message && params.id ? (
+          <EditTicketMessageDialog key={message.id} ticketId={params.id} message={message}
+            onClose={() => setEditingMessageId(current => current === message.id ? null : current)} />
+        ) : null;
+      })()}
       <AlertDialog open={!!deletingMessageId} onOpenChange={(open) => { if (!open && !deleteMessageMutation.isPending) setDeletingMessageId(null); }}>
         <AlertDialogContent data-testid="dialog-delete-ticket-message">
           <AlertDialogHeader>

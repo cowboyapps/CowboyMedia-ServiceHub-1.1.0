@@ -3,8 +3,9 @@ import { type Server, ServerResponse } from "http";
 import { storage } from "./storage";
 import { registerAlertRoutes } from "./alert-routes";
 import { registerAlertDraftRoutes, onMonitorDownCreateDraft, onMonitorUpCreateRecoveryDraft, sweepAlertDrafts } from "./alert-drafts";
-import { canMutateInternalNote, canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
+import { canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-notes";
 import { createTicketMessageDeleteHandler } from "./ticket-message-delete";
+import { createTicketMessageEditHandler } from "./ticket-message-edit";
 import { createTicketMessagingHandlers } from "./ticket-messaging-routes";
 import { getTicketReactions, setTicketReaction, markVisibleTicketMessagesRead } from "./ticket-messaging-storage";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
@@ -2890,31 +2891,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.patch("/api/tickets/:id/messages/:messageId", requireAdmin, async (req, res) => {
-    try {
-      const ticket = await storage.getTicket(getParam(req, "id"));
-      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-      const msg = await storage.getTicketMessage(getParam(req, "messageId"));
-      const actor = await storage.getUser(req.session.userId!);
-      const check = canMutateInternalNote(msg, ticket.id, actor);
-      if (!check.ok) return res.status(check.status).json({ message: check.message });
-      const newText = typeof req.body.message === "string" ? req.body.message.trim() : "";
-      if (!newText) return res.status(400).json({ message: "Message cannot be empty" });
-      const updated = await storage.updateTicketMessage(getParam(req, "messageId"), { message: newText });
-      logActivity("ticket", "ticket_internal_note_edited", {
-        actorId: req.session.userId!,
-        targetId: ticket.id,
-        targetType: "ticket",
-        summary: `Internal note edited by ${actor?.fullName || "admin"} on ticket "${ticket.subject}"`,
-        details: JSON.stringify({ messageId: msg!.id, before: msg!.message, after: newText }),
-      });
-      broadcastToAdmins({ type: "ticket_message_edited", ticketId: ticket.id, message: updated, isInternal: true });
-      res.json(updated);
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
-  });
-
   const canAccessTicketForDeletion = async (actor: User, ticket: import("@shared/schema").Ticket) => {
     if (actor.role === "master_admin") return true;
     if (actor.role !== "admin") return false;
@@ -2949,10 +2925,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.put("/api/tickets/:id/messages/:messageId/reaction", requireAuth, createCommunityChatReactionLimiter(), ticketMessaging.reaction);
   app.post("/api/tickets/:id/read", requireAuth, ticketMessaging.read);
   app.get("/api/tickets/:id/messages/:messageId/attachment", requireAuth, ticketMessaging.attachment);
-  app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, createTicketMessageDeleteHandler({
-    getUser: (id) => storage.getUser(id),
-    getTicket: (id) => storage.getTicket(id),
-    getMessage: (id) => storage.getTicketMessage(id),
+  const ticketMessageAdminPolicy: Pick<import("./ticket-message-delete").TicketMessageDeleteDeps, "canManage" | "recipients"> = {
     canManage: async (actor, ticket) => {
       if (!await canAccessTicketForDeletion(actor, ticket)) return false;
       if (actor.role === "master_admin") return true;
@@ -2964,6 +2937,20 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const allowed = await Promise.all(admins.map(async (u) => await canAccessTicketForDeletion(u, ticket) ? u.id : null));
       return [...new Set([...allowed.filter((id): id is string => !!id), ...(!internal ? [ticket.customerId] : [])])];
     },
+  };
+  app.patch("/api/tickets/:id/messages/:messageId", requireAdmin, createTicketMessageEditHandler({
+    ...ticketMessageAdminPolicy,
+    getUser: id => storage.getUser(id),
+    getTicket: id => storage.getTicket(id),
+    getMessage: id => storage.getTicketMessage(id),
+    save: (ticketId, messageId, actorId, text, original) => storage.editTicketMessageWithAudit(ticketId, messageId, actorId, text, original),
+    broadcast: broadcastToUserIds,
+  }));
+  app.delete("/api/tickets/:id/messages/:messageId", requireAdmin, createTicketMessageDeleteHandler({
+    ...ticketMessageAdminPolicy,
+    getUser: id => storage.getUser(id),
+    getTicket: id => storage.getTicket(id),
+    getMessage: id => storage.getTicketMessage(id),
     remove: (ticketId, messageId, actorId) => storage.deleteTicketMessageWithAudit(ticketId, messageId, actorId),
     cleanup: deleteUploadedFileIfUnreferenced,
     broadcast: broadcastToUserIds,

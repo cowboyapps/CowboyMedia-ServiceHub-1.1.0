@@ -114,6 +114,8 @@ let claimedBy: string | null = null;
 let serverMessages: Array<Record<string, unknown>> = [];
 let pendingReply: ((response: Response) => void) | undefined;
 let failReply = false;
+let failEdit = false;
+let editRequests = 0;
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
@@ -121,6 +123,16 @@ function jsonResponse(data: unknown): Response {
 const realFetch = globalThis.fetch;
 g.fetch = async (input: unknown, init?: RequestInit): Promise<Response> => {
   const path = (typeof input === "string" ? input : String((input as { url?: string }).url ?? input)).split("?")[0];
+  if (path.startsWith("/api/tickets/ticket-1/messages/") && init?.method === "PATCH") {
+    editRequests++;
+    if (failEdit) return new Response(JSON.stringify({ message: "Couldn't save. Try again." }), { status: 500 });
+    const payload = JSON.parse(init.body as string);
+    const id = path.split("/").at(-1);
+    const existing = serverMessages.find(message => message.id === id)!;
+    const updated = { ...existing, message: payload.message.trim() };
+    serverMessages = serverMessages.map(message => message.id === id ? updated : message);
+    return jsonResponse(updated);
+  }
   if (path === "/api/auth/me") return jsonResponse(activeUser);
   if (path === "/api/admin/my-permissions") return jsonResponse({ permissions: [] });
   if (path === "/api/tickets/ticket-1") return jsonResponse({ ...TICKET, claimedBy });
@@ -312,6 +324,55 @@ for (const admin of [false, true]) {
         assert.equal(top, height() - viewport, "settled attachment geometry stays visible");
         assert.equal(editor.value, "");
       }
+      const openActions = async (id: string) => {
+        const wrapper = pane.querySelector(`[data-testid="message-actions-${id}"]`)!;
+        await act(async () => wrapper.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+        await flush();
+        return window.document.querySelector<HTMLElement>(`[data-testid="menu-message-actions-${id}"]`)!;
+      };
+      const otherMenu = await openActions("old-0");
+      assert.ok(otherMenu);
+      assert.equal(otherMenu.querySelector('[data-testid^="button-edit-message-"]'), null, "customer/other-admin messages cannot be edited");
+      await act(async () => otherMenu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await flush();
+      const ownMenu = await openActions("saved-0");
+      const editItem = ownMenu.querySelector<HTMLElement>('[data-testid="button-edit-message-saved-0"]');
+      if (admin) {
+        assert.ok(editItem);
+        assert.ok(ownMenu.querySelector('[data-testid="button-copy-message-saved-0"]'));
+        assert.ok(ownMenu.querySelector('[data-testid="button-delete-message-saved-0"]'));
+        await act(async () => editItem.click());
+        await flush();
+        const editInput = () => window.document.querySelector<HTMLTextAreaElement>('[data-testid="input-edit-ticket-message"]')!;
+        assert.equal(editInput().value, "A new outgoing reply");
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(editInput(), "Cancelled edit");
+        await act(async () => editInput().dispatchEvent(new window.Event("input", { bubbles: true })));
+        const beforeCancel = editRequests;
+        await act(async () => (window.document.querySelector('[data-testid="button-cancel-edit-ticket-message"]') as HTMLButtonElement).click());
+        await flush();
+        assert.equal(editRequests, beforeCancel);
+        assert.equal(serverMessages.find(message => message.id === "saved-0")!.message, "A new outgoing reply");
+        await openActions("saved-0");
+        await act(async () => (window.document.querySelector('[data-testid="button-edit-message-saved-0"]') as HTMLElement).click());
+        await flush();
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(editInput(), "Corrected sent reply");
+        await act(async () => editInput().dispatchEvent(new window.Event("input", { bubbles: true })));
+        failEdit = true;
+        await act(async () => (window.document.querySelector('[data-testid="button-save-edit-ticket-message"]') as HTMLButtonElement).click());
+        await flush();
+        assert.equal(editInput().value, "Corrected sent reply", "failed save retains the edit draft");
+        assert.ok(window.document.querySelector('#ticket-edit-error'));
+        failEdit = false;
+        await act(async () => (window.document.querySelector('[data-testid="button-save-edit-ticket-message"]') as HTMLButtonElement).click());
+        await flush();
+        assert.equal(window.document.querySelector('[data-testid="dialog-edit-ticket-message"]'), null);
+        assert.match(pane.querySelector('[data-testid="message-saved-0"]')!.textContent!, /Corrected sent reply/);
+        assert.equal(pane.querySelectorAll('[data-testid="message-saved-0"]').length, 1);
+      } else {
+        assert.equal(editItem, null, "customers cannot edit even their own sent replies");
+        await act(async () => ownMenu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+        await flush();
+      }
       await browse();
       await type("Retry this reply");
       failReply = true;
@@ -360,6 +421,7 @@ for (const admin of [false, true]) {
       container.remove();
       pendingReply = undefined;
       failReply = false;
+      failEdit = false;
       activeUser = USER;
       claimedBy = null;
       serverMessages = [];

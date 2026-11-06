@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal, Copy, Trash2 } from "lucide-react";
+import { MoreHorizontal, Copy, Trash2, Pencil } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
@@ -17,11 +17,12 @@ type Props = {
   enabled: boolean;
   canDelete: boolean;
   onDelete: (id: string) => void;
+  onEdit?: (id: string) => void;
   children?: ReactNode;
   footer?: ReactNode;
 };
 
-export function MessageActions({ ticketId, messageId, message, reactions = [], enabled, canDelete, onDelete, children, footer }: Props) {
+export function MessageActions({ ticketId, messageId, message, reactions = [], enabled, canDelete, onDelete, onEdit, children, footer }: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -29,6 +30,7 @@ export function MessageActions({ ticketId, messageId, message, reactions = [], e
   const start = useRef<{ x: number; y: number } | null>(null);
   const cancelled = useRef(false);
   const deleteAfterClose = useRef(false);
+  const editAfterClose = useRef(false);
   const key = ["/api/tickets", ticketId, "messages"];
 
   const reactionMutation = useMutation({
@@ -129,6 +131,11 @@ export function MessageActions({ ticketId, messageId, message, reactions = [], e
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64" data-testid={`menu-message-actions-${messageId}`}
           onCloseAutoFocus={(event) => {
+             if (editAfterClose.current) {
+               editAfterClose.current = false;
+               event.preventDefault();
+               onEdit?.(messageId);
+             }
             if (deleteAfterClose.current) {
               deleteAfterClose.current = false;
               event.preventDefault();
@@ -147,6 +154,7 @@ export function MessageActions({ ticketId, messageId, message, reactions = [], e
             })}
           </div>
           {!!message && <DropdownMenuItem onSelect={(event) => { event.preventDefault(); void copy(); }} data-testid={`button-copy-message-${messageId}`}><Copy className="mr-2 h-4 w-4" />Copy message</DropdownMenuItem>}
+           {onEdit && <DropdownMenuItem onSelect={() => { editAfterClose.current = true; setOpen(false); }} data-testid={`button-edit-message-${messageId}`}><Pencil className="mr-2 h-4 w-4" />Edit message</DropdownMenuItem>}
           {canDelete && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => { deleteAfterClose.current = true; setOpen(false); }} data-testid={`button-delete-message-${messageId}`}><Trash2 className="mr-2 h-4 w-4" />Delete for everyone</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>}
