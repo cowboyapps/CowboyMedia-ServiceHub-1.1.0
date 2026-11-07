@@ -84,6 +84,40 @@ test("authentication, admin role, ticket access, and message authorship are enfo
   }
 });
 
+test("ticket owners can edit only their own public messages without staff permissions", async () => {
+  const f = fixture();
+  f.actor({ id: "owner", role: "customer" });
+  f.message({ senderId: "owner" });
+  f.deny(); // Customer access comes from ownership, not an admin permission.
+  assert.equal((await f.run()).status, 200);
+  assert.deepEqual(f.saves, ["Updated"]);
+  assert.deepEqual(f.events[0].ids, ["admin", "owner"]);
+});
+
+test("customers cannot edit another sender, another customer's ticket, or internal notes", async () => {
+  for (const attempt of ["other-sender", "other-ticket", "internal", "other-role"]) {
+    const f = fixture();
+    f.actor({ id: "owner", role: "customer" });
+    f.message({ senderId: "owner" });
+    if (attempt === "other-sender") f.message({ senderId: "admin" });
+    if (attempt === "other-ticket") { f.actor({ id: "outsider" }); f.message({ senderId: "outsider" }); }
+    if (attempt === "internal") f.message({ isInternal: true, createdAt: new Date() });
+    if (attempt === "other-role") f.actor({ role: "staff" });
+    assert.equal((await f.run()).status, 403, attempt);
+    assert.equal(f.saves.length, 0);
+    assert.equal(f.events.length, 0);
+  }
+});
+
+test("unchanged text does not mark a message edited or create a new audit/socket event", async () => {
+  const f = fixture();
+  const response = await f.run({ message: "Original", originalMessage: "Original" });
+  assert.equal(response.status, 200);
+  assert.equal(response.result.editedAt, undefined);
+  assert.equal(f.saves.length, 0);
+  assert.equal(f.events.length, 0);
+});
+
 test("empty text-only replies and malformed edits are rejected, while attachment captions may be removed", async () => {
   for (const body of [{}, { message: 123 }, { message: "new", originalMessage: 3 }, { message: " " }]) {
     const f = fixture();

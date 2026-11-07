@@ -25,6 +25,7 @@ test("editing preserves attachments/read receipts and transcript identity; concu
     ]);
     assert.equal(results.filter(Boolean).length, 1);
     const saved = results.find(Boolean)!;
+    assert.ok(saved.editedAt instanceof Date);
     assert.equal(saved.id, original.id);
     assert.equal(saved.imageUrl, original.imageUrl);
     assert.equal(saved.kbArticleSlug, original.kbArticleSlug);
@@ -33,6 +34,7 @@ test("editing preserves attachments/read receipts and transcript identity; concu
     const transcriptMessages = await storage.getTicketMessages(ticket.id, false);
     assert.equal(transcriptMessages.length, 1);
     assert.equal(transcriptMessages[0].message, saved.message);
+    assert.equal(transcriptMessages[0].editedAt?.getTime(), saved.editedAt?.getTime());
     assert.equal(await storage.editTicketMessageWithAudit(ticket.id, original.id, "different-admin", "Unauthorized"), undefined);
     assert.equal(await storage.editTicketMessageWithAudit("different-ticket", original.id, original.senderId, "Unauthorized"), undefined);
     const logs = await db.select().from(adminActivityLogs).where(eq(adminActivityLogs.targetId, ticket.id));
@@ -40,6 +42,13 @@ test("editing preserves attachments/read receipts and transcript identity; concu
     assert.equal(logs[0].action, "ticket_message_edited");
     assert.equal(JSON.parse(logs[0].details!).messageId, original.id);
     assert.ok(!JSON.stringify(logs).includes("private reply"), "edit audit must not preserve deleted message contents");
+    const customerMessage = await storage.createTicketMessage({
+      ticketId: ticket.id, senderId: ticket.customerId, message: "Customer original", isInternal: false,
+    });
+    assert.equal(customerMessage.editedAt, null, "new messages do not appear edited");
+    const customerEdit = await storage.editTicketMessageWithAudit(ticket.id, customerMessage.id, ticket.customerId, "Customer correction", customerMessage.message);
+    assert.ok(customerEdit?.editedAt instanceof Date);
+    assert.equal((await storage.getTicketMessage(customerMessage.id))?.editedAt?.getTime(), customerEdit.editedAt.getTime());
   } finally {
     await db.delete(ticketMessages).where(eq(ticketMessages.ticketId, ticket.id));
     await db.delete(adminActivityLogs).where(eq(adminActivityLogs.targetId, ticket.id));

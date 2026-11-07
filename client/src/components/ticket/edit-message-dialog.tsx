@@ -42,7 +42,7 @@ export function EditTicketMessageDialog({ ticketId, message, onClose }: {
         }}>
         <DialogHeader>
           <DialogTitle>Edit message</DialogTitle>
-          <DialogDescription>Your changes will be visible to the customer. Attachments stay unchanged.</DialogDescription>
+          <DialogDescription>Your changes will be visible to everyone in this ticket. Attachments stay unchanged.</DialogDescription>
         </DialogHeader>
         <form onSubmit={event => { event.preventDefault(); if (canSave && !save.isPending) { setError(""); save.mutate(); } }} className="space-y-4">
           <Textarea aria-label="Edit sent message" value={text} onChange={event => setText(event.target.value)}

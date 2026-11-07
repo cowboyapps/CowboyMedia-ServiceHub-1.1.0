@@ -1,13 +1,13 @@
 ---
 name: Ticket message edit scope
-description: Why public reply editing is author-only rather than a moderation power.
+description: Customers and admins edit only their own public replies.
 ---
 
-Admins may edit their own public support-ticket replies, including older replies.
-This does not grant the ability to rewrite customer messages or another staff
-member's statements. Keep internal-note editing rules separate.
+Customers and admins may edit their own public support-ticket replies, including older replies.
+This never grants the ability to rewrite another person's message. Keep
+internal-note editing rules separate.
 
-**Why:** The requested feature was editing an admin's sent message, like texting.
+**Why:** The user requested sent-message editing for both admins and customers, with a small edited label near the receipt.
 Author-only editing preserves the integrity of customer and staff statements;
 broader moderation would be a different product decision.
 

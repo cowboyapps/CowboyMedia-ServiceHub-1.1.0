@@ -814,7 +814,7 @@ export class DatabaseStorage implements IStorage {
 
   async editTicketMessageWithAudit(ticketId: string, messageId: string, actorId: string, text: string, original?: string): Promise<TicketMessage | undefined> {
     return db.transaction(async (tx) => {
-      const [updated] = await tx.update(ticketMessages).set({ message: text }).where(and(
+      const [updated] = await tx.update(ticketMessages).set({ message: text, editedAt: new Date() }).where(and(
         eq(ticketMessages.id, messageId), eq(ticketMessages.ticketId, ticketId), eq(ticketMessages.senderId, actorId),
         original === undefined ? undefined : eq(ticketMessages.message, original),
       )).returning();

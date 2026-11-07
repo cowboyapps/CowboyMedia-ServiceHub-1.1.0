@@ -14,7 +14,7 @@ export function createTicketMessageEditHandler(deps: Deps) {
     try {
       if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
       const actor = await deps.getUser(req.session.userId);
-      if (!actor || !isAdminRole(actor.role)) return res.status(403).json({ message: "Admin access required" });
+      if (!actor || (!isAdminRole(actor.role) && actor.role !== "customer")) return res.status(403).json({ message: "Access denied" });
       const ticket = await deps.getTicket(getParam(req, "id"));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const msg = await deps.getMessage(getParam(req, "messageId"));
@@ -24,7 +24,10 @@ export function createTicketMessageEditHandler(deps: Deps) {
         if (!check.ok) return res.status(check.status).json({ message: check.message });
       } else {
         if (msg.senderId !== actor.id) return res.status(403).json({ message: "You can only edit your own sent replies" });
-        if (!await deps.canManage(actor, ticket)) return res.status(403).json({ message: "You don't have permission to edit messages on this ticket" });
+        const allowed = actor.role === "customer"
+          ? ticket.customerId === actor.id
+          : await deps.canManage(actor, ticket);
+        if (!allowed) return res.status(403).json({ message: "You don't have permission to edit messages on this ticket" });
       }
       if (typeof req.body?.message !== "string") return res.status(400).json({ message: "Message must be text" });
       const original = req.body.originalMessage;
@@ -36,6 +39,7 @@ export function createTicketMessageEditHandler(deps: Deps) {
       if (!text && (msg.isInternal || (!msg.imageUrl && !msg.kbArticleSlug))) {
         return res.status(400).json({ message: "Message cannot be empty" });
       }
+      if (text === msg.message) return res.json(msg);
       const ids = await deps.recipients(ticket, msg.isInternal);
       const updated = await deps.save(ticket.id, msg.id, actor.id, text, original);
       if (!updated) {

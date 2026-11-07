@@ -2938,7 +2938,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       return [...new Set([...allowed.filter((id): id is string => !!id), ...(!internal ? [ticket.customerId] : [])])];
     },
   };
-  app.patch("/api/tickets/:id/messages/:messageId", requireAdmin, createTicketMessageEditHandler({
+  app.patch("/api/tickets/:id/messages/:messageId", requireAuth, createTicketMessageEditHandler({
     ...ticketMessageAdminPolicy,
     getUser: id => storage.getUser(id),
     getTicket: id => storage.getTicket(id),

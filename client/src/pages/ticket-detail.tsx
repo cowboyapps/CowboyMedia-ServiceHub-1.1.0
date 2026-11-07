@@ -233,6 +233,7 @@ interface TicketRowProps {
   onSaveEdit: (id: string, text: string) => void;
   onDeleteNote: (id: string) => void;
   canDeleteMessage: boolean;
+  canEditMessage: boolean;
   onEditMessage: (id: string) => void;
   onDeleteMessage: (id: string) => void;
   onRetry: (opt: any) => void;
@@ -249,7 +250,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
     rowClass, isAdmin, userAvatarUrl, userFullName,
     editNotePending, deleteNotePending, onEditMessage,
     onProfileClick, onStartEdit, onCancelEdit, onEditingTextChange,
-    onSaveEdit, onDeleteNote, onRetry, onDismiss, canDeleteMessage, onDeleteMessage, ticketId, onOpenMedia,
+    onSaveEdit, onDeleteNote, onRetry, onDismiss, canDeleteMessage, canEditMessage, onDeleteMessage, ticketId, onOpenMedia,
   } = props;
   return (
     <div className={rowClass || undefined} data-read-message-id={!isMe && !isInternal && !isOptimistic && !msg.readAt ? msg.id : undefined}>
@@ -432,10 +433,11 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
               enabled={!isOptimistic}
               canDelete={canDeleteMessage && !isOptimistic}
               onDelete={onDeleteMessage}
-              onEdit={canDeleteMessage && isMe && !isOptimistic ? onEditMessage : undefined}
+              onEdit={canEditMessage && isMe && !isOptimistic ? onEditMessage : undefined}
               footer={!isOptimistic && (
                 <p className="text-[10px] sm:text-xs text-muted-foreground">
                   {format(new Date(msg.createdAt), "h:mm a")}
+                  {msg.editedAt && <span className="ml-1.5" data-testid={`message-edited-${msg.id}`} aria-label="Message edited">edited</span>}
                   {isMe && <span className={`ml-1.5 inline-flex items-center gap-0.5 ${msg.readAt ? "text-primary" : ""}`} aria-label={msg.readAt ? "Read by recipient" : "Sent to server"}>
                     {msg.readAt ? <CheckCheck className="h-3 w-3" aria-hidden /> : <Check className="h-3 w-3" aria-hidden />}
                     {msg.readAt ? "Read" : "Sent"}
@@ -1905,6 +1907,7 @@ export default function TicketDetail() {
                       onSaveEdit={handleSaveEdit}
                       onDeleteNote={handleDeleteNote}
                       canDeleteMessage={isAdmin && hasPermission("support_tickets")}
+                      canEditMessage={(isAdmin && hasPermission("support_tickets")) || (user?.role === "customer" && ticket.customerId === user.id)}
                       onDeleteMessage={setDeletingMessageId}
                       onEditMessage={setEditingMessageId}
                       onRetry={retryMessage}
@@ -2026,7 +2029,7 @@ export default function TicketDetail() {
       </AlertDialog>
       {(() => {
         const message = messages?.find(item => item.id === editingMessageId && item.senderId === user?.id && !item.isInternal);
-        return isAdmin && hasPermission("support_tickets") && message && params.id ? (
+        return ((isAdmin && hasPermission("support_tickets")) || (user?.role === "customer" && ticket?.customerId === user.id)) && message && params.id ? (
           <EditTicketMessageDialog key={message.id} ticketId={params.id} message={message}
             onClose={() => setEditingMessageId(current => current === message.id ? null : current)} />
         ) : null;

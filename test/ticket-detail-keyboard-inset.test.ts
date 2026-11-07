@@ -129,7 +129,7 @@ g.fetch = async (input: unknown, init?: RequestInit): Promise<Response> => {
     const payload = JSON.parse(init.body as string);
     const id = path.split("/").at(-1);
     const existing = serverMessages.find(message => message.id === id)!;
-    const updated = { ...existing, message: payload.message.trim() };
+    const updated = { ...existing, message: payload.message.trim(), editedAt: new Date().toISOString() };
     serverMessages = serverMessages.map(message => message.id === id ? updated : message);
     return jsonResponse(updated);
   }
@@ -337,10 +337,10 @@ for (const admin of [false, true]) {
       await flush();
       const ownMenu = await openActions("saved-0");
       const editItem = ownMenu.querySelector<HTMLElement>('[data-testid="button-edit-message-saved-0"]');
-      if (admin) {
         assert.ok(editItem);
         assert.ok(ownMenu.querySelector('[data-testid="button-copy-message-saved-0"]'));
-        assert.ok(ownMenu.querySelector('[data-testid="button-delete-message-saved-0"]'));
+        assert.equal(!!ownMenu.querySelector('[data-testid="button-delete-message-saved-0"]'), admin, "only admins can delete for everyone");
+        assert.equal(pane.querySelector('[data-testid="message-edited-saved-0"]'), null);
         await act(async () => editItem.click());
         await flush();
         const editInput = () => window.document.querySelector<HTMLTextAreaElement>('[data-testid="input-edit-ticket-message"]')!;
@@ -368,11 +368,7 @@ for (const admin of [false, true]) {
         assert.equal(window.document.querySelector('[data-testid="dialog-edit-ticket-message"]'), null);
         assert.match(pane.querySelector('[data-testid="message-saved-0"]')!.textContent!, /Corrected sent reply/);
         assert.equal(pane.querySelectorAll('[data-testid="message-saved-0"]').length, 1);
-      } else {
-        assert.equal(editItem, null, "customers cannot edit even their own sent replies");
-        await act(async () => ownMenu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-        await flush();
-      }
+        assert.equal(pane.querySelector('[data-testid="message-edited-saved-0"]')?.textContent, "edited");
       await browse();
       await type("Retry this reply");
       failReply = true;
@@ -394,11 +390,12 @@ for (const admin of [false, true]) {
       await flush();
       assert.equal(pane.querySelectorAll('[data-testid^="message-optimistic-"]').length, 0);
       await browse();
-      const incoming = { ...serverMessages[0], id: "old-new-incoming", message: "New reply while reading history" };
+      const incoming = { ...serverMessages[0], id: "old-new-incoming", message: "New reply while reading history", editedAt: new Date().toISOString() };
       await act(async () => {
         ticketQueryClient.setQueryData<Array<Record<string, unknown>>>(["/api/tickets", TICKET.id, "messages"], [...serverMessages, incoming]);
       });
       await flush();
+      assert.equal(pane.querySelector('[data-testid="message-edited-old-new-incoming"]')?.textContent, "edited", "edited marker is visible on received messages too");
       assert.equal(top, 100, "incoming replies must not steal older-history position");
       const latest = container.querySelector<HTMLButtonElement>('[data-testid="button-new-messages"]')!;
       assert.match(latest.getAttribute("aria-label")!, /New messages available/);

@@ -169,6 +169,7 @@ export const ticketMessages = pgTable("ticket_messages", {
   imageUrl: text("image_url"),
   readAt: timestamp("read_at"),
   isInternal: boolean("is_internal").notNull().default(false),
+  editedAt: timestamp("edited_at"),
   // Optional KB article link attached to this message — stores the slug only.
   // The server resolves to a {slug,title,categoryName,summary} envelope at
   // read time so renamed/unpublished articles don't break old messages.
@@ -420,7 +421,7 @@ export const insertPromotionSchema = createInsertSchema(promotions)
     endsAt: z.coerce.date().nullable().optional(),
   });
 export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, closedAt: true });
-export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({ id: true, createdAt: true });
+export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({ id: true, createdAt: true, editedAt: true });
 export const insertPrivateMessageSchema = createInsertSchema(privateMessages).omit({ id: true, createdAt: true, readAt: true });
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({ id: true, createdAt: true, readAt: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });

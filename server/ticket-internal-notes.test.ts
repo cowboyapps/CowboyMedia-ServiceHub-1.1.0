@@ -27,6 +27,7 @@ test("admin_internal_note appears in NOTIFICATION_CATEGORIES list", () => {
 
 function msg(partial: Partial<TicketMessage>): TicketMessage {
   return {
+    editedAt: null,
     id: partial.id || "m",
     ticketId: partial.ticketId || "t",
     senderId: partial.senderId || "u",

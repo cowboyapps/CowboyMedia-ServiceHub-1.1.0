@@ -302,6 +302,13 @@
       "when": 1793865600000,
       "tag": "0042_ticket_message_reactions",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794009701756,
+      "tag": "0043_ticket_message_edited_at",
+      "breakpoints": true
     }
   ]
 }
