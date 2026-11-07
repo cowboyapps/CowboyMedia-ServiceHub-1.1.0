@@ -48,4 +48,5 @@
 - [TipTap typing in jsdom tests](tiptap-jsdom-typing.md) — fill a ProseMirror field by setting innerHTML + dispatching InputEvent("input"); such mutation-firing tests need setupComponentTestTeardown (mutation gcTime:0).
 - [Ticket deletion requirement](ticket-delete-for-everyone.md) — admin deletion must remove sent messages for everyone and from future transcripts, not merely hide the admin copy.
 - [Ticket message edit scope](ticket-message-edit-policy.md) — public reply editing is author-only; preserve customer and other staff statements unless broader moderation is explicitly requested.
+- [Ticket link prefixes](ticket-message-link-labels.md) — customers need visible http:// or https:// prefixes on support-ticket links; do not strip them for compact presentation.
 - [Mobile UI expectations](mobile-ui-expectations.md) — cleaner texting-like tickets; portrait-first phones, with bottom navigation and phone layout if landscape is allowed.

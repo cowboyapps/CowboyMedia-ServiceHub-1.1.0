@@ -29,7 +29,7 @@ export function splitMessageLinks(value: string): MessagePart[] {
       const url = new URL(urlText);
       if (url.protocol === "http:" || url.protocol === "https:") {
         const path = `${url.pathname}${url.search}${url.hash}`;
-        parts.push({ type: "link", value: urlText, href: url.href, label: `${url.hostname}${path === "/" ? "" : path}` });
+        parts.push({ type: "link", value: urlText, href: url.href, label: `${url.protocol}//${url.host}${path === "/" ? "" : path}` });
       } else {
         parts.push({ type: "text", value: urlText });
       }
