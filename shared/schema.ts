@@ -323,6 +323,7 @@ export const notificationTemplates = pgTable("notification_templates", {
 });
 
 export const uploadedFiles = pgTable("uploaded_files", {
+  privateMessage: boolean("private_message").default(false).notNull(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   filename: text("filename").notNull().unique(),
   mimetype: text("mimetype").notNull(),
@@ -696,16 +697,31 @@ export const threadMessages = pgTable("thread_messages", {
   kbArticleSlug: text("kb_article_slug"),
   deliveredAt: timestamp("delivered_at"),
   readAt: timestamp("read_at"),
+  editedAt: timestamp("edited_at"),
+  clientMessageId: varchar("client_message_id"),
+  requestFingerprint: text("request_fingerprint"),
+  attachmentName: text("attachment_name"),
+  attachmentType: text("attachment_type"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   threadCreatedIdx: index("thread_messages_thread_id_created_at_idx").on(table.threadId, table.createdAt),
+  clientMessageIdx: uniqueIndex("thread_messages_client_message_idx").on(table.threadId, table.senderId, table.clientMessageId),
+}));
+
+export const threadMessageReactions = pgTable("thread_message_reactions", {
+  messageId: varchar("message_id").notNull().references(() => threadMessages.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull(),
+  emoji: text("emoji").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  messageUserIdx: uniqueIndex("thread_message_reactions_message_user_idx").on(table.messageId, table.userId),
 }));
 
 export const insertMessageThreadSchema = createInsertSchema(messageThreads).omit({ id: true, lastMessageAt: true, createdAt: true });
 export type InsertMessageThread = z.infer<typeof insertMessageThreadSchema>;
 export type MessageThread = typeof messageThreads.$inferSelect;
 
-export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, deliveredAt: true, readAt: true, createdAt: true });
+export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, deliveredAt: true, readAt: true, editedAt: true, requestFingerprint: true, createdAt: true });
 export type InsertThreadMessage = z.infer<typeof insertThreadMessageSchema>;
 export type ThreadMessage = typeof threadMessages.$inferSelect;
 

@@ -65,6 +65,14 @@ test("attachment navigation cannot enter the shell cache or survive deletion/off
   handlers.get("activate")!({ waitUntil: (value: Promise<void>) => { activation = value; } });
   await activation;
   assert.equal(entries.size, 0, "activation removes legacy attachment stored under /");
+  entries.set("https://app.test/api/message-threads", new Response("old private preview"));
+  entries.set("https://app.test/api/message-threads/thread/messages", new Response("old private messages"));
+  handlers.get("activate")!({ waitUntil: (value: Promise<void>) => { activation = value; } });
+  await activation;
+  assert.equal(entries.size, 0, "activation purges private conversation history and previews");
+  const privateHelpers = context as typeof context & { isUncacheableApi(url: URL): boolean; handleApi(request: Request): Promise<Response> };
+  assert.equal(privateHelpers.isUncacheableApi(new URL("https://app.test/api/message-threads/thread/messages")), true);
+  assert.equal((await privateHelpers.handleApi(new Request("https://app.test/api/message-threads/thread/messages"))).status, 503, "offline private messages fail closed");
   offline = false;
   deleted = false;
   const helpers = context as typeof context & { handleNavigation(request: Request): Promise<Response> };

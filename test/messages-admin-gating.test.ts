@@ -1,6 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { setupComponentTestTeardown } from "./helpers/component-test-teardown";
 
 // --- jsdom globals + polyfills (mirrors test/chat-composer.test.ts) -------
 // This is a real render test: it mounts the unified Messages page as a
@@ -30,7 +31,7 @@ const BROWSER_GLOBALS = [
   "HTMLSelectElement", "HTMLAnchorElement", "HTMLDivElement",
   "Element", "Node", "Document", "DocumentFragment", "ShadowRoot",
   "Event", "CustomEvent", "MouseEvent", "PointerEvent", "FocusEvent",
-  "KeyboardEvent", "InputEvent", "NodeFilter", "DOMException",
+  "KeyboardEvent", "InputEvent", "NodeFilter", "DOMException", "MutationObserver",
 ] as const;
 for (const key of BROWSER_GLOBALS) {
   if (w[key] !== undefined) {
@@ -55,6 +56,32 @@ class ResizeObserverStub implements ResizeObserver {
 }
 g.ResizeObserver = ResizeObserverStub;
 w.ResizeObserver = ResizeObserverStub;
+
+// Visibility reads must only happen after the browser reports an intersecting
+// message. Keep observed nodes without eagerly marking anything visible.
+class IntersectionObserverStub {
+  constructor(private callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) { ioInstances.push(this); }
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] { return []; }
+  root: Element | Document | null = null;
+  rootMargin = "0px";
+  thresholds: ReadonlyArray<number> = [];
+  report(target: Element, visible: boolean): void {
+    this.callback([{
+      target,
+      isIntersecting: visible,
+      intersectionRatio: visible ? 1 : 0,
+      intersectionRect: { width: visible ? 1 : 0, height: visible ? 1 : 0 } as DOMRectReadOnly,
+      boundingClientRect: target.getBoundingClientRect(),
+      rootBounds: null,
+      time: Date.now(),
+    }], this as unknown as IntersectionObserver);
+  }
+}
+g.IntersectionObserver = IntersectionObserverStub;
+w.IntersectionObserver = IntersectionObserverStub;
 
 class DOMRectStub implements DOMRect {
   x = 0; y = 0; width = 0; height = 0;
@@ -175,6 +202,10 @@ const USERS = [
 // Set per-test before mounting so /api/auth/me returns the right identity.
 let currentUser: typeof CUSTOMER_USER | typeof ADMIN_USER | null = null;
 const sentThreadMessages: FormData[] = [];
+let threadMessages: Array<Record<string, unknown>> = [];
+let failNextThreadPost = false;
+const readBatches: string[][] = [];
+const ioInstances: IntersectionObserverStub[] = [];
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -199,23 +230,32 @@ g.fetch = async (input: unknown, init?: RequestInit): Promise<Response> => {
   if (/^\/api\/message-threads\/[^/]+\/messages$/.test(pathname)) {
     if (init?.method === "POST" && init.body instanceof FormData) {
       sentThreadMessages.push(init.body);
-      return jsonResponse({ id: "message-new" });
+      if (failNextThreadPost) {
+        failNextThreadPost = false;
+        return new Response("Payload Too Large", { status: 413 });
+      }
+      const form = init.body;
+      return jsonResponse({ message: {
+        id: `message-${sentThreadMessages.length}`, threadId: THREAD_ID,
+        senderId: currentUser?.id, body: String(form.get("body") || ""),
+        createdAt: ISO, editedAt: null, clientMessageId: String(form.get("clientMessageId") || ""),
+        attachment: null, reactions: [],
+      } });
     }
-    return jsonResponse([]);
+    return jsonResponse(threadMessages);
   }
-  if (/^\/api\/message-threads\/[^/]+\/read$/.test(pathname)) return jsonResponse({});
+  if (/^\/api\/message-threads\/[^/]+\/read$/.test(pathname)) {
+    if (init?.body) {
+      try { readBatches.push(JSON.parse(String(init.body)).messageIds || []); } catch {}
+    }
+    return jsonResponse({});
+  }
   if (/^\/api\/message-threads\/[^/]+$/.test(pathname)) return jsonResponse(THREAD);
 
   // Unknown endpoints: succeed quietly so background mutations don't error.
   return jsonResponse({});
 };
-
-after(() => {
-  g.fetch = realFetch;
-  try {
-    window.close();
-  } catch {}
-});
+after(() => { g.fetch = realFetch; });
 
 // Dynamic imports so the jsdom globals above are installed before React and
 // the component tree evaluate.
@@ -229,8 +269,15 @@ w.React = React;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
 type Root = import("react-dom/client").Root;
-const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+const { QueryClientProvider } = await import("@tanstack/react-query");
 const { getQueryFn } = await import("../client/src/lib/queryClient");
+const { queryClient } = await import("../client/src/lib/queryClient");
+queryClient.setDefaultOptions({
+  ...queryClient.getDefaultOptions(),
+  queries: { ...queryClient.getDefaultOptions().queries, queryFn: getQueryFn({ on401: "returnNull" }), retry: false, refetchInterval: false, refetchOnWindowFocus: false, staleTime: Infinity, gcTime: 0 },
+  mutations: { ...queryClient.getDefaultOptions().mutations, retry: false, gcTime: 0 },
+});
+setupComponentTestTeardown({ queryClient, window });
 const { AuthProvider } = await import("../client/src/lib/auth");
 const { Router, Route } = await import("wouter");
 const { memoryLocation } = await import("wouter/memory-location");
@@ -262,13 +309,6 @@ async function mountMessages(path: string, user: typeof CUSTOMER_USER | typeof A
   currentUser = user;
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
-
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { queryFn: getQueryFn({ on401: "returnNull" }), retry: false, refetchInterval: false, refetchOnWindowFocus: false, staleTime: Infinity, gcTime: 0 },
-      mutations: { retry: false, gcTime: 0 },
-    },
-  });
 
   const { hook } = memoryLocation({ path });
 
@@ -438,6 +478,7 @@ test("Enter adds line breaks and only the Send button submits a private message"
     // jsdom does not perform the browser's native newline insertion after a
     // synthetic keydown, so apply the resulting multiline value explicitly.
     await typeIntoTextarea(textarea, "first line\nsecond line");
+    textarea.focus();
     await act(async () => {
       sendButton.click();
     });
@@ -445,7 +486,97 @@ test("Enter adds line breaks and only the Send button submits a private message"
 
     assert.equal(sentThreadMessages.length, 1, "Send button submits exactly once");
     assert.equal(sentThreadMessages[0].get("body"), "first line\nsecond line");
+    assert.equal(window.document.activeElement, textarea, "successful send keeps keyboard focus without scrolling");
   } finally {
+    h.cleanup();
+  }
+});
+
+test("send failure keeps the draft and retry reuses its clientMessageId", async () => {
+  sentThreadMessages.length = 0;
+  failNextThreadPost = true;
+  const h = await mountMessages(`/messages/${THREAD_ID}`, CUSTOMER_USER);
+  try {
+    const textarea = h.container.querySelector<HTMLTextAreaElement>('[data-testid="input-thread-message"]');
+    const send = h.container.querySelector<HTMLButtonElement>('[data-testid="button-send-thread-message"]');
+    assert.ok(textarea && send);
+    await typeIntoTextarea(textarea, "Please check the invoice");
+    await act(async () => send.click());
+    await flush();
+    assert.equal(textarea.value, "Please check the invoice", "failed send preserves the draft");
+    assert.equal(sentThreadMessages.length, 1);
+    const firstId = sentThreadMessages[0].get("clientMessageId");
+    assert.ok(firstId, "request carries an idempotency identity");
+
+    await act(async () => send.click());
+    await flush();
+    assert.equal(sentThreadMessages.length, 2, "retry sends the preserved draft");
+    assert.equal(sentThreadMessages[1].get("body"), "Please check the invoice");
+    assert.equal(sentThreadMessages[1].get("clientMessageId"), firstId, "retry reuses the same clientMessageId");
+    assert.equal(textarea.value, "", "draft clears only after successful response");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("private message menu permits editing only the sender's own message", async () => {
+  threadMessages = [
+    { id: "own", threadId: THREAD_ID, senderId: "cust-1", senderName: "Casey Customer", body: "My text", createdAt: ISO, editedAt: null, clientMessageId: null, attachment: null, reactions: [] },
+    { id: "incoming", threadId: THREAD_ID, senderId: "admin-1", senderName: "Avery Admin", body: "Support reply", createdAt: ISO, editedAt: null, clientMessageId: null, attachment: null, reactions: [] },
+  ];
+  const h = await mountMessages(`/messages/${THREAD_ID}`, CUSTOMER_USER);
+  try {
+    await flush();
+    const openMenu = async (id: string) => {
+      const actions = h.container.querySelector<HTMLElement>(`[data-testid="message-actions-${id}"]`);
+      assert.ok(actions);
+      await act(async () => actions.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+      await flush();
+      return window.document.querySelector<HTMLElement>(`[data-testid="menu-message-actions-${id}"]`);
+    };
+    const ownMenu = await openMenu("own");
+    assert.ok(ownMenu);
+    await flush();
+    assert.ok(has("button-edit-message-own"), "sender can edit their own message");
+    assert.equal(has("button-delete-message-own"), false, "customer cannot delete for everyone");
+
+    await act(async () => ownMenu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await flush();
+    const incomingMenu = await openMenu("incoming");
+    assert.ok(incomingMenu);
+    assert.equal(has("button-edit-message-incoming"), false, "customer cannot edit another sender's message");
+    assert.equal(has("button-delete-message-incoming"), false, "customer has no delete-for-everyone action");
+  } finally {
+    threadMessages = [];
+    h.cleanup();
+  }
+});
+
+test("incoming messages are marked read only after the observer reports visible pixels", async () => {
+  threadMessages = [
+    { id: "incoming-read", threadId: THREAD_ID, senderId: "admin-1", senderName: "Avery Admin", body: "A tall support reply", createdAt: ISO, editedAt: null, clientMessageId: null, attachment: null, reactions: [] },
+  ];
+  readBatches.length = 0;
+  const h = await mountMessages(`/messages/${THREAD_ID}`, CUSTOMER_USER);
+  try {
+    await flush();
+    assert.equal(readBatches.length, 0, "mount alone does not mark messages read");
+    const sentinel = h.container.querySelector<HTMLElement>('[data-read-message-id="incoming-read"]');
+    assert.ok(sentinel, "unread message has a dedicated visibility sentinel");
+    const observer = ioInstances.at(-1);
+    assert.ok(observer, "intersection observer is installed");
+    await act(async () => {
+      observer.report(sentinel, true);
+      observer.report(sentinel, false);
+    });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
+    assert.equal(readBatches.length, 0, "a message leaving view before the read flush is cancelled");
+    await act(async () => observer.report(sentinel, true));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
+    await flush();
+    assert.deepEqual(readBatches.flat(), ["incoming-read"], "a visible pixel of the tall message is enough to mark it read");
+  } finally {
+    threadMessages = [];
     h.cleanup();
   }
 });

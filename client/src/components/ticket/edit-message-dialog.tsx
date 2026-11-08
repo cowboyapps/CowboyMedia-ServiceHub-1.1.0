@@ -7,10 +7,14 @@ import { apiRequest } from "@/lib/queryClient";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
 
-export function EditTicketMessageDialog({ ticketId, message, onClose }: {
+export function EditTicketMessageDialog({ ticketId, message, onClose, apiBase, queryKey, privateMessage = false }: {
   ticketId: string;
   message: { id: string; message: string; imageUrl?: string | null; kbArticleSlug?: string | null };
   onClose: () => void;
+  /** Optional alternate endpoint for private conversation messages. */
+  apiBase?: string;
+  queryKey?: unknown[];
+  privateMessage?: boolean;
 }) {
   const [text, setText] = useState(message.message);
   const original = useRef(message.message);
@@ -18,11 +22,11 @@ export function EditTicketMessageDialog({ ticketId, message, onClose }: {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const save = useMutation({
-    mutationFn: () => apiRequest("PATCH", `/api/tickets/${ticketId}/messages/${message.id}`, {
-      message: text, originalMessage: original.current,
-    }),
+    mutationFn: () => apiRequest("PATCH", `${apiBase ?? `/api/tickets/${ticketId}/messages`}/${message.id}`, privateMessage
+      ? { body: text, originalBody: original.current }
+      : { message: text, originalMessage: original.current }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "messages"] });
+      void queryClient.invalidateQueries({ queryKey: queryKey ?? ["/api/tickets", ticketId, "messages"] });
       onClose();
     },
     onError: (cause: Error) => {

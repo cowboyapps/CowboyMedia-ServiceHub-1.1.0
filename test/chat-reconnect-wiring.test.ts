@@ -408,13 +408,10 @@ test("community-chat wiring: invalidates /api/community-chat/messages on communi
 //    these assertions fail and force the runtime test to be updated too.
 // ---------------------------------------------------------------------------
 
-// The admin and the customer share the same thread chat component
-// (`ThreadChatView` in messages-page.tsx); the admin reaches it via the
-// "Messages" deep-link to /messages. There is no separate admin-portal
-// thread chat anymore, so the admin-side contract is guarded against
-// messages-page.tsx too.
-const MESSAGES_PAGE = readFileSync(
-  join(process.cwd(), "client/src/pages/messages-page.tsx"), "utf8",
+// Both customer and admin render the extracted private thread component via
+// messages-page.tsx. Keep source guards on the component that owns the socket.
+const THREAD_CHAT_SOURCE = readFileSync(
+  join(process.cwd(), "client/src/components/private-messages/thread-chat-view.tsx"), "utf8",
 );
 const COMMUNITY_CHAT = readFileSync(
   join(process.cwd(), "client/src/pages/community-chat-page.tsx"), "utf8",
@@ -530,38 +527,36 @@ test("messages-page wiring (admin user): thread_typing updates indicator, clears
   }
 });
 
-test("messages-page source: still wires onVisible→viewing_thread and onBeforeUnmount→left_thread", () => {
-  assert.match(MESSAGES_PAGE, /useReconnectingWebSocket\(\{/, "uses the shared hook");
-  assert.match(MESSAGES_PAGE, /onVisible:\s*\(ws\)\s*=>/, "onVisible wired");
-  assert.match(MESSAGES_PAGE, /onBeforeUnmount:\s*\(ws\)\s*=>/, "onBeforeUnmount wired");
-  // Payload strings the runtime test mirrors.
-  assert.match(MESSAGES_PAGE, /type:\s*"viewing_thread"/);
-  assert.match(MESSAGES_PAGE, /type:\s*"left_thread"/);
+test("private thread source: still wires onVisible→viewing_thread and onBeforeUnmount→left_thread", () => {
+  assert.match(THREAD_CHAT_SOURCE, /useReconnectingWebSocket\(\{/, "uses the shared hook");
+  assert.match(THREAD_CHAT_SOURCE, /onVisible:\s*ws\s*=>/, "onVisible wired");
+  assert.match(THREAD_CHAT_SOURCE, /onBeforeUnmount:\s*ws\s*=>/, "onBeforeUnmount wired");
+  assert.match(THREAD_CHAT_SOURCE, /type:\s*"viewing_thread"/);
+  assert.match(THREAD_CHAT_SOURCE, /type:\s*"left_thread"/);
 });
 
 test("admin/customer thread source: wires onOpen/onVisible/onBeforeUnmount + thread_message live-invalidate", () => {
-  // Same shared component the admin uses for customer threads.
-  assert.match(MESSAGES_PAGE, /useReconnectingWebSocket\(\{/, "uses the shared hook");
-  assert.match(MESSAGES_PAGE, /onOpen:\s*\(ws\)\s*=>/, "onOpen wired");
-  assert.match(MESSAGES_PAGE, /onVisible:\s*\(ws\)\s*=>/, "onVisible wired");
-  assert.match(MESSAGES_PAGE, /onBeforeUnmount:\s*\(ws\)\s*=>/, "onBeforeUnmount wired");
-  assert.match(MESSAGES_PAGE, /type:\s*"viewing_thread"/);
-  assert.match(MESSAGES_PAGE, /type:\s*"left_thread"/);
+  assert.match(THREAD_CHAT_SOURCE, /useReconnectingWebSocket\(\{/, "uses the shared hook");
+  assert.match(THREAD_CHAT_SOURCE, /onOpen:\s*ws\s*=>/, "onOpen wired");
+  assert.match(THREAD_CHAT_SOURCE, /onVisible:\s*ws\s*=>/, "onVisible wired");
+  assert.match(THREAD_CHAT_SOURCE, /onBeforeUnmount:\s*ws\s*=>/, "onBeforeUnmount wired");
+  assert.match(THREAD_CHAT_SOURCE, /type:\s*"viewing_thread"/);
+  assert.match(THREAD_CHAT_SOURCE, /type:\s*"left_thread"/);
   assert.match(
-    MESSAGES_PAGE,
-    /data\.type\s*===\s*"thread_message"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*\["\/api\/message-threads",\s*threadId,\s*"messages"\]\s*\}\)/,
+    THREAD_CHAT_SOURCE,
+    /data\.type\s*===\s*"thread_message"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*key\s*\}\)/,
     "thread_message frame invalidates the thread messages query",
   );
 });
 
 test("messages-page source: still wires thread_typing handler (other-user check + 3s clear)", () => {
   assert.match(
-    MESSAGES_PAGE,
+    THREAD_CHAT_SOURCE,
     /data\.type\s*===\s*"thread_typing"[\s\S]*?data\.userId\s*!==\s*user\?\.id/,
     "thread_typing branch checks data.userId !== current user",
   );
   assert.match(
-    MESSAGES_PAGE,
+    THREAD_CHAT_SOURCE,
     /setTypingUser\(null\)[\s\S]{0,20}3000/,
     "typing indicator clears via a 3000ms setTimeout",
   );
@@ -569,18 +564,18 @@ test("messages-page source: still wires thread_typing handler (other-user check 
 
 test("admin/customer thread source: wires thread_typing + thread_messages_read with other-user checks", () => {
   assert.match(
-    MESSAGES_PAGE,
+    THREAD_CHAT_SOURCE,
     /data\.type\s*===\s*"thread_typing"[\s\S]*?data\.userId\s*!==\s*user\?\.id/,
     "thread_typing branch checks data.userId !== current user",
   );
   assert.match(
-    MESSAGES_PAGE,
+    THREAD_CHAT_SOURCE,
     /data\.type\s*===\s*"thread_messages_read"[\s\S]*?data\.readBy\s*!==\s*user\?\.id/,
     "thread_messages_read branch checks data.readBy !== current user",
   );
   assert.match(
-    MESSAGES_PAGE,
-    /data\.type\s*===\s*"thread_messages_read"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*\["\/api\/message-threads",\s*threadId,\s*"messages"\]\s*\}\)/,
+    THREAD_CHAT_SOURCE,
+    /data\.type\s*===\s*"thread_messages_read"[\s\S]*?invalidateQueries\(\{\s*queryKey:\s*key\s*\}\)/,
     "thread_messages_read invalidates the thread messages query",
   );
 });

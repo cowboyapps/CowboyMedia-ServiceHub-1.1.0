@@ -20,9 +20,12 @@ type Props = {
   onEdit?: (id: string) => void;
   children?: ReactNode;
   footer?: ReactNode;
+  /** Optional alternate conversation endpoint; defaults to ticket messages. */
+  apiBase?: string;
+  queryKey?: unknown[];
 };
 
-export function MessageActions({ ticketId, messageId, message, reactions = [], enabled, canDelete, onDelete, onEdit, children, footer }: Props) {
+export function MessageActions({ ticketId, messageId, message, reactions = [], enabled, canDelete, onDelete, onEdit, children, footer, apiBase, queryKey }: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -31,11 +34,11 @@ export function MessageActions({ ticketId, messageId, message, reactions = [], e
   const cancelled = useRef(false);
   const deleteAfterClose = useRef(false);
   const editAfterClose = useRef(false);
-  const key = ["/api/tickets", ticketId, "messages"];
+  const key = queryKey ?? ["/api/tickets", ticketId, "messages"];
 
   const reactionMutation = useMutation({
     mutationFn: async (value: string | null) => {
-      const response = await apiRequest("PUT", `/api/tickets/${ticketId}/messages/${messageId}/reaction`, { emoji: value });
+      const response = await apiRequest("PUT", `${apiBase ?? `/api/tickets/${ticketId}/messages`}/${messageId}/reaction`, { emoji: value });
       return { value, result: await response.json() as { reactions: TicketReaction[] } };
     },
     onMutate: async (nextEmoji) => {

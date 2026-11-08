@@ -24,3 +24,14 @@ MISSING while the phantom shows as another MISSING. Both fail the deploy gate.
 free of these literal DDL keyword sequences; after writing, sanity-check with
 `parseMigrationIndexDefs([fileText]).keys()` and confirm the key count/names match
 the actual statements (no phantom names, none missing).
+
+Handwritten migrations should explicitly specify the index access method
+(`USING btree`) and declare named foreign keys with separate
+`ALTER TABLE ... ADD CONSTRAINT` statements rather than inline column references.
+
+**Why:** PostgreSQL inserts the implicit index access method in its catalog
+definition, but this audit does not normalize its omission. It also misses
+inline foreign keys, reporting correctly applied objects as drift.
+
+**How to apply:** Match the explicit form emitted by existing generated
+migrations and run the object/column audit after applying new handwritten SQL.

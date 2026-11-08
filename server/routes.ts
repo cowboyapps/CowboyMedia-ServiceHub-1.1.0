@@ -7,6 +7,9 @@ import { canPostInternalNote, parseIsInternalFlag } from "./ticket-internal-note
 import { createTicketMessageDeleteHandler } from "./ticket-message-delete";
 import { createTicketMessageEditHandler } from "./ticket-message-edit";
 import { createTicketMessagingHandlers } from "./ticket-messaging-routes";
+import { createThreadMessagingHandlers, serveThreadAttachment } from "./thread-messaging-routes";
+import { canAccessThread, persistThreadSend, enrichThreadMessages, getThreadReactions, editThreadMessage, deleteThreadMessage, setThreadReaction, markThreadVisibleRead, ThreadWriteError } from "./thread-messaging-storage";
+import { privateMessageUpload, privateSendIds } from "./thread-upload";
 import { getTicketReactions, setTicketReaction, markVisibleTicketMessagesRead } from "./ticket-messaging-storage";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { createCommunityMessageEditHandler, createCommunityMessageHistoryHandler, type CommunityEditDeps } from "./community-chat-edit";
@@ -26,7 +29,7 @@ import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { db } from "./db";
-import { uploadedFiles, newsStories, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS } from "@shared/schema";
+import { uploadedFiles, newsStories, insertServiceUpdateSchema, insertDownloadSchema, insertUrlMonitorSchema, userNotifications, NEWS_REACTION_EMOJIS, threadMessages, messageThreads } from "@shared/schema";
 import { deleteUploadedFileIfUnreferenced, sweepOrphanedUploadedFiles, findMissingUploadReferences } from "./uploaded-file-cleanup";
 import { getErrorMessage, getErrorStatusCode, getErrorName, getErrorCode } from "./error-utils";
 import { stripHtmlPreserveBreaks } from "@shared/html-text";
@@ -940,10 +943,28 @@ export async function registerRoutes(
   app.get("/uploads/:filename", async (req, res) => {
     try {
       const filename = req.params.filename;
+      res.set("Cache-Control", "no-store");
+      // Old private-message URLs must enforce the same access as the new
+      // message-scoped endpoint, including bookmarks and older clients.
+      const owners = await db.select({ thread: messageThreads, message: threadMessages }).from(threadMessages)
+        .innerJoin(messageThreads, eq(messageThreads.id, threadMessages.threadId))
+        .where(eq(threadMessages.imageUrl, `/uploads/${filename}`));
+      if (owners.length) {
+        const actor = req.session.userId ? await storage.getUser(req.session.userId) : undefined;
+        if (!actor) return res.status(401).json({ message: "Unauthorized" });
+        const owner = owners.find(owner => canAccessThread(actor, owner.thread));
+        if (!owner) return res.status(403).json({ message: "Forbidden" });
+        const [file] = await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1);
+        if (!file) return res.status(404).json({ message: "File not found" });
+        return serveThreadAttachment(req, res, file, owner.message.attachmentName || filename);
+      }
       const [file] = await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1);
       if (!file) {
         return res.status(404).json({ message: "File not found" });
       }
+      // A retained shared blob or a failed cleanup must never become public
+      // merely because its last private message was deleted.
+      if (file.privateMessage) return res.status(404).json({ message: "File not found" });
       const buffer = Buffer.from(file.data, "base64");
       res.set("Content-Type", file.mimetype);
       // Uploads can be revoked when their owning message is deleted.
@@ -3512,7 +3533,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   // === Message Threads (Conversational Messaging) ===
 
-  app.post("/api/message-threads", requirePermission("messages.manage"), withUpload("image"), async (req, res) => {
+  app.post("/api/message-threads", requirePermission("messages.manage"), privateMessageUpload, privateSendIds, async (req, res) => {
     try {
       const customerId = typeof req.body.customerId === "string" ? req.body.customerId : "";
       const subject = typeof req.body.subject === "string" ? req.body.subject : "";
@@ -3542,27 +3563,21 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (!customer) return res.status(404).json({ message: "Customer not found" });
       if (customer.role !== "customer") return res.status(400).json({ message: "Can only start conversations with customers" });
 
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
-
-      const thread = await storage.createMessageThread({
-        adminId: req.session.userId!,
-        customerId,
-        subject,
+      const { thread, message: msg, replay } = await persistThreadSend({
+        threadId: req.body.clientThreadId || crypto.randomUUID(),
+        senderId: req.session.userId!, body, kbArticleSlug,
+        clientMessageId: req.body.clientMessageId || null, file: req.file,
+        newThread: { adminId: req.session.userId!, customerId, subject },
       });
+      const msgWithKb = { ...(await enrichThreadMessages([msg], req.session.userId!))[0], kbArticle: kbArticleInfo };
+      if (replay) return res.json({ thread, message: msgWithKb });
+      const imageUrl = msg.imageUrl;
 
-      const msg = await storage.createThreadMessage({
-        threadId: thread.id,
-        senderId: req.session.userId!,
-        body,
-        imageUrl,
-        kbArticleSlug,
-      });
-      const msgWithKb = { ...msg, kbArticle: kbArticleInfo };
-
+      try {
       const sender = await storage.getUser(req.session.userId!);
-      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msgWithKb, senderName: sender?.fullName || "Admin" } }, [thread.adminId, thread.customerId]);
+      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id }, [thread.adminId, thread.customerId]);
 
-      const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
+      const previewBody = body || (imageUrl ? msg.attachmentType?.startsWith("video/") ? "Video attachment" : "Attachment" : kbArticleSlug ? "Article" : "");
       const threadWantsPush = customerWantsPush(customer, "thread_message");
       const threadWantsEmail = !!(customer.email && customerWantsEmail(customer, "thread_message") && sender);
       let threadNotifId: string | null = null;
@@ -3594,15 +3609,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
 
       logActivity("messages", "thread_created", { actorId: req.session.userId!, targetId: thread.id, targetType: "message_thread", summary: `Started conversation "${subject}" with ${customer.fullName}` });
+      } catch { console.error("Private message saved; notification update failed"); }
 
       res.json({ thread, message: msgWithKb });
     } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
+      res.status(e instanceof ThreadWriteError ? e.status : 500).json({ message: e instanceof ThreadWriteError ? e.message : "Couldn't start this conversation. Please try again." });
     }
   });
 
   app.get("/api/message-threads", requireAuth, async (req, res) => {
     try {
+      res.set("Cache-Control", "no-store");
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const threads = await storage.getMessageThreadsForUser(req.session.userId!, user.role);
@@ -3637,6 +3654,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/message-threads/:id", requireAuth, async (req, res) => {
     try {
+      res.set("Cache-Control", "no-store");
       const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const reqUser = await storage.getUser(req.session.userId!);
@@ -3653,6 +3671,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
   app.get("/api/message-threads/:id/messages", requireAuth, async (req, res) => {
     try {
+      res.set("Cache-Control", "no-store");
       const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       const reqUser2 = await storage.getUser(req.session.userId!);
@@ -3667,7 +3686,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         if (user) senderMap.set(id, user.fullName);
       }));
       const kbBySlug = await enrichKbArticlesForMessages(messages, storage);
-      const enriched = messages.map(m => ({
+      const enriched = (await enrichThreadMessages(messages, req.session.userId!)).map(m => ({
         ...m,
         senderName: senderMap.get(m.senderId) || "Unknown",
         kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
@@ -3678,7 +3697,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
   });
 
-  app.post("/api/message-threads/:id/messages", requireAuth, withUpload("image"), async (req, res) => {
+  app.post("/api/message-threads/:id/messages", requireAuth, privateMessageUpload, privateSendIds, async (req, res) => {
     try {
       const thread = await storage.getMessageThread(getParam(req, "id"));
       if (!thread) return res.status(404).json({ message: "Thread not found" });
@@ -3708,21 +3727,17 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(400).json({ message: "A message, image, or article is required" });
       }
 
-      const imageUrl = req.file ? await saveUploadedFile(req.file) : null;
-
-      const msg = await storage.createThreadMessage({
-        threadId: thread.id,
-        senderId: req.session.userId!,
-        body,
-        imageUrl,
-        kbArticleSlug,
+      const { message: msg, replay } = await persistThreadSend({
+        threadId: thread.id, senderId: req.session.userId!, body, kbArticleSlug,
+        clientMessageId: req.body.clientMessageId || null, file: req.file,
       });
-      const msgWithKb = { ...msg, kbArticle: kbArticleInfo };
+      const msgWithKb = { ...(await enrichThreadMessages([msg], req.session.userId!))[0], kbArticle: kbArticleInfo };
+      if (replay) return res.json(msgWithKb);
+      const imageUrl = msg.imageUrl;
 
-      await storage.updateMessageThread(thread.id, { lastMessageAt: new Date() });
-
+      try {
       const sender = await storage.getUser(req.session.userId!);
-      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id, message: { ...msgWithKb, senderName: sender?.fullName || "User" } }, [thread.adminId, thread.customerId]);
+      broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id }, [thread.adminId, thread.customerId]);
 
       const recipientId = isAdminSending ? thread.customerId : thread.adminId;
       const isRecipientViewing = isUserViewingThread(recipientId, thread.id);
@@ -3736,7 +3751,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const shouldCreateNotif = !isRecipientViewing;
       const recipientUser = await storage.getUser(recipientId);
-      const previewBody = body || (imageUrl ? "📷 Photo" : kbArticleSlug ? "📄 Article" : "");
+      const previewBody = body || (imageUrl ? msg.attachmentType?.startsWith("video/") ? "Video attachment" : "Attachment" : kbArticleSlug ? "Article" : "");
       const replyWantsPush = customerWantsPush(recipientUser, "thread_message");
       const replyWantsEmail = !!(recipientUser?.email && customerWantsEmail(recipientUser, "thread_message") && sender);
       let threadReplyNotifId: string | null = null;
@@ -3771,35 +3786,37 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }
       }
 
+      } catch { console.error("Private message saved; notification update failed"); }
       res.json(msgWithKb);
     } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
+      res.status(e instanceof ThreadWriteError ? e.status : 500).json({ message: e instanceof ThreadWriteError ? e.message : "Couldn't send this message. Please try again." });
     }
   });
 
-  app.patch("/api/message-threads/:id/read", requireAuth, async (req, res) => {
-    try {
-      const thread = await storage.getMessageThread(getParam(req, "id"));
-      if (!thread) return res.status(404).json({ message: "Thread not found" });
-      const reqUser4 = await storage.getUser(req.session.userId!);
-      if (thread.adminId !== req.session.userId && thread.customerId !== req.session.userId && reqUser4?.role !== "master_admin") {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      await storage.markThreadMessagesRead(getParam(req, "id"), req.session.userId!);
-      await db.update(userNotifications).set({ readAt: new Date() })
-        .where(and(
-          eq(userNotifications.userId, req.session.userId!),
-          eq(userNotifications.type, "message"),
-          eq(userNotifications.referenceId, getParam(req, "id")),
-          isNull(userNotifications.readAt),
-          isNull(userNotifications.dismissedAt)
-        ));
-      broadcastToThreadParticipants({ type: "thread_messages_read", threadId: req.params.id, readBy: req.session.userId! }, [thread.adminId, thread.customerId]);
-      res.json({ message: "Marked as read" });
-    } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
-    }
+  const threadMessaging = createThreadMessagingHandlers({
+    getUser: id => storage.getUser(id),
+    getThread: id => storage.getMessageThread(id),
+    getMessage: async id => (await db.select().from(threadMessages).where(eq(threadMessages.id, id)).limit(1))[0],
+    canManage: async actor => actor.role === "master_admin" || (actor.role === "admin" && !!actor.adminRoleId &&
+      !!(await storage.getAdminRole(actor.adminRoleId))?.permissions?.includes("messages.manage")),
+    edit: editThreadMessage, remove: deleteThreadMessage, react: setThreadReaction, reactions: getThreadReactions,
+    markRead: async (threadId, actorId, ids) => {
+      const changed = await markThreadVisibleRead(threadId, actorId, ids);
+      if (changed) await db.update(userNotifications).set({ readAt: new Date() }).where(and(
+        eq(userNotifications.userId, actorId), eq(userNotifications.type, "message"),
+        eq(userNotifications.referenceId, threadId), isNull(userNotifications.readAt),
+      ));
+      return changed;
+    },
+    getUpload: async filename => (await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1))[0],
+    cleanup: deleteUploadedFileIfUnreferenced,
+    broadcast: broadcastToThreadParticipants,
   });
+  app.patch("/api/message-threads/:id/read", requireAuth, threadMessaging.read);
+  app.patch("/api/message-threads/:id/messages/:messageId", requireAuth, threadMessaging.edit);
+  app.delete("/api/message-threads/:id/messages/:messageId", requireAuth, threadMessaging.remove);
+  app.put("/api/message-threads/:id/messages/:messageId/reaction", requireAuth, threadMessaging.reaction);
+  app.get("/api/message-threads/:id/messages/:messageId/attachment", requireAuth, threadMessaging.attachment);
 
   app.delete("/api/message-threads/:id", requirePermission("messages.manage"), async (req, res) => {
     try {

@@ -309,6 +309,20 @@
       "when": 1794009701756,
       "tag": "0043_ticket_message_edited_at",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794153600000,
+      "tag": "0044_private_messaging",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794153600001,
+      "tag": "0045_private_attachment_scope",
+      "breakpoints": true
     }
   ]
 }

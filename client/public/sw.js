@@ -51,7 +51,8 @@ self.addEventListener('activate', (event) => {
         const cache = await caches.open(name);
         for (const request of await cache.keys()) {
           const pathname = new URL(request.url).pathname;
-          if (pathname === '/api/tickets' || pathname.startsWith('/api/tickets/') || pathname.startsWith('/uploads/') ||
+          if (pathname === '/api/tickets' || pathname.startsWith('/api/tickets/') ||
+              pathname === '/api/message-threads' || pathname.startsWith('/api/message-threads/') || pathname.startsWith('/uploads/') ||
               (pathname === '/' && !isShellDocument(await cache.match(request)))) {
             await cache.delete(request);
           }
@@ -151,6 +152,7 @@ function isUncacheableApi(url) {
   if (url.pathname.startsWith('/api/auth/')) return true;
   if (url.pathname === '/api/user') return true;
   if (url.pathname === '/api/tickets' || url.pathname.startsWith('/api/tickets/')) return true;
+  if (url.pathname === '/api/message-threads' || url.pathname.startsWith('/api/message-threads/')) return true;
   return false;
 }
 

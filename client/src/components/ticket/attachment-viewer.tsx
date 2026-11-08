@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import * as Dialog from "@radix-ui/react-dialog";
 
-export type TicketMedia = { ticketId: string; messageId: string; name: string; kind: "image" | "video" | "file"; contentType?: string };
+export type TicketMedia = { ticketId: string; messageId: string; name: string; kind: "image" | "video" | "file"; contentType?: string; endpoint?: string };
 
 function attachmentFilename(headers: Headers, fallback: string) {
   const disposition = headers.get("content-disposition") || "";
@@ -16,7 +16,7 @@ function attachmentFilename(headers: Headers, fallback: string) {
 
 export function TicketAttachment({ media, onOpen }: { media: TicketMedia; onOpen: (media: TicketMedia) => void }) {
   const [failed, setFailed] = useState(false);
-  const endpoint = `/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`;
+  const endpoint = media.endpoint ?? `/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`;
   if (media.kind === "image") return (
     <button type="button" onClick={() => onOpen(media)} className="mt-2 block overflow-hidden rounded-xl border border-black/10 dark:border-white/10" data-testid={`ticket-attachment-${media.messageId}`}>
       {failed ? <span className="flex min-h-20 items-center px-4 text-xs opacity-70">Attachment unavailable — open to retry</span> :
@@ -63,13 +63,13 @@ export function AttachmentViewer({ media, onClose }: { media: TicketMedia | null
     setTransferring(false);
     const controller = new AbortController();
     if (media.kind === "video") {
-      setSrc(`/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`);
+      setSrc(media.endpoint ?? `/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`);
       return () => {
         active = false;
         controller.abort();
       };
     }
-    fetch(`/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`, {
+    fetch(media.endpoint ?? `/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`, {
       method: media.kind === "file" ? "HEAD" : "GET",
       credentials: "include", cache: "no-store", signal: controller.signal,
     }).then(async (response) => {
@@ -149,7 +149,7 @@ export function AttachmentViewer({ media, onClose }: { media: TicketMedia | null
   }, [media, close]);
 
   if (!media) return null;
-  const endpoint = `/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`;
+  const endpoint = media.endpoint ?? `/api/tickets/${encodeURIComponent(media.ticketId)}/messages/${encodeURIComponent(media.messageId)}/attachment`;
   const download = async () => {
     const controller = new AbortController();
     transfers.current.add(controller);
@@ -206,7 +206,7 @@ export function AttachmentViewer({ media, onClose }: { media: TicketMedia | null
       className="fixed inset-0 z-[100] flex min-h-0 flex-col bg-[#111315] text-white outline-none" data-testid="ticket-media-viewer">
       <Dialog.Title className="sr-only">Attachment viewer</Dialog.Title>
       <header className="flex shrink-0 items-center gap-2 px-3 pt-[max(.75rem,env(safe-area-inset-top))] pb-3">
-        <Button variant="ghost" size="icon" aria-label="Back to ticket" onClick={close} data-testid="button-close-ticket-viewer"><ArrowLeft /></Button>
+        <Button variant="ghost" size="icon" aria-label={media.endpoint ? "Back to conversation" : "Back to ticket"} onClick={close} data-testid="button-close-ticket-viewer"><ArrowLeft /></Button>
         <span className="min-w-0 flex-1 truncate text-sm">{media.name}</span>
         <Button variant="ghost" size="icon" aria-label="Share attachment" disabled={transferring} onClick={share}><Share2 /></Button>
         <Button variant="ghost" size="icon" aria-label="Save attachment" disabled={transferring} onClick={download} data-testid="button-save-ticket-attachment"><ArrowDownToLine /></Button>

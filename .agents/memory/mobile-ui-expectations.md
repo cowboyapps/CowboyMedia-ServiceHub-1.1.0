@@ -21,6 +21,15 @@ The user narrowed the UI work to “support ticket work and phone horizontal app
 
 **How to apply:** Restrict visual changes to support tickets and necessary phone-horizontal layout corrections. Preserve the rest of the app's appearance; shared navigation fixes are not permission for a general visual refresh.
 
+The user subsequently extended the ticket-messaging upgrades to private
+admin/customer messages, including fixing video sending. This extends the
+conversation scope, not permission to redesign unrelated screens.
+
+**Why:** The user requested "private messages with the same upgrades we made to support ticket messaging."
+
+**How to apply:** Keep private conversations consistent with ticket messaging
+while retaining their separate access rules and customer/admin relationships.
+
 Phones should not switch into a sideways desktop layout. The user prefers preventing horizontal rotation; if horizontal phone use is allowed, it must be designed for phones, keep the menu on the bottom, and adjust the UI for phone use.
 
 **Why:** The user said sideways phone screens with the menu down the side look very bad and are not designed to fit.

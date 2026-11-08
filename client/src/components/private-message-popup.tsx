@@ -21,7 +21,7 @@ export function PrivateMessagePopupInner({ userId }: { userId: string }) {
           queryClient.invalidateQueries({ queryKey: ["/api/private-messages"] });
           queryClient.invalidateQueries({ queryKey: ["/api/private-messages/unread-count"] });
         }
-        if (data.type === "thread_message" && data.message) {
+        if (["thread_message", "thread_message_edited", "thread_message_deleted", "thread_messages_read"].includes(data.type)) {
           queryClient.invalidateQueries({ queryKey: ["/api/message-threads"] });
           queryClient.invalidateQueries({ queryKey: ["/api/message-threads/unread-count"] });
         }
