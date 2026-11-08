@@ -956,7 +956,7 @@ export async function registerRoutes(
         if (!owner) return res.status(403).json({ message: "Forbidden" });
         const [file] = await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1);
         if (!file) return res.status(404).json({ message: "File not found" });
-        return serveThreadAttachment(req, res, file, owner.message.attachmentName || filename);
+        return await serveThreadAttachment(req, res, file, owner.message.attachmentName || filename);
       }
       const [file] = await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, filename)).limit(1);
       if (!file) {
@@ -971,7 +971,7 @@ export async function registerRoutes(
       res.set("Cache-Control", "no-store");
       res.send(buffer);
     } catch (e) {
-      res.status(500).json({ message: getErrorMessage(e) });
+      if (!res.headersSent && !res.destroyed) res.status(500).json({ message: getErrorMessage(e) });
     }
   });
 

@@ -323,6 +323,13 @@
       "when": 1794153600001,
       "tag": "0045_private_attachment_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794154940693,
+      "tag": "0046_private_video_chunks",
+      "breakpoints": true
     }
   ]
 }

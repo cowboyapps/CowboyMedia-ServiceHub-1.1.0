@@ -1,3 +1,26 @@
+# Private-message video uploads
+
+Private-message videos are limited to 250 MiB (shown as 250 MB in the UI).
+Other private-message attachments and general uploads remain limited to 25 MiB.
+Large private files use temporary disk storage while uploading, then transactional
+database chunks. Existing attachments remain readable without conversion.
+Database backups include these chunks; larger videos increase database/backup size.
+
+The scoped Nginx location in `deploy/nginx.conf.template` permits 260M bodies
+(multipart headroom), streams requests upstream, and allows slow mobile uploads.
+The updated `deploy/update.sh` installs it while preserving Certbot TLS configuration.
+**First rollout:** an already-running older updater executes its old in-memory
+script after pulling changes. Once the new files are present, run this once on
+the VPS if that deployment used the old updater:
+
+```sh
+sudo python3 /opt/servicehub/deploy/configure-private-uploads.py \
+  /opt/servicehub/deploy/nginx.conf.template /etc/nginx/sites-available/servicehub
+```
+
+It validates Nginx before reload and restores the previous file on failure.
+Subsequent deployments using the new updater apply this automatically.
+
 # ServiceHub Operations Runbook
 
 Deploy pipeline, VPS layout, and recovery procedures. Moved out of `replit.md` (which keeps the day-to-day essentials).

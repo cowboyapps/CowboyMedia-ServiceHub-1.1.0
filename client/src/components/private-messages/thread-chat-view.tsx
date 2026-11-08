@@ -3,7 +3,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { format, isToday, isYesterday } from "date-fns";
 import { ArrowDown, ArrowLeft, BookOpen, Check, CheckCheck, Paperclip, Send, Shield, User as UserIcon, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient, uploadRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { uploadPrivateMessage } from "@/lib/private-message-upload";
+import { PRIVATE_UPLOAD_LIMIT_LABEL, privateUploadError } from "@shared/private-message-uploads";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,7 +47,6 @@ type ThreadInfo = {
   customerName: string;
 };
 
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const EMPTY_OPTIMISTIC: Array<{ id: string; senderId: string }> = [];
 
 function uuid() {
@@ -57,7 +58,7 @@ function uuid() {
 }
 
 async function responseError(response: Response, fallback: string) {
-  if (response.status === 413) return "This attachment is too large. Each file must be 25 MB or smaller.";
+  if (response.status === 413) return PRIVATE_UPLOAD_LIMIT_LABEL;
   const body = await response.text().catch(() => "");
   if (body) {
     try {
@@ -97,6 +98,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   const keyboardInset = useKeyboardInset();
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [article, setArticle] = useState<KbArticleRef | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -261,7 +263,8 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
       form.append("clientMessageId", payload.clientMessageId);
       if (payload.file) form.append("image", payload.file);
       if (payload.kbSlug) form.append("kbArticleSlug", payload.kbSlug);
-      const response = await uploadRequest("POST", `${messageBase}`, form);
+      setUploadProgress(0);
+      const response = await uploadPrivateMessage(messageBase, form, setUploadProgress);
       if (!response.ok) throw new Error(await responseError(response, "Couldn't send your message"));
       const result = await response.json();
       return (result.message ?? result) as PrivateThreadMessage;
@@ -293,14 +296,16 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
       failedPayload.current = { body: payload.body, file: payload.file, kbSlug: payload.kbSlug };
       toast({ title: "Failed to send message", description: serverActionErrorMessage(error, "Couldn't send your message. Please try again."), variant: "destructive" });
     },
+    onSettled: () => setUploadProgress(null),
   });
 
   const send = useCallback(() => {
     if (sendMutation.isPending || sendGuard.current) return;
     const cleanBody = body.trim();
     if (!cleanBody && !file && !article) return;
-    if (file && file.size > MAX_ATTACHMENT_BYTES) {
-      toast({ title: "Attachment is too large", description: "Choose a file smaller than 25 MB.", variant: "destructive" });
+    const rejection = file ? privateUploadError(file) : null;
+    if (rejection) {
+      toast({ title: "Attachment is too large", description: rejection, variant: "destructive" });
       return;
     }
     const kbSlug = isAdmin ? article?.slug ?? null : null;
@@ -338,8 +343,9 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
 
   const onFile = (selected?: File) => {
     if (!selected) return;
-    if (selected.size > MAX_ATTACHMENT_BYTES) {
-      toast({ title: "Attachment is too large", description: "Choose a file smaller than 25 MB.", variant: "destructive" });
+    const rejection = privateUploadError(selected);
+    if (rejection) {
+      toast({ title: "Attachment is too large", description: rejection, variant: "destructive" });
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -407,13 +413,16 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
       </div>}
       <footer ref={composerRootRef} className="shrink-0 border-t border-border bg-card px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2.5 sm:px-4">
         <div ref={composerToolsRef}>
-        {sendMutation.isPending && <p role="status" className="mb-1 text-xs text-muted-foreground">Sending{file ? " attachment" : " message"}…</p>}
+        {sendMutation.isPending && <p role="status" className="mb-1 text-xs text-muted-foreground">
+          {uploadProgress === 100 ? "Saving message…" : file && uploadProgress !== null ? `Uploading ${uploadProgress}%` : "Sending message…"}
+        </p>}
         {typingUser && <p className="mb-1.5 px-1 text-xs text-muted-foreground">{typingUser} is typing…</p>}
         {(file || article) && <div className="mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-xs">
           {file ? <Paperclip className="h-3.5 w-3.5 shrink-0" /> : <BookOpen className="h-3.5 w-3.5 shrink-0" />}
           <span className="min-w-0 flex-1 truncate">{file?.name || article?.title}</span>
           <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" disabled={sendMutation.isPending} aria-label="Remove attachment" onClick={() => { setFile(null); setArticle(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>{sendMutation.isPending ? null : <X className="h-3.5 w-3.5" />}</Button>
         </div>}
+        {file && <p className="mb-1 text-[11px] text-muted-foreground">{PRIVATE_UPLOAD_LIMIT_LABEL}</p>}
         </div>
         <div className="flex items-end gap-1.5">
           <input ref={fileInputRef} type="file" className="hidden" onChange={event => onFile(event.target.files?.[0])} data-testid="input-thread-file" />

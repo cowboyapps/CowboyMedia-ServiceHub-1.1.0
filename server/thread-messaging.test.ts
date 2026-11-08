@@ -1,10 +1,11 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
 import express, { type Request } from "express";
 import { eq } from "drizzle-orm";
 import { db, pool } from "./db";
-import { messageThreads, threadMessages, threadMessageReactions, uploadedFiles, adminActivityLogs, type User } from "@shared/schema";
+import { messageThreads, threadMessages, threadMessageReactions, uploadedFiles, uploadedFileChunks, adminActivityLogs, type User } from "@shared/schema";
 import { createThreadMessagingHandlers } from "./thread-messaging-routes";
 import { canAccessThread, deleteThreadMessage, editThreadMessage, enrichThreadMessages, getThreadReactions, markThreadVisibleRead, persistThreadSend, setThreadReaction, ThreadWriteError } from "./thread-messaging-storage";
 import { deleteUploadedFileIfUnreferenced } from "./uploaded-file-cleanup";
@@ -75,11 +76,11 @@ test("private messaging: uploads, retry safety, editing, reactions, visible rece
     method, headers: { "x-actor": actor, ...(body ? { "content-type": "application/json" } : {}), ...headers },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const sendVideo = (key = randomUUID(), body = "", size = 48) => {
+  const sendVideo = (key = randomUUID(), body = "", size = 48, type = "video/mp4") => {
     const data = new FormData();
     data.append("body", body);
     data.append("clientMessageId", key);
-    data.append("image", new Blob([new Uint8Array(size)], { type: "video/mp4" }), "phone clip.mp4");
+    data.append("image", new Blob([new Uint8Array(size)], { type }), "phone clip.mp4");
     return fetch(`${base}/send/${threadId}`, { method: "POST", headers: { "x-actor": customerId }, body: data });
   };
   let filename: string | undefined;
@@ -98,9 +99,56 @@ test("private messaging: uploads, retry safety, editing, reactions, visible rece
     const concurrentKey = randomUUID();
     const [one, two] = await Promise.all([sendVideo(concurrentKey), sendVideo(concurrentKey)]);
     assert.equal((await one.json()).id, (await two.json()).id);
-    assert.equal((await sendVideo(randomUUID(), "", 25 * 1024 * 1024 + 1)).status, 413);
-    const oversized = await sendVideo(randomUUID(), "", 25 * 1024 * 1024 + 1);
+    assert.equal((await sendVideo(randomUUID(), "", 25 * 1024 * 1024 + 1, "application/pdf")).status, 413);
+    const oversized = await sendVideo(randomUUID(), "", 25 * 1024 * 1024 + 1, "application/pdf");
     assert.match((await oversized.json()).message, /25 MB/);
+
+    // Real 90 MB multipart transfer with bounded client AND server memory.
+    // This is deliberately not a mocked size/property-only regression.
+    const boundary = `large-${randomUUID()}`;
+    const megabyte = Buffer.alloc(1024 * 1024, 0x5a);
+    async function* largeBody(megabytes = 90, extraBytes = 0) {
+      yield Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="clientMessageId"\r\n\r\n${randomUUID()}\r\n--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="large.mp4"\r\nContent-Type: video/mp4\r\n\r\n`);
+      for (let n = 0; n < megabytes; n++) yield megabyte;
+      if (extraBytes) yield megabyte.subarray(0, extraBytes);
+      yield Buffer.from(`\r\n--${boundary}--\r\n`);
+    }
+    const largeResponse = await fetch(`${base}/send/${threadId}`, {
+      method: "POST", headers: { "x-actor": customerId, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body: Readable.from(largeBody()) as unknown as BodyInit, duplex: "half",
+    } as RequestInit & { duplex: string });
+    assert.equal(largeResponse.status, 200);
+    const largeMessage = await largeResponse.json();
+    const [largeFile] = await db.select().from(uploadedFiles).where(eq(uploadedFiles.filename, largeMessage.imageUrl.split("/").pop()));
+    assert.equal(largeFile.byteSize, 90 * 1024 * 1024);
+    assert.equal(largeFile.chunked, true);
+    assert.equal(largeFile.data, "", "large videos are not one giant base64 row");
+    assert.equal((await db.select({ ordinal: uploadedFileChunks.ordinal }).from(uploadedFileChunks).where(eq(uploadedFileChunks.uploadId, largeFile.id))).length, 90);
+    const largeUrl = `/api/message-threads/${threadId}/messages/${largeMessage.id}/attachment`;
+    const acrossChunks = await fetch(base + largeUrl, { headers: { "x-actor": customerId, Range: "bytes=1048570-1048590" } });
+    assert.equal(acrossChunks.status, 206);
+    assert.equal(acrossChunks.headers.get("content-range"), `bytes 1048570-1048590/${90 * 1024 * 1024}`);
+    assert.deepEqual(Buffer.from(await acrossChunks.arrayBuffer()), Buffer.alloc(21, 0x5a));
+    assert.equal((await call(largeUrl, outsiderId)).status, 403);
+    const largeHead = await fetch(base + largeUrl + "?download=1", { method: "HEAD", headers: { "x-actor": customerId } });
+    assert.equal(largeHead.headers.get("content-length"), String(90 * 1024 * 1024));
+    assert.equal((await call(`/api/message-threads/${threadId}/messages/${largeMessage.id}`, adminId, "DELETE")).status, 200);
+    assert.equal((await call(largeUrl, customerId)).status, 404);
+    assert.equal((await db.select().from(uploadedFileChunks).where(eq(uploadedFileChunks.uploadId, largeFile.id))).length, 0, "deleting the message also cleans all video chunks");
+
+    const atLimit = await fetch(`${base}/send/${threadId}`, {
+      method: "POST", headers: { "x-actor": customerId, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body: Readable.from(largeBody(250)) as unknown as BodyInit, duplex: "half",
+    } as RequestInit & { duplex: string });
+    assert.equal(atLimit.status, 200, "a video exactly at 250 MB must send");
+    const atLimitMessage = await atLimit.json();
+    assert.equal((await call(`/api/message-threads/${threadId}/messages/${atLimitMessage.id}`, adminId, "DELETE")).status, 200);
+    const aboveLimit = await fetch(`${base}/send/${threadId}`, {
+      method: "POST", headers: { "x-actor": customerId, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body: Readable.from(largeBody(250, 1)) as unknown as BodyInit, duplex: "half",
+    } as RequestInit & { duplex: string });
+    assert.equal(aboveLimit.status, 413, "a video above 250 MB must be rejected");
+    assert.match((await aboveLimit.json()).message, /250 MB/);
 
     const url = `/api/message-threads/${threadId}/messages/${message.id}`;
     assert.equal((await call(url + "/attachment", outsiderId)).status, 403, "unrelated admin cannot download");

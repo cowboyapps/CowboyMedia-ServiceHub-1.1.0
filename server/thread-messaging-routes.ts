@@ -3,6 +3,7 @@ import type { MessageThread, ThreadMessage, User } from "@shared/schema";
 import { TICKET_REACTION_EMOJIS, type TicketReactionSummary } from "@shared/ticket-reactions";
 import { getParam } from "./http-params";
 import { canAccessThread, ThreadWriteError } from "./thread-messaging-storage";
+import { storedThreadUploadSize, streamThreadUpload, type StoredThreadUpload } from "./thread-file-storage";
 
 export interface ThreadMessagingDeps {
   getUser: (id: string) => Promise<User | undefined>;
@@ -14,7 +15,7 @@ export interface ThreadMessagingDeps {
   react: (threadId: string, id: string, actorId: string, emoji: string | null) => Promise<void>;
   reactions: (ids: string[], actorId: string) => Promise<Record<string, TicketReactionSummary[]>>;
   markRead: (threadId: string, actorId: string, ids: string[]) => Promise<boolean>;
-  getUpload: (filename: string) => Promise<{ filename: string; mimetype: string; data: string } | undefined>;
+  getUpload: (filename: string) => Promise<StoredThreadUpload | undefined>;
   cleanup: (url: string) => Promise<unknown>;
   broadcast: (event: Record<string, unknown>, ids: string[]) => void;
 }
@@ -100,14 +101,14 @@ export function createThreadMessagingHandlers(deps: ThreadMessagingDeps) {
       const filename = message.imageUrl?.match(/^\/uploads\/([^/?#]+)$/)?.[1];
       const file = filename ? await deps.getUpload(filename) : undefined;
       if (!file) return res.status(404).json({ message: "Attachment not found" });
-      return serveThreadAttachment(req, res, file, message.attachmentName || file.filename);
-    } catch { return res.status(500).json({ message: "Couldn't load the attachment" }); }
+      return await serveThreadAttachment(req, res, file, message.attachmentName || file.filename);
+    } catch { if (!res.headersSent && !res.destroyed) return res.status(500).json({ message: "Couldn't load the attachment" }); }
   };
   return { edit, remove, reaction, read, attachment };
 }
 
-export function serveThreadAttachment(req: Request, res: Response, file: { data: string; mimetype: string }, name: string) {
-  const bytes = Buffer.from(file.data, "base64");
+export async function serveThreadAttachment(req: Request, res: Response, file: StoredThreadUpload, name: string) {
+  const size = storedThreadUploadSize(file);
   const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_") || "attachment";
   const safeInline = /^(image\/(?:png|jpeg|gif|webp|bmp)|video\/(?:mp4|webm|quicktime|x-m4v|x-msvideo|x-matroska))$/i.test(file.mimetype);
   res.set({
@@ -120,13 +121,16 @@ export function serveThreadAttachment(req: Request, res: Response, file: { data:
   if (range) {
     const parsed = /^bytes=(\d*)-(\d*)$/.exec(range);
     const suffix = parsed && !parsed[1] ? Number(parsed[2]) : null;
-    const start = suffix !== null ? Math.max(0, bytes.length - suffix) : Number(parsed?.[1] ?? -1);
-    const end = suffix !== null ? bytes.length - 1 : parsed?.[2] ? Math.min(Number(parsed[2]), bytes.length - 1) : bytes.length - 1;
-    if (!parsed || (!parsed[1] && !parsed[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= bytes.length || suffix === 0) {
-      return res.set("Content-Range", `bytes */${bytes.length}`).status(416).end();
+    const start = suffix !== null ? Math.max(0, size - suffix) : Number(parsed?.[1] ?? -1);
+    const end = suffix !== null ? size - 1 : parsed?.[2] ? Math.min(Number(parsed[2]), size - 1) : size - 1;
+    if (!parsed || (!parsed[1] && !parsed[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size || suffix === 0) {
+      return res.set("Content-Range", `bytes */${size}`).status(416).end();
     }
-    res.set({ "Content-Range": `bytes ${start}-${end}/${bytes.length}`, "Content-Length": String(end - start + 1) });
-    return res.status(206).send(bytes.subarray(start, end + 1));
+    res.set({ "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) }).status(206);
+    if (req.method === "HEAD") return res.end();
+    return streamThreadUpload(file, start, end, res);
   }
-  return res.set("Content-Length", String(bytes.length)).send(bytes);
+  res.set("Content-Length", String(size));
+  if (req.method === "HEAD" || !size) return res.end();
+  return streamThreadUpload(file, 0, size - 1, res);
 }

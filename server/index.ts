@@ -66,6 +66,10 @@ import { buildApiLogLine } from "./request-log";
 
 const app = express();
 const httpServer = createServer(app);
+// Node's five-minute body deadline otherwise terminates legitimate mobile
+// video uploads even while bytes are arriving. Header limits stay unchanged;
+// private multipart requests additionally enforce a three-minute idle timeout.
+httpServer.requestTimeout = 60 * 60 * 1000;
 
 const PROCESS_START_MS = Date.now();
 

@@ -4,20 +4,24 @@ import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "./db";
 import { adminActivityLogs, messageThreads, threadMessages, threadMessageReactions, uploadedFiles, userNotifications, type MessageThread, type ThreadMessage, type User } from "@shared/schema";
 import { TICKET_REACTION_EMOJIS, type TicketReactionSummary } from "@shared/ticket-reactions";
+import { privateFileBytes, storePrivateFile } from "./thread-file-storage";
+import { retainPrivateUpload } from "./thread-upload";
+import { privateUploadError } from "@shared/private-message-uploads";
 
 export function canAccessThread(actor: Pick<User, "id" | "role">, thread: MessageThread) {
   return actor.id === thread.adminId || actor.id === thread.customerId || actor.role === "master_admin";
 }
 
 export function uploadContentType(file: Pick<Express.Multer.File, "mimetype" | "originalname">) {
-  const extensions: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/x-m4v", ".webm": "video/webm", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
+  const extensions: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/x-m4v", ".webm": "video/webm", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
   return !file.mimetype || file.mimetype === "application/octet-stream"
     ? extensions[path.extname(file.originalname).toLowerCase()] || "application/octet-stream" : file.mimetype;
 }
 
-export function threadRequestFingerprint(body: string, kbArticleSlug: string | null, file?: Express.Multer.File) {
-  return createHash("sha256").update(JSON.stringify([body, kbArticleSlug, file?.originalname, file ? uploadContentType(file) : null]))
-    .update(file?.buffer || "").digest("hex");
+export async function threadRequestFingerprint(body: string, kbArticleSlug: string | null, file?: Express.Multer.File) {
+  const hash = createHash("sha256").update(JSON.stringify([body, kbArticleSlug, file?.originalname, file ? uploadContentType(file) : null]));
+  if (file) for await (const bytes of privateFileBytes(file)) hash.update(bytes);
+  return hash.digest("hex");
 }
 
 export class ThreadWriteError extends Error {
@@ -31,8 +35,12 @@ export async function persistThreadSend(input: {
   clientMessageId: string | null; file?: Express.Multer.File;
   newThread?: { adminId: string; customerId: string; subject: string };
 }) {
-  const fingerprint = threadRequestFingerprint(input.body, input.kbArticleSlug, input.file);
-  return db.transaction(async tx => {
+  const release = retainPrivateUpload(input.file);
+  try {
+  const rejection = input.file ? privateUploadError(input.file) : null;
+  if (rejection) throw new ThreadWriteError(413, rejection);
+  const fingerprint = await threadRequestFingerprint(input.body, input.kbArticleSlug, input.file);
+  return await db.transaction(async tx => {
     if (input.newThread) {
       await tx.insert(messageThreads).values({ id: input.threadId, ...input.newThread }).onConflictDoNothing();
     }
@@ -54,7 +62,7 @@ export async function persistThreadSend(input: {
     let imageUrl: string | null = null;
     if (input.file) {
       const filename = `${randomUUID()}${path.extname(input.file.originalname).replace(/[^a-zA-Z0-9.]/g, "").slice(0, 16)}`;
-      await tx.insert(uploadedFiles).values({ filename, mimetype: uploadContentType(input.file), data: input.file.buffer.toString("base64"), privateMessage: true });
+      await storePrivateFile(tx, input.file, filename, uploadContentType(input.file));
       imageUrl = `/uploads/${filename}`;
     }
     const [message] = await tx.insert(threadMessages).values({
@@ -66,6 +74,7 @@ export async function persistThreadSend(input: {
     await tx.update(messageThreads).set({ lastMessageAt: message.createdAt }).where(eq(messageThreads.id, thread.id));
     return { thread, message, replay: false };
   });
+  } finally { release(); }
 }
 
 export async function getThreadReactions(ids: string[], actorId: string): Promise<Record<string, TicketReactionSummary[]>> {

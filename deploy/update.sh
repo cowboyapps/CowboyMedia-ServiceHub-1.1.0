@@ -398,6 +398,10 @@ echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration d
 # rationale and the single source of truth for this invocation.
 run_build_as_app_user
 
+echo "==> Updating scoped private-message Nginx upload limits (preserving TLS)..."
+python3 "$APP_DIR/deploy/configure-private-uploads.py" \
+  "$APP_DIR/deploy/nginx.conf.template" /etc/nginx/sites-available/servicehub
+
 echo "==> Reloading PM2 (zero downtime — migrator runs at startup before serving traffic)..."
 # Source $ENV_FILE so --update-env actually has fresh vars to propagate
 # (--update-env reads from the calling shell's environment, not from disk).

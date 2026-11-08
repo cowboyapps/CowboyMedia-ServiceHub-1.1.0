@@ -6,7 +6,9 @@ import { z } from "zod";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth";
-import { queryClient, uploadRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { uploadPrivateMessage } from "@/lib/private-message-upload";
+import { PRIVATE_UPLOAD_LIMIT_LABEL, privateUploadError } from "@shared/private-message-uploads";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,7 +49,6 @@ const newThreadSchema = z.object({
   body: z.string().optional().default(""),
 });
 type NewThreadData = z.infer<typeof newThreadSchema>;
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 function newClientId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -58,7 +59,7 @@ function newClientId(): string {
 }
 
 async function uploadError(response: Response, fallback: string): Promise<string> {
-  if (response.status === 413) return "This attachment is too large. Each file must be 25 MB or smaller.";
+  if (response.status === 413) return PRIVATE_UPLOAD_LIMIT_LABEL;
   const body = await response.text().catch(() => "");
   if (body) {
     try {
@@ -79,6 +80,7 @@ function NewConversationDialog() {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,7 +104,8 @@ function NewConversationDialog() {
       fd.append("clientMessageId", clientMessageIdRef.current);
       if (imageFile) fd.append("image", imageFile);
       if (kbArticle) fd.append("kbArticleSlug", kbArticle.slug);
-      const response = await uploadRequest("POST", "/api/message-threads", fd);
+      setUploadProgress(0);
+      const response = await uploadPrivateMessage("/api/message-threads", fd, setUploadProgress);
       if (!response.ok) throw new Error(await uploadError(response, "Couldn't start the conversation"));
       return response.json();
     },
@@ -126,6 +129,7 @@ function NewConversationDialog() {
       };
       toast({ title: "Error", description: serverActionErrorMessage(error, "Couldn't start the conversation. Please try again."), variant: "destructive" });
     },
+    onSettled: () => setUploadProgress(null),
   });
 
   const submit = (data: NewThreadData) => {
@@ -133,8 +137,9 @@ function NewConversationDialog() {
       toast({ title: "Add a message, photo, or article", variant: "destructive" });
       return;
     }
-    if (imageFile && imageFile.size > MAX_ATTACHMENT_BYTES) {
-      toast({ title: "Attachment is too large", description: "Choose a file smaller than 25 MB.", variant: "destructive" });
+    const rejection = imageFile ? privateUploadError(imageFile) : null;
+    if (rejection) {
+      toast({ title: "Attachment is too large", description: rejection, variant: "destructive" });
       return;
     }
     const failed = failedPayloadRef.current;
@@ -194,8 +199,9 @@ function NewConversationDialog() {
             <input ref={fileInputRef} type="file" accept="*/*" className="hidden" disabled={createMutation.isPending} data-testid="input-new-thread-file"
               onChange={event => {
                 const selected = event.target.files?.[0];
-                if (selected && selected.size > MAX_ATTACHMENT_BYTES) {
-                  toast({ title: "Attachment is too large", description: "Choose a file smaller than 25 MB.", variant: "destructive" });
+                const rejection = selected ? privateUploadError(selected) : null;
+                if (rejection) {
+                  toast({ title: "Attachment is too large", description: rejection, variant: "destructive" });
                   event.target.value = "";
                 } else if (selected) setImageFile(selected);
               }} />
@@ -203,7 +209,8 @@ function NewConversationDialog() {
               <Button type="button" variant="outline" size="sm" disabled={createMutation.isPending} onClick={() => fileInputRef.current?.click()} data-testid="button-new-thread-attach-image"><Paperclip className="mr-1 h-4 w-4" /> Photo</Button>
               <Button type="button" variant="outline" size="sm" disabled={createMutation.isPending} onClick={() => setKbPickerOpen(true)} data-testid="button-new-thread-attach-kb"><BookOpen className="mr-1 h-4 w-4" /> Article</Button>
             </div>
-            <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-start-conversation">{createMutation.isPending ? "Starting..." : "Start Conversation"}</Button>
+            <p className="text-xs text-muted-foreground">{PRIVATE_UPLOAD_LIMIT_LABEL}</p>
+            <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-start-conversation">{createMutation.isPending ? uploadProgress === 100 ? "Saving…" : `Uploading ${uploadProgress ?? 0}%` : "Start Conversation"}</Button>
           </form>
         </Form>
         <KbArticlePickerDialog open={kbPickerOpen && !createMutation.isPending} onOpenChange={next => { if (!createMutation.isPending) setKbPickerOpen(next); }}

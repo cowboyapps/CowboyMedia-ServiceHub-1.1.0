@@ -50,3 +50,4 @@
 - [Ticket message edit scope](ticket-message-edit-policy.md) — customers and admins edit only their own replies; display a small edited label near the receipt.
 - [Ticket link prefixes](ticket-message-link-labels.md) — customers need visible http:// or https:// prefixes on support-ticket links; do not strip them for compact presentation.
 - [Mobile UI expectations](mobile-ui-expectations.md) — cleaner texting-like tickets; portrait-first phones, with bottom navigation and phone layout if landscape is allowed.
+- [Large private media](large-private-media.md) — preserve database backup guarantees; multipart parser limits need a one-byte allowance for inclusive advertised maxima.

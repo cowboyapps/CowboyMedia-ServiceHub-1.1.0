@@ -324,12 +324,22 @@ export const notificationTemplates = pgTable("notification_templates", {
 
 export const uploadedFiles = pgTable("uploaded_files", {
   privateMessage: boolean("private_message").default(false).notNull(),
+  chunked: boolean("chunked").default(false).notNull(),
+  byteSize: integer("byte_size"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   filename: text("filename").notNull().unique(),
   mimetype: text("mimetype").notNull(),
   data: text("data").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const uploadedFileChunks = pgTable("uploaded_file_chunks", {
+  uploadId: varchar("upload_id").notNull().references(() => uploadedFiles.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  data: text("data").notNull(),
+}, table => ({
+  uploadOrdinalIdx: uniqueIndex("uploaded_file_chunks_upload_ordinal_idx").on(table.uploadId, table.ordinal),
+}));
 
 export const adminRoles = pgTable("admin_roles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
