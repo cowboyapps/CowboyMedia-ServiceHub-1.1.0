@@ -3,6 +3,7 @@ import { build as viteBuild } from "vite";
 import { mkdir, rm, readFile, writeFile } from "fs/promises";
 import { randomBytes } from "crypto";
 import { execSync } from "child_process";
+import { BUILD_ERROR_MARKER, formatBuildError } from "../deploy/webhook-listener/build-diagnostics.mjs";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -96,6 +97,10 @@ async function buildAll() {
 }
 
 buildAll().catch((err) => {
-  console.error(err);
+  // A stable, concise summary survives noisy Rollup inventories and later
+  // cleanup output. Do not dump arbitrary error properties or environment data.
+  for (const line of formatBuildError(err).split("\n")) {
+    console.error(BUILD_ERROR_MARKER + line);
+  }
   process.exit(1);
 });

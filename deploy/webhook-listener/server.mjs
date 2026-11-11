@@ -24,13 +24,14 @@
 //
 // Process model: short-lived spawn of update.sh per delivery. The script
 // streams to a per-deploy log under /var/log/servicehub-deploy/<id>.log so
-// the next request can fetch it via /_deploy/log/<id> for tail-in-Discord.
+// authorized operators can fetch it via /_deploy/log/<id>.
 
 import http from "node:http";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { formatFailureNotice, redactDiagnostics } from "./build-diagnostics.mjs";
 
 const PORT = 5055;
 const HOST = "127.0.0.1";
@@ -121,7 +122,10 @@ async function notifyDiscord(content, { timeoutMs } = {}) {
     const res = await fetch(DISCORD_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        content: redactDiagnostics(content).slice(0, 2000),
+        allowed_mentions: { parse: [] },
+      }),
       // Optional bounded delivery — used by the watchdog so a stalled
       // Discord endpoint can never block health polling.
       ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
@@ -207,11 +211,14 @@ function runDeploy(ref, deliveryId) {
     if (ref) args.push("--ref", ref);
     const startedAt = Date.now();
     const child = spawn("sudo", args, { stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout.pipe(out);
-    child.stderr.pipe(out);
+    // Neither stream may close the shared log before the other has drained.
+    child.stdout.pipe(out, { end: false });
+    child.stderr.pipe(out, { end: false });
     child.on("close", (code) => {
-      out.end();
-      resolve({ code, logPath, durationMs: Date.now() - startedAt });
+      // The final stderr summary must be on disk before the caller reads it.
+      out.end(() => {
+        resolve({ code, logPath, durationMs: Date.now() - startedAt });
+      });
     });
   });
 }
@@ -241,7 +248,7 @@ function extractVerificationOutcome(logText) {
 // Pattern-match common deploy failures and return a one-line remediation
 // hint to append to the Discord :x: post. Saves the operator a runbook
 // lookup at 3am. Returns null if nothing matched — the failure embed
-// will just show the log tail.
+// will just show the extracted failure diagnostics.
 function suggestRemediation(logText) {
   // /home/servicehub perm drift — npm cache or dotfile EACCES.
   if (
@@ -507,11 +514,12 @@ const server = http.createServer((req, res) => {
         `:white_check_mark: Deploy \`${sha.slice(0, 7)}\` succeeded in ${fmtDuration(durationMs)}.\nVerification: \`${verification}\``,
       );
     } else {
-      const tail = logText.split("\n").slice(-20).join("\n");
       const hint = suggestRemediation(logText);
-      const hintLine = hint ? `\n:wrench: ${hint}` : "";
       await notifyDiscord(
-        `:x: Deploy \`${sha.slice(0, 7)}\` FAILED (exit ${code}) after ${fmtDuration(durationMs)}.\nVerification: \`${verification}\`\nLast 20 lines:\n\`\`\`\n${tail.slice(-1400)}\n\`\`\`${hintLine}`,
+        formatFailureNotice({
+          sha: sha.slice(0, 7), code, duration: fmtDuration(durationMs),
+          verification, hint, logText, logId: deliveryId,
+        }),
       );
     }
   });
