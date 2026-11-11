@@ -16,6 +16,11 @@ const w = window as unknown as GlobalShim;
 g.window = window;
 g.document = window.document;
 g.navigator = window.navigator;
+g.location = window.location;
+g.history = window.history;
+g.addEventListener = window.addEventListener.bind(window);
+g.removeEventListener = window.removeEventListener.bind(window);
+g.dispatchEvent = window.dispatchEvent.bind(window);
 g.getComputedStyle = window.getComputedStyle.bind(window);
 
 const BROWSER_GLOBALS = [
@@ -121,7 +126,7 @@ interface MountResult {
   cleanup: () => void;
 }
 
-async function mountComposer(opts: { isAdmin?: boolean } = {}): Promise<MountResult> {
+async function mountComposer(opts: { isAdmin?: boolean; downloads?: { id: string; title: string; description: string; downloaderCode: string }[]; downloadsError?: boolean } = {}): Promise<MountResult> {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const handleRef: { current: ChatComposerHandle | null } = { current: null };
@@ -171,6 +176,13 @@ async function mountComposer(opts: { isAdmin?: boolean } = {}): Promise<MountRes
     );
   };
 
+  queryClient.setQueryDefaults(["/api/downloads"], {
+    queryFn: async () => {
+      if (opts.downloadsError) throw new Error("Downloads unavailable");
+      return opts.downloads ?? [];
+    },
+  });
+
   const root = createRoot(container);
   await act(async () => {
     root.render(React.createElement(Wrapper));
@@ -190,6 +202,7 @@ async function mountComposer(opts: { isAdmin?: boolean } = {}): Promise<MountRes
     },
     cleanup: () => {
       act(() => root.unmount());
+      queryClient.clear();
       container.remove();
     },
   };
@@ -256,6 +269,97 @@ test("ChatComposer.clear() empties the textarea (placeholder-confirm 'Send anywa
     assert.equal(ta.value, "", "textarea is cleared after handle.clear()");
   } finally {
     h.cleanup();
+  }
+});
+
+for (const isAdmin of [false, true]) {
+  test(`download picker preserves the draft and sends a deep link only after Send (${isAdmin ? "admin" : "customer"})`, async () => {
+    const h = await mountComposer({
+      isAdmin,
+      downloads: [
+        { id: "download-one", title: "Cowboy Player", description: "Android app", downloaderCode: "12345" },
+        { id: "download-two", title: "Setup guide", description: "Instructions", downloaderCode: "67890" },
+      ],
+    });
+    try {
+      await typeIntoTextarea(h.textarea(), "Please install this:");
+      await openAttachMenu(h.container);
+      const menuItem = findByTestId(document.body, "button-link-download") as HTMLElement;
+      assert.ok(menuItem);
+      await act(async () => menuItem.click());
+      await flushFrames();
+      const picker = findByTestId(document.body, "download-picker-dialog");
+      assert.ok(picker, "picker stays open after menu focus handoff");
+      const search = findByTestId(picker, "download-picker-search") as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(search, "12345");
+        search.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      assert.ok(findByTestId(document.body, "download-picker-item-download-one"));
+      assert.equal(findByTestId(document.body, "download-picker-item-download-two"), null);
+      await act(async () => (findByTestId(document.body, "download-picker-item-download-one") as HTMLElement).click());
+      await flushFrames();
+      assert.equal(findByTestId(document.body, "download-picker-dialog"), null);
+      assert.equal(h.textarea().value, "Please install this:\n\nDownload: Cowboy Player\n/downloads?download=download-one");
+      assert.equal(h.sendCalls.length, 0, "selecting never auto-sends");
+      await act(async () => (findByTestId(h.container, "button-send-message") as HTMLElement).click());
+      assert.equal(h.sendCalls.length, 1);
+      assert.match(h.sendCalls[0].text, /\/downloads\?download=download-one/);
+      assert.equal(h.sendCalls[0].file, null);
+    } finally { h.cleanup(); }
+  });
+}
+
+test("download picker distinguishes failed catalogue loading from no available downloads", async () => {
+  for (const downloadsError of [true, false]) {
+    const h = await mountComposer({ downloadsError });
+    try {
+      await openAttachMenu(h.container);
+      await act(async () => (findByTestId(document.body, "button-link-download") as HTMLElement).click());
+      await flushFrames();
+      assert.equal(!!findByTestId(document.body, "download-picker-retry"), downloadsError);
+      assert.equal(!!findByTestId(document.body, "download-picker-empty"), !downloadsError);
+    } finally { h.cleanup(); }
+  }
+});
+
+test("download deep links open the exact item, copy shareable links, and handle removed items", async () => {
+  const { default: DownloadsPage } = await import("../client/src/pages/downloads-page");
+  const rows = [
+    { id: "first", title: "First app", description: "First", downloaderCode: "111", downloadUrl: "https://example.test/first.apk" },
+    { id: "second", title: "Second app", description: "Second", downloaderCode: "222", downloadUrl: "https://example.test/second.apk" },
+  ];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: Infinity, queryFn: async () => rows } } });
+  client.setQueryData(["/api/downloads"], rows);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let copiedLink = "";
+  const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
+  Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copiedLink = text; } } });
+  try {
+    window.history.replaceState({}, "", "/downloads?download=second");
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(DownloadsPage))));
+    await flushFrames();
+    assert.equal(findByTestId(document.body, "text-dialog-download-title")?.textContent, "Second app");
+    assert.equal(findByTestId(document.body, "text-downloader-code")?.textContent, "222");
+    await act(async () => (findByTestId(document.body, "button-copy-download-link") as HTMLElement).click());
+    assert.equal(copiedLink, "http://localhost/downloads?download=second");
+    await act(async () => (findByTestId(document.body, "button-close-download") as HTMLElement).click());
+    await flushFrames();
+    assert.equal(window.location.search, "");
+    assert.equal(findByTestId(document.body, "dialog-download-detail"), null);
+    await act(async () => { window.history.pushState({}, "", "/downloads?download=removed"); });
+    await flushFrames();
+    assert.ok(findByTestId(document.body, "download-link-unavailable"));
+    assert.equal(findByTestId(document.body, "dialog-download-detail"), null);
+    assert.ok(findByTestId(container, "card-download-first"));
+  } finally {
+    act(() => root.unmount());
+    client.clear(); container.remove();
+    window.history.replaceState({}, "", "/");
+    if (originalClipboard) Object.defineProperty(window.navigator, "clipboard", originalClipboard);
+    else Reflect.deleteProperty(window.navigator, "clipboard");
   }
 });
 

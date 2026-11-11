@@ -1,10 +1,12 @@
 import { PageHeader } from "@/components/page-header";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useSearch } from "wouter";
+import { downloadLinkPath } from "@/lib/download-links";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Download, ExternalLink, FileDown, Copy, Check, ChevronRight } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Download, ExternalLink, FileDown, Copy, Check, ChevronRight, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { Download as DownloadType } from "@shared/schema";
@@ -19,12 +21,27 @@ function SectionIcon({ icon: Icon, tone }: { icon: any; tone: string }) {
 
 export default function DownloadsPage() {
   const { toast } = useToast();
-  const [selectedDownload, setSelectedDownload] = useState<DownloadType | null>(null);
+  const [, setLocation] = useLocation();
+  const search = useSearch();
+  const selectedId = new URLSearchParams(search).get("download");
   const [copied, setCopied] = useState(false);
 
   const { data: downloads, isLoading, isError, error, refetch, isFetching } = useQuery<DownloadType[]>({
     queryKey: ["/api/downloads"],
   });
+  const selectedDownload = downloads?.find(download => download.id === selectedId) ?? null;
+  const closeDownload = () => setLocation("/downloads", { replace: true });
+  useEffect(() => { setCopied(false); }, [selectedId]);
+
+  const handleCopyLink = async () => {
+    if (!selectedDownload) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${downloadLinkPath(selectedDownload.id)}`);
+      toast({ title: "Download link copied", description: "Paste this link into a support message." });
+    } catch {
+      toast({ title: "Couldn't copy the download link", description: "Copy the page address from your browser instead.", variant: "destructive" });
+    }
+  };
 
   const handleCopyCode = async (code: string) => {
     try {
@@ -40,6 +57,13 @@ export default function DownloadsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Downloads" subtitle="Browse available downloads" testId="text-downloads-title" />
+      {selectedId && !isLoading && !isError && !selectedDownload && (
+        <div role="alert" className="rounded-xl border border-border bg-card p-4 space-y-2" data-testid="download-link-unavailable">
+          <p className="text-sm font-medium">This download is no longer available.</p>
+          <p className="text-sm text-muted-foreground">It may have been removed. You can browse the available downloads below or ask support for an alternative.</p>
+          <Button variant="outline" onClick={closeDownload}>View all downloads</Button>
+        </div>
+      )}
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -85,7 +109,7 @@ export default function DownloadsPage() {
               <li key={dl.id} className="stagger-item">
                 <div
                   className="flex items-center gap-4 px-5 py-4 hover-elevate tap-interactive cursor-pointer"
-                  onClick={() => { setSelectedDownload(dl); setCopied(false); }}
+                  onClick={() => setLocation(downloadLinkPath(dl.id))}
                   data-testid={`card-download-${dl.id}`}
                 >
                   {dl.imageUrl ? (
@@ -107,8 +131,8 @@ export default function DownloadsPage() {
         )}
       </section>
 
-      <Dialog open={!!selectedDownload} onOpenChange={(open) => { if (!open) setSelectedDownload(null); }}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md" data-testid="dialog-download-detail">
+      <Dialog open={!!selectedDownload} onOpenChange={(open) => { if (!open) closeDownload(); }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto" data-testid="dialog-download-detail">
           {selectedDownload && (
             <>
               <DialogHeader>
@@ -124,7 +148,7 @@ export default function DownloadsPage() {
                 </div>
               </DialogHeader>
               <div className="space-y-4">
-                <p className="text-sm text-foreground" data-testid="text-dialog-download-desc">{selectedDownload.description}</p>
+                <DialogDescription className="text-sm text-foreground" data-testid="text-dialog-download-desc">{selectedDownload.description}</DialogDescription>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Downloader Code</label>
@@ -155,8 +179,17 @@ export default function DownloadsPage() {
                 </Button>
                 <Button
                   variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleCopyLink}
+                  data-testid="button-copy-download-link"
+                >
+                  <Link2 className="w-4 h-4" />
+                  Copy link to this download
+                </Button>
+                <Button
+                  variant="outline"
                   className="w-full"
-                  onClick={() => setSelectedDownload(null)}
+                  onClick={closeDownload}
                   data-testid="button-close-download"
                 >
                   Close

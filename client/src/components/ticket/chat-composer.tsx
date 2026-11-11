@@ -6,9 +6,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Plus, Zap } from "lucide-react";
+import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Plus, Zap, Download } from "lucide-react";
 import { QuickResponsePicker } from "@/components/quick-response-picker";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { DownloadPickerDialog } from "@/components/download-picker-dialog";
+import { appendDownloadLink } from "@/lib/download-links";
 import { apiRequest } from "@/lib/queryClient";
 import { handleSendButtonOnlyComposerKeyDown } from "@/lib/chat-composer-keyboard";
 import { useToast } from "@/hooks/use-toast";
@@ -107,6 +109,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
+  const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
   const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
   const [qrPickerOpen, setQrPickerOpen] = useState(false);
   const [aiSuggestCollapsed, setAiSuggestCollapsed] = useState(false);
@@ -121,6 +124,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   // onCloseAutoFocus so the popover opens only after the menu has fully
   // closed (a bare setTimeout races the menu's focus restore).
   const pendingQrOpenRef = useRef(false);
+  const pendingDownloadOpenRef = useRef(false);
 
   // Reset on ticket change
   useEffect(() => {
@@ -128,6 +132,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     setImageFile(null);
     setKbArticle(null);
     setKbPickerOpen(false);
+    setDownloadPickerOpen(false);
+    pendingDownloadOpenRef.current = false;
     setQrPickerOpen(false);
     setComposerMode("reply");
     setAiSuggestCollapsed(false);
@@ -480,6 +486,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 align="start"
                 side="top"
                 onCloseAutoFocus={(e) => {
+                  if (pendingDownloadOpenRef.current) {
+                    pendingDownloadOpenRef.current = false;
+                    e.preventDefault();
+                    setDownloadPickerOpen(true);
+                    return;
+                  }
                   if (pendingQrOpenRef.current) {
                     pendingQrOpenRef.current = false;
                     // Keep focus off the trigger so the popover isn't
@@ -506,6 +518,13 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Link a KB article
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => { pendingDownloadOpenRef.current = true; }}
+                  data-testid="button-link-download"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Link a download
                 </DropdownMenuItem>
                 {isAdmin && userId && (
                   <DropdownMenuItem
@@ -740,6 +759,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         open={kbPickerOpen}
         onOpenChange={setKbPickerOpen}
         onSelect={(article) => { setKbArticle(article); setKbPickerOpen(false); }}
+      />
+      <DownloadPickerDialog
+        open={downloadPickerOpen}
+        onOpenChange={setDownloadPickerOpen}
+        onSelect={(download) => {
+          setMessage(draft => appendDownloadLink(draft, download));
+          setDownloadPickerOpen(false);
+        }}
       />
     </div>
   );
