@@ -20,6 +20,7 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-v2/CommandCenter.tsx": () => import("../components/mockups/dashboard-v2/CommandCenter.tsx"),
   "./components/mockups/dashboard-v2/HeroStack.tsx": () => import("../components/mockups/dashboard-v2/HeroStack.tsx"),
   "./components/mockups/dashboard-v2/HeroStackAllClear.tsx": () => import("../components/mockups/dashboard-v2/HeroStackAllClear.tsx"),
+  "./components/mockups/dashboard-v2/OrbitConsole.tsx": () => import("../components/mockups/dashboard-v2/OrbitConsole.tsx"),
   "./components/mockups/dashboard-v2/SplitPanels.tsx": () => import("../components/mockups/dashboard-v2/SplitPanels.tsx"),
   "./components/mockups/dashboard-v2/StatusBoard.tsx": () => import("../components/mockups/dashboard-v2/StatusBoard.tsx"),
   "./components/mockups/new-logo/LoginScreen.tsx": () => import("../components/mockups/new-logo/LoginScreen.tsx"),

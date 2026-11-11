@@ -3,6 +3,12 @@ name: Mobile UI expectations
 description: User expectations for phone orientation and support-ticket presentation
 ---
 
+The user says, "Everyone uses the app in mobile form," and wants to see dashboard designs in mobile layout.
+
+**Why:** Phone use is the primary customer experience, not a secondary responsive variation.
+
+**How to apply:** Prioritize phone layouts and show dashboard proposals at phone size first.
+
 Support-ticket messaging should feel smoother and visually cleaner, especially pictures/videos, sent/read status, Delete for everyone, and long links. The user described the current conversation as “old and messy.”
 
 **Why:** The user explicitly requested improvements to these parts of the ticket experience, not just another color/theme change.
