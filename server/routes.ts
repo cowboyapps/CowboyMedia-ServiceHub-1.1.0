@@ -7902,6 +7902,13 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         }, admin.fullName, htmlFields);
       }
     }
+  }, async ({ ticket, customer, channel, title, body, url }) => {
+    if (channel === "push") {
+      // No notification metadata: the reminder sweep independently honours the in-app preference.
+      await sendPushToUser(customer.id, { title, body, url, tag: `ticket-inactivity-${ticket.id}` });
+    } else if (customer.email) {
+      await sendEmail(customer.email, title, `<p>${escapeHtml(body)}</p><p>Open the app and reply to your ticket if you still need help.</p>`);
+    }
   });
 
   // ===== Announcements =====

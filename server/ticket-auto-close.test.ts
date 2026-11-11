@@ -8,7 +8,7 @@ import express from "express";
 import type { Server } from "node:http";
 import * as schema from "@shared/schema";
 import { db as mainDb, pool as mainPool } from "./db";
-import { closeInactiveTickets, createTicketAutoCloseHandlers, getTicketAutoCloseSettings } from "./ticket-auto-close";
+import { closeInactiveTickets, createTicketAutoCloseHandlers, getTicketAutoCloseSettings, remindInactiveTickets } from "./ticket-auto-close";
 import { createRequireAdmin } from "./require-permission";
 import { automatedClosureMessage, ticketAutoCloseSettingsSchema, DEFAULT_TICKET_AUTO_CLOSE_MESSAGE } from "@shared/ticket-auto-close";
 
@@ -22,7 +22,7 @@ const old = () => new Date(Date.now() - 8 * 86400000);
 before(async () => {
   // A separate schema prevents tests enabling automatic closure on real development tickets.
   await mainPool.query(`CREATE SCHEMA "${namespace}"`);
-  for (const table of ["users", "tickets", "ticket_messages", "app_settings", "admin_activity_logs", "ticket_notifications"]) {
+  for (const table of ["users", "tickets", "ticket_messages", "app_settings", "admin_activity_logs", "ticket_notifications", "user_notifications"]) {
     await mainPool.query(`CREATE TABLE "${namespace}"."${table}" (LIKE public."${table}" INCLUDING ALL)`);
   }
   pool = new Pool({ connectionString: process.env.DATABASE_URL, options: `-c search_path=${namespace},public`, max: 5 });
@@ -66,7 +66,7 @@ async function messages(id: string) {
 }
 
 test("policy defaults are safe; settings routes enforce admin roles and validate days/messages", async () => {
-  assert.deepEqual(await getTicketAutoCloseSettings(db), { enabled: false, days: 7, message: DEFAULT_TICKET_AUTO_CLOSE_MESSAGE });
+  assert.deepEqual(await getTicketAutoCloseSettings(db), { enabled: false, days: 7, message: DEFAULT_TICKET_AUTO_CLOSE_MESSAGE, reminderEnabled: false, reminderHoursBefore: 12 });
   for (const [role, status] of [["", 401], ["customer", 403], ["admin", 200], ["master_admin", 200]] as const) {
     const response = await fetch(url, { headers: { "x-test-role": role } });
     assert.equal(response.status, status);
@@ -79,7 +79,7 @@ test("policy defaults are safe; settings routes enforce admin roles and validate
   assert.equal(ticketAutoCloseSettingsSchema.safeParse({ enabled: true, days: 7, message: "a".repeat(2001) }).success, false);
   const response = await fetch(url, { method: "PATCH", headers: { "x-test-role": "admin", "content-type": "application/json" }, body: JSON.stringify({ enabled: false, days: 2, message: "Custom closure" }) });
   assert.equal(response.status, 200);
-  assert.deepEqual(await getTicketAutoCloseSettings(db), { enabled: false, days: 2, message: "Custom closure" });
+  assert.deepEqual(await getTicketAutoCloseSettings(db), { enabled: false, days: 2, message: "Custom closure", reminderEnabled: false, reminderHoursBefore: 12 });
   const logs = await db.select().from(schema.adminActivityLogs).where(eq(schema.adminActivityLogs.action, "ticket_auto_close_settings_updated"));
   assert.equal(logs.length, 1);
   assert.equal(logs[0].actorId, "admin");
@@ -180,4 +180,148 @@ test("audit failure rolls back closure and its message; reopening starts a fresh
 test("automated label is always present once and body remains plain text", () => {
   assert.equal(automatedClosureMessage("Automated Message: Custom"), "Automated Message: Custom");
   assert.equal(automatedClosureMessage("<script>text</script>"), "Automated Message: <script>text</script>");
+});
+
+async function reminderPolicy(enabled = true, hours = 12) {
+  await policy(true, 7);
+  await db.update(schema.appSettings).set({
+    ticketAutoCloseReminderEnabled: enabled, ticketAutoCloseReminderHoursBefore: hours,
+  });
+}
+async function reminderTicket(hoursUntilClose = 6, prefs: schema.User["notificationPrefs"] = {}) {
+  const [customer] = await db.insert(schema.users).values({
+    username: `reminder-${randomUUID()}`, password: "test-only", fullName: "Reminder customer",
+    email: "reminder@example.invalid", notificationPrefs: prefs,
+  }).returning();
+  const row = await ticket(new Date(Date.now() - (7 * 24 - hoursUntilClose) * 3600000));
+  await db.update(schema.tickets).set({ customerId: customer.id }).where(eq(schema.tickets.id, row.id));
+  return { ...row, customerId: customer.id };
+}
+
+test("reminder settings require explicit consent and strictly validate the lead time within the inactivity period", async () => {
+  for (const hours of [0, -1, 1.5, 24, 25, "12"]) {
+    const response = await fetch(url, { method: "PATCH", headers: { "x-test-role": "admin", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true, days: 1, message: "Close", reminderEnabled: true, reminderHoursBefore: hours }) });
+    assert.equal(response.status, 400);
+  }
+  const response = await fetch(url, { method: "PATCH", headers: { "x-test-role": "admin", "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false, days: 1, message: "Close", reminderEnabled: true, reminderHoursBefore: 1 }) });
+  assert.equal(response.status, 200);
+  assert.equal((await getTicketAutoCloseSettings(db)).reminderEnabled, true);
+  // A legacy request cannot accidentally opt customers into reminders.
+  const legacy = ticketAutoCloseSettingsSchema.parse({ enabled: true, days: 1, message: "Close" });
+  assert.equal(legacy.reminderEnabled, false);
+});
+
+test("reminders are disabled by default, respect both switches, window and ticket status", async () => {
+  const row = await reminderTicket();
+  let sent = 0;
+  const send = async () => { sent++; };
+  await reminderPolicy(false);
+  assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+  await reminderPolicy();
+  await policy(false);
+  assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+  await policy();
+  for (const hours of [13, 0, -1]) {
+    const outside = await reminderTicket(hours);
+    assert.equal(await remindInactiveTickets(send, outside.id, db), 0);
+  }
+  await db.update(schema.tickets).set({ status: "closed" }).where(eq(schema.tickets.id, row.id));
+  assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+  assert.equal(sent, 0);
+});
+
+test("concurrent and repeated sweeps claim each channel once without restarting the closure clock", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  const channels: string[] = [];
+  const send = async (reminder: Parameters<Parameters<typeof remindInactiveTickets>[0]>[0]) => {
+    channels.push(reminder.channel);
+    assert.equal(reminder.closesAt.getTime(), row.lastCommunicationAt.getTime() + 7 * 86400000);
+    assert.match(reminder.body, /Reply before then/);
+    assert.equal(reminder.url, `/tickets/${row.id}`);
+  };
+  await Promise.all([remindInactiveTickets(send, row.id, db), remindInactiveTickets(send, row.id, db)]);
+  assert.deepEqual(channels.sort(), ["email", "push"]);
+  assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+  const bell = await db.select().from(schema.userNotifications).where(eq(schema.userNotifications.referenceId, row.id));
+  assert.equal(bell.length, 1);
+  assert.equal((await messages(row.id)).length, 0);
+  assert.equal((await state(row.id)).lastCommunicationAt.getTime(), row.lastCommunicationAt.getTime());
+});
+
+test("customer channel preferences are independent and push/email do not create an unwanted bell", async () => {
+  await reminderPolicy();
+  for (const selected of ["in_app", "push", "email", "none"] as const) {
+    const row = await reminderTicket(6, { ticket_reply: { in_app: selected === "in_app", push: selected === "push", email: selected === "email" } });
+    const channels: string[] = [];
+    await remindInactiveTickets(async reminder => { channels.push(reminder.channel); }, row.id, db);
+    assert.deepEqual(channels, selected === "push" || selected === "email" ? [selected] : []);
+    const bell = await db.select().from(schema.userNotifications).where(eq(schema.userNotifications.referenceId, row.id));
+    assert.equal(bell.length, selected === "in_app" ? 1 : 0);
+  }
+});
+
+test("quiet hours defer external channels without duplicating the passive in-app reminder", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  const now = new Date();
+  const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const hhmm = (n: number) => `${String(Math.floor((n + 1440) % 1440 / 60)).padStart(2, "0")}:${String((n + 1440) % 60).padStart(2, "0")}`;
+  await db.update(schema.users).set({ quietHoursEnabled: true, quietHoursStart: hhmm(minute - 60), quietHoursEnd: hhmm(minute + 60), quietHoursTimezone: "UTC" }).where(eq(schema.users.id, row.customerId));
+  const channels: string[] = [];
+  const send = async (r: Parameters<Parameters<typeof remindInactiveTickets>[0]>[0]) => { channels.push(r.channel); };
+  assert.equal(await remindInactiveTickets(send, row.id, db), 1);
+  assert.deepEqual(channels, []);
+  assert.equal((await state(row.id)).inactivityReminderPushActivity, null);
+  await db.update(schema.users).set({ quietHoursEnabled: false }).where(eq(schema.users.id, row.customerId));
+  assert.equal(await remindInactiveTickets(send, row.id, db), 2);
+  assert.deepEqual(channels.sort(), ["email", "push"]);
+  assert.equal((await db.select().from(schema.userNotifications).where(eq(schema.userNotifications.referenceId, row.id))).length, 1);
+  const overdue = await reminderTicket(-1);
+  assert.equal(await remindInactiveTickets(send, overdue.id, db), 0);
+});
+
+test("public replies and attachments reset eligibility, but notes and edits do not", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  let sent = 0;
+  const send = async () => { sent++; };
+  await remindInactiveTickets(send, row.id, db);
+  await db.insert(schema.ticketMessages).values({ ticketId: row.id, senderId: randomUUID(), message: "Private note", isInternal: true });
+  assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+  for (const attachment of [false, true]) {
+    const [reply] = await db.insert(schema.ticketMessages).values({ ticketId: row.id, senderId: randomUUID(), message: attachment ? "" : "Still need help", imageUrl: attachment ? "/uploads/example.png" : null }).returning();
+    assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+    // Simulate this new public-activity cycle reaching its reminder window.
+    await db.update(schema.tickets).set({ lastCommunicationAt: new Date(row.lastCommunicationAt.getTime() + (attachment ? 2000 : 1000)) }).where(eq(schema.tickets.id, row.id));
+    assert.equal(await remindInactiveTickets(send, row.id, db), 3);
+    await db.update(schema.ticketMessages).set({ message: "Edited", editedAt: new Date(), readAt: new Date() }).where(eq(schema.ticketMessages.id, reply.id));
+    assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+  }
+  assert.equal(sent, 6);
+});
+
+test("a reply winning the ticket lock skips a reminder; failed delivery attempts are not duplicated", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  let release!: () => void;
+  let locked!: () => void;
+  const ready = new Promise<void>(resolve => { locked = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const sending = db.transaction(async tx => {
+    await tx.select().from(schema.tickets).where(eq(schema.tickets.id, row.id)).for("update");
+    await tx.insert(schema.ticketMessages).values({ ticketId: row.id, senderId: randomUUID(), message: "A reply arrived" });
+    locked(); await gate;
+  });
+  await ready;
+  try { assert.equal(await remindInactiveTickets(async () => assert.fail("Stale reminder"), row.id, db), 0); }
+  finally { release(); await sending; }
+  const failing = await reminderTicket();
+  let attempts = 0;
+  await remindInactiveTickets(async () => { attempts++; throw new Error("Test provider failure"); }, failing.id, db);
+  assert.equal(attempts, 2);
+  assert.equal(await remindInactiveTickets(async () => { attempts++; }, failing.id, db), 0);
+  assert.equal(attempts, 2);
 });

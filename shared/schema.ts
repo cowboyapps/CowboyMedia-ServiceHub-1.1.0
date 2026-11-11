@@ -155,6 +155,9 @@ export const tickets = pgTable("tickets", {
   closedBy: varchar("closed_by"),
   closureReason: text("closure_reason"),
   lastCommunicationAt: timestamp("last_communication_at").defaultNow().notNull(),
+  inactivityReminderInAppActivity: timestamp("inactivity_reminder_in_app_activity"),
+  inactivityReminderPushActivity: timestamp("inactivity_reminder_push_activity"),
+  inactivityReminderEmailActivity: timestamp("inactivity_reminder_email_activity"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
 }, (table) => ({
@@ -433,7 +436,10 @@ export const insertPromotionSchema = createInsertSchema(promotions)
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date().nullable().optional(),
   });
-export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, closedAt: true, lastCommunicationAt: true });
+export const insertTicketSchema = createInsertSchema(tickets).omit({
+  id: true, createdAt: true, closedAt: true, lastCommunicationAt: true,
+  inactivityReminderInAppActivity: true, inactivityReminderPushActivity: true, inactivityReminderEmailActivity: true,
+});
 export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({ id: true, createdAt: true, editedAt: true });
 export const insertPrivateMessageSchema = createInsertSchema(privateMessages).omit({ id: true, createdAt: true, readAt: true });
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({ id: true, createdAt: true, readAt: true });
@@ -1280,6 +1286,8 @@ export const appSettings = pgTable("app_settings", {
   ticketAutoCloseEnabled: boolean("ticket_auto_close_enabled").notNull().default(false),
   ticketAutoCloseDays: integer("ticket_auto_close_days").notNull().default(7),
   ticketAutoCloseMessage: text("ticket_auto_close_message").notNull().default("Ticket closed due to inactivity - You may open a new ticket should the need arise."),
+  ticketAutoCloseReminderEnabled: boolean("ticket_auto_close_reminder_enabled").notNull().default(false),
+  ticketAutoCloseReminderHoursBefore: integer("ticket_auto_close_reminder_hours_before").notNull().default(12),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

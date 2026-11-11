@@ -86,7 +86,7 @@ test("admin form loads defaults, shows permanent automated label, validates days
   assert.equal(patches.length, 0);
   assert.match(document.body.textContent!, /existing open tickets/i);
   await click('[data-testid="button-confirm-ticket-auto-close"]');
-  assert.deepEqual(patches, [{ enabled: true, days: 3, message: "Please start a new ticket if you need help." }]);
+  assert.deepEqual(patches, [{ enabled: true, days: 3, message: "Please start a new ticket if you need help.", reminderEnabled: false, reminderHoursBefore: 12 }]);
 });
 
 test("failed save preserves the admin's edited message", async () => {
@@ -97,4 +97,37 @@ test("failed save preserves the admin's edited message", async () => {
   assert.equal((document.querySelector("#ticket-auto-close-message") as HTMLTextAreaElement).value, "Keep this draft");
   assert.match(document.body.textContent!, /weren.t saved/);
   assert.equal(patches.length, 1);
+});
+
+test("reminders stay off until selected, validate within the period, and require policy confirmation", async () => {
+  await mount();
+  assert.equal(document.querySelector("#ticket-auto-close-reminder-enabled")?.getAttribute("aria-checked"), "false");
+  assert.equal(document.querySelector("#ticket-auto-close-reminder-hours"), null);
+  await click("#ticket-auto-close-reminder-enabled");
+  await fill("#ticket-auto-close-days", "1");
+  for (const invalid of ["0", "1.5", "24"]) {
+    await fill("#ticket-auto-close-reminder-hours", invalid);
+    assert.equal((document.querySelector(save) as HTMLButtonElement).disabled, true);
+  }
+  await fill("#ticket-auto-close-reminder-hours", "6");
+  await click('[data-testid="switch-ticket-auto-close-enabled"]');
+  await click(save);
+  assert.equal(patches.length, 0);
+  assert.match(document.body.textContent!, /6 hours before closure/);
+  await click('[data-testid="button-confirm-ticket-auto-close"]');
+  assert.equal(patches[0].reminderEnabled, true);
+  assert.equal(patches[0].reminderHoursBefore, 6);
+  assert.equal((document.querySelector(save) as HTMLButtonElement).disabled, true);
+});
+
+test("turning reminders off can save even after entering an invalid hidden lead time", async () => {
+  await mount();
+  await click("#ticket-auto-close-reminder-enabled");
+  await fill("#ticket-auto-close-reminder-hours", "0");
+  await click("#ticket-auto-close-reminder-enabled");
+  await fill("#ticket-auto-close-message", "Save without reminders");
+  await click(save);
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0].reminderEnabled, false);
+  assert.equal(patches[0].reminderHoursBefore, 12);
 });

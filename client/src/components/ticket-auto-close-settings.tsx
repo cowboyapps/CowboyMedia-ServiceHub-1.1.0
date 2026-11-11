@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS: TicketAutoCloseSettings = {
   enabled: false,
   days: 7,
   message: DEFAULT_TICKET_AUTO_CLOSE_MESSAGE,
+  reminderEnabled: false,
+  reminderHoursBefore: 12,
 };
 
 export function TicketAutoCloseSettingsPanel() {
@@ -28,6 +30,8 @@ export function TicketAutoCloseSettingsPanel() {
   const [enabled, setEnabled] = useState(DEFAULT_SETTINGS.enabled);
   const [days, setDays] = useState(String(DEFAULT_SETTINGS.days));
   const [message, setMessage] = useState(DEFAULT_SETTINGS.message);
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderHoursBefore, setReminderHoursBefore] = useState("12");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const pendingSaveRef = useRef<TicketAutoCloseSettings | null>(null);
   const initializedRef = useRef(false);
@@ -50,6 +54,8 @@ export function TicketAutoCloseSettingsPanel() {
       setEnabled(settingsQuery.data.enabled);
       setDays(String(settingsQuery.data.days));
       setMessage(settingsQuery.data.message);
+      setReminderEnabled(settingsQuery.data.reminderEnabled);
+      setReminderHoursBefore(String(settingsQuery.data.reminderHoursBefore));
       initializedRef.current = true;
     }
   }, [settingsQuery.data]);
@@ -68,6 +74,8 @@ export function TicketAutoCloseSettingsPanel() {
       setEnabled(saved.enabled);
       setDays(String(saved.days));
       setMessage(saved.message);
+      setReminderEnabled(saved.reminderEnabled);
+      setReminderHoursBefore(String(saved.reminderHoursBefore));
       queryClient.setQueryData(SETTINGS_QUERY_KEY, saved);
       toast({ title: "Ticket auto-close settings saved" });
     },
@@ -85,22 +93,31 @@ export function TicketAutoCloseSettingsPanel() {
   });
 
   const parsedDays = days.trim() === "" ? NaN : Number(days);
+  const parsedReminderHours = reminderHoursBefore.trim() === "" ? NaN : Number(reminderHoursBefore);
   const payloadResult = ticketAutoCloseSettingsSchema.safeParse({
     enabled,
     days: parsedDays,
     message,
+    reminderEnabled,
+    reminderHoursBefore: !reminderEnabled && (!Number.isInteger(parsedReminderHours) || parsedReminderHours < 1 || parsedReminderHours > 8759)
+      ? DEFAULT_SETTINGS.reminderHoursBefore : parsedReminderHours,
   });
   const currentPayload = payloadResult.success ? payloadResult.data : null;
   const savedSettings = settingsQuery.data;
   const isDirty = !!currentPayload && !!savedSettings && (
     currentPayload.enabled !== savedSettings.enabled ||
     currentPayload.days !== savedSettings.days ||
-    currentPayload.message !== savedSettings.message
+    currentPayload.message !== savedSettings.message ||
+    currentPayload.reminderEnabled !== savedSettings.reminderEnabled ||
+    currentPayload.reminderHoursBefore !== savedSettings.reminderHoursBefore
   );
   const isLoading = settingsQuery.isLoading;
   const isLocked = isLoading || settingsQuery.isError || saveMutation.isPending || confirmOpen;
   const hasInvalidDays = !Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 365;
   const hasInvalidMessage = !message.trim() || message.length > 2000;
+  const hasInvalidReminder = !Number.isInteger(Number(reminderHoursBefore)) ||
+    Number(reminderHoursBefore) < 1 || Number(reminderHoursBefore) > 8759 ||
+    (reminderEnabled && Number(reminderHoursBefore) >= parsedDays * 24);
   const canSave = !!savedSettings && !!currentPayload && isDirty && !isLocked;
 
   const submitSave = () => {
@@ -200,6 +217,54 @@ export function TicketAutoCloseSettingsPanel() {
               )}
             </div>
 
+            <div className="space-y-4 rounded-md border p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label htmlFor="ticket-auto-close-reminder-enabled">Send an advance reminder</Label>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Off by default. When inactivity closure is enabled, remind customers once per channel before their ticket closes.
+                  </p>
+                </div>
+                <Switch
+                  id="ticket-auto-close-reminder-enabled"
+                  checked={reminderEnabled}
+                  onCheckedChange={setReminderEnabled}
+                  disabled={isLocked}
+                  data-testid="switch-ticket-auto-close-reminder-enabled"
+                />
+              </div>
+              {reminderEnabled && (
+                <div className="space-y-2">
+                  <Label htmlFor="ticket-auto-close-reminder-hours">Remind before closure</Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      id="ticket-auto-close-reminder-hours"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={Number.isFinite(parsedDays) ? Math.max(1, parsedDays * 24 - 1) : 8759}
+                      step={1}
+                      value={reminderHoursBefore}
+                      onChange={event => setReminderHoursBefore(event.target.value)}
+                      disabled={isLocked}
+                      aria-invalid={hasInvalidReminder}
+                      aria-describedby="ticket-auto-close-reminder-help"
+                      className="w-28"
+                      data-testid="input-ticket-auto-close-reminder-hours"
+                    />
+                    <span className="text-sm text-muted-foreground">hours before closure</span>
+                  </div>
+                  <p id="ticket-auto-close-reminder-help" className="text-xs leading-relaxed text-muted-foreground">
+                    Choose at least 1 whole hour, shorter than the inactivity period. Uses the customer’s “Replies on your tickets” channel preferences.
+                    Email and push wait until quiet hours end, and are skipped if the ticket is already due to close.
+                    Public replies or attachments from either side restart reminder eligibility; reminders do not restart the closure timer.
+                  </p>
+                  {hasInvalidReminder && <p className="text-xs text-destructive" role="alert">Enter whole hours greater than 0 and less than the inactivity period.</p>}
+                  {!enabled && <p className="text-xs text-muted-foreground">No reminders will be sent while inactivity closure is disabled.</p>}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label htmlFor="ticket-auto-close-message">Customer message</Label>
@@ -291,7 +356,9 @@ export function TicketAutoCloseSettingsPanel() {
           <AlertDialogHeader>
             <AlertDialogTitle>Apply this policy to existing tickets?</AlertDialogTitle>
             <AlertDialogDescription>
-              This policy change will apply to all open tickets, not only new ones. Existing tickets that have already been inactive for the selected period may close within the next five minutes. Continue only if you’re ready to apply the change now.
+              This policy change will apply to all open tickets, not only new ones. Existing tickets that have already been inactive for the selected period may close within the next five minutes.
+              {pendingSaveRef.current?.reminderEnabled && ` Advance reminders will be sent ${pendingSaveRef.current.reminderHoursBefore} hours before closure, subject to customer preferences and quiet hours. Existing tickets already in the reminder window may be notified within five minutes.`}
+              {" "}Continue only if you’re ready to apply the change now.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
