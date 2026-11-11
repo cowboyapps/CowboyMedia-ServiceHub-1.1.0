@@ -236,3 +236,89 @@ test("admin alerts list renders a readable fallback for unknown statuses", async
     c.cleanup();
   }
 });
+
+function seedLatestPostAlert() {
+  queryClient.setQueryData(
+    ["/api/alerts", undefined],
+    legacyAlert({ createdAt: "2026-10-28T17:45:00Z" }),
+  );
+  queryClient.setQueryData(["/api/services"], SERVICES);
+}
+
+function alertUpdate(id: string, createdAt: string) {
+  return { id, alertId: "alert-1", status: "identified", message: `<p>${id}</p>`, imageUrl: null, createdAt };
+}
+
+test("Latest marks only the newest update by timestamp without rearranging the timeline", async () => {
+  seedLatestPostAlert();
+  queryClient.setQueryData(["/api/alerts", undefined, "updates"], [
+    alertUpdate("older", "2026-11-06T11:19:00Z"),
+    alertUpdate("newest", "2026-11-06T22:35:00Z"),
+    alertUpdate("middle", "2026-11-06T17:00:00Z"),
+  ]);
+  const c = await mount(React.createElement(AlertDetail));
+  try {
+    const pills = c.container.querySelectorAll('[data-testid="badge-alert-latest"]');
+    assert.equal(pills.length, 1);
+    assert.equal(pills[0].textContent, "Latest");
+    assert.ok(pills[0].classList.contains("text-status-online"), "pill is green");
+    assert.ok(byTestId(c.container, "alert-update-newest")?.contains(pills[0]));
+    assert.equal(byTestId(c.container, "text-alert-title")?.closest("section")?.querySelector('[data-testid="badge-alert-latest"]'), null);
+    assert.deepEqual(
+      [...c.container.querySelectorAll('li[data-testid^="alert-update-"]')].map(row => row.getAttribute("data-testid")),
+      ["alert-update-older", "alert-update-newest", "alert-update-middle"],
+    );
+    assert.ok(pills[0].parentElement?.classList.contains("flex-wrap"), "metadata can wrap on phones");
+  } finally { c.cleanup(); }
+});
+
+test("Latest moves to a newly received update and never duplicates", async () => {
+  seedLatestPostAlert();
+  const key = ["/api/alerts", undefined, "updates"];
+  const older = alertUpdate("older", "2026-11-06T11:19:00Z");
+  queryClient.setQueryData(key, [older]);
+  const c = await mount(React.createElement(AlertDetail));
+  try {
+    assert.ok(byTestId(c.container, "alert-update-older")?.querySelector('[data-testid="badge-alert-latest"]'));
+    await act(async () => {
+      queryClient.setQueryData(key, [alertUpdate("newest", "2026-11-06T22:35:00Z"), older]);
+    });
+    await flushFrames();
+    assert.equal(c.container.querySelectorAll('[data-testid="badge-alert-latest"]').length, 1);
+    assert.ok(byTestId(c.container, "alert-update-newest")?.querySelector('[data-testid="badge-alert-latest"]'));
+    assert.equal(byTestId(c.container, "alert-update-older")?.querySelector('[data-testid="badge-alert-latest"]'), null);
+  } finally { c.cleanup(); }
+});
+
+test("the original alert is Latest when a successful response confirms no updates", async () => {
+  seedLatestPostAlert();
+  queryClient.setQueryData(["/api/alerts", undefined, "updates"], []);
+  const c = await mount(React.createElement(AlertDetail));
+  try {
+    assert.equal(c.container.querySelectorAll('[data-testid="badge-alert-latest"]').length, 1);
+    assert.ok(byTestId(c.container, "text-alert-title")?.closest("section")?.querySelector('[data-testid="badge-alert-latest"]'));
+  } finally { c.cleanup(); }
+});
+
+test("loading or failed update requests do not incorrectly mark the original alert Latest", async () => {
+  seedLatestPostAlert();
+  const key = ["/api/alerts", undefined, "updates"];
+  const defaults = queryClient.getQueryDefaults(key);
+  queryClient.setQueryDefaults(key, { queryFn: () => new Promise(() => {}), retry: false });
+  const c = await mount(React.createElement(AlertDetail));
+  try {
+    assert.equal(c.container.querySelectorAll('[data-testid="badge-alert-latest"]').length, 0);
+    await act(async () => {
+      queryClient.getQueryCache().find({ queryKey: key, exact: true })!.setState({
+        status: "error",
+        fetchStatus: "idle",
+        error: new Error("Updates unavailable"),
+      });
+    });
+    await flushFrames();
+    assert.equal(c.container.querySelectorAll('[data-testid="badge-alert-latest"]').length, 0);
+  } finally {
+    c.cleanup();
+    queryClient.setQueryDefaults(key, defaults);
+  }
+});

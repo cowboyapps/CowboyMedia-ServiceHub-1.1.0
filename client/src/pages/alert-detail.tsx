@@ -40,6 +40,14 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
+function LatestPill() {
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-full bg-status-online/15 px-2.5 py-0.5 text-xs font-semibold text-status-online" data-testid="badge-alert-latest">
+      Latest
+    </span>
+  );
+}
+
 export default function AlertDetail() {
   const params = useParams<{ id: string }>();
 
@@ -48,9 +56,16 @@ export default function AlertDetail() {
   });
   useAnalyticsView("service_alert_viewed", !isError ? alert?.id : undefined);
 
-  const { data: updates, isLoading: updatesLoading } = useQuery<AlertUpdate[]>({
+  const { data: updates, isLoading: updatesLoading, isSuccess: updatesLoaded } = useQuery<AlertUpdate[]>({
     queryKey: ["/api/alerts", params.id, "updates"],
   });
+
+  const latestUpdate = updates?.reduce<AlertUpdate | undefined>(
+    (latest, update) => !latest || new Date(update.createdAt).getTime() > new Date(latest.createdAt).getTime()
+      ? update
+      : latest,
+    undefined,
+  );
 
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -144,6 +159,7 @@ export default function AlertDetail() {
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[alert.status] || "bg-muted text-muted-foreground"}`} data-testid="badge-alert-status">
                   {alertStatusLabel(alert.status)}
                 </span>
+                {updatesLoaded && updates?.length === 0 && <LatestPill />}
                 {alertServiceNames.map((name, i) => (
                   <span key={i} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground" data-testid={`badge-alert-service-${i}`}>
                     {name}
@@ -203,10 +219,11 @@ export default function AlertDetail() {
                   <StatusIcon status={update.status} />
                 </div>
                 <div className="flex-1 min-w-0 space-y-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusPill[update.status] || "bg-muted text-muted-foreground"}`} data-testid={`badge-alert-update-status-${update.id}`}>
                       {alertStatusLabel(update.status)}
                     </span>
+                    {update.id === latestUpdate?.id && <LatestPill />}
                     <span className="text-xs text-muted-foreground">
                       {format(new Date(update.createdAt), "MMM d, yyyy 'at' h:mm a")}
                     </span>
