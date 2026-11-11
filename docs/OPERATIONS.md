@@ -21,6 +21,34 @@ sudo python3 /opt/servicehub/deploy/configure-private-uploads.py \
 It validates Nginx before reload and restores the previous file on failure.
 Subsequent deployments using the new updater apply this automatically.
 
+## Existing deploy listeners with read-only Nginx configuration
+
+If the upload installer fails with `OSError: [Errno 30] Read-only file system`
+under `/etc/nginx`, the deploy listener's `ProtectSystem=full` sandbox is
+inherited by the privileged updater. Running as root does not bypass this
+read-only mount. Keep that protection enabled and allow writes only under
+`/etc/nginx`, where the installer updates the site and stores its recovery copy.
+
+Updating the service file in Git does **not** update the already-installed
+systemd unit or the running process. After the failed deployment has ended,
+run this once in the VPS terminal, outside the deploy listener:
+
+```sh
+sudo install -d /etc/systemd/system/servicehub-deploy.service.d
+printf '[Service]\nReadWritePaths=/etc/nginx\n' | sudo tee /etc/systemd/system/servicehub-deploy.service.d/nginx-writes.conf >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl restart servicehub-deploy
+sudo systemctl show servicehub-deploy -p ProtectSystem -p ReadWritePaths
+sudo systemctl is-active servicehub-deploy
+```
+
+The output should retain `ProtectSystem=full`, include both `/etc/nginx` and
+`/var/log/servicehub-deploy` in `ReadWritePaths`, and end with `active`. This
+restarts the webhook listener, not Nginx or the customer app; do not run it while
+a deployment is active. Retry the deployment only after this change is applied.
+No filesystem remount, recursive permission changes, TLS replacement, or
+disabling of systemd protection is needed.
+
 # ServiceHub Operations Runbook
 
 Deploy pipeline, VPS layout, and recovery procedures. Moved out of `replit.md` (which keeps the day-to-day essentials).

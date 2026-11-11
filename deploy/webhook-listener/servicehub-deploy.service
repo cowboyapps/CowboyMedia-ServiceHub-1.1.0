@@ -23,7 +23,7 @@ RestartSec=5s
 StandardOutput=journal
 StandardError=journal
 
-# Security hardening — listener only needs to read its own dir + write logs.
+# Security hardening also applies to the privileged deployment child process.
 # CRITICAL: ProtectHome MUST be false. The listener spawns
 # `sudo bash /opt/servicehub/deploy/update.sh`, which needs to read,
 # write, and chown /home/servicehub (npm cache, dotfiles, etc).
@@ -43,6 +43,10 @@ NoNewPrivileges=false
 ProtectSystem=full
 ProtectHome=false
 ReadWritePaths=/var/log/servicehub-deploy
+# The upload installer backs up and updates this directory before validating
+# and reloading Nginx. Keep the rest of /etc read-only; sudo does not escape
+# this unit's mount namespace.
+ReadWritePaths=/etc/nginx
 
 [Install]
 WantedBy=multi-user.target
