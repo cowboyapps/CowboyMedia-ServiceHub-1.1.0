@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { TicketAutoCloseSettingsPanel } from "@/components/ticket-auto-close-settings";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12291,6 +12292,7 @@ export default function AdminPortal() {
     { key: "billing-dashboard", label: "Billing", icon: Wallet, color: "text-emerald-500", bg: "bg-emerald-500/10", group: "integrations" },
     { key: "business-hours", label: "Business Hours", icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10", group: "system" },
     { key: "support-away", label: "Support Away", icon: Clock, color: "text-orange-500", bg: "bg-orange-500/10", group: "support" },
+    { key: "ticket-auto-close", label: "Ticket Auto-Close", icon: Clock, color: "text-blue-500", bg: "bg-blue-500/10", adminOnly: true, group: "support" },
     { key: "announcements", label: "Announcements", icon: Megaphone, color: "text-fuchsia-500", bg: "bg-fuchsia-500/10", group: "content" },
     { key: "knowledge-base", label: "Knowledge Base", icon: BookOpen, color: "text-indigo-500", bg: "bg-indigo-500/10", group: "content" },
     { key: "online-users", label: "Online Now", icon: Activity, color: "text-emerald-500", bg: "bg-emerald-500/10", adminOnly: true, group: "community" },
@@ -12348,6 +12350,7 @@ export default function AdminPortal() {
       case "billing-dashboard": return <BillingDashboardTab />;
       case "business-hours": return <BusinessHoursTab />;
       case "support-away": return <SupportAwayTab />;
+      case "ticket-auto-close": return <TicketAutoCloseSettingsPanel />;
       case "announcements": return <AnnouncementsTab />;
       case "knowledge-base": return <KnowledgeBaseTab />;
       case "admin-management": return isMasterAdmin ? <AdminManagementTab initialInnerTab={initialParams.section} /> : null;

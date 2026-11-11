@@ -330,6 +330,27 @@
       "when": 1794154940693,
       "tag": "0046_private_video_chunks",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794415194595,
+      "tag": "0047_lucky_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794415333444,
+      "tag": "0048_light_roulette",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794415333445,
+      "tag": "0049_ticket_auto_closed_reply_guard",
+      "breakpoints": true
     }
   ]
 }

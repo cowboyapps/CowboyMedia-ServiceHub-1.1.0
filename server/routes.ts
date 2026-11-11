@@ -37,6 +37,8 @@ import { queryString, queryInt } from "./request-utils";
 import { createErrorLogClearAllHandler, createErrorLogResolveAllHandler } from "./error-log-bulk-routes";
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
+import { ticketAutoCloseHandlers, startTicketAutoClose } from "./ticket-auto-close";
+import { automaticClosureTranscript } from "./ticket-auto-close-transcript";
 import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
 import { createDiscordSettingsHandlers } from "./discord-settings";
@@ -2143,7 +2145,7 @@ export async function registerRoutes(
         }
       }
       const { status, resolutionNote } = req.body;
-      const data: any = { status };
+      const data: any = { status, closureReason: null };
       if (status === "closed") {
         data.closedAt = new Date();
         data.closedBy = req.session.userId;
@@ -2908,6 +2910,10 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       res.json(messageWithKb);
     } catch (e) {
+      const pgError = e as { constraint?: string; cause?: { constraint?: string } };
+      if (pgError.constraint === "ticket_closed_reply" || pgError.cause?.constraint === "ticket_closed_reply") {
+        return res.status(409).json({ message: "This ticket was closed. Your reply was not sent. Please open a new ticket." });
+      }
       res.status(500).json({ message: getErrorMessage(e) });
     }
   });
@@ -7857,6 +7863,46 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.get("/api/support-away/status", supportAwayHandlers.getPublicStatus);
   app.get("/api/admin/support-away", requireAdmin, supportAwayHandlers.getAdmin);
   app.patch("/api/admin/support-away", requireAdmin, supportAwayHandlers.patchAdmin);
+
+  app.get("/api/admin/ticket-auto-close", requireAdmin, ticketAutoCloseHandlers.get);
+  app.patch("/api/admin/ticket-auto-close", requireAdmin, ticketAutoCloseHandlers.patch);
+  startTicketAutoClose(async ({ ticket, message }) => {
+    const recipients = await ticketMessageAdminPolicy.recipients(ticket, false);
+    broadcastToUserIds(recipients, { type: "ticket_message", ticketId: ticket.id, message });
+    broadcastToUserIds(recipients, { type: "ticket_updated", ticket });
+    const customer = await storage.getUser(ticket.customerId);
+    const publicMessages = await storage.getTicketMessages(ticket.id, false);
+    const senders = await Promise.all([...new Set(publicMessages.map(m => m.senderId))].map(async id => {
+      const user = await storage.getUser(id);
+      return [id, user?.fullName ?? "Support"] as const;
+    }));
+    const transcript = automaticClosureTranscript(ticket, publicMessages, new Map(senders));
+    const htmlFields = new Set(["resolution_summary", "conversation"]);
+    if (customer?.email && customerWantsEmail(customer, "ticket_closed")) {
+      await createBellNotification(customer.id, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }, {
+        title: "Ticket automatically closed", body: `Closed due to inactivity: ${ticket.subject}`, url: `/tickets/${ticket.id}`,
+      });
+      await sendTemplatedEmail(customer.email, "ticket_transcript", {
+        ...transcript, customer_name: customer.fullName,
+      }, customer.fullName, htmlFields);
+    }
+    for (const id of recipients.filter(id => id !== ticket.customerId && id !== message.senderId)) {
+      const admin = await storage.getUser(id);
+      if (!admin) continue;
+      await storage.createTicketNotification({ userId: id, ticketId: ticket.id, type: "ticket_closed", message: `Automated closure due to inactivity: ${ticket.subject}` });
+      if (shouldSuppressNotification({ user: admin, categoryKey: "admin_ticket_closed" })) continue;
+      await sendPushToUser(id, {
+        title: "Ticket automatically closed", body: `Closed due to inactivity: ${ticket.subject}`,
+        url: `/tickets/${ticket.id}`, tag: `ticket-${ticket.id}`,
+      }, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id });
+      if (admin.email && customer) {
+        await sendTemplatedEmail(admin.email, "admin_ticket_closed", {
+          ...transcript, customer_name: customer.fullName, customer_username: customer.username,
+          customer_email: customer.email ?? "",
+        }, admin.fullName, htmlFields);
+      }
+    }
+  });
 
   // ===== Announcements =====
   app.get("/api/admin/announcements", requirePermission("announcements", "announcements"), async (_req, res) => {

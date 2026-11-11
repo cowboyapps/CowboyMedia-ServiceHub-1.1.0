@@ -1782,7 +1782,7 @@ export default function TicketDetail() {
               <div className="px-5 pt-4 pb-2 space-y-3">
                 {ticket.closedBy && (
                   <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground border border-border" data-testid="badge-closed-by">
-                    {ticket.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
+                    {ticket.closureReason === "inactivity" ? "Closed automatically — inactivity" : ticket.closedBy === ticket.customerId ? "Closed by Customer" : "Closed by Admin"}
                   </div>
                 )}
                 {ticket.resolutionNote && ticket.closedBy === ticket.customerId && (
@@ -1793,7 +1793,7 @@ export default function TicketDetail() {
                 )}
                 {ticket.resolutionNote && ticket.closedBy !== ticket.customerId && (
                   <div className="p-4 rounded-xl border border-green-200/50 dark:border-green-900/50 bg-green-50/50 dark:bg-green-950/20" data-testid="resolution-note">
-                    <p className="text-[11px] font-medium text-green-800 dark:text-green-400 mb-1.5 uppercase tracking-wider">Resolution Summary</p>
+                    <p className="text-[11px] font-medium text-green-800 dark:text-green-400 mb-1.5 uppercase tracking-wider">{ticket.closureReason === "inactivity" ? "Automated Closure — Inactivity" : "Resolution Summary"}</p>
                     <p className="text-sm text-green-900 dark:text-green-300 whitespace-pre-wrap leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{ticket.resolutionNote}</p>
                   </div>
                 )}

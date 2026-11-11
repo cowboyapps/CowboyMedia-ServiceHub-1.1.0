@@ -18,7 +18,9 @@ export function MessageBody({ message, id }: { message: string; id: string }) {
   return (
     <span data-testid={`message-body-${id}`}>
       {parts.map((part, index) => part.type === "text" ? (
-        <span key={index}>{part.value}</span>
+        <span key={index}>{index === 0 && part.value.startsWith("Automated Message:")
+          ? <><strong>Automated Message:</strong>{part.value.slice("Automated Message:".length)}</>
+          : part.value}</span>
       ) : part.internal ? (
         <span key={index} className="inline-flex max-w-full align-baseline items-center gap-1 rounded-md bg-black/5 dark:bg-white/10 px-1.5 py-0.5 mx-0.5 text-[0.92em]">
           <Link href={part.href} title={part.value} className="min-w-0 max-w-[min(24rem,70vw)] truncate underline underline-offset-2">{part.label}</Link>
