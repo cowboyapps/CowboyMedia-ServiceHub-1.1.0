@@ -62,6 +62,8 @@ import { EditTicketMessageDialog } from "@/components/ticket/edit-message-dialog
 import { PendingTicketAttachment } from "@/components/ticket/pending-attachment";
 import { CheckCheck } from "lucide-react";
 
+import { TicketAutoCloseHold } from "@/components/ticket/auto-close-hold";
+
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null; reactions?: TicketReaction[] };
 
 function KbArticleCard({ article, msgId, onBubble }: { article: KbArticleRef; msgId: string; onBubble?: boolean }) {
@@ -1774,6 +1776,7 @@ export default function TicketDetail() {
           >
             <div ref={contentRef}>
             <div className="px-5 py-4 border-b border-border bg-card">
+              <TicketAutoCloseHold key={ticket.id} ticket={ticket} isAdmin={isAdmin} />
               <p className="text-[15px] whitespace-pre-wrap text-card-foreground leading-relaxed" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }} data-testid="text-ticket-description">{ticket.description}</p>
               {ticket.imageUrl && (
                 <ClickableImage src={ticket.imageUrl} alt="Ticket attachment" className="mt-3 max-w-[120px] max-h-24 object-cover rounded-lg cursor-pointer border border-border" />

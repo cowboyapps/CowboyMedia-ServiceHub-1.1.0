@@ -38,6 +38,8 @@ import { createErrorLogClearAllHandler, createErrorLogResolveAllHandler } from "
 import { createBusinessHoursHandlers } from "./business-hours";
 import { createSupportAwayHandlers, computeSupportAwayStatus } from "./support-away";
 import { ticketAutoCloseHandlers, startTicketAutoClose } from "./ticket-auto-close";
+import { createTicketAutoCloseHoldHandler } from "./ticket-auto-close-hold";
+import { ticketInvalidationEvent } from "@shared/ticket-events";
 import { automaticClosureTranscript } from "./ticket-auto-close-transcript";
 import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
@@ -636,7 +638,12 @@ export function getWebSocketServer(): WebSocketServer | null {
 }
 
 function broadcast(data: any) {
-  const message = JSON.stringify(data);
+  // Shared sockets must not receive ticket contents, including investigation reasons.
+  // Existing clients reload through the permission-checked API on these events.
+  const event = (data.type === "ticket_updated" || data.type === "new_ticket") && data.ticket?.id
+    ? ticketInvalidationEvent(data.type, data.ticket.id)
+    : data;
+  const message = JSON.stringify(event);
   wsClients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message);
@@ -2931,6 +2938,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
     }
     return true;
   };
+  app.patch("/api/tickets/:id/auto-close-hold", requireAdmin, createTicketAutoCloseHoldHandler({
+    getUser: id => storage.getUser(id),
+    canAccess: canAccessTicketForDeletion,
+    onUpdated: ticketId => broadcast(ticketInvalidationEvent("ticket_updated", ticketId)),
+  }));
   const ticketMessaging = createTicketMessagingHandlers({
     getUser: id => storage.getUser(id),
     getTicket: id => storage.getTicket(id),

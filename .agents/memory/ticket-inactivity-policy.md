@@ -20,3 +20,9 @@ Advance reminders require separate admin consent, even when automatic closure is
 **Why:** The requested reminder is optional and must respect customer choices without changing the existing inactivity policy. Reusing ticket-update preferences avoids silently opting customers into a new notification category.
 
 **How to apply:** Treat public communication from either side as a new reminder cycle. Keep duplicate prevention independent per channel so creating an in-app card does not consume a quiet-hours-deferred email or push.
+
+An investigation hold exempts a ticket from the inactivity sweep; it does not pause or reset elapsed communication time. Removing or expiring a hold can make a stale ticket immediately eligible, and manual closure stays available.
+
+**Why:** Holds are exceptions to the existing global policy, not new communication or a replacement inactivity policy.
+
+**How to apply:** Explain immediate eligibility in hold controls. Keep permission checks and audit persistence atomic with the hold, and serialize holds with replies and automated closure.

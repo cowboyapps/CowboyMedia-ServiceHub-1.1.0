@@ -10,6 +10,8 @@ import * as schema from "@shared/schema";
 import { db as mainDb, pool as mainPool } from "./db";
 import { closeInactiveTickets, createTicketAutoCloseHandlers, getTicketAutoCloseSettings, remindInactiveTickets } from "./ticket-auto-close";
 import { createRequireAdmin } from "./require-permission";
+import { createTicketAutoCloseHoldHandler } from "./ticket-auto-close-hold";
+import { ticketInvalidationEvent } from "@shared/ticket-events";
 import { automatedClosureMessage, ticketAutoCloseSettingsSchema, DEFAULT_TICKET_AUTO_CLOSE_MESSAGE } from "@shared/ticket-auto-close";
 
 const namespace = `ticket_inactivity_test_${randomUUID().replaceAll("-", "")}`;
@@ -17,6 +19,7 @@ let pool: Pool;
 let db: typeof mainDb;
 let server: Server;
 let url: string;
+const holdEvents: unknown[] = [];
 const old = () => new Date(Date.now() - 8 * 86400000);
 
 before(async () => {
@@ -37,6 +40,11 @@ before(async () => {
   const handlers = createTicketAutoCloseHandlers(db);
   app.get("/settings", guard, handlers.get);
   app.patch("/settings", guard, handlers.patch);
+  app.patch("/holds/:id", guard, createTicketAutoCloseHoldHandler({
+    getUser: async id => ({ id, role: id === "master_admin" ? "master_admin" : id === "customer" ? "customer" : "admin", fullName: "Test admin" }) as schema.User,
+    canAccess: async (actor, ticket) => actor.role === "master_admin" || (ticket.categoryId !== "restricted" && (!ticket.claimedBy || ticket.claimedBy === actor.id)),
+    onUpdated: ticketId => { holdEvents.push(ticketInvalidationEvent("ticket_updated", ticketId)); },
+  }, db));
   server = app.listen(0);
   await new Promise<void>(resolve => server.once("listening", resolve));
   const address = server.address();
@@ -182,6 +190,13 @@ test("automated label is always present once and body remains plain text", () =>
   assert.equal(automatedClosureMessage("<script>text</script>"), "Automated Message: <script>text</script>");
 });
 
+async function hold(id: string, body: unknown, role = "admin") {
+  return fetch(url.replace("/settings", `/holds/${id}`), {
+    method: "PATCH", headers: { "x-test-role": role, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+}
+const holdInput = (reason = "Awaiting provider", expiresAt: string | null = null) => ({ enabled: true, reason, expiresAt });
+
 async function reminderPolicy(enabled = true, hours = 12) {
   await policy(true, 7);
   await db.update(schema.appSettings).set({
@@ -197,6 +212,101 @@ async function reminderTicket(hoursUntilClose = 6, prefs: schema.User["notificat
   await db.update(schema.tickets).set({ customerId: customer.id }).where(eq(schema.tickets.id, row.id));
   return { ...row, customerId: customer.id };
 }
+
+test("hold routes reject unauthorized roles, inaccessible categories, other claims, closed tickets and invalid inputs", async () => {
+  const row = await ticket();
+  for (const [role, status] of [["", 401], ["customer", 403]] as const) {
+    assert.equal((await hold(row.id, holdInput(), role)).status, status);
+  }
+  for (const input of [holdInput(" "), holdInput("a".repeat(2001)), holdInput("Reason", "bad"), holdInput("Reason", old().toISOString()), { ...holdInput(), extra: true }]) {
+    assert.equal((await hold(row.id, input)).status, 400);
+  }
+  await db.update(schema.tickets).set({ categoryId: "restricted" }).where(eq(schema.tickets.id, row.id));
+  assert.equal((await hold(row.id, holdInput())).status, 403);
+  assert.equal((await hold(row.id, holdInput(), "master_admin")).status, 200);
+  await db.update(schema.tickets).set({ categoryId: null, claimedBy: "someone-else" }).where(eq(schema.tickets.id, row.id));
+  assert.equal((await hold(row.id, holdInput())).status, 403);
+  await db.update(schema.tickets).set({ status: "closed" }).where(eq(schema.tickets.id, row.id));
+  assert.equal((await hold(row.id, holdInput(), "master_admin")).status, 409);
+  assert.equal((await hold(randomUUID(), holdInput())).status, 404);
+});
+
+test("holds protect stale tickets, update and remove with permanent audit, and never reset communication", async () => {
+  await policy();
+  const row = await ticket();
+  assert.equal((await hold(row.id, holdInput("  Investigating  "))).status, 200);
+  assert.deepEqual(holdEvents.at(-1), { type: "ticket_updated", ticket: { id: row.id } });
+  assert.equal((await state(row.id)).autoCloseHoldReason, "Investigating");
+  assert.equal((await state(row.id)).autoCloseHoldBy, "admin");
+  assert.equal(await closeInactiveTickets(undefined, row.id, db), 0);
+  const future = new Date(Date.now() + 86400000).toISOString();
+  assert.equal((await hold(row.id, holdInput("Provider escalated", future))).status, 200);
+  assert.equal(await closeInactiveTickets(undefined, row.id, db), 0);
+  assert.equal((await state(row.id)).lastCommunicationAt.toISOString(), row.lastCommunicationAt.toISOString());
+  assert.equal((await hold(row.id, { enabled: false })).status, 200);
+  assert.equal((await state(row.id)).autoCloseHoldReason, null);
+  const logs = await db.select().from(schema.adminActivityLogs).where(eq(schema.adminActivityLogs.targetId, row.id));
+  assert.equal(logs.length, 3);
+  const removed = logs.find(log => log.action === "ticket_auto_close_hold_removed")!;
+  assert.equal(JSON.parse(removed.details!).previous.reason, "Provider escalated");
+  assert.equal(JSON.parse(removed.details!).previous.expiresAt, future);
+  assert.equal(removed.actorId, "admin");
+  assert.equal(await closeInactiveTickets(undefined, row.id, db), 1);
+});
+
+test("expired holds resume original inactivity eligibility; global off still wins; manual closure remains allowed", async () => {
+  const row = await ticket();
+  await db.update(schema.tickets).set({ autoCloseHoldReason: "Expired provider wait", autoCloseHoldUntil: old() }).where(eq(schema.tickets.id, row.id));
+  await policy(false);
+  assert.equal(await closeInactiveTickets(undefined, row.id, db), 0);
+  await policy();
+  assert.equal(await closeInactiveTickets(undefined, row.id, db), 1);
+  const manual = await ticket();
+  await hold(manual.id, holdInput());
+  await db.update(schema.tickets).set({ status: "closed" }).where(eq(schema.tickets.id, manual.id));
+  assert.equal((await state(manual.id)).status, "closed");
+});
+
+test("hold audit failure rolls back protection rather than silently losing history", async () => {
+  const row = await ticket();
+  await db.execute(sql.raw(`CREATE TRIGGER fail_hold_audit BEFORE INSERT ON admin_activity_logs FOR EACH ROW EXECUTE FUNCTION "${namespace}".reject_audit()`));
+  try { assert.equal((await hold(row.id, holdInput())).status, 500); }
+  finally { await db.execute(sql.raw("DROP TRIGGER fail_hold_audit ON admin_activity_logs")); }
+  assert.equal((await state(row.id)).autoCloseHoldReason, null);
+});
+
+test("hold winning the ticket lock blocks a sweep; closure winning rejects a late hold", async () => {
+  await policy();
+  const row = await ticket();
+  let release!: () => void;
+  let locked!: () => void;
+  const ready = new Promise<void>(resolve => { locked = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const setting = db.transaction(async tx => {
+    await tx.select().from(schema.tickets).where(eq(schema.tickets.id, row.id)).for("update");
+    await tx.update(schema.tickets).set({ autoCloseHoldReason: "Investigating under lock" }).where(eq(schema.tickets.id, row.id));
+    locked();
+    await gate;
+  });
+  await ready;
+  try { assert.equal(await closeInactiveTickets(undefined, row.id, db), 0); }
+  finally { release(); await setting; }
+  assert.equal(await closeInactiveTickets(undefined, row.id, db), 0);
+  const closing = await ticket();
+  await closeInactiveTickets(undefined, closing.id, db);
+  assert.equal((await hold(closing.id, holdInput())).status, 409);
+});
+
+test("a full batch of indefinite holds cannot starve an eligible ticket", async () => {
+  await policy();
+  await db.insert(schema.tickets).values(Array.from({ length: 101 }, () => ({
+    subject: "Held investigation", description: "Provider wait", customerId: randomUUID(),
+    lastCommunicationAt: new Date(Date.now() - 30 * 86400000), autoCloseHoldReason: "Indefinite hold",
+  })));
+  const eligible = await ticket();
+  await closeInactiveTickets(undefined, undefined, db);
+  assert.equal((await state(eligible.id)).status, "closed");
+});
 
 test("reminder settings require explicit consent and strictly validate the lead time within the inactivity period", async () => {
   for (const hours of [0, -1, 1.5, 24, 25, "12"]) {

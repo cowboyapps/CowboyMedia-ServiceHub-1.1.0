@@ -1,9 +1,9 @@
 import type { Request, Response } from "express";
 import { randomBytes } from "node:crypto";
-import { and, eq, gt, lte } from "drizzle-orm";
+import { and, eq, lte, gt, isNull, or } from "drizzle-orm";
 import { db } from "./db";
 import { appSettings, tickets, ticketMessages, users, adminActivityLogs, ticketNotifications, userNotifications, type Ticket, type TicketMessage, type User } from "@shared/schema";
-import { automatedClosureMessage, ticketAutoCloseSettingsSchema } from "@shared/ticket-auto-close";
+import { automatedClosureMessage, hasActiveAutoCloseHold, ticketAutoCloseSettingsSchema } from "@shared/ticket-auto-close";
 import { userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { shouldSuppressNotification } from "@shared/quiet-hours";
 
@@ -158,6 +158,8 @@ export async function closeInactiveTickets(onClosed: (closure: Closure) => Promi
   if (!settings.enabled) return 0;
   const candidates = await database.select({ id: tickets.id }).from(tickets).where(and(
     eq(tickets.status, "open"),
+    // Filter before LIMIT so long-held tickets cannot starve other stale tickets.
+    or(isNull(tickets.autoCloseHoldReason), lte(tickets.autoCloseHoldUntil, new Date())),
     lte(tickets.lastCommunicationAt, new Date(Date.now() - settings.days * 86400000)),
     onlyTicketId ? eq(tickets.id, onlyTicketId) : undefined,
   )).orderBy(tickets.lastCommunicationAt).limit(100);
@@ -174,7 +176,7 @@ export async function closeInactiveTickets(onClosed: (closure: Closure) => Promi
       if (!policy.ticketAutoCloseEnabled) return;
       const [ticket] = await tx.select().from(tickets).where(eq(tickets.id, candidate.id)).for("update", { skipLocked: true });
       const now = new Date();
-      if (!ticket || ticket.status !== "open" || ticket.lastCommunicationAt.getTime() > now.getTime() - policy.ticketAutoCloseDays * 86400000) return;
+      if (!ticket || ticket.status !== "open" || hasActiveAutoCloseHold(ticket, now) || ticket.lastCommunicationAt.getTime() > now.getTime() - policy.ticketAutoCloseDays * 86400000) return;
       const reason = `Automatically closed due to inactivity after ${policy.ticketAutoCloseDays} days without communication. Last communication: ${ticket.lastCommunicationAt.toISOString()}. Closed: ${now.toISOString()}.`;
       const [message] = await tx.insert(ticketMessages).values({
         ticketId: ticket.id, senderId: sender.id, message: automatedClosureMessage(policy.ticketAutoCloseMessage), isInternal: false,
