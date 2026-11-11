@@ -79,6 +79,7 @@ import {
   type KbCategory, type InsertKbCategory, type UpdateKbCategory,
   type KbArticle, type InsertKbArticle, type UpdateKbArticle,
   type PublicStatusSubscriber,
+  ticketReminderAttempts,
   users, services, serviceAlerts, alertServices, alertUpdates, newsStories, promotions, tickets, ticketMessages, privateMessages, ticketNotifications, pushSubscriptions, quickResponses, quickResponseCategories, quickResponseFavorites, reportRequests, reportNotifications, contentNotifications, serviceUpdates, hiddenServiceUpdates, emailTemplates, notificationTemplates, adminRoles, ticketCategories, adminChatThreads, adminChatParticipants, adminChatMessages, broadcastMessages, broadcastRecipients, ticketTransfers, adminActivityLogs, errorLogs, downloads, passwordResetTokens, totpBackupCodes, urlMonitors, monitorIncidents, alertDrafts, messageThreads, threadMessages, userNotifications, communityMessages, communityMessageEdits, communityReactions, newsReactions, chatWordFilters, telegramSettings, businessHours, supportAwayMessages, announcements, announcementDismissals, serviceSubscribers, kbCategories, kbArticles, publicStatusSubscribers, changelogEntries, whmcsLinkVerifications,
 } from "@shared/schema";
 import type { ServiceMarker, ServiceMarkerMap } from "@shared/whmcs-service-notify";
@@ -770,6 +771,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteTicket(id: string): Promise<void> {
+    await db.delete(ticketReminderAttempts).where(eq(ticketReminderAttempts.ticketId, id));
     await db.delete(ticketMessages).where(eq(ticketMessages.ticketId, id));
     await db.delete(ticketNotifications).where(eq(ticketNotifications.ticketId, id));
     await db.delete(tickets).where(eq(tickets.id, id));

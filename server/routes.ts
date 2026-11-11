@@ -177,6 +177,8 @@ import {
   createPresenceMap,
 } from "./sessions";
 
+import { rejectedReminderDelivery, type ReminderDeliveryResult } from "@shared/reminder-delivery";
+
 const totpChallenges = new ChallengeStore();
 setInterval(() => totpChallenges.sweepExpired(), 60_000).unref?.();
 
@@ -829,7 +831,7 @@ export async function createBellNotification(
   }
 }
 
-export async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string; resourceLabel?: string; rollupNoun?: string }, notif?: NotifMeta | { notificationId: string }) {
+export async function sendPushToUser(userId: string, payload: { title: string; body: string; url?: string; tag?: string; resourceLabel?: string; rollupNoun?: string }, notif?: NotifMeta | { notificationId: string }): Promise<ReminderDeliveryResult> {
   let notificationId: string | null = null;
   if (notif && "notificationId" in notif) {
     // Caller already created the user_notifications row and is just
@@ -850,13 +852,15 @@ export async function sendPushToUser(userId: string, payload: { title: string; b
     },
     { notificationId },
   );
+  let sent = 0;
+  let allRateLimited = true;
   try {
     const subs = await storage.getPushSubscriptionsByUser(userId);
     if (subs.length === 0) {
       console.log(`[Push] User ${userId} — no push subscriptions registered`);
-      return;
+      return { status: "failed", detail: "No registered push subscriptions.", retryable: false };
     }
-    let sent = 0, failed = 0;
+    let failed = 0;
     for (const sub of subs) {
       try {
         await webpush.sendNotification(
@@ -865,6 +869,7 @@ export async function sendPushToUser(userId: string, payload: { title: string; b
         );
         sent++;
       } catch (err) {
+        allRateLimited &&= getErrorStatusCode(err) === 429;
         if (getErrorStatusCode(err) === 404 || getErrorStatusCode(err) === 410) {
           await storage.deletePushSubscription(sub.endpoint);
           console.log(`[Push] User ${userId} — removed stale subscription (${getErrorStatusCode(err)})`);
@@ -888,9 +893,15 @@ export async function sendPushToUser(userId: string, payload: { title: string; b
     if (failed > 0) {
       logActivity("push", "push_failed", { recipientId: userId, summary: `Push failed to user: ${payload.title}`, details: JSON.stringify({ failed, sent, ...payload }) });
     }
+    return sent > 0
+      ? { status: "succeeded", detail: `Push accepted for ${sent} device(s); ${failed} failed. Device display is not confirmed. No resend to accepted devices.` }
+      : { status: "failed", detail: `All ${failed} push subscriptions rejected the reminder.`, retryable: allRateLimited };
   } catch (e) {
     console.error(`[Push] User ${userId} — error:`, e);
     logError("push", e, { severity: "error", userId, summary: `Push pipeline error: ${payload.title}`.slice(0, 500) });
+    return sent > 0
+      ? { status: "succeeded", detail: `Push accepted for ${sent} device(s); later processing failed. No automatic resend.` }
+      : rejectedReminderDelivery();
   }
 }
 
@@ -7877,6 +7888,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   app.patch("/api/admin/support-away", requireAdmin, supportAwayHandlers.patchAdmin);
 
   app.get("/api/admin/ticket-auto-close", requireAdmin, ticketAutoCloseHandlers.get);
+  app.get("/api/admin/tickets/:id/reminder-history", requireAdmin, ticketAutoCloseHandlers.history);
   app.patch("/api/admin/ticket-auto-close", requireAdmin, ticketAutoCloseHandlers.patch);
   startTicketAutoClose(async ({ ticket, message }) => {
     const recipients = await ticketMessageAdminPolicy.recipients(ticket, false);
@@ -7917,9 +7929,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
   }, async ({ ticket, customer, channel, title, body, url }) => {
     if (channel === "push") {
       // No notification metadata: the reminder sweep independently honours the in-app preference.
-      await sendPushToUser(customer.id, { title, body, url, tag: `ticket-inactivity-${ticket.id}` });
+      return sendPushToUser(customer.id, { title, body, url, tag: `ticket-inactivity-${ticket.id}` });
     } else if (customer.email) {
-      await sendEmail(customer.email, title, `<p>${escapeHtml(body)}</p><p>Open the app and reply to your ticket if you still need help.</p>`);
+      return sendEmail(customer.email, title, `<p>${escapeHtml(body)}</p><p>Open the app and reply to your ticket if you still need help.</p>`);
     }
   });
 

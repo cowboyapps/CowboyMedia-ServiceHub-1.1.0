@@ -1,6 +1,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { fork } from "node:child_process";
+import { once } from "node:events";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, sql } from "drizzle-orm";
@@ -25,7 +27,7 @@ const old = () => new Date(Date.now() - 8 * 86400000);
 before(async () => {
   // A separate schema prevents tests enabling automatic closure on real development tickets.
   await mainPool.query(`CREATE SCHEMA "${namespace}"`);
-  for (const table of ["users", "tickets", "ticket_messages", "app_settings", "admin_activity_logs", "ticket_notifications", "user_notifications"]) {
+  for (const table of ["users", "tickets", "ticket_messages", "app_settings", "admin_activity_logs", "ticket_notifications", "user_notifications", "ticket_reminder_attempts"]) {
     await mainPool.query(`CREATE TABLE "${namespace}"."${table}" (LIKE public."${table}" INCLUDING ALL)`);
   }
   pool = new Pool({ connectionString: process.env.DATABASE_URL, options: `-c search_path=${namespace},public`, max: 5 });
@@ -45,6 +47,7 @@ before(async () => {
     canAccess: async (actor, ticket) => actor.role === "master_admin" || (ticket.categoryId !== "restricted" && (!ticket.claimedBy || ticket.claimedBy === actor.id)),
     onUpdated: ticketId => { holdEvents.push(ticketInvalidationEvent("ticket_updated", ticketId)); },
   }, db));
+  app.get("/history/:id", guard, handlers.history);
   server = app.listen(0);
   await new Promise<void>(resolve => server.once("listening", resolve));
   const address = server.address();
@@ -434,4 +437,160 @@ test("a reply winning the ticket lock skips a reminder; failed delivery attempts
   assert.equal(attempts, 2);
   assert.equal(await remindInactiveTickets(async () => { attempts++; }, failing.id, db), 0);
   assert.equal(attempts, 2);
+});
+
+async function attemptsFor(id: string) {
+  return db.select().from(schema.ticketReminderAttempts).where(eq(schema.ticketReminderAttempts.ticketId, id));
+}
+async function retryNow(id: string) {
+  await db.update(schema.ticketReminderAttempts).set({ retryAt: new Date(Date.now() - 1000) })
+    .where(eq(schema.ticketReminderAttempts.ticketId, id));
+}
+
+test("history records per-channel outcomes and is restricted to admins", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  await remindInactiveTickets(async r => r.channel === "email"
+    ? { status: "failed", detail: "Provider rejected request (HTTP 403).", retryable: false }
+    : { status: "succeeded", detail: "Push accepted." }, row.id, db);
+  const records = await attemptsFor(row.id);
+  assert.equal(records.length, 3);
+  assert.equal(records.find(r => r.channel === "in_app")?.status, "succeeded");
+  assert.equal(records.find(r => r.channel === "push")?.status, "succeeded");
+  assert.equal(records.find(r => r.channel === "email")?.status, "failed");
+  assert.ok(records.every(r => r.finishedAt && r.attempt === 1));
+  const historyUrl = url.replace("/settings", `/history/${row.id}`);
+  for (const [role, status] of [["", 401], ["customer", 403], ["admin", 200], ["master_admin", 200]] as const) {
+    const response = await fetch(historyUrl, { headers: { "x-test-role": role } });
+    assert.equal(response.status, status);
+    if (status === 200) {
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal((await response.json()).length, 3);
+    }
+  }
+  assert.equal((await fetch(url.replace("/settings", "/history/missing"), { headers: { "x-test-role": "admin" } })).status, 404);
+  await retryNow(row.id);
+  assert.equal(await remindInactiveTickets(async () => assert.fail("Success and permanent failures must not retry"), row.id, db), 0);
+});
+
+test("rate-limit failures back off, retry independently and never replay successes", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  await remindInactiveTickets(async r => r.channel === "email"
+    ? { status: "failed", detail: "Rate limited.", retryable: true }
+    : { status: "succeeded", detail: "Push accepted on at least one device." }, row.id, db);
+  const failed = (await attemptsFor(row.id)).find(r => r.channel === "email")!;
+  assert.equal(failed.retryable, true);
+  assert.ok(failed.retryAt!.getTime() >= failed.finishedAt!.getTime() + 299000);
+  assert.equal(await remindInactiveTickets(async () => assert.fail("Too early"), row.id, db), 0);
+  await retryNow(row.id);
+  const sent: string[] = [];
+  const send = async (r: Parameters<Parameters<typeof remindInactiveTickets>[0]>[0]) => {
+    sent.push(r.channel);
+    return { status: "succeeded" as const, detail: "Email accepted." };
+  };
+  await Promise.all([remindInactiveTickets(send, row.id, db), remindInactiveTickets(send, row.id, db)]);
+  assert.deepEqual(sent, ["email"]);
+  assert.equal((await attemptsFor(row.id)).filter(r => r.channel === "email").length, 2);
+  await retryNow(row.id);
+  assert.equal(await remindInactiveTickets(send, row.id, db), 0);
+});
+
+test("rate-limit retries stop after three attempts and preserve every result", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket(6, { ticket_reply: { in_app: false, push: false, email: true } });
+  const send = async () => ({ status: "failed" as const, detail: "Rate limited.", retryable: true });
+  for (let n = 1; n <= 3; n++) {
+    await retryNow(row.id);
+    assert.equal(await remindInactiveTickets(send, row.id, db), 1);
+    const rows = await attemptsFor(row.id);
+    assert.equal(rows.length, n);
+    assert.equal(rows.find(r => r.attempt === n)?.retryable, n < 3);
+  }
+  await retryNow(row.id);
+  assert.equal(await remindInactiveTickets(async () => assert.fail("Retry budget exhausted"), row.id, db), 0);
+});
+
+test("retries cannot send expired, closed, disabled, quiet-hours or old-activity reminders", async () => {
+  for (const change of ["expired", "closed", "disabled", "policy", "reply", "quiet", "preference", "hold"] as const) {
+    await reminderPolicy();
+    const row = await reminderTicket(6, { ticket_reply: { in_app: false, push: false, email: true } });
+    await remindInactiveTickets(async () => ({ status: "failed", detail: "Rate limited.", retryable: true }), row.id, db);
+    await retryNow(row.id);
+    if (change === "expired") await db.update(schema.tickets).set({ lastCommunicationAt: old() }).where(eq(schema.tickets.id, row.id));
+    if (change === "closed") await db.update(schema.tickets).set({ status: "closed" }).where(eq(schema.tickets.id, row.id));
+    if (change === "hold") await db.update(schema.tickets).set({ autoCloseHoldReason: "Investigation in progress" }).where(eq(schema.tickets.id, row.id));
+    if (change === "disabled") await reminderPolicy(false);
+    if (change === "policy") await policy(true, 8);
+    if (change === "reply") await db.insert(schema.ticketMessages).values({ ticketId: row.id, senderId: randomUUID(), message: "New public activity" });
+    if (change === "quiet") {
+      const minute = new Date().getUTCHours() * 60 + new Date().getUTCMinutes();
+      const hhmm = (n: number) => `${String(Math.floor((n + 1440) % 1440 / 60)).padStart(2, "0")}:${String((n + 1440) % 60).padStart(2, "0")}`;
+      await db.update(schema.users).set({ quietHoursEnabled: true, quietHoursStart: hhmm(minute - 60), quietHoursEnd: hhmm(minute + 60), quietHoursTimezone: "UTC" }).where(eq(schema.users.id, row.customerId));
+    }
+    if (change === "preference") await db.update(schema.users).set({ notificationPrefs: { ticket_reply: { in_app: false, push: false, email: false } } }).where(eq(schema.users.id, row.customerId));
+    assert.equal(await remindInactiveTickets(async () => assert.fail(`Unsafe ${change} retry`), row.id, db), 0, change);
+    assert.equal((await attemptsFor(row.id)).length, 1);
+  }
+});
+
+test("a process killed during sending leaves durable unconfirmed claims that never retry", { timeout: 30000 }, async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  const child = fork(new URL("./test-fixtures/reminder-interruption.ts", import.meta.url), [namespace, row.id], {
+    execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"],
+  });
+  let stderr = "";
+  child.stderr?.on("data", data => { stderr += data; });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Worker did not reach send: ${stderr}`)), 15000);
+      child.once("message", () => { clearTimeout(timer); resolve(); });
+      child.once("exit", code => { clearTimeout(timer); reject(new Error(`Worker exited ${code}: ${stderr}`)); });
+    });
+    // Claims are visible in a separate connection even while provider send is pending.
+    const claimed = await attemptsFor(row.id);
+    assert.equal(claimed.filter(r => r.status === "attempted").length, 2);
+    const exited = once(child, "exit");
+    child.kill("SIGKILL");
+    await exited;
+    assert.equal(await remindInactiveTickets(async () => assert.fail("Ambiguous interrupted sends must not replay"), row.id, db), 0);
+    assert.equal((await attemptsFor(row.id)).filter(r => r.status === "attempted" && !r.retryable && !r.finishedAt).length, 2);
+  } finally {
+    child.kill("SIGKILL");
+  }
+});
+
+test("a preference change between claimed channels records cancellation instead of reporting success", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  const sent: string[] = [];
+  await remindInactiveTickets(async r => {
+    sent.push(r.channel);
+    if (r.channel === "push") await db.update(schema.users).set({
+      notificationPrefs: { ticket_reply: { in_app: true, push: true, email: false } },
+    }).where(eq(schema.users.id, row.customerId));
+    return { status: "succeeded", detail: "Push accepted." };
+  }, row.id, db);
+  assert.deepEqual(sent, ["push"]);
+  const email = (await attemptsFor(row.id)).find(r => r.channel === "email")!;
+  assert.equal(email.status, "failed");
+  assert.equal(email.retryable, false);
+  assert.match(email.detail, /Not sent: customer preferences/);
+});
+
+test("an outcome write rollback cannot turn an accepted reminder into a duplicate", async () => {
+  await reminderPolicy();
+  const row = await reminderTicket();
+  let calls = 0;
+  await pool.query(`CREATE FUNCTION fail_reminder_result() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Simulated interruption persisting result'; END $$`);
+  await pool.query(`CREATE TRIGGER fail_reminder_result BEFORE UPDATE ON ticket_reminder_attempts FOR EACH ROW EXECUTE FUNCTION fail_reminder_result()`);
+  try {
+    await assert.rejects(remindInactiveTickets(async () => { calls++; return { status: "succeeded", detail: "Provider accepted." }; }, row.id, db), /Simulated interruption/);
+  } finally {
+    await pool.query("DROP TRIGGER fail_reminder_result ON ticket_reminder_attempts");
+    await pool.query("DROP FUNCTION fail_reminder_result()");
+  }
+  assert.equal(calls, 1);
+  assert.equal(await remindInactiveTickets(async () => assert.fail("Accepted but unrecorded send must not replay"), row.id, db), 0);
 });

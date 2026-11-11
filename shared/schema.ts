@@ -4,6 +4,22 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { NotificationPrefs } from "./notification-categories";
 
+export const ticketReminderAttempts = pgTable("ticket_reminder_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull(),
+  activityAt: timestamp("activity_at").notNull(),
+  channel: text("channel").notNull(),
+  attempt: integer("attempt").notNull(),
+  status: text("status").notNull().default("attempted"),
+  detail: text("detail").notNull().default("Send claimed; outcome unknown. Not retried automatically."),
+  retryable: boolean("retryable").notNull().default(false),
+  attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  retryAt: timestamp("retry_at"),
+}, table => ({
+  cycleAttempt: uniqueIndex("ticket_reminder_attempt_cycle_idx").on(table.ticketId, table.activityAt, table.channel, table.attempt),
+}));
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),

@@ -26,3 +26,9 @@ An investigation hold exempts a ticket from the inactivity sweep; it does not pa
 **Why:** Holds are exceptions to the existing global policy, not new communication or a replacement inactivity policy.
 
 **How to apply:** Explain immediate eligibility in hold controls. Keep permission checks and audit persistence atomic with the hold, and serialize holds with replies and automated closure.
+
+External reminder success means provider acceptance, not proof of inbox delivery, display or reading. Automatically retry only explicit rate-limit rejections, never uncertain outcomes after a timeout, restart or failed result write. Acceptance on any push device consumes that channel for the cycle.
+
+**Why:** SendGrid mail sending and the current Web Push transport have no true delivery idempotency key. Replaying an uncertain send or a partly accepted multi-device push could duplicate the reminder.
+
+**How to apply:** Commit claims before network sends, keep successes and ambiguous claims consumed, and cap/back off confirmed rejections. Every retry must revalidate the current public-activity cycle, preferences, quiet hours, policy and deadline under the same locks as replies and closure.

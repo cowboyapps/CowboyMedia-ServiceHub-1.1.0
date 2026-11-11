@@ -1,8 +1,9 @@
 import type { Request, Response } from "express";
 import { randomBytes } from "node:crypto";
-import { and, eq, lte, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, lte, desc, isNull, or } from "drizzle-orm";
 import { db } from "./db";
-import { appSettings, tickets, ticketMessages, users, adminActivityLogs, ticketNotifications, userNotifications, type Ticket, type TicketMessage, type User } from "@shared/schema";
+import { appSettings, tickets, ticketMessages, users, adminActivityLogs, ticketNotifications, userNotifications, ticketReminderAttempts, type Ticket, type TicketMessage, type User } from "@shared/schema";
+import { rejectedReminderDelivery, type ReminderDeliveryResult } from "@shared/reminder-delivery";
 import { automatedClosureMessage, hasActiveAutoCloseHold, ticketAutoCloseSettingsSchema } from "@shared/ticket-auto-close";
 import { userWantsChannel, type NotificationPrefs } from "@shared/notification-categories";
 import { shouldSuppressNotification } from "@shared/quiet-hours";
@@ -17,6 +18,20 @@ export async function getTicketAutoCloseSettings(database = db) {
 }
 
 export function createTicketAutoCloseHandlers(database = db) { return {
+  async history(req: Request, res: Response) {
+    try {
+      const id = req.params.id;
+      if (typeof id !== "string") return res.status(400).json({ message: "Invalid ticket." });
+      const [ticket] = await database.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
+      if (!ticket) return res.status(404).json({ message: "Ticket not found." });
+      const history = await database.select().from(ticketReminderAttempts)
+        .where(eq(ticketReminderAttempts.ticketId, id))
+        .orderBy(desc(ticketReminderAttempts.attemptedAt), desc(ticketReminderAttempts.id)).limit(100);
+      res.set("Cache-Control", "no-store").json(history);
+    } catch {
+      res.status(500).json({ message: "Unable to load reminder delivery history." });
+    }
+  },
   async get(_req: Request, res: Response) {
     try {
       res.set("Cache-Control", "no-store").json(await getTicketAutoCloseSettings(database));
@@ -61,14 +76,17 @@ export type InactivityReminder = {
   closesAt: Date;
   url: string;
 };
-type ReminderSender = (reminder: InactivityReminder) => Promise<void>;
+type ReminderSender = (reminder: InactivityReminder) => Promise<ReminderDeliveryResult | void>;
 const reminderMarkers = {
   in_app: "inactivityReminderInAppActivity",
   push: "inactivityReminderPushActivity",
   email: "inactivityReminderEmailActivity",
 } as const;
 
-/** Durable per-channel claims give at-most-once external delivery attempts per public-activity timestamp.
+/** Durable claims precede network calls. Only confirmed rate-limit rejections
+ * retry (up to three attempts, with backoff). Unknown outcomes never retry:
+ * SendGrid and Web Push have no delivery idempotency key. Success to even one
+ * push device consumes that channel, preventing duplicate device notifications.
  * Quiet-hours channels remain unclaimed and can be sent on a later sweep, but never after the deadline.
  * Keyset pagination prevents already-reminded/quiet-hours tickets starving later tickets.
  */
@@ -98,10 +116,21 @@ export async function remindInactiveTickets(send: ReminderSender, onlyTicketId?:
         const title = "Your support ticket will close soon";
         const body = `Your ticket "${ticket.subject}" will automatically close due to inactivity on ${closesAt.toUTCString()}. Reply before then if you still need help.`;
         const url = `/tickets/${ticket.id}`;
-        const external: ("push" | "email")[] = [];
+        const external: { channel: "push" | "email"; id: string; attempt: number }[] = [];
         for (const channel of ["in_app", "push", "email"] as const) {
           const marker = reminderMarkers[channel];
-          if (ticket[marker]?.getTime() === ticket.lastCommunicationAt.getTime()) continue;
+          const [previous] = channel === "in_app" ? [] : await tx.select().from(ticketReminderAttempts).where(and(
+            eq(ticketReminderAttempts.ticketId, ticket.id),
+            eq(ticketReminderAttempts.activityAt, ticket.lastCommunicationAt),
+            eq(ticketReminderAttempts.channel, channel),
+          )).orderBy(desc(ticketReminderAttempts.attempt)).limit(1);
+          if (previous) {
+            if (previous.status !== "failed" || !previous.retryable || previous.attempt >= 3 ||
+                !previous.retryAt || previous.retryAt > now) continue;
+          } else if (ticket[marker]?.getTime() === ticket.lastCommunicationAt.getTime()) {
+            // Legacy claims may have reached the provider. Never replay them.
+            continue;
+          }
           // Reuse reply preferences: this is a ticket update, not a closure/transcript email.
           if (!userWantsChannel(customer.notificationPrefs as NotificationPrefs | null, "ticket_reply", channel)) continue;
           if (channel === "email" && !customer.email) continue;
@@ -114,7 +143,16 @@ export async function remindInactiveTickets(send: ReminderSender, onlyTicketId?:
             await tx.insert(ticketNotifications).values({
               userId: customer.id, ticketId: ticket.id, type: "ticket_inactivity_reminder", message: body,
             });
-          } else external.push(channel);
+            await tx.insert(ticketReminderAttempts).values({
+              ticketId: ticket.id, activityAt: ticket.lastCommunicationAt, channel, attempt: 1,
+              status: "succeeded", detail: "In-app reminder saved. This does not confirm the customer read it.", finishedAt: now,
+            });
+          } else {
+            const [attempt] = await tx.insert(ticketReminderAttempts).values({
+              ticketId: ticket.id, activityAt: ticket.lastCommunicationAt, channel, attempt: (previous?.attempt ?? 0) + 1,
+            }).returning();
+            external.push({ channel, id: attempt.id, attempt: attempt.attempt });
+          }
           count++;
         }
         return { ticket, customer, external, title, body, url, closesAt };
@@ -122,21 +160,47 @@ export async function remindInactiveTickets(send: ReminderSender, onlyTicketId?:
       if (!claim?.external.length) continue;
       // Claims commit before network calls. Revalidate under the same locks as replies/closure,
       // so a reply or policy change winning the lock cancels this stale delivery.
-      await database.transaction(async tx => {
+      for (const attempt of claim.external) await database.transaction(async tx => {
         const [policy] = await tx.select().from(appSettings).where(eq(appSettings.id, "singleton")).for("share");
         const [current] = await tx.select().from(tickets).where(eq(tickets.id, candidate.id)).for("update");
+        const cancel = async (detail: string) => {
+          await tx.update(ticketReminderAttempts).set({
+            status: "failed", detail, finishedAt: new Date(), retryable: false, retryAt: null,
+          }).where(eq(ticketReminderAttempts.id, attempt.id));
+        };
         if (!current || current.lastCommunicationAt.getTime() !== claim.ticket.lastCommunicationAt.getTime() ||
-            !reminderIsDue(current, policy, new Date())) return;
-        const [customer] = await tx.select().from(users).where(eq(users.id, current.customerId));
-        if (!customer) return;
-        for (const channel of claim.external) {
-          if (!userWantsChannel(customer.notificationPrefs as NotificationPrefs | null, "ticket_reply", channel) ||
-              shouldSuppressNotification({ user: customer, categoryKey: "ticket_reply" }) ||
-              (channel === "email" && !customer.email)) continue;
-          if (!reminderIsDue(current, policy, new Date())) break;
-          try { await send({ ...claim, customer, channel }); }
-          catch (error) { console.error(`Ticket inactivity reminder ${channel} attempt failed for ${current.id}:`, error); }
+            !reminderIsDue(current, policy, new Date())) {
+          await cancel("Not sent: ticket activity, deadline, status or reminder policy changed after claim.");
+          return;
         }
+        const [customer] = await tx.select().from(users).where(eq(users.id, current.customerId));
+        if (!customer) {
+          await cancel("Not sent: customer no longer exists.");
+          return;
+        }
+        const { channel } = attempt;
+        if (!userWantsChannel(customer.notificationPrefs as NotificationPrefs | null, "ticket_reply", channel) ||
+            shouldSuppressNotification({ user: customer, categoryKey: "ticket_reply" }) ||
+            (channel === "email" && !customer.email)) {
+          await cancel("Not sent: customer preferences, quiet hours or contact details changed after claim.");
+          return;
+        }
+        if (!reminderIsDue(current, policy, new Date())) {
+          await cancel("Not sent: reminder window expired before sending.");
+          return;
+        }
+        let outcome: ReminderDeliveryResult;
+        try {
+          outcome = await send({ ...claim, customer, channel }) ??
+            rejectedReminderDelivery();
+        } catch {
+          outcome = rejectedReminderDelivery();
+        }
+        const retryable = outcome.status === "failed" && outcome.retryable && attempt.attempt < 3;
+        await tx.update(ticketReminderAttempts).set({
+          status: outcome.status, detail: outcome.detail, finishedAt: new Date(), retryable,
+          retryAt: retryable ? new Date(Date.now() + attempt.attempt * 5 * 60_000) : null,
+        }).where(eq(ticketReminderAttempts.id, attempt.id));
       });
     }
     cursor = candidates[candidates.length - 1].id;
@@ -148,7 +212,7 @@ function reminderIsDue(ticket: Ticket, policy: typeof appSettings.$inferSelect, 
   const closesAt = ticket.lastCommunicationAt.getTime() + policy.ticketAutoCloseDays * 86400000;
   return policy.ticketAutoCloseEnabled && policy.ticketAutoCloseReminderEnabled &&
     policy.ticketAutoCloseReminderHoursBefore > 0 && policy.ticketAutoCloseReminderHoursBefore < policy.ticketAutoCloseDays * 24 &&
-    ticket.status === "open" && now.getTime() < closesAt &&
+    ticket.status === "open" && !hasActiveAutoCloseHold(ticket, now) && now.getTime() < closesAt &&
     now.getTime() >= closesAt - policy.ticketAutoCloseReminderHoursBefore * 3600000;
 }
 

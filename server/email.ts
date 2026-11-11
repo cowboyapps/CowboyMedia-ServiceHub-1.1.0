@@ -1,5 +1,6 @@
 import sgMail from '@sendgrid/mail';
 import { storage } from './storage';
+import { rejectedReminderDelivery, type ReminderDeliveryResult } from "@shared/reminder-delivery";
 
 const FROM_EMAIL = { email: 'noreply@cowboymedia.net', name: 'CowboyMedia' };
 
@@ -80,31 +81,41 @@ function formatBodyContent(rawHtml: string): string {
   return formatted;
 }
 
-export async function sendEmail(to: string, subject: string, html: string) {
-  try {
-    const { client, fromEmail } = getSendGridClient();
-    const styledBody = formatBodyContent(html);
-    const fullHtml = wrapInTemplate(styledBody, subject);
-    await client.send({
-      to,
-      from: fromEmail,
-      subject,
-      html: fullHtml,
-    });
-    console.log(`Email sent to ${to}: ${subject}`);
-  } catch (err: any) {
-    console.error('Failed to send email:', err?.message || err);
-    if (err?.response?.body) {
-      console.error('SendGrid error details:', JSON.stringify(err.response.body));
+export function createEmailSender(getClient: () => {
+  client: Pick<typeof sgMail, "send">;
+  fromEmail: typeof FROM_EMAIL;
+} = getSendGridClient) {
+  return async function sendEmail(to: string, subject: string, html: string): Promise<ReminderDeliveryResult> {
+    try {
+      const { client, fromEmail } = getClient();
+      const styledBody = formatBodyContent(html);
+      const fullHtml = wrapInTemplate(styledBody, subject);
+      await client.send({
+        to,
+        from: fromEmail,
+        subject,
+        html: fullHtml,
+      });
+      console.log(`Email sent to ${to}: ${subject}`);
+      return { status: "succeeded", detail: "Email accepted by provider; inbox delivery is not confirmed." };
+    } catch (err: any) {
+      console.error('Failed to send email:', err?.message || err);
+      if (err?.response?.body) {
+        console.error('SendGrid error details:', JSON.stringify(err.response.body));
+      }
+      const { logError } = await import("./error-log");
+      logError("email", err, {
+        severity: "error",
+        summary: `Email send failed: ${subject}`.slice(0, 500),
+        extra: { to, subject, sendgridBody: err?.response?.body },
+      });
+      const status = err?.response?.statusCode ?? err?.code;
+      return rejectedReminderDelivery(typeof status === "number" ? status : undefined);
     }
-    const { logError } = await import("./error-log");
-    logError("email", err, {
-      severity: "error",
-      summary: `Email send failed: ${subject}`.slice(0, 500),
-      extra: { to, subject, sendgridBody: err?.response?.body },
-    });
-  }
+  };
 }
+
+export const sendEmail = createEmailSender();
 
 export async function sendEmailToMultiple(recipients: string[], subject: string, html: string) {
   for (const to of recipients) {

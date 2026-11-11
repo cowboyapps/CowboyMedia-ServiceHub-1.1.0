@@ -64,6 +64,8 @@ import { CheckCheck } from "lucide-react";
 
 import { TicketAutoCloseHold } from "@/components/ticket/auto-close-hold";
 
+import { TicketReminderHistory } from "@/components/ticket-reminder-history";
+
 type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null; reactions?: TicketReaction[] };
 
 function KbArticleCard({ article, msgId, onBubble }: { article: KbArticleRef; msgId: string; onBubble?: boolean }) {
@@ -1438,8 +1440,10 @@ export default function TicketDetail() {
 
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[80vh] flex flex-col">
-          <DialogHeader><DialogTitle>Customer's Previous Tickets</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Ticket history</DialogTitle></DialogHeader>
           <div className="flex-1 overflow-y-auto space-y-3">
+            {isAdmin && historyOpen && params.id && <TicketReminderHistory ticketId={params.id} />}
+            <h3 className="text-sm font-semibold">Customer's Previous Tickets</h3>
             {previousTicketsLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
