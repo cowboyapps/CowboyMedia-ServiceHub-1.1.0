@@ -4,4 +4,9 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+# Uploads are not application assets, except these original shipped brand files.
+attached_assets/*
+!attached_assets/cowboymedia_servicehub_dark_trimmed.png
+!attached_assets/cowboymedia_servicehub_light_trimmed.png
+!attached_assets/ServiceHub_Loading_Screen_1778502829390.mp4
 /generated-artifacts/
