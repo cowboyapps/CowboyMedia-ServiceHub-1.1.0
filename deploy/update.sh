@@ -115,7 +115,7 @@ missing_bins() {
 npm_ci_verified() {
   local log
   log="$(mktemp)"
-  if ! npm ci 2>&1 | tee "$log"; then
+  if ! npm ci --include=dev 2>&1 | tee "$log"; then
     rm -f "$log"; return 1
   fi
   if grep -q 'Exit handler never called' "$log"; then
@@ -130,7 +130,10 @@ else
   echo '==> npm ci produced an incomplete node_modules; retrying once with a clean cache...'
   npm cache clean --force || true
   rm -rf node_modules
-  npm_ci_verified || true
+  if ! npm_ci_verified; then
+    echo 'FATAL: npm ci failed again; leaving the previous build in place (aborting before build)' >&2
+    exit 1
+  fi
   miss="$(missing_bins)"
   if [[ -n "$miss" ]]; then
     echo "FATAL: npm ci produced an incomplete node_modules: $miss binary missing (aborting before build)" >&2
@@ -396,7 +399,15 @@ echo "==> npm ci && npm run build (prebuild runs db:check for schema/migration d
 #
 # See run_build_as_app_user() near the top for the NODE_ENV override
 # rationale and the single source of truth for this invocation.
-run_build_as_app_user
+if ! run_build_as_app_user; then
+  echo "ERROR: dependency installation or build checks/compilation failed."
+  echo "       Previous dist artifacts are unchanged; PM2 was NOT reloaded."
+  echo "       Resetting checkout to $PREV_SHA. No database snapshot will be restored."
+  # Prebuild may have applied additive migrations. Do not undo them or restore
+  # data just because installation/compilation failed; retain all normal gates.
+  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "$PREV_SHA"
+  exit 1
+fi
 
 echo "==> Updating scoped private-message Nginx upload limits (preserving TLS)..."
 python3 "$APP_DIR/deploy/configure-private-uploads.py" \

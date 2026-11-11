@@ -1,9 +1,11 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { mkdir, rm, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import { randomBytes } from "crypto";
 import { execSync } from "child_process";
 import { BUILD_ERROR_MARKER, formatBuildError } from "../deploy/webhook-listener/build-diagnostics.mjs";
+import path from "node:path";
+import { withStagedBuild } from "./staged-build";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -35,25 +37,19 @@ const allowlist = [
   "zod-validation-error",
 ];
 
-async function buildAll() {
-  await rm("dist", { recursive: true, force: true });
-
+async function buildAll(outDir: string) {
   console.log("building client...");
-  await viteBuild();
+  await viteBuild({ build: { outDir: path.join(outDir, "public") } });
 
   // Stamp the service worker with a unique build id so its cache version
   // automatically rotates on every deploy. This avoids stale-shell white
   // screens after a release.
   const buildId = `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
-  const swPath = "dist/public/sw.js";
-  try {
-    const swSrc = await readFile(swPath, "utf-8");
-    const swStamped = swSrc.split("__BUILD_ID__").join(buildId);
-    await writeFile(swPath, swStamped, "utf-8");
-    console.log(`stamped service worker with build id: ${buildId}`);
-  } catch (err) {
-    console.warn(`could not stamp service worker (${swPath}):`, err);
-  }
+  const swPath = path.join(outDir, "public/sw.js");
+  const swSrc = await readFile(swPath, "utf-8");
+  const swStamped = swSrc.split("__BUILD_ID__").join(buildId);
+  await writeFile(swPath, swStamped, "utf-8");
+  console.log(`stamped service worker with build id: ${buildId}`);
 
   // Stamp the build with the current git SHA so the running server can report
   // it via /api/health without shelling out per request. deploy/update.sh
@@ -68,8 +64,8 @@ async function buildAll() {
     console.warn("could not capture git SHA for build:", err);
   }
   if (gitSha) {
-    await mkdir("dist", { recursive: true });
-    await writeFile("dist/.git-sha", gitSha + "\n", "utf-8");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(path.join(outDir, ".git-sha"), gitSha + "\n", "utf-8");
     console.log(`stamped build with git sha: ${gitSha}`);
   }
 
@@ -86,7 +82,7 @@ async function buildAll() {
     platform: "node",
     bundle: true,
     format: "cjs",
-    outfile: "dist/index.cjs",
+    outfile: path.join(outDir, "index.cjs"),
     define: {
       "process.env.NODE_ENV": '"production"',
     },
@@ -96,7 +92,7 @@ async function buildAll() {
   });
 }
 
-buildAll().catch((err) => {
+withStagedBuild(buildAll).catch((err) => {
   // A stable, concise summary survives noisy Rollup inventories and later
   // cleanup output. Do not dump arbitrary error properties or environment data.
   for (const line of formatBuildError(err).split("\n")) {
