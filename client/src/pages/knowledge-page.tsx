@@ -1,4 +1,6 @@
 import { PageHeader } from "@/components/page-header";
+import { trackEvent } from "@/lib/analytics";
+import { useAnalyticsView } from "@/hooks/use-analytics-view";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
@@ -31,6 +33,7 @@ function ArticleDetail({ slug }: { slug: string }) {
   const { data: article, isLoading, error, refetch, isFetching } = useQuery<KbArticle>({
     queryKey: ["/api/kb/articles", slug],
   });
+  useAnalyticsView("knowledge_article_viewed", !error ? article?.id : undefined);
 
   const helpfulMutation = useMutation({
     mutationFn: async (helpful: boolean) => {
@@ -38,6 +41,7 @@ function ArticleDetail({ slug }: { slug: string }) {
       return res.json();
     },
     onSuccess: (_data, helpful) => {
+      trackEvent("knowledge_feedback_submitted", { helpful });
       setVoted(helpful ? "up" : "down");
       queryClient.invalidateQueries({ queryKey: ["/api/kb/articles", slug] });
       toast({ title: "Thanks for your feedback!" });

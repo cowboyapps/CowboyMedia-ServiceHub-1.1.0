@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAnalyticsView } from "@/hooks/use-analytics-view";
 import { useParams, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ export default function AlertDetail() {
   const { data: alert, isLoading, isError, error, refetch, isFetching } = useQuery<ServiceAlertWithServices>({
     queryKey: ["/api/alerts", params.id],
   });
+  useAnalyticsView("service_alert_viewed", !isError ? alert?.id : undefined);
 
   const { data: updates, isLoading: updatesLoading } = useQuery<AlertUpdate[]>({
     queryKey: ["/api/alerts", params.id, "updates"],

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { trackOutcome } from "@/lib/analytics";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -110,6 +111,7 @@ function NewConversationDialog() {
       return response.json();
     },
     onSuccess: data => {
+      trackOutcome("private_conversation_started", clientThreadIdRef.current, { has_attachment: !!imageFile });
       setOpen(false);
       form.reset();
       setImageFile(null);

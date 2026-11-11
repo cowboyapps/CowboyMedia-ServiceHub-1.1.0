@@ -9,6 +9,7 @@ import {
   type TicketFilters,
 } from "@shared/ticket-filters";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { trackOutcome } from "@/lib/analytics";
 import { useDebounce } from "@/hooks/use-debounce";
 import type { KbArticle } from "@shared/schema";
 import { useForm } from "react-hook-form";
@@ -297,6 +298,7 @@ export default function TicketsPage() {
       return res.json();
     },
     onSuccess: (ticket: any) => {
+      trackOutcome("support_ticket_created", ticket.id, { has_attachment: !!imageFile });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       setDialogOpen(false);
       form.reset();

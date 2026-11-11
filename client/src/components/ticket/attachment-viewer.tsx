@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { trackEvent } from "@/lib/analytics";
+import { useAnalyticsView } from "@/hooks/use-analytics-view";
 import { ArrowDownToLine, ArrowLeft, Play, Share2, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +37,9 @@ export function TicketAttachment({ media, onOpen }: { media: TicketMedia; onOpen
 }
 
 export function AttachmentViewer({ media, onClose }: { media: TicketMedia | null; onClose: () => void }) {
+  useAnalyticsView("attachment_viewer_opened", media ? `${media.ticketId}:${media.messageId}` : undefined, {
+    attachment_kind: media?.kind, message_channel: media?.endpoint ? "private" : "support",
+  });
   const { toast } = useToast();
   const [src, setSrc] = useState("");
   const [scale, setScale] = useState(1);
@@ -165,6 +170,7 @@ export function AttachmentViewer({ media, onClose }: { media: TicketMedia | null
       link.download = attachmentFilename(response.headers, media.name || "ticket-attachment");
       document.body.appendChild(link);
       link.click();
+      trackEvent("attachment_download_requested", { attachment_kind: media.kind, message_channel: media.endpoint ? "private" : "support" });
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       toast({ title: "Download requested", description: "If your browser doesn't save it, try Share." });
@@ -185,6 +191,7 @@ export function AttachmentViewer({ media, onClose }: { media: TicketMedia | null
       if (controller.signal.aborted) return;
       if (navigator.canShare && !navigator.canShare({ files: [file] })) throw new Error("File sharing isn’t supported here. Use Save instead.");
       await navigator.share({ files: [file], title: media.name });
+      trackEvent("attachment_shared", { attachment_kind: media.kind, message_channel: media.endpoint ? "private" : "support" });
     } catch (error) {
       if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
       toast({ title: "Couldn’t share attachment", description: error instanceof Error ? error.message : "Use Save instead.", variant: "destructive" });

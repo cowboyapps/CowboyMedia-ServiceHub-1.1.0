@@ -5,6 +5,7 @@ import { ArrowDown, ArrowLeft, BookOpen, Check, CheckCheck, Paperclip, Send, Shi
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { uploadPrivateMessage } from "@/lib/private-message-upload";
+import { trackOutcome } from "@/lib/analytics";
 import { PRIVATE_UPLOAD_LIMIT_LABEL, privateUploadError } from "@shared/private-message-uploads";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -269,7 +270,11 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
       const result = await response.json();
       return (result.message ?? result) as PrivateThreadMessage;
     },
-    onSuccess: saved => {
+    onSuccess: (saved, payload) => {
+      trackOutcome("private_message_sent", saved.id, {
+        actor_type: user?.role === "admin" || user?.role === "master_admin" ? "staff" : "customer",
+        has_attachment: !!payload.file,
+      });
       sendGuard.current = false;
       failedPayload.current = null;
       queryClient.setQueryData<PrivateThreadMessage[]>(key, previous => {

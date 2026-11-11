@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { trackOutcome } from "@/lib/analytics";
 import { hapticLight } from "@/lib/haptics";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
@@ -819,6 +820,9 @@ export default function TicketDetail() {
         return res.json();
       })
       .then((responseMessage: EnrichedTicketMessage) => {
+        trackOutcome("support_message_sent", responseMessage?.id, {
+          actor_type: isAdmin ? "staff" : "customer", has_attachment: !!imgFile, internal,
+        });
         const saved: EnrichedTicketMessage | undefined = responseMessage?.id ? {
           ...responseMessage,
           senderName: responseMessage.senderName || user?.fullName || "You",
@@ -1118,6 +1122,7 @@ export default function TicketDetail() {
       await apiRequest("PATCH", `/api/tickets/${params.id}`, body);
     },
     onSuccess: () => {
+      trackOutcome("support_ticket_closed", params.id, { actor_type: isAdmin ? "staff" : "customer" });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", params.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       setCloseDialogOpen(false);
