@@ -158,6 +158,12 @@ export default function AuthPage() {
                   </TabsList>
 
                   <TabsContent value="login" className="mt-0">
+                    <div className="mb-5 rounded-lg border border-primary/25 bg-primary/5 p-4 text-sm leading-relaxed" role="note" data-testid="note-servicehub-account">
+                      <p>
+                        <strong>This is NOT the same account you use to access your payment and service information online.</strong>{" "}
+                        You will need to create a new account for ServiceHub using the <strong>Sign Up</strong> tab above.
+                      </p>
+                    </div>
                     <Form {...loginForm}>
                       <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-5">
                         <FormField
