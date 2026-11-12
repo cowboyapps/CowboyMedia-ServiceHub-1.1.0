@@ -25,7 +25,13 @@ The user narrowed the UI work to “support ticket work and phone horizontal app
 
 **Why:** The user explicitly excluded broader app restyling.
 
-**How to apply:** Restrict visual changes to support tickets and necessary phone-horizontal layout corrections. Preserve the rest of the app's appearance; shared navigation fixes are not permission for a general visual refresh.
+**How to apply:** Restrict visual changes to support tickets and necessary phone-horizontal layout corrections unless the user explicitly approves another screen. Preserve unrelated appearance; shared navigation fixes are not permission for a general visual refresh.
+
+The user approved applying the alert-first dashboard canvas design to the actual customer dashboard, including its incident and all-clear layouts, while leaving the rest of the app unchanged.
+
+**Why:** The user preferred the canvas appearance and explicitly answered “Apply the canvas design” after being told the app had not yet changed.
+
+**How to apply:** Preserve the approved dashboard's visual hierarchy and styling when wiring real data. This approval does not authorize broader app restyling, a Git push, or publication.
 
 The user subsequently extended the ticket-messaging upgrades to private
 admin/customer messages, including fixing video sending. This extends the

@@ -2,16 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 
-// React component coverage for the redesigned home dashboard's status hero
-// (client/src/pages/dashboard.tsx). The colored hero banner is computed from
-// /api/services + /api/alerts and must NEVER show the green "all clear" when
-// either query fails — a regression there would silently tell customers
-// "All services are running smoothly" during an outage. These tests lock in:
-//   - green / yellow / red hero variants from service status + alert severity
-//   - the non-clear hero deep-links to the FIRST active alert
-//   - alerts/services query failures render the hero error state (never all-clear)
-//   - tickets query failure renders an error state (never "no open tickets")
-//   - NEW badges appear for unread service updates / news references
+// Production dashboard coverage: approved canvas hierarchy with real queries,
+// priority-sorted incidents, latest updates, honest refresh failures and links.
 
 // --- jsdom globals + polyfills (mirrors test/my-services-empty-state.test.ts)
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -221,8 +213,8 @@ test("green all-clear hero when every service is operational and no active alert
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    assert.match(hero!.textContent || "", /All services are running smoothly/);
-    assert.equal(hero!.getAttribute("href"), "/alerts", "clear hero links to alert history");
+    assert.match(hero!.textContent || "", /Your services are running normally/);
+    assert.equal(hero!.getAttribute("href"), "/services", "clear hero links to service details");
     assert.match(
       findByTestId(c.container, "text-active-alerts-count")!.textContent || "",
       /0 active alerts/,
@@ -243,8 +235,8 @@ test("yellow issue hero for a non-critical active alert, deep-linking to the fir
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    const text = hero!.textContent || "";
-    assert.match(text, /We're currently experiencing an issue/);
+    const text = hero!.closest("section")!.textContent || "";
+    assert.match(text, /Active service issue/);
     assert.doesNotMatch(text, /outage/i, "issue hero must not claim an outage");
     assert.doesNotMatch(text, /All services are running smoothly/);
     assert.equal(hero!.getAttribute("href"), "/alerts/a1", "hero links to the FIRST active alert");
@@ -268,8 +260,8 @@ test("yellow issue hero from a degraded service even with zero active alerts", a
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    const text = hero!.textContent || "";
-    assert.match(text, /We're currently experiencing an issue/);
+    const text = hero!.closest("section")!.textContent || "";
+    assert.match(text, /Active service issue/);
     assert.doesNotMatch(text, /All services are running smoothly/);
     assert.equal(hero!.getAttribute("href"), "/alerts", "no alert to deep-link → alerts index");
   } finally {
@@ -286,8 +278,8 @@ test("red outage hero when a critical alert is active", async () => {
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    const text = hero!.textContent || "";
-    assert.match(text, /We're currently experiencing an outage/);
+    const text = hero!.closest("section")!.textContent || "";
+    assert.match(text, /Service outage/);
     assert.doesNotMatch(text, /All services are running smoothly/);
     assert.equal(hero!.getAttribute("href"), "/alerts/a-crit", "outage hero links to the alert");
   } finally {
@@ -303,13 +295,13 @@ test("red outage hero when a service reports outage status", async () => {
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    assert.match(hero!.textContent || "", /We're currently experiencing an outage/);
+    assert.match(hero!.closest("section")!.textContent || "", /Service outage/);
   } finally {
     c.cleanup();
   }
 });
 
-test("green operational hero with a monitoring note when the only active alert is monitoring", async () => {
+test("monitoring is visibly distinct from an all-clear when a fix is being watched", async () => {
   const monitoring = alert("a-mon", "medium", { status: "monitoring", serviceIds: ["s1"] });
   const c = await mountDashboard({
     "/api/services": { status: 200, body: [service("s1", "operational")] },
@@ -319,19 +311,19 @@ test("green operational hero with a monitoring note when the only active alert i
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
     const text = hero!.textContent || "";
-    assert.match(text, /All systems operational/, "reads as GREEN operational, not a problem state");
+    assert.match(text, /Services are back; we’re keeping watch/, "monitoring does not claim a confirmed all-clear");
     assert.doesNotMatch(text, /experiencing an issue/i, "monitoring must not read as a problem");
     assert.doesNotMatch(text, /experiencing an outage/i);
     const note = findByTestId(c.container, "text-monitoring-note");
     assert.ok(note, "monitoring note renders");
-    assert.match(note!.textContent || "", /We're monitoring: Alert a-mon/, "note names the monitoring alert");
+    assert.match(note!.textContent || "", /We’re monitoring: Alert a-mon/, "note names the monitoring alert");
     assert.equal(hero!.getAttribute("href"), "/alerts/a-mon", "monitoring hero deep-links to the alert");
   } finally {
     c.cleanup();
   }
 });
 
-test("multiple monitoring alerts: green hero shows first + count and links to the alerts list", async () => {
+test("multiple monitoring alerts show first + count and link to the alerts list", async () => {
   const mon1 = alert("a-mon1", "medium", { status: "monitoring", serviceIds: ["s1"] });
   const mon2 = alert("a-mon2", "low", { status: "monitoring" });
   const c = await mountDashboard({
@@ -341,9 +333,9 @@ test("multiple monitoring alerts: green hero shows first + count and links to th
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    assert.match(hero!.textContent || "", /All systems operational/);
+    assert.match(hero!.textContent || "", /Services are back; we’re keeping watch/);
     const note = findByTestId(c.container, "text-monitoring-note");
-    assert.match(note!.textContent || "", /We're monitoring: Alert a-mon1 \(\+1 more\)/, "note shows first alert + count");
+    assert.match(note!.textContent || "", /We’re monitoring: Alert a-mon1 \(\+1 more\)/, "note shows first alert + count");
     assert.equal(hero!.getAttribute("href"), "/alerts", "multiple monitoring alerts link to the alerts list");
   } finally {
     c.cleanup();
@@ -360,8 +352,8 @@ test("a monitoring alert never dilutes a real problem: issue hero + problem-only
   try {
     const hero = findByTestId(c.container, "hero-status");
     assert.ok(hero, "hero renders");
-    const text = hero!.textContent || "";
-    assert.match(text, /We're currently experiencing an issue/);
+    const text = hero!.closest("section")!.textContent || "";
+    assert.match(text, /Active service issue/);
     assert.equal(hero!.getAttribute("href"), "/alerts/a-live", "deep-links to the PROBLEM alert, not the monitoring one");
     assert.match(
       findByTestId(c.container, "text-active-alerts-count")!.textContent || "",
@@ -468,4 +460,84 @@ test("NEW badges appear only for unread service updates and news", async () => {
   } finally {
     c.cleanup();
   }
+});
+
+test("the highest-priority incident wins over a newer warning and monitoring alert", async () => {
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [
+      alert("monitoring", "critical", { status: "monitoring" }),
+      alert("warning", "warning"),
+      { ...alert("urgent", "high", { serviceIds: ["s1"] }), createdAt: new Date(Date.now() - 86_400_000).toISOString() },
+    ] },
+  });
+  try {
+    assert.equal(findByTestId(c.container, "hero-status")?.getAttribute("href"), "/alerts/urgent");
+    assert.match(findByTestId(c.container, "text-active-alerts-count")?.textContent ?? "", /2 active alerts/);
+    assert.match(findByTestId(c.container, "link-view-all-alerts")?.textContent ?? "", /3 active alerts/);
+  } finally { c.cleanup(); }
+});
+
+test("latest alert update uses real update data, not the original report or API order", async () => {
+  const now = Date.now();
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [{ ...alert("live", "warning"), description: "Initial report" }] },
+    "/api/alerts/live/updates": { status: 200, body: [
+      { id: "new", message: "<p>The provider is restoring titles now</p>", createdAt: new Date(now).toISOString() },
+      { id: "old", message: "Earlier investigation", createdAt: new Date(now - 100_000).toISOString() },
+    ] },
+  });
+  try {
+    const latest = findByTestId(c.container, "dashboard-latest-alert-update")!;
+    assert.match(latest.textContent ?? "", /Latest update.*The provider is restoring titles now/);
+    assert.doesNotMatch(latest.textContent ?? "", /Initial report|Earlier investigation|<p>/);
+    assert.equal(latest.querySelector("time")?.getAttribute("datetime"), new Date(now).toISOString());
+  } finally { c.cleanup(); }
+});
+
+test("failed refresh hides a cached all-clear and marks service health unknown", async () => {
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+  });
+  try {
+    assert.ok(findByTestId(c.container, "hero-status"));
+    routes["/api/alerts"] = { status: 500, body: { error: "unavailable" } };
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }); });
+    await waitForTestId(c.container, "hero-status-error");
+    assert.equal(findByTestId(c.container, "hero-status"), null);
+    assert.doesNotMatch(c.container.textContent ?? "", /Your services are running normally/);
+    assert.match(findByTestId(c.container, "service-row-s1")?.textContent ?? "", /Unknown/);
+  } finally { c.cleanup(); }
+});
+
+test("stale cached status never presents a current all-clear", async () => {
+  const rows = [service("s1", "operational")];
+  const c = await mountDashboard({ "/api/services": { status: 200, body: rows } });
+  try {
+    await act(async () => {
+      queryClient.setQueryData(["/api/services"], rows, { updatedAt: Date.now() - 6 * 60_000 });
+    });
+    await flushFrames();
+    assert.match(findByTestId(c.container, "hero-status-error")?.textContent ?? "", /Status out of date/);
+    assert.equal(findByTestId(c.container, "hero-status"), null);
+    assert.match(findByTestId(c.container, "service-row-s1")?.textContent ?? "", /Unknown/);
+  } finally { c.cleanup(); }
+});
+
+test("dashboard navigation keeps real customer destinations and service-update highlight links", async () => {
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/service-updates": { status: 200, body: [{ id: "u1", title: "Update", description: "More titles restored", serviceId: "s1", createdAt: new Date().toISOString() }] },
+    "/api/news": { status: 200, body: [{ id: "n1", title: "News", content: "Guide", createdAt: new Date().toISOString() }] },
+  });
+  try {
+    assert.equal(findByTestId(c.container, "service-row-s1")?.getAttribute("href"), "/services/s1");
+    assert.equal(findByTestId(c.container, "button-open-ticket")?.getAttribute("href"), "/tickets");
+    assert.equal(findByTestId(c.container, "update-row-u1")?.getAttribute("href"), "/service-updates?highlight=u1");
+    assert.equal(findByTestId(c.container, "news-row-n1")?.getAttribute("href"), "/news/n1");
+    const sections = [...c.container.querySelectorAll(".af-section-heading")].map(el => el.textContent);
+    assert.deepEqual(sections, ["Your services", "Support", "Recent service updates", "News", "Customer offers"]);
+    assert.doesNotMatch(c.container.textContent ?? "", /SAMPLE DATA|Sam|SH-2048|preview/i);
+  } finally { c.cleanup(); }
 });

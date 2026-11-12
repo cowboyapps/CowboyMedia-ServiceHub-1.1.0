@@ -1,574 +1,158 @@
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { Activity, AlertTriangle, ArrowRight, Bell, Check, ChevronRight, Clock3, Gift, LifeBuoy, MessageSquare, Newspaper, RefreshCw, Ticket, X } from "lucide-react";
+import { format, formatDistanceToNow } from "date-fns";
+import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType, ServiceUpdate, Promotion, AlertUpdate } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions } from "@/lib/queryClient";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "wouter";
-import {
-  Activity,
-  AlertTriangle,
-  Bell,
-  CheckCircle2,
-  ChevronRight,
-  Gift,
-  MessageSquare,
-  Newspaper,
-  Plus,
-  Sparkles,
-  X,
-} from "lucide-react";
-import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType, ServiceUpdate, Promotion } from "@shared/schema";
-import { format, formatDistanceToNow } from "date-fns";
+import { dashboardHealth, dashboardDate } from "@/lib/dashboard-health";
 import { stripHtml } from "@/lib/rich-text";
+import { serviceStatusMeta, ticketStatusPill } from "@/lib/status-meta";
 import { QueryErrorState } from "@/components/query-error-state";
 
-import { serviceStatusMeta as statusMeta, ticketStatusPill } from "@/lib/status-meta";
-
-function SectionIcon({ icon: Icon, tone }: { icon: typeof Bell; tone: string }) {
-  return (
-    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
-      <Icon className="h-[18px] w-[18px]" />
-    </span>
-  );
-}
-
-function NewBadge() {
-  return (
-    <span className="rounded-full bg-status-busy px-1.5 py-0.5 text-[10px] font-semibold uppercase text-background shrink-0">
-      New
-    </span>
-  );
-}
-
-function RowSkeletons({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 px-5 py-3.5">
-          <Skeleton className="h-2.5 w-2.5 rounded-full animate-shimmer" />
-          <Skeleton className="h-4 flex-1 max-w-48 animate-shimmer" />
-          <Skeleton className="h-5 w-20 rounded-full animate-shimmer" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 const PROMO_DISMISS_KEY = "promo-banner-dismissed-ids";
+const STATUS_MAX_AGE = 5 * 60_000;
+type UptimeSummary = Record<string, { uptime30d: number | null; dailyBuckets: { date: string; status: string }[] }>;
 
-function readDismissedPromoIds(): string[] {
-  try {
-    const raw = localStorage.getItem(PROMO_DISMISS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
+function relative(value: Date | string | number | undefined | null) {
+  const date = dashboardDate(value);
+  return date ? formatDistanceToNow(date, { addSuffix: true }) : "Time unavailable";
 }
-
-/* Dismissible "new promotion" banner shown under the status hero whenever an
-   unexpired promotion exists. Dismissal is per-promotion (localStorage), so a
-   later, different promotion brings the banner back. */
-function PromoBanner({ promotions }: { promotions: Promotion[] }) {
-  const [dismissedIds, setDismissedIds] = useState<string[]>(readDismissedPromoIds);
-
-  const undismissed = promotions.filter((p) => !dismissedIds.includes(p.id));
-  if (undismissed.length === 0) return null;
-
-  const dismiss = () => {
-    // Keep only ids of currently active promotions so the list can't grow forever.
-    const next = Array.from(new Set([...dismissedIds, ...promotions.map((p) => p.id)])).filter((id) =>
-      promotions.some((p) => p.id === id)
-    );
-    setDismissedIds(next);
-    try {
-      localStorage.setItem(PROMO_DISMISS_KEY, JSON.stringify(next));
-    } catch {
-      // Storage unavailable (private mode etc.) — banner still hides for this session.
-    }
-  };
-
-  return (
-    <Link href="/promotions" className="block" data-testid="banner-promotion">
-      <div className="relative flex items-center gap-3 overflow-hidden rounded-lg border border-card-border bg-card px-4 py-3 shadow-sm transition hover-elevate cursor-pointer">
-        <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
-        <Gift className="ml-1 h-[18px] w-[18px] shrink-0 text-primary" aria-hidden="true" />
-        <p className="min-w-0 flex-1 text-sm text-foreground">
-          <span className="font-semibold">
-            {undismissed.length === 1 ? "You have a new promotion available!" : `You have ${undismissed.length} promotions available!`}
-          </span>{" "}
-          <span className="text-muted-foreground">Tap to see the details.</span>
-        </p>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dismiss();
-          }}
-          className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
-          aria-label="Dismiss promotion banner"
-          data-testid="button-dismiss-promo-banner"
-        >
-          <X className="h-[15px] w-[15px]" />
-        </button>
-      </div>
-    </Link>
-  );
+function NewBadge() {
+  return <span className="rounded-full bg-status-busy px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white shrink-0">New</span>;
 }
-
-type UptimeSummary = Record<string, { uptime30d: number | null; dailyBuckets: { date: string; status: string; downtimeSeconds: number }[] }>;
-
-function sparkColor(state: string): string {
-  switch (state) {
-    case "up": return "bg-status-online";
-    case "partial": return "bg-status-away";
-    case "down": return "bg-status-busy";
-    default: return "bg-muted";
-  }
+function Section({ title, icon: Icon, href, action = "View all", children, testId }: {
+  title: string; icon: typeof Bell; href: string; action?: string; children: ReactNode; testId?: string;
+}) {
+  return <section className="af-card">
+    <div className="af-section-head"><h2 className="af-section-heading"><Icon size={15} aria-hidden="true" />{title}</h2><Link className="af-small-link" href={href} data-testid={testId}>{action}</Link></div>
+    {children}
+  </section>;
 }
-
-/* Tiny 30-day uptime strip shown on a dashboard service row — one 3px-wide
-   bar per day, colored like the public status page's sparkline. */
-function MiniSparkline({ buckets, serviceId }: { buckets: { date: string; status: string }[]; serviceId: string }) {
-  return (
-    <span className="hidden sm:flex items-end gap-px h-3.5 shrink-0 opacity-80" data-testid={`sparkline-service-${serviceId}`} aria-hidden="true">
-      {buckets.map((b, i) => (
-        <span key={i} title={`${b.date}: ${b.status}`} className={`w-[3px] h-full rounded-[1px] ${sparkColor(b.status)}`} />
-      ))}
-    </span>
-  );
+function RowsLoading() {
+  return <div className="af-loading" aria-label="Loading"><div className="af-skeleton" /><div className="af-skeleton" /></div>;
+}
+function PromoOffers({ promotions }: { promotions: Promotion[] }) {
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    try { const ids: unknown = JSON.parse(localStorage.getItem(PROMO_DISMISS_KEY) || "[]"); return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []; } catch { return []; }
+  });
+  const available = promotions.filter(p => !dismissed.includes(p.id));
+  return <Section title="Customer offers" icon={Gift} href="/promotions" action="See offers">
+    {available.length ? <div className="flex items-center">
+      <Link href="/promotions" className="af-row" data-testid="banner-promotion"><Gift size={16} className="text-primary shrink-0" /><span className="af-row-title">{available[0].title}<span className="af-row-meta">{available.length > 1 ? `${available.length} offers available · Terms apply` : "Customer offer · Terms apply"}</span></span><ChevronRight size={15} /></Link>
+      <button aria-label="Dismiss promotion banner" data-testid="button-dismiss-promo-banner" className="af-dismiss" onClick={() => {
+        const next = Array.from(new Set([...dismissed, ...promotions.map(p => p.id)])).filter(id => promotions.some(p => p.id === id));
+        setDismissed(next);
+        try { localStorage.setItem(PROMO_DISMISS_KEY, JSON.stringify(next)); } catch { /* Session dismissal still works without storage. */ }
+      }}><X size={16} /></button>
+    </div> : <Link href="/promotions" className="af-row"><span className="af-row-title">Browse customer offers<span className="af-row-meta">See available offers and their terms.</span></span><ChevronRight size={15} /></Link>}
+  </Section>;
 }
 
 export default function Dashboard() {
   const { user } = useAuth();
-
-  const { data: services, isLoading: servicesLoading, isError: servicesError, error: servicesErrorObj, refetch: refetchServices, isFetching: servicesFetching } = useQuery<Service[]>({
-    queryKey: ["/api/services"],
-  });
-
-  const { data: uptimeSummary } = useQuery<UptimeSummary>({
-    queryKey: ["/api/services-uptime-summary"],
-  });
-
-  const { data: alerts, isLoading: alertsLoading, isError: alertsError, error: alertsErrorObj, refetch: refetchAlerts, isFetching: alertsFetching } = useQuery<ServiceAlertWithServices[]>({
-    queryKey: ["/api/alerts"],
-  });
-
-  const { data: news, isLoading: newsLoading, isError: newsError, error: newsErrorObj, refetch: refetchNews, isFetching: newsFetching } = useQuery<NewsStory[]>({
-    queryKey: ["/api/news"],
-  });
-
-  const { data: tickets, isLoading: ticketsLoading, isError: ticketsError, error: ticketsErrorObj, refetch: refetchTickets, isFetching: ticketsFetching } = useQuery<TicketType[]>({
-    queryKey: ["/api/tickets"],
-  });
-
-  const { data: serviceUpdates, isLoading: updatesLoading, isError: updatesError, error: updatesErrorObj, refetch: refetchUpdates, isFetching: updatesFetching } = useQuery<ServiceUpdate[]>({
-    queryKey: ["/api/service-updates"],
-    enabled: !!user,
-  });
-
+  // Finite freshness and a single, foreground-only backup poll for health.
+  // Existing live-sync invalidations still provide immediate updates.
+  const servicesQuery = useQuery<Service[]>({ queryKey: ["/api/services"], ...liveQueryOptions, refetchInterval: 60_000 });
+  const alertsQuery = useQuery<ServiceAlertWithServices[]>({ queryKey: ["/api/alerts"], ...liveQueryOptions, refetchInterval: 60_000 });
+  const uptimeQuery = useQuery<UptimeSummary>({ queryKey: ["/api/services-uptime-summary"] });
+  const newsQuery = useQuery<NewsStory[]>({ queryKey: ["/api/news"] });
+  const ticketsQuery = useQuery<TicketType[]>({ queryKey: ["/api/tickets"] });
+  const updatesQuery = useQuery<ServiceUpdate[]>({ queryKey: ["/api/service-updates"], enabled: !!user });
+  const promosQuery = useQuery<Promotion[]>({ queryKey: ["/api/promotions"], enabled: !!user, ...liveQueryOptions });
   const { data: unreadUpdateIds } = useQuery<string[]>({
     queryKey: ["/api/content-notifications/unread-references", "service-updates"],
-    queryFn: async () => {
-      const res = await fetch("/api/content-notifications/unread-references/service-updates", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!user,
-    refetchInterval: 15000,
+    queryFn: async () => { const res = await fetch("/api/content-notifications/unread-references/service-updates", { credentials: "include" }); if (!res.ok) return []; return res.json(); },
+    enabled: !!user, refetchInterval: 15000,
   });
-
   const { data: unreadNewsIds } = useQuery<string[]>({
     queryKey: ["/api/content-notifications/unread-references", "news"],
-    queryFn: async () => {
-      const res = await fetch("/api/content-notifications/unread-references/news", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!user,
-    refetchInterval: 15000,
+    queryFn: async () => { const res = await fetch("/api/content-notifications/unread-references/news", { credentials: "include" }); if (!res.ok) return []; return res.json(); },
+    enabled: !!user, refetchInterval: 15000,
   });
-
-  const { data: promotions } = useQuery<Promotion[]>({
-    queryKey: ["/api/promotions"],
-    enabled: !!user,
-    ...liveQueryOptions,
+  const [, tick] = useState(0);
+  useEffect(() => { const timer = setInterval(() => tick(n => n + 1), 60_000); return () => clearInterval(timer); }, []);
+  const services = servicesQuery.data ?? [];
+  const subscribed = services.filter(service => user?.subscribedServices?.includes(service.id));
+  // Preserve the existing service/subscription fallback and global alerts scope.
+  const displayServices = subscribed.length ? subscribed : services;
+  const health = dashboardHealth(displayServices, alertsQuery.data ?? []);
+  const primary = health.primary;
+  const alertUpdates = useQuery<AlertUpdate[]>({
+    queryKey: ["/api/alerts", primary?.id, "updates"],
+    enabled: !!primary, ...liveQueryOptions, refetchInterval: 60_000,
   });
+  const latestUpdate = alertUpdates.data?.slice().sort((a, b) => (dashboardDate(b.createdAt)?.getTime() ?? 0) - (dashboardDate(a.createdAt)?.getTime() ?? 0))[0];
+  const checkedAt = Math.min(servicesQuery.dataUpdatedAt, alertsQuery.dataUpdatedAt);
+  const failed = servicesQuery.isError || alertsQuery.isError;
+  const loading = servicesQuery.isLoading || alertsQuery.isLoading;
+  const stale = !loading && !failed && checkedAt > 0 && Date.now() - checkedAt > STATUS_MAX_AGE;
+  const uncertain = loading || failed || stale;
+  const issue = health.mode === "issue" || health.mode === "outage";
+  const serviceMap = new Map(services.map(service => [service.id, service.name]));
+  const affectedNames = primary?.serviceIds.map(id => serviceMap.get(id) ?? "Affected service") ?? displayServices.filter(s => s.status !== "operational").map(s => s.name);
+  const href = health.mode === "monitoring" && health.monitoring.length > 1 ? "/alerts" : primary ? `/alerts/${primary.id}` : issue ? "/alerts" : "/services";
+  const openTickets = (ticketsQuery.data ?? []).filter(ticket => ticket.status === "open");
+  const unreadUpdates = new Set(unreadUpdateIds ?? []);
+  const unreadNews = new Set(unreadNewsIds ?? []);
+  const firstName = user?.fullName?.trim().split(/\s+/)[0];
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const retryStatus = () => { void servicesQuery.refetch(); void alertsQuery.refetch(); };
 
-  const unreadUpdateSet = new Set(unreadUpdateIds || []);
-  const unreadNewsSet = new Set(unreadNewsIds || []);
+  return <div className="af-page" data-testid="dashboard-alert-first">
+    <div className="af-greeting"><div><div className="af-kicker">Your ServiceHub</div><h1 data-testid="text-dashboard-title">{greeting}{firstName ? `, ${firstName}` : ""}</h1><p>A quick look at your services</p></div></div>
 
-  const activeAlerts = alerts?.filter((a) => a.status !== "resolved") || [];
-  const serviceMap = new Map(services?.map((s) => [s.id, s.name]) || []);
-  const subscribedServices = services?.filter((s) =>
-    user?.subscribedServices?.includes(s.id)
-  ) || [];
-  const displayServices = subscribedServices.length > 0 ? subscribedServices : services || [];
-  const openTickets = tickets?.filter((t) => t.status === "open") || [];
-
-  // Alerts in "monitoring" status mean a fix is in place and the team is
-  // watching for recurrence — they stay visible but no longer count as a
-  // problem, so the hero shows a calm monitoring state instead of a warning.
-  const problemAlerts = activeAlerts.filter((a) => a.status !== "monitoring");
-  const monitoringAlerts = activeAlerts.filter((a) => a.status === "monitoring");
-  const hasOutage = displayServices.some((s) => s.status === "outage") || problemAlerts.some((a) => a.severity === "critical");
-  const hasIssue = problemAlerts.length > 0 || displayServices.some((s) => s.status !== "operational");
-  const heroState: "clear" | "monitoring" | "issue" | "outage" = hasOutage ? "outage" : hasIssue ? "issue" : monitoringAlerts.length > 0 ? "monitoring" : "clear";
-  const firstAlert = problemAlerts[0] ?? monitoringAlerts[0];
-
-  const heroTitle = heroState === "outage" ? "We're currently experiencing an outage" : "We're currently experiencing an issue";
-  const heroAlertServices = firstAlert?.serviceIds?.map((sid) => serviceMap.get(sid)).filter(Boolean).join(", ");
-  const heroSubtitle = firstAlert
-    ? `${firstAlert.title}${heroAlertServices ? ` — ${heroAlertServices}` : ""} · started ${formatDistanceToNow(new Date(firstAlert.createdAt), { addSuffix: true })} · tap to view the alert`
-    : "One or more of your services isn't fully operational right now. Tap to see details.";
-  // Monitoring-only + all services operational reads as GREEN: everything is
-  // up, we're just watching a recent fix. The note names the first monitoring
-  // alert (plus a count when several) and deep-links to it.
-  const firstMonitoring = monitoringAlerts[0];
-  const monitoringNote = firstMonitoring
-    ? `We're monitoring: ${firstMonitoring.title}${monitoringAlerts.length > 1 ? ` (+${monitoringAlerts.length - 1} more)` : ""}`
-    : "";
-  const monitoringHref = monitoringAlerts.length > 1 ? "/alerts" : firstMonitoring ? `/alerts/${firstMonitoring.id}` : "/alerts";
-
-  return (
-    <div className="space-y-6">
-      <PageHeader title={`Welcome, ${user?.fullName ?? ""}`} subtitle="Here's an overview of your services and recent activity" testId="text-dashboard-title" />
-
-      {/* Status hero */}
-      {servicesLoading || alertsLoading ? (
-        <Skeleton className="h-24 w-full rounded-xl" data-testid="skeleton-hero" />
-      ) : servicesError || alertsError ? (
-        <div className="rounded-xl border border-card-border bg-card p-6" data-testid="hero-status-error">
-          <QueryErrorState
-            error={alertsError ? alertsErrorObj : servicesErrorObj}
-            onRetry={() => {
-              if (servicesError) refetchServices();
-              if (alertsError) refetchAlerts();
-            }}
-            isRetrying={servicesFetching || alertsFetching}
-            resourceName="service status"
-          />
-        </div>
-      ) : heroState === "clear" ? (
-        <Link href="/alerts" className="block" data-testid="hero-status">
-          <div className="relative overflow-hidden rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
-            <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
-            <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
-              <CheckCircle2 className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-status-online" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-base sm:text-lg font-semibold leading-snug text-status-online">All services are running smoothly</p>
-              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5">
-                Every service you're subscribed to is operational.{" "}
-                <span data-testid="text-active-alerts-count">0 active alerts</span> · tap to view alert history
-              </p>
-            </div>
-            <ChevronRight className="h-5 w-5 shrink-0 text-status-online" />
-          </div>
-        </Link>
-      ) : heroState === "monitoring" ? (
-        <Link href={monitoringHref} className="block" data-testid="hero-status">
-          <div className="relative overflow-hidden rounded-xl border border-status-online/40 ring-1 ring-inset ring-status-online/20 bg-gradient-to-br from-status-online/20 via-status-online/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 shadow-sm hover:ring-status-online/40 transition cursor-pointer animate-hero-breathe hero-glow-online">
-            <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
-            <span className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-online/15 ring-1 ring-status-online/30">
-              <CheckCircle2 className="h-5 w-5 sm:h-[22px] sm:w-[22px] text-status-online" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-base sm:text-lg font-semibold leading-snug text-status-online">All systems operational</p>
-              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5" data-testid="text-monitoring-note">
-                <Activity className="inline h-3.5 w-3.5 mr-1 -mt-0.5 text-primary" aria-hidden="true" />
-                {monitoringNote} · tap to view
-              </p>
-            </div>
-            <span
-              className="hidden sm:inline rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 bg-primary/10 text-primary"
-              data-testid="text-active-alerts-count"
-            >
-              Monitoring
-            </span>
-            <ChevronRight className="h-5 w-5 shrink-0 text-status-online" />
-          </div>
-        </Link>
-      ) : (
-        <Link href={firstAlert ? `/alerts/${firstAlert.id}` : "/alerts"} className="block" data-testid="hero-status">
-          <div
-            className={
-              heroState === "outage"
-                ? "relative overflow-hidden w-full rounded-xl border border-status-busy/40 ring-1 ring-inset ring-status-busy/20 bg-gradient-to-br from-status-busy/20 via-status-busy/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-busy/40 transition cursor-pointer animate-hero-breathe hero-glow-busy"
-                : "relative overflow-hidden w-full rounded-xl border border-status-away/40 ring-1 ring-inset ring-status-away/20 bg-gradient-to-br from-status-away/20 via-status-away/10 to-transparent px-5 py-4 sm:px-6 sm:py-5 flex items-center gap-3.5 text-left shadow-sm hover:ring-status-away/40 transition cursor-pointer animate-hero-breathe hero-glow-away"
-            }
-          >
-            <span className="absolute inset-0 animate-hero-sweep" aria-hidden="true" />
-            <span
-              className={
-                heroState === "outage"
-                  ? "flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-busy/15 ring-1 ring-status-busy/30"
-                  : "flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-status-away/15 ring-1 ring-status-away/30"
-              }
-            >
-              <AlertTriangle className={`h-5 w-5 sm:h-[22px] sm:w-[22px] animate-status-pulse ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className={`text-base sm:text-lg font-semibold leading-snug ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`}>{heroTitle}</p>
-              <p className="text-[13px] sm:text-sm leading-snug text-muted-foreground line-clamp-2 mt-0.5">{heroSubtitle}</p>
-            </div>
-            <span
-              className={`hidden sm:inline rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 ${heroState === "outage" ? "bg-status-busy/15 text-status-busy" : "bg-status-away/15 text-status-away"}`}
-              data-testid="text-active-alerts-count"
-            >
-              {problemAlerts.length} active {problemAlerts.length === 1 ? "alert" : "alerts"}
-            </span>
-            <ChevronRight className={`h-5 w-5 shrink-0 ${heroState === "outage" ? "text-status-busy" : "text-status-away"}`} />
-          </div>
-        </Link>
-      )}
-      {(heroState === "issue" || heroState === "outage") && activeAlerts.length > 1 && (
-        <div className="-mt-3 text-right">
-          <Link href="/alerts" className="text-xs font-medium text-muted-foreground hover:text-foreground" data-testid="link-view-all-alerts">
-            View all {activeAlerts.length} active alerts →
-          </Link>
-        </div>
-      )}
-
-      {(promotions?.length ?? 0) > 0 && <PromoBanner promotions={promotions!} />}
-
-      {/* First-run: no followed services yet */}
-      {!servicesLoading && !servicesError && (services?.length || 0) > 0 && subscribedServices.length === 0 && (
-        <Link
-          href="/settings#services"
-          className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4 hover-elevate tap-interactive"
-          data-testid="card-first-run-follow-services"
-        >
-          <SectionIcon icon={Sparkles} tone="bg-primary/10 text-primary" />
-          <span className="flex-1 min-w-0">
-            <span className="block text-sm font-semibold">Follow the services you use</span>
-            <span className="block text-xs text-muted-foreground mt-0.5">
-              Pick your services to personalize this dashboard and get notified when something changes.
-            </span>
-          </span>
-          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-        </Link>
-      )}
-
-      {/* Services */}
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold flex items-center gap-3">
-            <SectionIcon icon={CheckCircle2} tone="bg-status-online/10 text-status-online" />
-            Your services
-          </h2>
-          <span className="text-xs text-muted-foreground hidden sm:inline">Click a service for alerts &amp; history</span>
-        </div>
-        {servicesLoading ? (
-          <RowSkeletons />
-        ) : servicesError ? (
-          <QueryErrorState
-            error={servicesErrorObj}
-            onRetry={() => refetchServices()}
-            isRetrying={servicesFetching}
-            resourceName="services"
-            className="py-6"
-            data-testid="error-dashboard-services"
-          />
-        ) : displayServices.length === 0 ? (
-          <EmptyState icon={Sparkles} title="No services to display" hint="Follow services in Settings to see their status here." />
-        ) : (
-          <ul className="divide-y divide-border">
-            {displayServices.map((service) => {
-              const meta = statusMeta[service.status] || statusMeta.maintenance;
-              return (
-                <li key={service.id} className="stagger-item">
-                  <Link
-                    href={`/services/${service.id}`}
-                    className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
-                    data-testid={`service-row-${service.id}`}
-                  >
-                    <span className={`h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0 ${service.status !== "operational" ? "animate-status-pulse" : ""}`} />
-                    <span className="flex-1 min-w-0 truncate text-sm font-medium">{service.name}</span>
-                    {uptimeSummary?.[service.id]?.dailyBuckets?.length ? (
-                      <MiniSparkline buckets={uptimeSummary[service.id].dailyBuckets} serviceId={service.id} />
-                    ) : null}
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>{meta.label}</span>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+    {loading ? <section className="af-incident af-uncertain" data-testid="skeleton-hero" aria-label="Checking service status"><div className="af-incident-head"><RefreshCw size={16} /><span className="af-state-title">Checking status</span></div><RowsLoading /><p className="af-content">Checking the latest service information.</p></section>
+      : failed || stale ? <section className="af-incident af-uncertain" data-testid="hero-status-error">
+        <div className="af-incident-head"><AlertTriangle size={16} /><span className="af-state-title">{stale ? "Status out of date" : "Status unavailable"}</span></div>
+        <h2>We can’t confirm current service health</h2><p className="af-subtitle">{checkedAt > 0 ? `Last confirmed ${relative(checkedAt)}. ` : ""}This is not an all-clear.</p>
+        {failed ? <QueryErrorState error={alertsQuery.isError ? alertsQuery.error : servicesQuery.error} onRetry={retryStatus} isRetrying={servicesQuery.isFetching || alertsQuery.isFetching} resourceName="service status" className="py-4" /> : <div className="af-actions"><button className="af-button" onClick={retryStatus} disabled={servicesQuery.isFetching || alertsQuery.isFetching}><RefreshCw size={15} />Refresh status</button></div>}
       </section>
+      : <section className={`af-incident ${health.mode === "healthy" ? "af-calm" : health.mode === "monitoring" ? "af-watch" : health.mode === "outage" ? "af-critical" : health.mode === "empty" ? "af-uncertain" : ""}`} aria-label="Service health">
+        <div className="af-incident-head"><span className="af-state-icon">{issue ? <AlertTriangle size={16} /> : health.mode === "healthy" ? <Check size={17} /> : <Activity size={16} />}</span><span className="af-state-title">{health.mode === "healthy" ? "Service health" : health.mode === "monitoring" ? "Monitoring after a fix" : health.mode === "outage" ? "Service outage" : health.mode === "empty" ? "No services available" : "Active service issue"}</span></div>
+        <Link href={href} className="af-hero-title" data-testid="hero-status"><h2>{issue ? primary?.title ?? "One or more services is affected" : health.mode === "monitoring" ? "Services are back; we’re keeping watch" : health.mode === "empty" ? "No services to display" : "Your services are running normally"}</h2></Link>
+        <p className="af-subtitle" data-testid={health.mode === "monitoring" ? "text-monitoring-note" : undefined}>{issue ? primary ? `${primary.status.replace(/_/g, " ")} · Reported ${relative(primary.createdAt)}` : "Check service details for current availability." : health.mode === "monitoring" ? `We’re monitoring: ${primary?.title}${health.monitoring.length > 1 ? ` (+${health.monitoring.length - 1} more)` : ""}` : health.mode === "empty" ? "Your available services will appear here." : `Checked ${relative(checkedAt)}`}</p>
+        {issue && affectedNames.length > 0 && <div className="af-affected"><span className="af-affected-label">Affected {affectedNames.length === 1 ? "service" : "services"}</span>{affectedNames.map((name, i) => <span className="af-chip" key={`${name}-${i}`}>{name}</span>)}</div>}
+        {issue && primary && <div className="af-update" data-testid="dashboard-latest-alert-update">
+          <div className="af-update-top"><strong>{alertUpdates.isError ? "Latest update unavailable" : alertUpdates.isLoading ? "Loading latest update…" : latestUpdate ? "Latest update" : "Original report"}</strong><time dateTime={dashboardDate(latestUpdate?.createdAt ?? primary.createdAt)?.toISOString()}>{relative(latestUpdate?.createdAt ?? primary.createdAt)}</time></div>
+          <p>{alertUpdates.isError ? "Open the alert for the full report and updates." : alertUpdates.isLoading ? "Checking for a newer update to this alert." : stripHtml(latestUpdate?.message ?? primary.description ?? "").slice(0, 240) || "Open the alert for details."}{!alertUpdates.isError && !alertUpdates.isLoading && stripHtml(latestUpdate?.message ?? primary.description ?? "").length > 240 ? "…" : ""}</p>
+        </div>}
+        <div className="af-actions"><Link href={href} className="af-button" data-testid="link-dashboard-status-details">{primary ? "View alert" : issue ? "View alerts" : "View service details"}<ArrowRight size={15} /></Link>{issue && <Link href="/tickets" className="af-button secondary">Get help</Link>}</div>
+        <span className="af-health-count" data-testid="text-active-alerts-count">{health.mode === "monitoring" ? "Monitoring" : `${health.problems.length} active ${health.problems.length === 1 ? "alert" : "alerts"}`}</span>
+      </section>}
+    {!uncertain && health.active.length > 1 && <Link href="/alerts" className="af-row" data-testid="link-view-all-alerts"><span className="af-row-title">View all {health.active.length} active alerts<span className="af-row-meta">Includes service issues and alerts being monitored</span></span><ChevronRight size={16} /></Link>}
 
-      {/* Tickets */}
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold flex items-center gap-3">
-            <SectionIcon icon={MessageSquare} tone="bg-primary/10 text-primary" />
-            Your support tickets
-          </h2>
-          {openTickets.length > 0 && (
-            <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-medium text-primary" data-testid="text-open-tickets-count">
-              {openTickets.length} open
-            </span>
-          )}
-        </div>
-        {ticketsLoading ? (
-          <RowSkeletons rows={2} />
-        ) : ticketsError ? (
-          <QueryErrorState
-            error={ticketsErrorObj}
-            onRetry={() => refetchTickets()}
-            isRetrying={ticketsFetching}
-            resourceName="tickets"
-            className="py-6"
-            data-testid="error-dashboard-tickets"
-          />
-        ) : openTickets.length === 0 ? (
-          <div className="px-5 py-8 text-center">
-            <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-status-online/10">
-              <svg className="h-7 w-7 text-status-online" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                <polyline points="22 4 12 14.01 9 11.01" className="animate-draw-check"></polyline>
-              </svg>
-            </span>
-            <p className="text-sm font-medium mb-1">All clear!</p>
-            <p className="text-sm text-muted-foreground mb-4">You don't have any open tickets.</p>
-            <Link href="/tickets" className="inline-block">
-              <Button data-testid="button-open-ticket">
-                <Plus className="h-4 w-4 mr-1.5" /> Open a ticket
-              </Button>
-            </Link>
-          </div>
-        ) : (
-          <ul className="divide-y divide-border">
-            {openTickets.slice(0, 4).map((ticket) => (
-              <li key={ticket.id} className="stagger-item">
-                <Link
-                  href={`/tickets/${ticket.id}`}
-                  className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
-                  data-testid={`ticket-row-${ticket.id}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium">{ticket.subject}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(ticket.createdAt), { addSuffix: true })}
-                    </p>
-                  </div>
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${ticketStatusPill[ticket.status] || "bg-muted text-muted-foreground"}`}>
-                    {ticket.status}
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <Section title="Your services" icon={Activity} href="/services" action="See all">
+      {servicesQuery.isLoading ? <RowsLoading /> : servicesQuery.isError ? <QueryErrorState error={servicesQuery.error} onRetry={() => void servicesQuery.refetch()} isRetrying={servicesQuery.isFetching} resourceName="services" data-testid="error-dashboard-services" className="py-4" /> : !displayServices.length ? <div className="af-content">No services to display. <Link href="/settings" className="af-small-link" data-testid="link-follow-services">Follow services</Link></div> : displayServices.map(service => {
+        const monitoring = !uncertain && health.monitoring.some(alert => alert.serviceIds.includes(service.id)) && service.status === "operational";
+        const meta = serviceStatusMeta[service.status];
+        const label = uncertain ? "Unknown" : monitoring ? "Monitoring" : meta?.label ?? "Unknown";
+        const tone = uncertain || !meta ? "neutral" : monitoring ? "watch" : service.status === "operational" ? "ok" : service.status === "outage" ? "danger" : service.status === "maintenance" ? "neutral" : "warn";
+        const uptime = uptimeQuery.data?.[service.id];
+        return <Link href={`/services/${service.id}`} className="af-row" key={service.id} data-testid={`service-row-${service.id}`}><span className={`af-dot ${tone}`} /><span className="af-row-title">{service.name}</span>
+          {!uncertain && uptime?.dailyBuckets?.length ? <span className="hidden sm:flex gap-px shrink-0" data-testid={`sparkline-service-${service.id}`} aria-label="30-day service history">{uptime.dailyBuckets.map((bucket, i) => <span key={i} title={`${bucket.date}: ${bucket.status}`} className={`w-[3px] h-3 rounded-sm ${bucket.status === "up" ? "bg-status-online" : bucket.status === "down" ? "bg-status-busy" : bucket.status === "partial" ? "bg-status-away" : "bg-muted"}`} />)}</span> : null}
+          <span className={`af-pill ${tone}`}>{label}</span><ChevronRight size={15} /></Link>;
+      })}
+      {!user?.subscribedServices?.length && displayServices.length > 0 && <div className="af-content"><Link href="/settings" className="af-small-link" data-testid="link-follow-services">Follow your services for personalized updates</Link></div>}
+    </Section>
 
-      {/* Recent service updates */}
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold flex items-center gap-3">
-            <SectionIcon icon={Bell} tone="bg-status-away/10 text-status-away" />
-            Recent service updates
-          </h2>
-          <Link href="/service-updates">
-            <Button variant="ghost" size="sm" data-testid="link-view-all-service-updates">View all</Button>
-          </Link>
-        </div>
-        {updatesLoading ? (
-          <RowSkeletons />
-        ) : updatesError ? (
-          <QueryErrorState
-            error={updatesErrorObj}
-            onRetry={() => refetchUpdates()}
-            isRetrying={updatesFetching}
-            resourceName="service updates"
-            className="py-6"
-            data-testid="error-dashboard-service-updates"
-          />
-        ) : !serviceUpdates || serviceUpdates.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">No service updates yet</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {serviceUpdates.slice(0, 3).map((update) => (
-              <li key={update.id} className="stagger-item">
-                <Link
-                  href={`/service-updates?highlight=${update.id}`}
-                  className="flex items-center gap-3 px-5 py-3.5 hover-elevate tap-interactive"
-                  data-testid={`update-row-${update.id}`}
-                >
-                  <span className="h-2 w-2 rounded-full bg-status-away shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium flex items-center gap-2">
-                      <span className="truncate">{update.title}</span>
-                      {unreadUpdateSet.has(update.id) && <NewBadge />}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {serviceMap.get(update.serviceId) || "Service"} · {formatDistanceToNow(new Date(update.createdAt), { addSuffix: true })}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <Section title="Support" icon={LifeBuoy} href="/tickets" action="Get help">
+      {ticketsQuery.isLoading ? <RowsLoading /> : ticketsQuery.isError ? <QueryErrorState error={ticketsQuery.error} onRetry={() => void ticketsQuery.refetch()} isRetrying={ticketsQuery.isFetching} resourceName="tickets" data-testid="error-dashboard-tickets" className="py-4" /> : <>
+        {openTickets.length > 0 ? openTickets.slice(0, 4).map(ticket => <Link href={`/tickets/${ticket.id}`} className="af-row" key={ticket.id} data-testid={`ticket-row-${ticket.id}`}><span className="af-support-icon"><MessageSquare size={16} /></span><span className="af-support-copy">{ticket.subject}<small>Updated {relative(ticket.lastCommunicationAt ?? ticket.createdAt)}</small></span><span className={`af-pill ${ticketStatusPill[ticket.status] ?? "neutral"}`}>{ticket.status}</span><ChevronRight size={15} /></Link>) : <p className="af-content">You don’t have any open tickets.</p>}
+        {openTickets.length > 0 && <p className="af-content" data-testid="text-open-tickets-count">{openTickets.length} open {openTickets.length === 1 ? "ticket" : "tickets"}</p>}
+        <div className="af-support"><span className="af-support-icon"><Ticket size={16} /></span><span className="af-support-copy">Need a hand?<small>Browse help or start a support request.</small></span><Link href="/tickets" className="af-small-link" data-testid="button-open-ticket">Contact</Link></div>
+      </>}
+    </Section>
 
-      {/* Latest news */}
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold flex items-center gap-3">
-            <SectionIcon icon={Newspaper} tone="bg-status-online/10 text-status-online" />
-            Latest news
-          </h2>
-          <Link href="/news">
-            <Button variant="ghost" size="sm" data-testid="link-view-all-news">View all</Button>
-          </Link>
-        </div>
-        {newsLoading ? (
-          <RowSkeletons />
-        ) : newsError ? (
-          <QueryErrorState
-            error={newsErrorObj}
-            onRetry={() => refetchNews()}
-            isRetrying={newsFetching}
-            resourceName="news"
-            className="py-6"
-            data-testid="error-dashboard-news"
-          />
-        ) : !news || news.length === 0 ? (
-          <EmptyState icon={Newspaper} title="No news stories yet" hint="Company news and updates will appear here." />
-        ) : (
-          <ul className="divide-y divide-border">
-            {news.slice(0, 3).map((story) => (
-              <li key={story.id} className="stagger-item">
-                <Link
-                  href={`/news/${story.id}`}
-                  className="flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
-                  data-testid={`news-row-${story.id}`}
-                >
-                  <span className="mt-0.5 shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-                    {format(new Date(story.createdAt), "MMM d")}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium flex items-center gap-2">
-                      <span className="truncate">{story.title}</span>
-                      {unreadNewsSet.has(story.id) && <NewBadge />}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">{stripHtml(story.content)}</p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
+    <Section title="Recent service updates" icon={Bell} href="/service-updates" testId="link-view-all-service-updates">
+      {updatesQuery.isLoading ? <RowsLoading /> : updatesQuery.isError ? <QueryErrorState error={updatesQuery.error} onRetry={() => void updatesQuery.refetch()} isRetrying={updatesQuery.isFetching} resourceName="service updates" data-testid="error-dashboard-service-updates" className="py-4" /> : !updatesQuery.data?.length ? <p className="af-content">No service updates yet</p> : updatesQuery.data.slice(0, 3).map(update => <Link href={`/service-updates?highlight=${update.id}`} className="af-row" key={update.id} data-testid={`update-row-${update.id}`}><span className="af-dot info" /><span className="af-row-title">{update.title} {unreadUpdates.has(update.id) && <NewBadge />}<span className="af-row-meta">{serviceMap.get(update.serviceId) ?? "Service"} · {relative(update.createdAt)}</span><span className="af-update-excerpt line-clamp-2">{stripHtml(update.description ?? "")}</span></span><ChevronRight size={15} /></Link>)}
+    </Section>
+    <Section title="News" icon={Newspaper} href="/news" testId="link-view-all-news">
+      {newsQuery.isLoading ? <RowsLoading /> : newsQuery.isError ? <QueryErrorState error={newsQuery.error} onRetry={() => void newsQuery.refetch()} isRetrying={newsQuery.isFetching} resourceName="news" data-testid="error-dashboard-news" className="py-4" /> : !newsQuery.data?.length ? <p className="af-content">No news stories yet</p> : newsQuery.data.slice(0, 3).map(story => <Link href={`/news/${story.id}`} className="af-row" key={story.id} data-testid={`news-row-${story.id}`}><span className="af-row-title">{story.title} {unreadNews.has(story.id) && <NewBadge />}<span className="af-row-meta">{dashboardDate(story.createdAt) ? format(new Date(story.createdAt), "MMM d") : "Date unavailable"}</span><span className="af-update-excerpt line-clamp-2">{stripHtml(story.content)}</span></span><ChevronRight size={15} /></Link>)}
+    </Section>
+    {promosQuery.isError ? <Section title="Customer offers" icon={Gift} href="/promotions" action="See offers"><QueryErrorState error={promosQuery.error} onRetry={() => void promosQuery.refetch()} isRetrying={promosQuery.isFetching} resourceName="offers" className="py-4" /></Section> : promosQuery.isLoading ? <Section title="Customer offers" icon={Gift} href="/promotions" action="See offers"><RowsLoading /></Section> : <PromoOffers promotions={promosQuery.data ?? []} />}
+    {!uncertain && checkedAt > 0 && <div className="af-footer"><Clock3 size={10} aria-hidden="true" />Status checked {relative(checkedAt)}</div>}
+  </div>;
 }
