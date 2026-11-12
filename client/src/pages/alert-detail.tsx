@@ -1,10 +1,11 @@
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAnalyticsView } from "@/hooks/use-analytics-view";
 import { useParams, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Activity } from "lucide-react";
+import { ArrowDown, ArrowLeft, AlertTriangle, CheckCircle, Clock, Info, Activity } from "lucide-react";
 import { ClickableImage } from "@/components/image-lightbox";
 import { RichTextContent } from "@/components/rich-text-content";
 import { QueryErrorState } from "@/components/query-error-state";
@@ -50,6 +51,7 @@ function LatestPill() {
 
 export default function AlertDetail() {
   const params = useParams<{ id: string }>();
+  const latestUpdateRef = useRef<HTMLLIElement>(null);
 
   const { data: alert, isLoading, isError, error, refetch, isFetching } = useQuery<ServiceAlertWithServices>({
     queryKey: ["/api/alerts", params.id],
@@ -66,6 +68,18 @@ export default function AlertDetail() {
       : latest,
     undefined,
   );
+
+  function viewLatestUpdate() {
+    const target = latestUpdateRef.current;
+    if (!target?.isConnected) return;
+
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({
+      behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+      block: "start",
+      inline: "nearest",
+    });
+  }
 
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -167,6 +181,18 @@ export default function AlertDetail() {
                 ))}
               </div>
             </div>
+            {!updatesLoading && latestUpdate && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-h-11 sm:min-h-8 text-primary"
+                onClick={viewLatestUpdate}
+                data-testid="button-view-latest-update"
+              >
+                <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                View latest update
+              </Button>
+            )}
           </div>
         </div>
         <div className="px-5 py-4 space-y-4">
@@ -214,7 +240,19 @@ export default function AlertDetail() {
         ) : (
           <ul className="divide-y divide-border">
             {updates.map((update) => (
-              <li key={update.id} className="px-5 py-4 flex gap-4" data-testid={`alert-update-${update.id}`}>
+              <li
+                key={update.id}
+                ref={update.id === latestUpdate?.id ? latestUpdateRef : undefined}
+                tabIndex={-1}
+                className="px-5 py-4 flex gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                // The app header sits outside the scroll container. Leave a
+                // top gap there and clearance for the fixed phone navigation.
+                style={{
+                  scrollMarginTop: "1rem",
+                  scrollMarginBottom: "calc(4.5rem + var(--sab, env(safe-area-inset-bottom, 0px)))",
+                }}
+                data-testid={`alert-update-${update.id}`}
+              >
                 <div className="mt-0.5 shrink-0">
                   <StatusIcon status={update.status} />
                 </div>
