@@ -8,7 +8,7 @@ import { Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, CheckCircle2, ChevronRight, Bell } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { stripHtml } from "@/components/rich-text-editor";
+import { stripHtml } from "@/lib/rich-text";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { ServiceAlertWithServices, Service } from "@shared/schema";
 

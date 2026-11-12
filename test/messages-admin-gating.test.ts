@@ -206,6 +206,7 @@ let threadMessages: Array<Record<string, unknown>> = [];
 let failNextThreadPost = false;
 const readBatches: string[][] = [];
 const ioInstances: IntersectionObserverStub[] = [];
+let profileDurations: number[] | null = null;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -334,7 +335,10 @@ async function mountMessages(path: string, user: typeof CUSTOMER_USER | typeof A
 
   const root = createRoot(container);
   await act(async () => {
-    root.render(React.createElement(Wrapper));
+    root.render(React.createElement(React.Profiler, {
+      id: "conversation",
+      onRender: (_id, phase, duration) => { if (phase !== "mount") profileDurations?.push(duration); },
+    }, React.createElement(Wrapper)));
   });
   await flush();
 
@@ -352,6 +356,40 @@ async function mountMessages(path: string, user: typeof CUSTOMER_USER | typeof A
 function has(id: string): boolean {
   return window.document.body.querySelector(`[data-testid="${id}"]`) !== null;
 }
+
+test("performance fixture: typing in a 150-message attachment-heavy private conversation", async () => {
+  threadMessages = Array.from({ length: 150 }, (_, i) => ({
+    id: `perf-${i}`, threadId: THREAD_ID, senderId: i % 2 ? CUSTOMER_USER.id : ADMIN_USER.id,
+    senderName: "Example", body: `Message ${i} https://example.com/help/a-long-address?q=example`,
+    createdAt: ISO, readAt: ISO, deliveredAt: ISO, editedAt: null, reactions: [],
+    attachment: i % 3 === 0 ? { name: `sample-${i}.mp4`, kind: "video", contentType: "video/mp4" } : null,
+  }));
+  const h = await mountMessages(`/messages/${THREAD_ID}`, CUSTOMER_USER);
+  try {
+    const input = h.container.querySelector<HTMLTextAreaElement>('[data-testid="input-thread-message"]')!;
+    assert.ok(input);
+    const first = h.container.querySelector('[data-testid="message-perf-0"]');
+    assert.ok(first);
+    profileDurations = [];
+    for (let i = 1; i <= 10; i++) await typeIntoTextarea(input, "sampletext".slice(0, i));
+    const samples = profileDurations;
+    profileDurations = null;
+    console.log("CONVERSATION_PROFILE", JSON.stringify({
+      messages: 150, keystrokes: 10, updateCommits: samples.length,
+      totalRenderMs: +samples.reduce((sum, n) => sum + n, 0).toFixed(2),
+      medianRenderMs: +[...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)].toFixed(2),
+    }));
+    assert.equal(input.value, "sampletext");
+    assert.equal(h.container.querySelector('[data-testid="message-perf-0"]'), first, "typing preserves existing bubbles");
+    await act(async () => {
+      queryClient.setQueryData(["/api/message-threads", THREAD_ID, "messages"],
+        threadMessages.map(msg => msg.id === "perf-149" ? { ...msg, body: "Edited example", editedAt: ISO } : msg));
+    });
+    await flush();
+    assert.ok(has("message-edited-perf-149"), "receipts/edits still update cached rows");
+    assert.match(h.container.querySelector('[data-testid="message-perf-149"]')!.textContent!, /Edited example/);
+  } finally { profileDurations = null; h.cleanup(); threadMessages = []; }
+});
 
 // --- List view (/messages) -----------------------------------------------
 

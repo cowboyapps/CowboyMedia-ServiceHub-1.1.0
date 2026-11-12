@@ -293,10 +293,4 @@ function ToolbarButton({ active, onClick, children, testId, title, disabled }: {
   );
 }
 
-export function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-}
-
-export function isHtmlContent(content: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(content);
-}
+export { stripHtml, isHtmlContent } from "@/lib/rich-text";

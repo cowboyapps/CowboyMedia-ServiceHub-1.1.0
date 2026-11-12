@@ -48,6 +48,7 @@ import {
   removeOptimisticById,
 } from "@shared/ticket-message-reconcile";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
+import { conversationPollInterval } from "@/lib/conversation-polling";
 import { applyTicketMessageDeletion, withoutDeletedTicketMessages, ticketMessagesQueryFn } from "@/lib/ticket-message-deletions";
 import {
   persistFailedMessage,
@@ -556,7 +557,7 @@ export default function TicketDetail() {
   const { data: messages, isLoading: messagesLoading } = useQuery<EnrichedTicketMessage[]>({
     queryKey: ["/api/tickets", params.id, "messages"],
     queryFn: ticketMessagesQueryFn as import("@tanstack/react-query").QueryFunction<EnrichedTicketMessage[]>,
-    refetchInterval: 5000,
+    refetchInterval: () => conversationPollInterval(wsRef.current),
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: "always",

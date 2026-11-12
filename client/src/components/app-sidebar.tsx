@@ -36,28 +36,24 @@ export function AppSidebar() {
 
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/message-threads/unread-count"],
-    refetchInterval: 30000,
     enabled: !!user,
   });
   const unreadCount = unreadData?.count ?? 0;
 
   const { data: ticketNotifData } = useQuery<{ count: number }>({
     queryKey: ["/api/ticket-notifications/unread-count"],
-    refetchInterval: 15000,
     enabled: !!user,
   });
   const unreadTicketCount = ticketNotifData?.count ?? 0;
 
   const { data: reportNotifData } = useQuery<{ count: number }>({
     queryKey: ["/api/report-notifications/unread-count"],
-    refetchInterval: 30000,
     enabled: !!user && user.role !== "admin" && user.role !== "master_admin",
   });
   const unreadReportCount = reportNotifData?.count ?? 0;
 
   const { data: contentNotifData } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
-    refetchInterval: 15000,
     enabled: !!user,
   });
   const contentCounts = contentNotifData ?? {};

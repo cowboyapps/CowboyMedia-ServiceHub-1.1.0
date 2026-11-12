@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, Activity, CheckCircle2, AlertTriangle, XCircle, Wrench, Clock, ChevronRight } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
-import { stripHtml } from "@/components/rich-text-editor";
+import { stripHtml } from "@/lib/rich-text";
 import { alertStatusLabel, alertSeverityLabel, alertSeverityMeta } from "@/lib/status-meta";
 import type { Service, ServiceAlertWithServices } from "@shared/schema";
 

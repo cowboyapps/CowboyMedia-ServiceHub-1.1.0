@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { lazyPage } from "@/components/lazy-page";
 import { flushSync } from "react-dom";
 import { GlobalSocketProvider, useGlobalSocket } from "@/contexts/global-socket-context";
 import { Switch, Route, Router, useLocation } from "wouter";
@@ -46,29 +47,29 @@ import AuthPage from "@/pages/auth-page";
 import Dashboard from "@/pages/dashboard";
 import ServicesPage from "@/pages/services-page";
 import AlertsPage from "@/pages/alerts-page";
-import AlertDetail from "@/pages/alert-detail";
-import NewsPage from "@/pages/news-page";
-import NewsDetail from "@/pages/news-detail";
-import PromotionsPage from "@/pages/promotions";
-import TicketsPage from "@/pages/tickets-page";
-import TicketDetail from "@/pages/ticket-detail";
-import WhmcsTicketDetail from "@/pages/whmcs-ticket-detail";
-import SettingsPage from "@/pages/settings-page";
-import BillingPage from "@/pages/billing-page";
-import MyServicesPage from "@/pages/my-services-page";
-const AdminPortal = lazy(() => import("@/pages/admin-portal"));
-import MessagesPage from "@/pages/messages-page";
-import ReportRequestPage from "@/pages/report-request-page";
-import ServiceUpdatesPage from "@/pages/service-updates-page";
-import ServiceDetail from "@/pages/service-detail";
-import DownloadsPage from "@/pages/downloads-page";
+const AlertDetail = lazyPage(() => import("@/pages/alert-detail"));
+const NewsPage = lazyPage(() => import("@/pages/news-page"));
+const NewsDetail = lazyPage(() => import("@/pages/news-detail"));
+const PromotionsPage = lazyPage(() => import("@/pages/promotions"));
+const TicketsPage = lazyPage(() => import("@/pages/tickets-page"));
+const TicketDetail = lazyPage(() => import("@/pages/ticket-detail"));
+const WhmcsTicketDetail = lazyPage(() => import("@/pages/whmcs-ticket-detail"));
+const SettingsPage = lazyPage(() => import("@/pages/settings-page"));
+const BillingPage = lazyPage(() => import("@/pages/billing-page"));
+const MyServicesPage = lazyPage(() => import("@/pages/my-services-page"));
+const AdminPortal = lazyPage(() => import("@/pages/admin-portal"));
+const MessagesPage = lazyPage(() => import("@/pages/messages-page"));
+const ReportRequestPage = lazyPage(() => import("@/pages/report-request-page"));
+const ServiceUpdatesPage = lazyPage(() => import("@/pages/service-updates-page"));
+const ServiceDetail = lazyPage(() => import("@/pages/service-detail"));
+const DownloadsPage = lazyPage(() => import("@/pages/downloads-page"));
 import ForgotPasswordPage from "@/pages/forgot-password-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
 import PublicStatusPage from "@/pages/public-status-page";
 import PublicIncidentPage from "@/pages/public-incident-page";
-import CommunityChatPage from "@/pages/community-chat-page";
-import KnowledgePage from "@/pages/knowledge-page";
-import WhatsNewPage from "@/pages/whats-new-page";
+const CommunityChatPage = lazyPage(() => import("@/pages/community-chat-page"));
+const KnowledgePage = lazyPage(() => import("@/pages/knowledge-page"));
+const WhatsNewPage = lazyPage(() => import("@/pages/whats-new-page"));
 import { ServicesPickerWizard } from "@/pages/services-picker-wizard";
 import { ChangelogPublishPrompt } from "@/components/changelog-publish-prompt";
 import { WelcomeV7Dialog } from "@/components/welcome-v7-dialog";
@@ -165,11 +166,7 @@ function AppRouter() {
         <Route path="/knowledge" component={KnowledgePage} />
         <Route path="/knowledge/:slug" component={KnowledgePage} />
         <Route path="/whats-new" component={WhatsNewPage} />
-        <Route path="/admin">
-          <Suspense fallback={<div className="p-6 space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>}>
-            <AdminPortal />
-          </Suspense>
-        </Route>
+        <Route path="/admin" component={AdminPortal} />
         <Route component={NotFound} />
       </Switch>
     </PageTransition>

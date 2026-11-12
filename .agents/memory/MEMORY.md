@@ -55,3 +55,4 @@
 - [Large private media](large-private-media.md) — preserve database backup guarantees; multipart parser limits need a one-byte allowance for inclusive advertised maxima.
 - [Ticket inactivity policy](ticket-inactivity-policy.md) — opt-in closure counts public sends from either side, preserves a permanent reason, and must serialize safely with new replies.
 - [ServiceHub account separation](servicehub-account-separation.md) — customers must create a ServiceHub account separate from their payment/service portal account.
+- [Optional chunk dependencies](optional-chunk-dependencies.md) — entry size alone hides optional libraries pulled into startup through shared runtime dependencies; measure the full static graph.

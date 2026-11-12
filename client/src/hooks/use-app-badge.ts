@@ -27,6 +27,8 @@ const BADGE_QUERY_KEYS = [
   "/api/notifications/unread-count",
 ];
 
+// One polling owner for shared unread queries. Navigation components only
+// subscribe to these cache entries, including while hidden by responsive CSS.
 export function useAppBadge() {
   const { user } = useAuth();
   const badgeRef = useRef(0);

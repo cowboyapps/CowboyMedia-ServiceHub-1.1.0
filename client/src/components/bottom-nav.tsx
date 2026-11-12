@@ -29,26 +29,22 @@ export function BottomNav() {
 
   const { data: ticketNotifData } = useQuery<{ count: number }>({
     queryKey: ["/api/ticket-notifications/unread-count"],
-    refetchInterval: 15000,
     enabled: !!user,
   });
   const unreadTicketCount = ticketNotifData?.count ?? 0;
 
   const { data: messageData } = useQuery<{ count: number }>({
     queryKey: ["/api/message-threads/unread-count"],
-    refetchInterval: 15000,
     enabled: !!user,
   });
 
   const { data: reportNotifData } = useQuery<{ count: number }>({
     queryKey: ["/api/report-notifications/unread-count"],
-    refetchInterval: 15000,
     enabled: !!user,
   });
 
   const { data: contentNotifData } = useQuery<Record<string, number>>({
     queryKey: ["/api/content-notifications/counts"],
-    refetchInterval: 15000,
     enabled: !!user,
   });
 

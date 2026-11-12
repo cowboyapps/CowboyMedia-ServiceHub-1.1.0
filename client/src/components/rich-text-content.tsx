@@ -1,5 +1,5 @@
 import DOMPurify from "dompurify";
-import { isHtmlContent } from "@/components/rich-text-editor";
+import { isHtmlContent } from "@/lib/rich-text";
 
 // Sanitized renderer for alert descriptions and update messages authored with
 // the rich text editor. Legacy plain-text content falls back to a

@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { ArrowLeft, Calendar, Newspaper } from "lucide-react";
 import { ClickableImage, ImageLightbox } from "@/components/image-lightbox";
-import { isHtmlContent } from "@/components/rich-text-editor";
+import { isHtmlContent } from "@/lib/rich-text";
 import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import DOMPurify from "dompurify";
 import type { NewsStory } from "@shared/schema";

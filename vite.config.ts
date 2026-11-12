@@ -17,6 +17,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // Do not pull shared React/runtime dependencies into an optional
+        // editor/chart chunk: that makes startup import the entire chunk too.
+        onlyExplicitManualChunks: true,
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("/recharts/")) return "vendor-charts";

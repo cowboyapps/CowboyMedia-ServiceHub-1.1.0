@@ -9,7 +9,7 @@ import { Newspaper, ChevronRight } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { LazyImage } from "@/components/lazy-image";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { stripHtml } from "@/components/rich-text-editor";
+import { stripHtml } from "@/lib/rich-text";
 import { NewsReactionsBar } from "@/components/news-reactions-bar";
 import { QueryErrorState } from "@/components/query-error-state";
 import type { NewsStory } from "@shared/schema";

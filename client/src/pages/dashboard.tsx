@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { Service, ServiceAlertWithServices, NewsStory, Ticket as TicketType, ServiceUpdate, Promotion } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
-import { stripHtml } from "@/components/rich-text-editor";
+import { stripHtml } from "@/lib/rich-text";
 import { QueryErrorState } from "@/components/query-error-state";
 
 import { serviceStatusMeta as statusMeta, ticketStatusPill } from "@/lib/status-meta";

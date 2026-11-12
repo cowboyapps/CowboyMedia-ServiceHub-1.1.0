@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { uploadPrivateMessage } from "@/lib/private-message-upload";
 import { trackOutcome } from "@/lib/analytics";
+import { conversationPollInterval } from "@/lib/conversation-polling";
 import { PRIVATE_UPLOAD_LIMIT_LABEL, privateUploadError } from "@shared/private-message-uploads";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -128,7 +129,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   const { data: thread } = useQuery<ThreadInfo>({ queryKey: ["/api/message-threads", threadId] });
   const { data: messages, isLoading, isError, refetch } = useQuery<PrivateThreadMessage[]>({
     queryKey: key,
-    refetchInterval: 5000,
+    refetchInterval: () => conversationPollInterval(wsRef.current),
     staleTime: 0,
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
@@ -364,6 +365,38 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   const canDelete = isAdmin && hasPermission("messages.manage");
   const otherName = isAdmin ? thread?.customerName : thread?.adminName;
 
+  // Composer keystrokes and upload-progress updates must not rebuild every
+  // bubble, menu, receipt and media preview in a long conversation.
+  const messageRows = useMemo(() => (messages ?? []).map((msg, index, list) => {
+    const own = msg.senderId === user?.id;
+    const when = new Date(msg.createdAt);
+    const previous = index ? new Date(list[index - 1].createdAt) : null;
+    const separator = !previous || dateLabel(previous) !== dateLabel(when);
+    const media = privateMedia(threadId, msg);
+    return <div key={msg.id}>
+      {!own && !msg.readAt && <span className="block h-px w-full" data-read-message-id={msg.id} aria-hidden="true" />}
+      {separator && <div className="my-4 flex items-center gap-3" data-testid={`date-separator-${msg.id}`}><span className="h-px flex-1 bg-border" /><span className="text-[11px] font-medium text-muted-foreground">{dateLabel(when)}</span><span className="h-px flex-1 bg-border" /></div>}
+      <div className={`mb-1 flex ${own ? "justify-end" : "justify-start"}`} data-testid={`message-${msg.id}`}>
+        <div className={`min-w-0 max-w-[88%] sm:max-w-[74%] ${own ? "items-end" : "items-start"}`}>
+          {!own && <p className="mb-1 px-1 text-[11px] font-medium text-muted-foreground">{msg.senderName}</p>}
+          <MessageActions ticketId={threadId} apiBase={messageBase} queryKey={key} messageId={msg.id} message={msg.body || ""} reactions={msg.reactions ?? []} enabled={!sendMutation.isPending} canDelete={canDelete} onDelete={() => setDeleting(msg)} onEdit={own ? () => setEditing(msg) : undefined} footer={<p className={`flex items-center gap-1 text-[10px] text-muted-foreground ${own ? "justify-end" : ""}`}>
+            {format(when, "h:mm a")}
+            {msg.editedAt && <span className="ml-1" data-testid={`message-edited-${msg.id}`} aria-label="Message edited">edited</span>}
+            {own && <span className="ml-1 inline-flex items-center gap-0.5" aria-label={msg.readAt ? "Read by recipient" : msg.deliveredAt ? "Delivered" : "Sent"}>
+              {msg.readAt ? <CheckCheck className="h-3 w-3 text-primary" /> : <Check className="h-3 w-3" />}{msg.readAt ? "Read" : msg.deliveredAt ? "Delivered" : "Sent"}
+            </span>}
+          </p>}>
+            <div className={`rounded-2xl border px-3 py-2.5 text-[14px] leading-relaxed shadow-sm ${own ? "border-primary bg-primary text-primary-foreground" : "border-card-border bg-card text-card-foreground"}`} style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
+              {msg.body && <MessageBody id={msg.id} message={msg.body} />}
+              {media && <TicketAttachment media={media} onOpen={setViewingMedia} />}
+              {msg.kbArticle && <a href={`/knowledge/${msg.kbArticle.slug}`} className="mt-2 flex items-center gap-2 rounded-lg border border-current/15 bg-background/20 p-2 text-xs underline"><BookOpen className="h-4 w-4 shrink-0" /><span className="truncate">{msg.kbArticle.title}</span></a>}
+            </div>
+          </MessageActions>
+        </div>
+      </div>
+    </div>;
+  }), [messages, user?.id, threadId, messageBase, key, sendMutation.isPending, canDelete]);
+
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-card-border bg-card" style={{ paddingBottom: keyboardInset || undefined, overscrollBehavior: "none" }} data-testid="thread-chat-view">
       <header className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3 sm:px-5">
@@ -382,35 +415,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
           {isLoading ? <div className="space-y-4" aria-label="Loading messages">{[0, 1, 2].map(i => <Skeleton key={i} className={`h-14 rounded-2xl ${i % 2 ? "ml-auto w-2/3" : "w-3/4"}`} />)}</div> :
             isError ? <div className="mx-auto max-w-sm py-12 text-center"><p className="text-sm text-muted-foreground">Messages couldn’t load.</p><Button className="mt-3" variant="outline" onClick={() => void refetch()}>Try again</Button></div> :
             (messages ?? []).length === 0 ? <div className="flex min-h-48 items-center justify-center text-center"><div><p className="text-sm font-medium">Start the conversation</p><p className="mt-1 text-xs text-muted-foreground">Your messages will appear here.</p></div></div> :
-            (messages ?? []).map((msg, index, list) => {
-              const own = msg.senderId === user?.id;
-              const when = new Date(msg.createdAt);
-              const previous = index ? new Date(list[index - 1].createdAt) : null;
-              const separator = !previous || dateLabel(previous) !== dateLabel(when);
-              const media = privateMedia(threadId, msg);
-              return <div key={msg.id}>
-                {!own && !msg.readAt && <span className="block h-px w-full" data-read-message-id={msg.id} aria-hidden="true" />}
-                {separator && <div className="my-4 flex items-center gap-3" data-testid={`date-separator-${msg.id}`}><span className="h-px flex-1 bg-border" /><span className="text-[11px] font-medium text-muted-foreground">{dateLabel(when)}</span><span className="h-px flex-1 bg-border" /></div>}
-                <div className={`mb-1 flex ${own ? "justify-end" : "justify-start"}`} data-testid={`message-${msg.id}`}>
-                  <div className={`min-w-0 max-w-[88%] sm:max-w-[74%] ${own ? "items-end" : "items-start"}`}>
-                    {!own && <p className="mb-1 px-1 text-[11px] font-medium text-muted-foreground">{msg.senderName}</p>}
-                    <MessageActions ticketId={threadId} apiBase={messageBase} queryKey={key} messageId={msg.id} message={msg.body || ""} reactions={msg.reactions ?? []} enabled={!sendMutation.isPending} canDelete={canDelete} onDelete={() => setDeleting(msg)} onEdit={own ? () => setEditing(msg) : undefined} footer={<p className={`flex items-center gap-1 text-[10px] text-muted-foreground ${own ? "justify-end" : ""}`}>
-                      {format(when, "h:mm a")}
-                      {msg.editedAt && <span className="ml-1" data-testid={`message-edited-${msg.id}`} aria-label="Message edited">edited</span>}
-                      {own && <span className="ml-1 inline-flex items-center gap-0.5" aria-label={msg.readAt ? "Read by recipient" : msg.deliveredAt ? "Delivered" : "Sent"}>
-                        {msg.readAt ? <CheckCheck className="h-3 w-3 text-primary" /> : <Check className="h-3 w-3" />}{msg.readAt ? "Read" : msg.deliveredAt ? "Delivered" : "Sent"}
-                      </span>}
-                    </p>}>
-                      <div className={`rounded-2xl border px-3 py-2.5 text-[14px] leading-relaxed shadow-sm ${own ? "border-primary bg-primary text-primary-foreground" : "border-card-border bg-card text-card-foreground"}`} style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
-                        {msg.body && <MessageBody id={msg.id} message={msg.body} />}
-                        {media && <TicketAttachment media={media} onOpen={setViewingMedia} />}
-                        {msg.kbArticle && <a href={`/knowledge/${msg.kbArticle.slug}`} className="mt-2 flex items-center gap-2 rounded-lg border border-current/15 bg-background/20 p-2 text-xs underline"><BookOpen className="h-4 w-4 shrink-0" /><span className="truncate">{msg.kbArticle.title}</span></a>}
-                      </div>
-                    </MessageActions>
-                  </div>
-                </div>
-              </div>;
-            })}
+            messageRows}
         </div>
       </div>
       {showLatest && <div className="absolute bottom-[5.4rem] left-1/2 z-10 -translate-x-1/2">

@@ -262,12 +262,12 @@ export default function MessagesPage() {
   const [, navigate] = useLocation();
   const canManage = isAdmin && hasPermission("messages.manage");
   const { data: threads, isLoading, isError, error, refetch, isFetching } = useQuery<EnrichedThread[]>({
-    queryKey: ["/api/message-threads"], refetchInterval: 15000,
+    queryKey: ["/api/message-threads"], refetchInterval: 15000, enabled: !params.id,
     staleTime: 0, refetchOnMount: true, refetchOnWindowFocus: true, refetchOnReconnect: true,
   });
-  const { data: legacyMessages } = useQuery<PrivateMessage[]>({ queryKey: ["/api/private-messages"], enabled: !isAdmin });
-  const { data: sentMessages } = useQuery<PrivateMessage[]>({ queryKey: ["/api/admin/private-messages/sent"], enabled: isAdmin && hasPermission("messages.view") });
-  const { data: adminUsers } = useQuery<User[]>({ queryKey: ["/api/admin/users"], enabled: isAdmin });
+  const { data: legacyMessages } = useQuery<PrivateMessage[]>({ queryKey: ["/api/private-messages"], enabled: !params.id && !isAdmin });
+  const { data: sentMessages } = useQuery<PrivateMessage[]>({ queryKey: ["/api/admin/private-messages/sent"], enabled: !params.id && isAdmin && hasPermission("messages.view") });
+  const { data: adminUsers } = useQuery<User[]>({ queryKey: ["/api/admin/users"], enabled: !params.id && isAdmin });
   const userMap = new Map(adminUsers?.map(entry => [entry.id, entry.fullName]) || []);
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
