@@ -115,7 +115,7 @@ export default function ServiceDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="sh-page space-y-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-32 rounded-xl" />
         <Skeleton className="h-24 rounded-xl" />

@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <div className="min-h-dvh w-full flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md rounded-xl border border-card-border bg-card overflow-hidden shadow-sm">
+    <div className="sh-auth-page min-h-dvh w-full flex items-center justify-center bg-background p-6">
+      <div className="sh-panel w-full max-w-md rounded-xl border border-card-border bg-card overflow-hidden shadow-sm">
         <div className="p-8 text-center space-y-6">
           <div className="flex justify-center">
             <div className="w-16 h-16 rounded-full bg-status-away/10 flex items-center justify-center">

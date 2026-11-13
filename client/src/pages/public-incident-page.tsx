@@ -160,7 +160,7 @@ export default function PublicIncidentPage() {
   useIncidentMeta(data);
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="sh-auth-page min-h-dvh bg-background">
       <header className="border-b border-border bg-card">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link href="/status" className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-back-status">

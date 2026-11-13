@@ -12362,7 +12362,7 @@ export default function AdminPortal() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page sh-admin-page space-y-6">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-admin-title">Admin Portal</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage users, services, alerts, news, and messages</p>
@@ -12374,8 +12374,8 @@ export default function AdminPortal() {
             const items = sections.filter((s) => s.group === g.key);
             if (items.length === 0) return null;
             return (
-              <section key={g.key} data-testid={`menu-group-${g.key}`} className="rounded-xl border border-card-border bg-card overflow-hidden">
-                <div className="px-5 py-4 border-b border-border bg-muted/20">
+              <section key={g.key} data-testid={`menu-group-${g.key}`} className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
+                <div className="sh-section-head px-5 py-4 border-b border-border bg-muted/20">
                   <h2 className="text-sm font-semibold tracking-tight">
                     {g.label}
                   </h2>

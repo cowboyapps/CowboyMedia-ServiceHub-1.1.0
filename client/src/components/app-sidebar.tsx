@@ -114,7 +114,7 @@ export function AppSidebar() {
   ];
 
   return (
-    <Sidebar>
+    <Sidebar className="sh-sidebar">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2.5">
           <BrandLogo className="h-28 flex-shrink-0" />

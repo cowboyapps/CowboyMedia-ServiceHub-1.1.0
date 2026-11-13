@@ -398,7 +398,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   }), [messages, user?.id, threadId, messageBase, key, sendMutation.isPending, canDelete]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-card-border bg-card" style={{ paddingBottom: keyboardInset || undefined, overscrollBehavior: "none" }} data-testid="thread-chat-view">
+    <div className="sh-panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-card-border bg-card" style={{ paddingBottom: keyboardInset || undefined, overscrollBehavior: "none" }} data-testid="thread-chat-view">
       <header className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3 sm:px-5">
         <Button variant="ghost" size="icon" aria-label="Back to messages" className="-ml-2 h-9 w-9 shrink-0" onClick={onBack} data-testid="button-thread-back"><ArrowLeft className="h-4 w-4" /></Button>
         <div className="min-w-0 flex-1">

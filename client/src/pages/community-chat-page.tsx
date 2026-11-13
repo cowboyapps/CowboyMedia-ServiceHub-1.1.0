@@ -1624,7 +1624,7 @@ export default function CommunityChatPage() {
 
   return (
     <div
-      className="flex flex-col h-full bg-card rounded-xl border border-card-border overflow-hidden"
+      className="sh-panel flex flex-col h-full bg-card rounded-xl border border-card-border overflow-hidden"
       style={{
         overscrollBehavior: "none",
         paddingBottom: keyboardInset ? `${keyboardInset}px` : undefined,

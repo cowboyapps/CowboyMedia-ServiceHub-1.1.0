@@ -266,7 +266,7 @@ function AuthenticatedLayout() {
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <OfflineBanner />
           <AdminAwayBanner />
-          <header className="relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
+          <header className="sh-app-header relative flex items-center flex-shrink-0 px-3 py-2.5 border-b bg-muted min-h-[3rem]">
             <div className="z-10">
               {isMobile ? (
                 <Link href="/" className="flex items-center gap-1.5 no-underline tap-interactive rounded-lg px-2.5 py-1.5 border border-border bg-background/60 hover-elevate transition-colors" data-testid="link-header-dashboard">

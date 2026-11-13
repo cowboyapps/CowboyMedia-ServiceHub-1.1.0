@@ -71,11 +71,11 @@ export default function NewsPage() {
   }, [markNewsRead]);
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <PageHeader title="News & Updates" subtitle="Stay up to date with the latest company news" testId="text-news-title" />
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden animate-fade-in">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold flex items-center gap-3">
             <SectionIcon icon={Newspaper} tone="bg-status-online/10 text-status-online" />
             Latest news

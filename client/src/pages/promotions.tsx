@@ -168,7 +168,7 @@ export default function PromotionsPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <PageHeader
         title="Promotions"
         subtitle="Exclusive deals and offers just for you"

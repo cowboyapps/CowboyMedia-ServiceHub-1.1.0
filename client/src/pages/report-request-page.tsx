@@ -182,7 +182,7 @@ export default function ReportRequestPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-report-request-title">Report / Request</h1>
         <p className="text-sm text-muted-foreground mt-1">Report content issues, request movies, or report app problems</p>

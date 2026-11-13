@@ -126,7 +126,7 @@ export function BottomNav() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/80 backdrop-blur-xl supports-[not(backdrop-filter:blur(0px))]:bg-background"
+        className="sh-bottom-nav fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/80 backdrop-blur-xl supports-[not(backdrop-filter:blur(0px))]:bg-background"
         style={{ paddingBottom: "var(--sab, env(safe-area-inset-bottom, 0px))" }}
         data-testid="nav-bottom"
       >

@@ -305,7 +305,7 @@ export default function MessagesPage() {
     </section>;
   };
 
-  return <div className="space-y-6">
+  return <div className="sh-page space-y-6">
     <ThreadListSync />
     <div className="flex items-start justify-between gap-2"><div><h1 className="text-2xl font-bold" data-testid="text-messages-title">Messages</h1><p className="mt-1 text-sm text-muted-foreground">{isAdmin ? "Conversations with customers" : "Conversations with the support team"}</p></div>{canManage && <NewConversationDialog />}</div>
     {renderThreadList()}

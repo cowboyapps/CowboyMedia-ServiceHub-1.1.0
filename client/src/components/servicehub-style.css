@@ -1,0 +1,177 @@
+/* Shared alert-first surface rhythm, using the established ServiceHub tokens. */
+:root {
+  --sh-positive-text: 142 72% 28%;
+  --sh-warning-text: 32 95% 26%;
+  --sh-danger-text: 0 72% 40%;
+}
+
+.dark {
+  --sh-positive-text: 142 71% 62%;
+  --sh-warning-text: 38 92% 65%;
+  --sh-danger-text: 0 90% 76%;
+}
+
+.sh-page {
+  color: hsl(var(--foreground));
+  width: 100%;
+  min-width: 0;
+  padding-bottom: max(.75rem, env(safe-area-inset-bottom));
+  font-size: 14px;
+}
+
+.sh-admin-page {
+  max-width: none;
+}
+
+.sh-page section[class~="rounded-xl"][class~="border"],
+.sh-admin-page section[class~="rounded-xl"][class~="border"] {
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .04);
+}
+
+.sh-page section[class~="rounded-xl"][class~="border"] > div[class~="border-b"],
+.sh-admin-page section[class~="rounded-xl"][class~="border"] > div[class~="border-b"] {
+  padding: 10px 14px;
+}
+
+.sh-auth-page {
+  color: hsl(var(--foreground));
+}
+
+.sh-page > :first-child h1,
+.sh-page h1[data-testid],
+.sh-page .sh-page-title,
+.sh-admin-page > div:first-child h1 {
+  color: hsl(var(--foreground));
+  font-size: clamp(1.25rem, 3vw, 1.5rem);
+  font-weight: 700;
+  line-height: 1.13;
+  letter-spacing: -.025em;
+}
+
+.sh-section-head h2 {
+  letter-spacing: -.02em;
+}
+
+.sh-page :focus-visible,
+.sh-app-header :focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 3px;
+}
+
+.sh-panel.sh-panel {
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .045), 0 5px 16px hsl(var(--foreground) / .035);
+}
+
+.sh-section-head {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid hsl(var(--border) / .8);
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sh-row {
+  color: hsl(var(--foreground));
+  text-decoration: none;
+  transition: background-color 140ms ease;
+}
+
+.sh-row:hover {
+  background-color: hsl(var(--accent) / .42);
+}
+
+.sh-app-header.sh-app-header {
+  z-index: 30;
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 0 hsl(var(--foreground) / .025);
+}
+
+.sh-app-header kbd {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+}
+
+.sh-page .sh-panel button,
+.sh-page .sh-row,
+.sh-page button,
+.sh-page a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sh-page input,
+.sh-page textarea,
+.sh-page select,
+.sh-panel input,
+.sh-panel textarea,
+.sh-panel select {
+  accent-color: hsl(var(--primary));
+}
+
+.sh-page :where(input, textarea, select):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Keep the existing status fills/dots; readable text needs a darker shade on
+   light cards and a lighter shade on dark cards. Words/icons remain alongside
+   color, including the dashboard's healthy/monitoring/error distinctions. */
+:is(.sh-page, .sh-panel, .sh-dialog-content) .text-status-online,
+.af-page .af-calm .af-state-title,
+.af-page .af-pill.ok {
+  color: hsl(var(--sh-positive-text));
+}
+
+:is(.sh-page, .sh-panel, .sh-dialog-content) .text-status-away,
+.af-page .af-state-title,
+.af-page .af-pill.warn {
+  color: hsl(var(--sh-warning-text));
+}
+
+:is(.sh-page, .sh-panel, .sh-dialog-content) .text-status-busy,
+.af-page .af-critical .af-state-title,
+.af-page .af-pill.danger {
+  color: hsl(var(--sh-danger-text));
+}
+
+.af-page .af-watch .af-state-title { color: hsl(var(--primary)); }
+.af-page .af-uncertain .af-state-title { color: hsl(var(--muted-foreground)); }
+
+@media (max-width: 767px) {
+  .sh-page {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .sh-section-head {
+    padding-inline: 12px;
+  }
+}
+
+.sh-dialog-content.sh-dialog-content {
+  box-shadow: 0 12px 36px hsl(var(--foreground) / .16);
+}
+
+.sh-sidebar [data-sidebar="menu-button"] {
+  border-radius: .6rem;
+}
+
+.sh-sidebar [data-sidebar="menu-button"]:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.sh-bottom-nav {
+  box-shadow: 0 -2px 14px hsl(var(--foreground) / .055);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-row {
+    transition: none;
+  }
+}

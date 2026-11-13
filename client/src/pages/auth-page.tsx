@@ -107,7 +107,7 @@ export default function AuthPage() {
   if (user) return null;
 
   return (
-    <div className="min-h-dvh flex bg-background">
+    <div className="sh-auth-page min-h-dvh flex bg-background">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
         <div className="w-full max-w-md space-y-6">
           <div className="text-center space-y-2">

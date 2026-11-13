@@ -231,7 +231,7 @@ export default function AdminDashboard({ onNavigateSection }: { onNavigateSectio
   const onlineDisplay = data.usersOnline === null || data.usersOnline === undefined ? "—" : data.usersOnline;
 
   return (
-    <div className="space-y-4" data-testid="page-admin-dashboard">
+    <div className="sh-page space-y-4" data-testid="page-admin-dashboard">
       <LiveConnectionBanner status={wsStatus} />
       <div className="grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
         {/* Tickets */}

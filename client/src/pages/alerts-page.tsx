@@ -98,7 +98,7 @@ export default function AlertsPage() {
   const resolvedAlerts = alerts?.filter((a) => a.status === "resolved") || [];
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <PageHeader title="Service Alerts" subtitle="Track incidents and service disruptions" testId="text-alerts-title" />
 
       {alertsError ? (
@@ -121,8 +121,8 @@ export default function AlertsPage() {
         </TabsList>
 
         <TabsContent value="active" className="mt-4">
-          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <section className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="text-sm font-semibold flex items-center gap-3">
                 <SectionIcon icon={AlertTriangle} tone="bg-status-away/10 text-status-away" />
                 Active incidents
@@ -149,12 +149,12 @@ export default function AlertsPage() {
                     <li key={alert.id}>
                       <Link
                         href={`/alerts/${alert.id}`}
-                        className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                        className="sh-row flex items-start gap-3 px-4 py-3 hover-elevate"
                         data-testid={`card-alert-${alert.id}`}
                       >
-                        <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 animate-status-pulse ${meta.dot}`} />
+                        <span className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${meta.dot}`} />
                         <div className="flex-1 min-w-0 space-y-1.5">
-                          <p className="truncate text-sm font-medium">{alert.title}</p>
+                          <p className="break-words text-sm font-semibold">{alert.title}</p>
                           <p className="text-xs text-muted-foreground line-clamp-1">{stripHtml(alert.description)}</p>
                           <div className="flex items-center gap-2 flex-wrap">
                             <SeverityPill severity={alert.severity} />
@@ -178,8 +178,8 @@ export default function AlertsPage() {
         </TabsContent>
 
         <TabsContent value="resolved" className="mt-4">
-          <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <section className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
+            <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="text-sm font-semibold flex items-center gap-3">
                 <SectionIcon icon={CheckCircle2} tone="bg-status-online/10 text-status-online" />
                 Resolved incidents
@@ -193,12 +193,12 @@ export default function AlertsPage() {
                   <li key={alert.id}>
                     <Link
                       href={`/alerts/${alert.id}`}
-                      className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive opacity-80"
+                      className="sh-row flex items-start gap-3 px-4 py-3 hover-elevate"
                       data-testid={`card-alert-resolved-${alert.id}`}
                     >
                       <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-status-online shrink-0" />
                       <div className="flex-1 min-w-0 space-y-1.5">
-                        <p className="truncate text-sm font-medium">{alert.title}</p>
+                        <p className="break-words text-sm font-semibold">{alert.title}</p>
                         <div className="flex items-center gap-2 flex-wrap">
                           <StatusPill status="resolved" />
                           {alert.serviceIds?.map((sid) => serviceMap.get(sid) && (

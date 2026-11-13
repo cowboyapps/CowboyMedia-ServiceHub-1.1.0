@@ -109,7 +109,7 @@ function ArticleDetail({ slug }: { slug: string }) {
   const safeHtml = DOMPurify.sanitize(article.bodyHtml, { ALLOWED_TAGS, ALLOWED_ATTR });
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="sh-page space-y-6 max-w-3xl mx-auto">
       <Link href="/knowledge">
         <Button variant="ghost" size="sm" data-testid="button-back-knowledge">
           <ArrowLeft className="w-4 h-4 mr-1" /> Back to Knowledge Base
@@ -264,7 +264,7 @@ function KnowledgeIndex() {
     : categories;
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="sh-page space-y-6 max-w-3xl mx-auto">
       <PageHeader title="Knowledge Base" subtitle="Browse articles and answers to common questions." testId="text-kb-title" />
 
       <div className="relative">

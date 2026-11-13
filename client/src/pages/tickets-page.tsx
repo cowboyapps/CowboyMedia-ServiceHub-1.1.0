@@ -358,7 +358,7 @@ export default function TicketsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight" data-testid="text-tickets-title">Support Tickets</h1>

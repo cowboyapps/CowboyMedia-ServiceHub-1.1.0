@@ -69,7 +69,7 @@ export default function ServicesPage() {
   const totalCount = services?.length || 0;
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-services-title">Service Status</h1>
@@ -98,7 +98,7 @@ export default function ServicesPage() {
         </Card>
       ) : (
         <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold flex items-center gap-3">
               <SectionIcon icon={CheckCircle2} tone="bg-status-online/10 text-status-online" />
               Services
@@ -115,15 +115,15 @@ export default function ServicesPage() {
                   <li key={service.id}>
                     <Link
                       href={`/services/${service.id}`}
-                      className="stagger-item flex items-start gap-3 px-5 py-3.5 hover-elevate tap-interactive"
+                      className="sh-row flex items-start gap-3 px-4 py-3 hover-elevate"
                       data-testid={`card-service-${service.id}`}
                     >
                       <span
-                        className={`mt-1.5 h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0 ${service.status !== "operational" ? "animate-status-pulse" : ""}`}
+                        className={`mt-1.5 h-2.5 w-2.5 rounded-full ${meta.dot} shrink-0`}
                       />
                       <div className="flex-1 min-w-0 space-y-1">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="text-sm font-medium truncate">{service.name}</span>
+                          <span className="text-sm font-semibold break-words">{service.name}</span>
                           <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.pill}`}>{meta.label}</span>
                         </div>
                         {service.description && (

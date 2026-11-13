@@ -67,7 +67,7 @@ export default function NewsDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 max-w-3xl mx-auto">
+      <div className="sh-page space-y-4 max-w-3xl mx-auto">
         <Skeleton className="h-8 w-48" />
         <section className="rounded-xl border border-card-border bg-card overflow-hidden">
           <div className="p-6 space-y-4">
@@ -87,7 +87,7 @@ export default function NewsDetail() {
       !(error instanceof TimeoutError) && /^(4\d\d):/.test((error as Error)?.message ?? "");
     if (!isNotFound) {
       return (
-        <div className="space-y-4 max-w-3xl mx-auto">
+        <div className="sh-page space-y-4 max-w-3xl mx-auto">
           <QueryErrorState
             error={error}
             onRetry={() => refetch()}

@@ -15,6 +15,9 @@ for (const key of ["window", "document", "navigator", "location", "history", "HT
 g.IS_REACT_ACT_ENVIRONMENT = true;
 g.addEventListener = window.addEventListener.bind(window);
 g.removeEventListener = window.removeEventListener.bind(window);
+g.dispatchEvent = window.dispatchEvent.bind(window);
+g.requestAnimationFrame = window.requestAnimationFrame.bind(window);
+g.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
 let reducedMotion = false;
 window.matchMedia = ((query: string) => ({
   matches: reducedMotion && query === "(prefers-reduced-motion: reduce)",
@@ -48,8 +51,9 @@ async function flush() {
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
 }
 
-async function mount(updates?: ReturnType<typeof update>[]) {
-  reducedMotion = false;
+async function mount(updates?: ReturnType<typeof update>[], options: { latest?: boolean; reduced?: boolean } = {}) {
+  window.history.replaceState(null, "", `/alerts/alert-1${options.latest ? "?latest=1" : ""}`);
+  reducedMotion = options.reduced ?? false;
   scrolls.length = 0;
   queryClient.setQueryData(["/api/alerts", undefined], {
     id: "alert-1", title: "Service interruption",
@@ -155,5 +159,71 @@ test("timestamp ties keep the existing latest marker and jump target consistent"
     assert.equal(scrolls[0].target, c.row("tied"));
     assert.ok(c.row("tied")!.querySelector('[data-testid="badge-alert-latest"]'));
     assert.deepEqual(c.order(), ["alert-update-older", "alert-update-tied", "alert-update-newest"]);
+  } finally { c.cleanup(); }
+});
+
+async function settleJump() {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)); });
+}
+
+test("dashboard deep link waits for updates, focuses newest once, and preserves history order", async () => {
+  const c = await mount(undefined, { latest: true });
+  try {
+    await settleJump();
+    assert.equal(scrolls.length, 0, "no unavailable target is announced or scrolled");
+    await act(async () => { queryClient.setQueryData(updatesKey, [older, newest, middle]); });
+    await flush();
+    await settleJump();
+    assert.equal(scrolls.length, 1);
+    assert.equal(scrolls[0].target, c.row("newest"));
+    assert.equal(window.document.activeElement, c.row("newest"));
+    assert.deepEqual(c.order(), ["alert-update-older", "alert-update-newest", "alert-update-middle"]);
+    await act(async () => {
+      queryClient.setQueryData(updatesKey, [older, newest, middle, update("later", "2026-11-12T12:00:00Z")]);
+    });
+    await flush();
+    await settleJump();
+    assert.equal(scrolls.length, 1, "background refresh does not steal focus or scroll again");
+  } finally { c.cleanup(); }
+});
+
+test("dashboard deep link respects reduced motion and ordinary alert visits never auto-scroll", async () => {
+  const c = await mount([newest], { latest: true, reduced: true });
+  try {
+    await settleJump();
+    assert.equal(scrolls[0]?.options.behavior, "instant");
+  } finally { c.cleanup(); }
+  const ordinary = await mount([newest]);
+  try {
+    await settleJump();
+    assert.equal(scrolls.length, 0);
+  } finally { ordinary.cleanup(); }
+});
+
+test("deep link with no updates stays on the original report without fabricating a target", async () => {
+  const c = await mount([], { latest: true });
+  try {
+    await settleJump();
+    assert.equal(scrolls.length, 0);
+    assert.equal(c.button(), null);
+    assert.ok(c.container.querySelector('[data-testid="badge-alert-latest"]'));
+  } finally { c.cleanup(); }
+});
+
+test("failed update reads show retry instead of claiming there were no updates", async () => {
+  const c = await mount(undefined, { latest: true });
+  try {
+    await act(async () => {
+      queryClient.getQueryCache().find({ queryKey: updatesKey, exact: true })!.setState({
+        status: "error", fetchStatus: "idle", error: new Error("503: Updates unavailable"),
+      });
+    });
+    await flush();
+    await settleJump();
+    assert.ok(c.container.querySelector('[data-testid="error-alert-updates"]'));
+    assert.ok(c.container.querySelector('[data-testid="error-alert-updates-retry"]'));
+    assert.doesNotMatch(c.container.textContent ?? "", /No updates posted yet/);
+    assert.equal(c.button(), null);
+    assert.equal(scrolls.length, 0);
   } finally { c.cleanup(); }
 });

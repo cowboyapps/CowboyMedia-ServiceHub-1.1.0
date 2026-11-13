@@ -375,7 +375,7 @@ export default function ServiceUpdatesPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div className="sh-page space-y-4">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
           <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
@@ -401,7 +401,7 @@ export default function ServiceUpdatesPage() {
 
   if (isError) {
     return (
-      <div className="space-y-4">
+      <div className="sh-page space-y-4">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
           <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
@@ -418,7 +418,7 @@ export default function ServiceUpdatesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="sh-page space-y-4">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
         <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>

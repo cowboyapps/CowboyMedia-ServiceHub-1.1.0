@@ -293,7 +293,7 @@ export default function PublicStatusPage() {
   const BannerIcon = banner.icon;
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="sh-auth-page min-h-dvh bg-background">
       <header className="border-b border-border bg-card">
         <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-public-status-title">Service Status</h1>

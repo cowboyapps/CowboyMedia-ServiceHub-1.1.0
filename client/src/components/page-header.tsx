@@ -52,9 +52,9 @@ export function PageHeader({
           <span className="text-sm font-semibold truncate max-w-[70%]">{title}</span>
         </div>
       </div>
-      <div ref={titleRef} className="flex items-start justify-between gap-3">
+      <div ref={titleRef} className="sh-page-heading flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-3xl font-bold tracking-tight" data-testid={testId}>
+          <h1 className="sh-page-title text-3xl font-bold tracking-tight" data-testid={testId}>
             {title}
           </h1>
           {subtitle && <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>}

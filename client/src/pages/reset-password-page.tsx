@@ -78,7 +78,7 @@ export default function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-background">
+      <div className="sh-auth-page min-h-dvh flex flex-col items-center justify-center p-6 bg-background">
         <div className="w-full max-w-md space-y-6">
           <div className="text-center">
             <BrandLogo className="mx-auto h-24 mb-4" />

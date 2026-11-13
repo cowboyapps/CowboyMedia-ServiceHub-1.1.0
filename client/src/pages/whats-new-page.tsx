@@ -49,7 +49,7 @@ export default function WhatsNewPage() {
   }, [entries]);
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-whats-new-title">What&apos;s New</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -58,7 +58,7 @@ export default function WhatsNewPage() {
       </div>
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold flex items-center gap-3">
             <SectionIcon icon={History} tone="bg-primary/10 text-primary" />
             Release Notes

@@ -1,4 +1,5 @@
 @import "./components/dashboard/dashboard.css";
+@import "./components/servicehub-style.css";
 
 @tailwind base;
 @tailwind components;

@@ -1768,7 +1768,7 @@ export default function TicketDetail() {
         </Dialog>
       )}
 
-      <div className="flex-1 flex flex-col min-h-0 relative rounded-xl border border-card-border bg-card overflow-hidden">
+      <div className="sh-panel flex-1 flex flex-col min-h-0 relative rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 relative">
           <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden" data-testid="ticket-history-region">
           <div

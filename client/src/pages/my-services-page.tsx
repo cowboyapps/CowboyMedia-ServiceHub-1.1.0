@@ -1774,7 +1774,7 @@ function NoServicesNotice() {
 
 export default function MyServicesPage() {
   return (
-    <div className="space-y-4">
+    <div className="sh-page space-y-4">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-my-services-title">My Services</h1>
         <p className="text-sm text-muted-foreground mt-1">Your active services, logins, and status</p>

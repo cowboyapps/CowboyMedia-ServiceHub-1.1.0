@@ -93,6 +93,8 @@ export default function Dashboard() {
   const serviceMap = new Map(services.map(service => [service.id, service.name]));
   const affectedNames = primary?.serviceIds.map(id => serviceMap.get(id) ?? "Affected service") ?? displayServices.filter(s => s.status !== "operational").map(s => s.name);
   const href = health.mode === "monitoring" && health.monitoring.length > 1 ? "/alerts" : primary ? `/alerts/${primary.id}` : issue ? "/alerts" : "/services";
+  const canViewLatest = !!primary && !!latestUpdate && !alertUpdates.isError && !alertUpdates.isLoading;
+  const actionHref = primary ? `/alerts/${primary.id}${canViewLatest ? "?latest=1" : ""}` : href;
   const openTickets = (ticketsQuery.data ?? []).filter(ticket => ticket.status === "open");
   const unreadUpdates = new Set(unreadUpdateIds ?? []);
   const unreadNews = new Set(unreadNewsIds ?? []);
@@ -119,7 +121,8 @@ export default function Dashboard() {
           <div className="af-update-top"><strong>{alertUpdates.isError ? "Latest update unavailable" : alertUpdates.isLoading ? "Loading latest update…" : latestUpdate ? "Latest update" : "Original report"}</strong><time dateTime={dashboardDate(latestUpdate?.createdAt ?? primary.createdAt)?.toISOString()}>{relative(latestUpdate?.createdAt ?? primary.createdAt)}</time></div>
           <p>{alertUpdates.isError ? "Open the alert for the full report and updates." : alertUpdates.isLoading ? "Checking for a newer update to this alert." : stripHtml(latestUpdate?.message ?? primary.description ?? "").slice(0, 240) || "Open the alert for details."}{!alertUpdates.isError && !alertUpdates.isLoading && stripHtml(latestUpdate?.message ?? primary.description ?? "").length > 240 ? "…" : ""}</p>
         </div>}
-        <div className="af-actions"><Link href={href} className="af-button" data-testid="link-dashboard-status-details">{primary ? "View alert" : issue ? "View alerts" : "View service details"}<ArrowRight size={15} /></Link>{issue && <Link href="/tickets" className="af-button secondary">Get help</Link>}</div>
+        {primary && <p className="af-content" data-testid="text-dashboard-alert-guidance">We’re aware of this issue. Please check the latest update before opening a ticket about it.</p>}
+        <div className="af-actions"><Link href={actionHref} className="af-button" data-testid="link-dashboard-status-details">{canViewLatest ? "View latest update" : primary ? "View alert" : issue ? "View alerts" : "View service details"}<ArrowRight size={15} /></Link></div>
         <span className="af-health-count" data-testid="text-active-alerts-count">{health.mode === "monitoring" ? "Monitoring" : `${health.problems.length} active ${health.problems.length === 1 ? "alert" : "alerts"}`}</span>
       </section>}
     {!uncertain && health.active.length > 1 && <Link href="/alerts" className="af-row" data-testid="link-view-all-alerts"><span className="af-row-title">View all {health.active.length} active alerts<span className="af-row-meta">Includes service issues and alerts being monitored</span></span><ChevronRight size={16} /></Link>}

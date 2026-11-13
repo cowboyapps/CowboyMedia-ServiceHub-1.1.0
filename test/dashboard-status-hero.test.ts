@@ -493,6 +493,47 @@ test("latest alert update uses real update data, not the original report or API 
     assert.match(latest.textContent ?? "", /Latest update.*The provider is restoring titles now/);
     assert.doesNotMatch(latest.textContent ?? "", /Initial report|Earlier investigation|<p>/);
     assert.equal(latest.querySelector("time")?.getAttribute("datetime"), new Date(now).toISOString());
+    const action = findByTestId(c.container, "link-dashboard-status-details")!;
+    assert.equal(action.textContent?.trim(), "View latest update");
+    assert.equal(action.getAttribute("href"), "/alerts/live?latest=1");
+    const hero = action.closest("section")!;
+    assert.equal(hero.querySelector('a[href="/tickets"]'), null, "incident does not promote contacting support");
+    assert.match(hero.textContent ?? "", /We’re aware of this issue\. Please check the latest update before opening a ticket about it\./);
+    assert.ok(findByTestId(c.container, "button-open-ticket"), "support remains available outside incident card");
+  } finally { c.cleanup(); }
+});
+
+test("an incident without updates links to its original alert, not a fabricated latest update", async () => {
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [alert("original", "warning")] },
+    "/api/alerts/original/updates": { status: 200, body: [] },
+  });
+  try {
+    const action = findByTestId(c.container, "link-dashboard-status-details")!;
+    assert.equal(action.textContent?.trim(), "View alert");
+    assert.equal(action.getAttribute("href"), "/alerts/original");
+    assert.match(findByTestId(c.container, "dashboard-latest-alert-update")?.textContent ?? "", /Original report/);
+    assert.equal(action.closest("section")?.querySelector('a[href="/tickets"]'), null);
+  } finally { c.cleanup(); }
+});
+
+test("failed update reads keep the full alert accessible without claiming a latest target", async () => {
+  const c = await mountDashboard({
+    "/api/services": { status: 200, body: [service("s1", "operational")] },
+    "/api/alerts": { status: 200, body: [alert("unavailable", "warning")] },
+    "/api/alerts/unavailable/updates": { status: 500, body: { error: "Unavailable" } },
+  });
+  try {
+    const deadline = Date.now() + 8000;
+    while (!findByTestId(c.container, "dashboard-latest-alert-update")?.textContent?.includes("Latest update unavailable")) {
+      assert.ok(Date.now() < deadline, "update request reaches its error state");
+      await act(async () => { await sleep(100); });
+    }
+    const action = findByTestId(c.container, "link-dashboard-status-details")!;
+    assert.equal(action.textContent?.trim(), "View alert");
+    assert.equal(action.getAttribute("href"), "/alerts/unavailable");
+    assert.equal(action.closest("section")?.querySelector('a[href="/tickets"]'), null);
   } finally { c.cleanup(); }
 });
 

@@ -55,7 +55,7 @@ export default function DownloadsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <PageHeader title="Downloads" subtitle="Browse available downloads" testId="text-downloads-title" />
       {selectedId && !isLoading && !isError && !selectedDownload && (
         <div role="alert" className="rounded-xl border border-border bg-card p-4 space-y-2" data-testid="download-link-unavailable">
@@ -66,7 +66,7 @@ export default function DownloadsPage() {
       )}
 
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold flex items-center gap-3">
             <SectionIcon icon={Download} tone="bg-primary/10 text-primary" />
             Available files

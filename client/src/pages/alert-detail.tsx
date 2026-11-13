@@ -1,7 +1,7 @@
-import { useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAnalyticsView } from "@/hooks/use-analytics-view";
-import { useParams, Link } from "wouter";
+import { useParams, useSearch, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
@@ -51,14 +51,16 @@ function LatestPill() {
 
 export default function AlertDetail() {
   const params = useParams<{ id: string }>();
+  const search = useSearch();
   const latestUpdateRef = useRef<HTMLLIElement>(null);
+  const handledJumpRef = useRef<string | null>(null);
 
   const { data: alert, isLoading, isError, error, refetch, isFetching } = useQuery<ServiceAlertWithServices>({
     queryKey: ["/api/alerts", params.id],
   });
   useAnalyticsView("service_alert_viewed", !isError ? alert?.id : undefined);
 
-  const { data: updates, isLoading: updatesLoading, isSuccess: updatesLoaded } = useQuery<AlertUpdate[]>({
+  const { data: updates, isLoading: updatesLoading, isSuccess: updatesLoaded, isError: updatesFailed, error: updatesError, refetch: refetchUpdates, isFetching: updatesFetching } = useQuery<AlertUpdate[]>({
     queryKey: ["/api/alerts", params.id, "updates"],
   });
 
@@ -69,7 +71,7 @@ export default function AlertDetail() {
     undefined,
   );
 
-  function viewLatestUpdate() {
+  const viewLatestUpdate = useCallback(() => {
     const target = latestUpdateRef.current;
     if (!target?.isConnected) return;
 
@@ -79,7 +81,29 @@ export default function AlertDetail() {
       block: "start",
       inline: "nearest",
     });
-  }
+  }, []);
+
+  // Dashboard links opt in explicitly. Wait for data and the real DOM target,
+  // then let the app's route scroll restoration settle before taking focus.
+  // Consume once per navigation, not once per update, so background refreshes
+  // never pull someone away from the history they are reading.
+  const jumpRequest = new URLSearchParams(search).get("latest") === "1";
+  const jumpKey = `${params.id ?? ""}?${search}`;
+  useEffect(() => {
+    if (!jumpRequest) {
+      handledJumpRef.current = null;
+      return;
+    }
+    if (isLoading || isError || !alert || !updatesLoaded || !latestUpdate || handledJumpRef.current === jumpKey) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (!latestUpdateRef.current?.isConnected) return;
+        handledJumpRef.current = jumpKey;
+        viewLatestUpdate();
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [jumpRequest, jumpKey, isLoading, isError, alert, updatesLoaded, latestUpdate, viewLatestUpdate]);
 
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
@@ -91,15 +115,15 @@ export default function AlertDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="sh-page space-y-6">
         <Skeleton className="h-8 w-48" />
-        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <section className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
           <div className="p-5 space-y-4">
             <Skeleton className="h-6 w-3/4" />
             <Skeleton className="h-20" />
           </div>
         </section>
-        <section className="rounded-xl border border-card-border bg-card overflow-hidden">
+        <section className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border">
             <Skeleton className="h-5 w-40" />
           </div>
@@ -121,7 +145,7 @@ export default function AlertDetail() {
       !(error instanceof TimeoutError) && /^(4\d\d):/.test((error as Error)?.message ?? "");
     if (!isNotFound) {
       return (
-        <div className="space-y-4">
+        <div className="sh-page space-y-4">
           <QueryErrorState
             error={error}
             onRetry={() => refetch()}
@@ -141,7 +165,7 @@ export default function AlertDetail() {
 
   if (!alert) {
     return (
-      <div className="text-center py-12">
+      <div className="sh-page text-center py-12">
         <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
         <p className="text-muted-foreground">Alert not found</p>
         <Link href="/alerts">
@@ -154,18 +178,18 @@ export default function AlertDetail() {
   const severityPillCls = alertSeverityMeta(alert.severity).pill;
 
   return (
-    <div className="space-y-6">
+    <div className="sh-page space-y-6">
       <Link href="/alerts">
         <Button variant="ghost" size="sm" data-testid="button-back-alerts">
           <ArrowLeft className="w-4 h-4 mr-1" /> Back to Alerts
         </Button>
       </Link>
 
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="px-5 py-4 border-b border-border bg-card/50">
+      <section className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-border bg-card/50">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="space-y-1.5">
-              <h1 className="text-xl font-bold" data-testid="text-alert-title">{alert.title}</h1>
+              <h1 className="sh-page-title text-xl font-bold" data-testid="text-alert-title">{alert.title}</h1>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${severityPillCls}`}>
                   {alertSeverityLabel(alert.severity)}
@@ -181,7 +205,7 @@ export default function AlertDetail() {
                 ))}
               </div>
             </div>
-            {!updatesLoading && latestUpdate && (
+            {updatesLoaded && latestUpdate && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -195,7 +219,7 @@ export default function AlertDetail() {
             )}
           </div>
         </div>
-        <div className="px-5 py-4 space-y-4">
+        <div className="px-4 py-4 space-y-4">
           <RichTextContent content={alert.description} className="text-sm" testId="text-alert-description" />
           {alert.imageUrl && (
             <ClickableImage src={alert.imageUrl} alt="Alert attachment" className="max-h-48 rounded-md" />
@@ -215,8 +239,8 @@ export default function AlertDetail() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-card-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+      <section className="sh-panel rounded-xl border border-card-border bg-card overflow-hidden">
+        <div className="sh-section-head flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold flex items-center gap-3">
             <SectionIcon icon={Activity} tone="bg-primary/10 text-primary" />
             Updates Timeline
@@ -232,6 +256,14 @@ export default function AlertDetail() {
               </div>
             ))}
           </div>
+        ) : updatesFailed ? (
+          <QueryErrorState
+            error={updatesError}
+            onRetry={() => void refetchUpdates()}
+            isRetrying={updatesFetching}
+            resourceName="alert updates"
+            data-testid="error-alert-updates"
+          />
         ) : !updates || updates.length === 0 ? (
           <div className="px-5 py-8 text-center">
             <Clock className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
@@ -244,7 +276,7 @@ export default function AlertDetail() {
                 key={update.id}
                 ref={update.id === latestUpdate?.id ? latestUpdateRef : undefined}
                 tabIndex={-1}
-                className="px-5 py-4 flex gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                className="px-4 py-4 flex gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 // The app header sits outside the scroll container. Leave a
                 // top gap there and clearance for the fixed phone navigation.
                 style={{

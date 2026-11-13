@@ -68,7 +68,7 @@ export default function WhmcsTicketDetailPage() {
     )}&index=${encodeURIComponent(String(a.index))}`;
 
   return (
-    <div className="max-w-3xl mx-auto" data-testid="page-whmcs-ticket-detail">
+    <div className="sh-page max-w-3xl mx-auto" data-testid="page-whmcs-ticket-detail">
       <WhmcsTicketThread
         ticket={data?.ticket}
         isLoading={isLoading}
