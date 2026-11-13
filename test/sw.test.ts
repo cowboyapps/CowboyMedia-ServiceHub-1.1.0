@@ -14,6 +14,9 @@ interface SWModule {
   __postedMessages: Array<{ type: string; reason?: string }>;
   __setFetch: (fn: typeof fetch) => void;
   __resetMessages: () => void;
+  __setCached: (response?: Response) => void;
+  __deletedAssets: string[];
+  __cachedAssets: string[];
 }
 
 function loadServiceWorker(): SWModule {
@@ -21,15 +24,19 @@ function loadServiceWorker(): SWModule {
 
   const posted: Array<{ type: string; reason?: string }> = [];
   let fetchImpl: typeof fetch = async () => new Response("", { status: 200 });
+  let cachedResponse: Response | undefined;
+  const deletedAssets: string[] = [];
+  const cachedAssets: string[] = [];
 
   const fakeCache = {
-    put: async () => {},
+    put: async (request: Request | string) => { cachedAssets.push(typeof request === "string" ? request : request.url); },
+    delete: async (request: Request) => { deletedAssets.push(request.url); cachedResponse = undefined; return true; },
     add: async () => {},
-    match: async () => undefined,
+    match: async () => cachedResponse,
   };
   const cachesStub = {
     open: async () => fakeCache,
-    match: async () => undefined,
+    match: async () => cachedResponse,
     keys: async () => [],
     delete: async () => true,
   };
@@ -85,6 +92,9 @@ function loadServiceWorker(): SWModule {
     __resetMessages: () => {
       posted.length = 0;
     },
+    __setCached: response => { cachedResponse = response; },
+    __deletedAssets: deletedAssets,
+    __cachedAssets: cachedAssets,
   };
 }
 
@@ -187,6 +197,35 @@ test("handleHashedAsset posts SW_RELOAD_REQUIRED on network failure", async () =
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(sw.__postedMessages.length, 1);
   assert.equal(sw.__postedMessages[0].reason, "asset-network-error");
+});
+
+test("HTML returned as a page bundle is not cached and requests deploy recovery", async () => {
+  const worker = loadServiceWorker();
+  worker.__setFetch(async () => new Response("<!doctype html><title>App shell</title>", {
+    status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
+  }));
+  const response = await worker.handleHashedAsset(new Request("https://example.test/assets/ticket-detail-AbCdEf12.js"));
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(worker.__cachedAssets, []);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(worker.__postedMessages[0]?.reason, "asset-html-mismatch");
+});
+
+test("an already-cached HTML bundle is evicted and fetched again", async () => {
+  const worker = loadServiceWorker();
+  worker.__setCached(new Response("<html>old shell</html>", { headers: { "Content-Type": "text/html" } }));
+  let fetches = 0;
+  worker.__setFetch(async () => {
+    fetches++;
+    return new Response("export default {}", { headers: { "Content-Type": "text/javascript" } });
+  });
+  const request = new Request("https://example.test/assets/ticket-detail-AbCdEf12.js");
+  const response = await worker.handleHashedAsset(request);
+  assert.equal(fetches, 1);
+  assert.deepEqual(worker.__deletedAssets, [request.url]);
+  assert.equal(await response.text(), "export default {}");
+  assert.equal(worker.__postedMessages.length, 0);
 });
 
 interface FakeClient {

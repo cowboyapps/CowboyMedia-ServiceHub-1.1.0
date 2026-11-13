@@ -56,3 +56,4 @@
 - [Ticket inactivity policy](ticket-inactivity-policy.md) — opt-in closure counts public sends from either side, preserves a permanent reason, and must serialize safely with new replies.
 - [ServiceHub account separation](servicehub-account-separation.md) — customers must create a ServiceHub account separate from their payment/service portal account.
 - [Optional chunk dependencies](optional-chunk-dependencies.md) — entry size alone hides optional libraries pulled into startup through shared runtime dependencies; measure the full static graph.
+- [Missing chunks returning HTML](missing-chunks-html-fallback.md) — a 200 HTML fallback can poison page-code caches; notification page errors are not necessarily bad ticket links.

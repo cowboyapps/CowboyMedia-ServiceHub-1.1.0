@@ -124,9 +124,20 @@ async function handleNavigation(request) {
 
 async function handleHashedAsset(request) {
   const cached = await caches.match(request);
-  if (cached) return cached;
+  // Older server versions returned the SPA shell with 200 for missing chunks.
+  // Do not reuse those poisoned cache entries after installing this worker.
+  const isHtml = (response) => /(?:text\/html|application\/xhtml\+xml)/i.test(response.headers.get('content-type') || '');
+  if (cached && !isHtml(cached)) return cached;
+  if (cached) {
+    const cache = await caches.open(ASSETS_CACHE);
+    await cache.delete(request);
+  }
   try {
     const response = await fetch(request);
+    if (response.ok && isHtml(response)) {
+      notifyClientsToReload('asset-html-mismatch');
+      return new Response('', { status: 404, statusText: 'Page asset unavailable', headers: { 'Cache-Control': 'no-store' } });
+    }
     if (response.ok) {
       const clone = response.clone();
       caches.open(ASSETS_CACHE).then((cache) => cache.put(request, clone)).catch(() => {});

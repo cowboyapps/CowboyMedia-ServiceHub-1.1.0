@@ -75,3 +75,25 @@ test("a failed page download can be retried without reloading the app", async ()
     assert.equal(loads, 2);
   } finally { console.error = error; await React.act(async () => root.unmount()); }
 });
+
+test("a rendering bug is not treated as an obsolete bundle and offers explicit recovery", async () => {
+  sessionStorageClear();
+  const Page = lazyPage(async () => ({
+    default: () => { throw new Error("Example render bug"); },
+  }));
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const error = console.error;
+  console.error = () => {};
+  try {
+    await React.act(async () => { root.render(React.createElement(Page)); });
+    await settle();
+    assert.ok(container.querySelector('[data-testid="page-load-error"]'));
+    assert.deepEqual(Array.from(container.querySelectorAll("button")).map(button => button.textContent), ["Try again", "Reload app"]);
+    assert.equal(dom.window.sessionStorage.length, 0, "runtime errors never claim the import-reload guard");
+  } finally { console.error = error; await React.act(async () => root.unmount()); }
+});
+
+function sessionStorageClear() {
+  dom.window.sessionStorage.clear();
+}
