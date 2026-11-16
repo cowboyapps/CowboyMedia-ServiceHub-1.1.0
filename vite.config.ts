@@ -15,19 +15,10 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        // Do not pull shared React/runtime dependencies into an optional
-        // editor/chart chunk: that makes startup import the entire chunk too.
-        onlyExplicitManualChunks: true,
-        manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (id.includes("/recharts/")) return "vendor-charts";
-          if (id.includes("/@tiptap/") || id.includes("/prosemirror-")) return "vendor-tiptap";
-          return undefined;
-        },
-      },
-    },
+    // Let Rollup group shared dependencies with their initialization order
+    // intact. Partial manual groups (e.g. Recharts without its D3 dependencies)
+    // can import back from a lazy page and throw before that page initializes.
+    // Route-level dynamic imports still keep secondary pages deferred.
   },
   server: {
     fs: {

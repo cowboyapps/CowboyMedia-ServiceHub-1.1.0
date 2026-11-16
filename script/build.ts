@@ -2,7 +2,7 @@ import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { randomBytes } from "crypto";
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import { BUILD_ERROR_MARKER, formatBuildError } from "../deploy/webhook-listener/build-diagnostics.mjs";
 import path from "node:path";
 import { withStagedBuild } from "./staged-build";
@@ -90,6 +90,14 @@ async function buildAll(outDir: string) {
     external: externals,
     logLevel: "info",
   });
+
+  // A successful bundle/typecheck does not guarantee ESM initialization order.
+  // Reject broken lazy routes before staged-build promotes the new artifacts.
+  execFileSync(process.execPath, [
+    "--experimental-vm-modules",
+    path.resolve("script/validate-client-imports.mjs"),
+    path.join(outDir, "public"),
+  ], { stdio: "inherit" });
 }
 
 withStagedBuild(buildAll).catch((err) => {

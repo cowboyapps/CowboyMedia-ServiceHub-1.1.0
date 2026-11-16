@@ -44,11 +44,15 @@ async function fixture() {
     root: "client", build: { outDir: "../dist/public", emptyOutDir: true }
   };`);
   await write(root, "client/index.html", '<html><body><script type="module" src="/main.js"></script></body></html>');
-  await write(root, "client/main.js", 'console.log("new client");');
+  await write(root, "client/main.js", `console.log("new client");
+    document.addEventListener("open-admin", () => import("./admin-portal.js"));
+    document.addEventListener("open-ticket", () => import("./ticket-detail.js"));`);
+  await write(root, "client/admin-portal.js", 'export default "admin";');
+  await write(root, "client/ticket-detail.js", 'export default "ticket";');
   await write(root, "client/public/sw.js", 'const BUILD_ID = "__BUILD_ID__";');
   await write(root, "server/index.ts", 'console.log("new server");');
   await mkdir(path.join(root, "script"));
-  for (const file of ["build.ts", "staged-build.ts"]) {
+  for (const file of ["build.ts", "staged-build.ts", "validate-client-imports.mjs"]) {
     await copyFile(path.join(project, "script", file), path.join(root, "script", file));
   }
   await mkdir(path.join(root, "deploy/webhook-listener"), { recursive: true });
@@ -60,7 +64,7 @@ async function fixture() {
   return root;
 }
 
-for (const failure of ["client", "server", "missing-sw", "none", "first-build"] as const) {
+for (const failure of ["client", "server", "missing-sw", "page-initialization", "none", "first-build"] as const) {
   test(`real Vite/esbuild pipeline: ${failure}`, async () => {
     const root = await fixture();
     try {
@@ -68,6 +72,11 @@ for (const failure of ["client", "server", "missing-sw", "none", "first-build"] 
       if (failure === "client") await write(root, "client/main.js", "export const broken = ;");
       if (failure === "server") await write(root, "server/index.ts", "export const broken = ;");
       if (failure === "missing-sw") await rm(path.join(root, "client/public/sw.js"));
+      if (failure === "page-initialization") {
+        await write(root, "client/admin-portal.js", `import { value } from "./cycle.js";
+          export const seed = 1; console.log(value); export default "admin";`);
+        await write(root, "client/cycle.js", 'import { seed } from "./admin-portal.js"; export const value = seed + 1;');
+      }
       const run = spawnSync(path.join(project, "node_modules/.bin/tsx"), ["script/build.ts"], {
         cwd: root, encoding: "utf8", timeout: 30_000,
       });
@@ -77,6 +86,10 @@ for (const failure of ["client", "server", "missing-sw", "none", "first-build"] 
         assert.match(run.stderr, /\[build:error\]/, "staged failures retain concise deployment diagnostics");
         assert.deepEqual(await tree(path.join(root, "dist")), old);
         if (failure === "server") assert.match(run.stdout, /building server/);
+        if (failure === "page-initialization") {
+          assert.match(run.stderr, /Production page import failed:.*admin-portal/);
+          assert.match(run.stderr, /before initialization/);
+        }
       } else {
         assert.equal(run.status, 0, run.stdout + run.stderr);
         const built = await tree(path.join(root, "dist"));
