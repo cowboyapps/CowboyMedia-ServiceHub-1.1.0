@@ -7,7 +7,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Activity, AlertTriangle, BellRing, BookOpen, Download, LayoutDashboard, MessageSquare, Settings as SettingsIcon, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Activity, AlertTriangle, BellRing, BookOpen, Download, LayoutDashboard, MessageSquare, Settings as SettingsIcon, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
 import { isPushSupported, isSubscribedToPush, subscribeToPush } from "@/lib/push-notifications";
 import { useModalSlot } from "@/lib/modal-queue";
 
@@ -70,6 +70,14 @@ const STEPS: TourStep[] = [
     icon: MessageSquare,
     desktopSelector: '[data-testid="nav-tickets"]',
     mobileSelector: '[data-testid="link-bottom-nav-tickets"]',
+  },
+  {
+    key: "community",
+    title: "Community Chat",
+    body: "Meet other subscribers, ask questions, share tips, and help each other. For account-specific issues, please use a support ticket. On your phone, find Community Chat under More.",
+    icon: Users,
+    desktopSelector: '[data-testid="nav-community-chat"]',
+    mobileSelector: '[data-testid="button-bottom-nav-more"]',
   },
   {
     key: "knowledge",

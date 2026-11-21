@@ -372,6 +372,13 @@
       "when": 1794417722084,
       "tag": "0052_wide_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1795246458785,
+      "tag": "0053_breezy_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

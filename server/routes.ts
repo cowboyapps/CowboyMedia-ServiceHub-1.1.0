@@ -13,6 +13,8 @@ import { privateMessageUpload, privateSendIds } from "./thread-upload";
 import { getTicketReactions, setTicketReaction, markVisibleTicketMessagesRead } from "./ticket-messaging-storage";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
 import { createCommunityMessageEditHandler, createCommunityMessageHistoryHandler, type CommunityEditDeps } from "./community-chat-edit";
+import { createCommunityDiscoveryHandlers } from "./community-chat-discovery";
+import { searchCommunityMessages, getCommunityPin, setCommunityPin, clearCommunityPin } from "./community-chat-discovery-storage";
 import { stripChatFormatting } from "@shared/chat-markdown";
 import { resolveKbAttachmentForSender } from "./message-attachments";
 import { getParam } from "./http-params";
@@ -5800,6 +5802,24 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       res.status(500).json({ message: getErrorMessage(e) });
     }
   });
+
+  const communityDiscovery = createCommunityDiscoveryHandlers({
+    getUser: (id) => storage.getUser(id),
+    search: searchCommunityMessages,
+    getPin: getCommunityPin,
+    setPin: setCommunityPin,
+    clearPin: clearCommunityPin,
+    broadcast,
+    audit: (action, userId, messageId) => logActivity("chat", action, {
+      actorId: userId, targetId: messageId, targetType: "community_message",
+      summary: action === "community_message_pinned" ? "Pinned a Community Chat message" : "Unpinned the Community Chat message",
+    }),
+    reportError: (error) => console.error("Community discovery failed:", error),
+  });
+  app.get("/api/community-chat/search", requireAuth, communityDiscovery.search);
+  app.get("/api/community-chat/pin", requireAuth, communityDiscovery.getPin);
+  app.put("/api/community-chat/pin", requireAuth, communityDiscovery.setPin);
+  app.delete("/api/community-chat/pin", requireAuth, communityDiscovery.clearPin);
 
   app.get("/api/community-chat/messages", requireAuth, async (req, res) => {
     try {

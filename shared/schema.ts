@@ -803,6 +803,15 @@ export const communityMessages = pgTable("community_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// A single community-wide pin. Cascading deletion prevents a removed message
+// from surviving through a pinned-message reference.
+export const communityChatPins = pgTable("community_chat_pins", {
+  id: varchar("id").primaryKey().default("singleton"),
+  messageId: varchar("message_id").notNull().references(() => communityMessages.id, { onDelete: "cascade" }),
+  pinnedBy: varchar("pinned_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // One row per edit of a community chat message, storing the wording that was
 // replaced. Soft reference to community_messages (rows are pruned when the
 // message is deleted). Ordered by createdAt = full prior-version history.

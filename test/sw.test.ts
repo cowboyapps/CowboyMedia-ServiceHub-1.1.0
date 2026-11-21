@@ -103,6 +103,8 @@ test("ticket messages and revocable attachments always fetch without HTTP cache 
   const reply = new Request("https://example.test/api/tickets/ticket/messages");
   assert.equal(sw.isUncacheableApi(new URL(reply.url)), true);
   assert.equal(sw.isUncacheableApi(new URL("https://example.test/api/tickets")), true);
+  assert.equal(sw.isUncacheableApi(new URL("https://example.test/api/community-chat/search?q=help")), true);
+  assert.equal(sw.isUncacheableApi(new URL("https://example.test/api/community-chat/pin")), true);
   assert.equal(sw.isUncacheableApi(new URL("https://example.test/api/services")), false);
   const modes: unknown[] = [];
   sw.__setFetch(async (_request, options) => {

@@ -18,22 +18,27 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { queryClient, uploadRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Smile, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Search, Pencil, Check, Bold, Italic, Strikethrough, Code, Plus } from "lucide-react";
+import { Send, Shield, ChevronDown, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Check, Bold, Italic, Strikethrough, Code, Plus } from "lucide-react";
 import { ChatMessageContent } from "@/components/chat-message-content";
 import { computeNewArrivals } from "@/lib/chat-unread";
+import { useTicketConversationScroll } from "@/hooks/use-ticket-conversation-scroll";
 import { LiveConnectionBanner } from "@/components/live-connection-banner";
 import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { Link } from "wouter";
 import { Poll } from "@/components/poll";
-import { ClickableImage } from "@/components/image-lightbox";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
 import type { CommunityMessage } from "@shared/schema";
+import { CommunityMessageActions } from "@/components/community/community-message-actions";
+import { CommunityPhoto } from "@/components/community/community-photo";
+import { CommunityMessageDetail } from "@/components/community/community-message-detail";
+import { CommunityPinnedBanner, COMMUNITY_PIN_QUERY_KEY } from "@/components/community/community-pinned-banner";
+import { CommunitySearch } from "@/components/community/community-search";
 
 type AdminAction =
   | { type: "menu"; messageId: string; userId: string; username: string }
@@ -49,8 +54,7 @@ type ReplySnippet = { id: string; chatUsername: string; content: string; hasImag
 type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet; hasEditHistory?: boolean; editCount?: number };
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
-
-const EMOJI_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👎"];
+const EMPTY_SCROLL_MESSAGES: readonly { id: string; senderId: string }[] = [];
 
 function BouncingDots() {
   return (
@@ -277,7 +281,7 @@ function NotificationSettingsPopover({ currentPref, onUpdate }: { currentPref: s
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground" data-testid="button-chat-settings">
+        <button type="button" aria-label="Chat notification settings" className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground" data-testid="button-chat-settings">
           <Settings className="w-4 h-4" />
         </button>
       </PopoverTrigger>
@@ -310,55 +314,6 @@ function NotificationSettingsPopover({ currentPref, onUpdate }: { currentPref: s
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function EmojiPicker({ onSelect, onClose, alignRight }: { onSelect: (emoji: string) => void; onClose: () => void; alignRight?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  return (
-    <div ref={ref} className={`absolute bottom-full mb-1 ${alignRight ? "right-0" : "left-0"} bg-popover border rounded-lg shadow-lg p-1.5 grid grid-cols-4 gap-1 z-50 w-[200px]`} data-testid="emoji-picker">
-      {EMOJI_OPTIONS.map((emoji) => (
-        <button
-          key={emoji}
-          onClick={() => { onSelect(emoji); onClose(); }}
-          className="w-11 h-11 flex items-center justify-center rounded hover:bg-muted active:bg-muted/80 transition-colors text-xl"
-          data-testid={`button-emoji-${emoji}`}
-        >
-          {emoji}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ReactionBadges({ reactions, userId, onToggle }: { reactions: ReactionGroup[]; userId: string; onToggle: (emoji: string) => void }) {
-  if (reactions.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1 mt-1">
-      {reactions.map((r) => {
-        const isMine = r.userIds.includes(userId);
-        return (
-          <button
-            key={r.emoji}
-            onClick={() => onToggle(r.emoji)}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 min-h-[28px] rounded-full text-xs border transition-colors animate-scale-in ${isMine ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted border-border hover:bg-muted/80 active:bg-muted/60"}`}
-            data-testid={`reaction-badge-${r.emoji}`}
-          >
-            <span>{r.emoji}</span>
-            <span className="text-[10px] font-medium">{r.userIds.length}</span>
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -743,15 +698,14 @@ interface CommunityRowProps {
   rowExtra: string;
   msgDate: Date;
   isAdminUser: boolean;
-  isActiveEmojiPicker: boolean;
+  isPinned: boolean;
   currentUserId: string;
   selfUsername: string | null;
   showUnreadDivider: boolean;
   isEditing: boolean;
   onProfileClick: (userId: string) => void;
   onAdminMenu: (a: AdminAction) => void;
-  onToggleEmojiPicker: (id: string) => void;
-  onCloseEmojiPicker: () => void;
+  onReply: (username: string, messageId?: string) => void;
   onReact: (messageId: string, emoji: string) => void;
   onPollDeleted: () => void;
   onJumpToMessage: (id: string) => void;
@@ -766,9 +720,9 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
   const {
     msg, isMe, msgIsAdmin, isFirstInRun, isLastInRun: _ignored, tailClass,
     isNewSinceMount, showSeparator, dateSepLabel, rowGap, rowExtra, msgDate,
-    isAdminUser, isActiveEmojiPicker, currentUserId, selfUsername,
+    isAdminUser, isPinned, currentUserId, selfUsername,
     showUnreadDivider, isEditing,
-    onProfileClick, onAdminMenu, onToggleEmojiPicker, onCloseEmojiPicker,
+    onProfileClick, onAdminMenu, onReply,
     onReact, onPollDeleted, onJumpToMessage, onStartEdit, onCancelEdit, onSaveEdit,
     onShowHistory, onDelete,
   } = props;
@@ -800,6 +754,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
               type="button"
               onClick={() => onProfileClick(msg.userId)}
               className="flex-shrink-0 self-end mb-1 rounded-full hover:opacity-80 transition-opacity"
+              aria-label={`View ${msg.chatUsername} profile`}
               data-testid={`button-avatar-${msg.id}`}
             >
               <Avatar className="w-7 h-7">
@@ -811,10 +766,15 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
             <div className="w-7 flex-shrink-0" aria-hidden="true" />
           )
         )}
-        <div className="relative max-w-[85%] sm:max-w-[70%] min-w-0">
+        <CommunityMessageActions id={msg.id} content={msg.content || ""} reactions={msg.reactions} userId={currentUserId}
+          canReply={!msg.pollId} canEdit={canEdit && !isEditing} canDelete={isAdminUser && !isEditing}
+          canPin={isAdminUser && !msg.pollId} pinned={isPinned}
+          onReply={() => onReply(msg.chatUsername, msg.id)} onEdit={() => onStartEdit(msg.id)}
+          onDelete={() => onDelete(msg.id)} onReact={(emoji) => onReact(msg.id, emoji)}>
+        <div className="relative max-w-full min-w-0">
           <div className={`rounded-2xl px-3 py-2${tailClass} ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
             {isFirstInRun && (
-              <p className={`text-[10px] font-medium mb-0.5 flex items-center gap-1 ${isMe ? "text-primary-foreground/70" : msgIsAdmin ? "text-primary" : "opacity-70"}`}>
+              <p className={`text-xs font-semibold mb-1 flex items-center gap-1 ${isMe ? "text-primary-foreground/80" : msgIsAdmin ? "text-primary" : "text-foreground/75"}`}>
                 {!isMe ? (
                   <button
                     className="truncate underline decoration-dotted underline-offset-2 hover:opacity-80 transition-opacity"
@@ -852,7 +812,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                 >
                   <p className={`text-[10px] font-medium truncate ${isMe ? "text-primary-foreground/80" : "text-primary"}`}>{msg.replyTo.chatUsername}</p>
                   <p className={`text-xs truncate ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                    {msg.replyTo.content ? msg.replyTo.content : msg.replyTo.hasImage ? "📷 Photo" : "…"}
+                    {msg.replyTo.content ? msg.replyTo.content : msg.replyTo.hasImage ? "Photo" : "…"}
                   </p>
                 </button>
               )
@@ -864,11 +824,11 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
             ) : (
               <>
                 {msg.imageUrl && (
-                  <div className="my-1 -mx-1 max-w-[280px]" data-testid={`img-community-msg-${msg.id}`}>
-                    <ClickableImage
+                  <div className="my-2 -mx-1 max-w-[320px]">
+                    <CommunityPhoto
                       src={msg.imageUrl}
-                      alt="Attached image"
-                      className="max-h-[280px] w-auto rounded-md object-contain"
+                      alt="Photo shared in community chat"
+                      messageId={msg.id}
                     />
                   </div>
                 )}
@@ -901,7 +861,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                         onClick={onCancelEdit}
                         disabled={savingEdit}
                         data-testid={`button-cancel-edit-${msg.id}`}
-                        title="Cancel"
+                        aria-label="Cancel editing message"
                       >
                         <X className="w-3.5 h-3.5" />
                       </Button>
@@ -917,7 +877,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                           if (ok) onCancelEdit();
                         }}
                         data-testid={`button-save-edit-${msg.id}`}
-                        title="Save"
+                        aria-label="Save edited message"
                       >
                         {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                       </Button>
@@ -955,8 +915,8 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                 )}
               </>
             )}
-            <div className={`flex items-center gap-1.5 mt-0.5 ${isMe ? "justify-end" : "justify-start"}`}>
-              <p className={`text-[10px] flex-shrink-0 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+            <div className={`flex items-center gap-1.5 mt-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
+              <p className={`text-[11px] tabular-nums flex-shrink-0 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                 {format(msgDate, "h:mm a")}
                 {msg.editedAt && (
                   isAdminUser && msg.hasEditHistory ? (
@@ -973,42 +933,10 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                   )
                 )}
               </p>
-              {canEdit && !isEditing && (
-                <button
-                  onClick={() => onStartEdit(msg.id)}
-                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-primary-foreground/80" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
-                  data-testid={`button-edit-${msg.id}`}
-                  title="Edit message"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              )}
-              {isAdminUser && !isEditing && (
-                <button
-                  onClick={() => onDelete(msg.id)}
-                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-red-300" : "text-muted-foreground/50 hover:text-destructive"}`}
-                  data-testid={`button-delete-${msg.id}`}
-                  title="Delete message"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              )}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={() => onToggleEmojiPicker(msg.id)}
-                  className={`w-5 h-5 flex items-center justify-center rounded-full transition-colors ${isMe ? "text-primary-foreground/50 hover:text-primary-foreground/80" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
-                  data-testid={`button-react-${msg.id}`}
-                >
-                  <Smile className="w-3 h-3" />
-                </button>
-                {isActiveEmojiPicker && (
-                  <EmojiPicker onSelect={(emoji) => onReact(msg.id, emoji)} onClose={onCloseEmojiPicker} alignRight={isMe} />
-                )}
-              </div>
             </div>
           </div>
-          <ReactionBadges reactions={msg.reactions} userId={currentUserId} onToggle={(emoji) => onReact(msg.id, emoji)} />
         </div>
+        </CommunityMessageActions>
       </div>
     </div>
   );
@@ -1035,12 +963,14 @@ export default function CommunityChatPage() {
   // Tracks message IDs present on first load so only newly-arrived messages
   // get the fade-in animation (initial history paints instantly).
   const initialMessageIdsRef = useRef<Set<string> | null>(null);
-  const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [adminAction, setAdminAction] = useState<AdminAction>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [pollDialogOpen, setPollDialogOpen] = useState(false);
+  const [detailMessage, setDetailMessage] = useState<CommunityMessage | null>(null);
+  const detailMessageRef = useRef<CommunityMessage | null>(null);
+  detailMessageRef.current = detailMessage;
   const [pendingImage, setPendingImage] = useState<File | null>(null);
   // We mirror pendingImage into a ref so handleSend (a memoised callback)
   // can read the freshest file value without us having to take the file
@@ -1065,11 +995,9 @@ export default function CommunityChatPage() {
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lastTypingSentRef = useRef<number>(0);
-  const prevMessageCountRef = useRef(0);
   const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
@@ -1089,10 +1017,29 @@ export default function CommunityChatPage() {
     queryKey: ["/api/community-chat/messages"],
     refetchInterval: 30000,
   });
+  const scrollMessages = useMemo(() => messages?.map(item => ({ id: item.id, senderId: item.userId })), [messages]);
+  const { scrollContainerRef, contentRef, requestFollow, jumpToLatest, showLatest } = useTicketConversationScroll({
+    conversationId: "community",
+    enabled: !!user,
+    messages: scrollMessages,
+    optimisticMessages: EMPTY_SCROLL_MESSAGES,
+    actorId: user?.id,
+  });
 
   const { data: participants } = useQuery<Participant[]>({
     queryKey: ["/api/community-chat/participants"],
     staleTime: 60000,
+  });
+
+  const { data: pinData } = useQuery<{ message: CommunityMessage | null }>({
+    queryKey: COMMUNITY_PIN_QUERY_KEY,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/community-chat/pin");
+      if (!response.ok) throw new Error("Could not load pinned message");
+      return response.json();
+    },
   });
 
   const detectMention = useCallback((text: string, cursorPos: number) => {
@@ -1136,6 +1083,9 @@ export default function CommunityChatPage() {
     // never reached us — refetch the list instead of trusting the cache.
     queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
     queryClient.invalidateQueries({ queryKey: ["/api/community-chat/participants"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/community-chat/search"] });
+    setDetailMessage(null);
+    queryClient.invalidateQueries({ queryKey: COMMUNITY_PIN_QUERY_KEY });
   }, []);
 
   const wsStatus = useReconnectingWebSocket({
@@ -1161,6 +1111,7 @@ export default function CommunityChatPage() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "community_message") {
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/search"] });
           // Patch the new message straight into the cached list (appended —
           // list is oldest-first) instead of refetching the whole page.
           // Dedup by id: the sender's own POST handler also invalidates, and
@@ -1180,6 +1131,15 @@ export default function CommunityChatPage() {
           }
         }
         if (data.type === "community_message_deleted") {
+          queryClient.invalidateQueries({ queryKey: COMMUNITY_PIN_QUERY_KEY });
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/search"] });
+          queryClient.setQueryData<{ message: CommunityMessage | null }>(COMMUNITY_PIN_QUERY_KEY, (old) =>
+            old?.message?.id === data.messageId ? { message: null } : old);
+          queryClient.setQueriesData<{ messages: CommunityMessage[]; truncated: boolean }>(
+            { queryKey: ["/api/community-chat/search"] },
+            (old) => old ? { ...old, messages: old.messages.filter((item) => item.id !== data.messageId) } : old,
+          );
+          if (detailMessageRef.current?.id === data.messageId) setDetailMessage(null);
           // Remove the deleted message from the cached list in place.
           const cached = queryClient.getQueryData<EnrichedMessage[]>(["/api/community-chat/messages"]);
           if (data.messageId && cached && cached.some((m) => m.id === data.messageId)) {
@@ -1193,6 +1153,22 @@ export default function CommunityChatPage() {
           }
         }
         if (data.type === "community_message_edited") {
+          queryClient.invalidateQueries({ queryKey: COMMUNITY_PIN_QUERY_KEY });
+          queryClient.invalidateQueries({ queryKey: ["/api/community-chat/search"] });
+          queryClient.setQueryData<{ message: CommunityMessage | null }>(COMMUNITY_PIN_QUERY_KEY, (old) =>
+            old && old.message && old.message.id === data.messageId
+              ? { message: { ...old.message, content: data.content ?? old.message.content, editedAt: data.editedAt ?? old.message.editedAt } }
+              : old);
+          queryClient.setQueriesData<{ messages: CommunityMessage[]; truncated: boolean }>(
+            { queryKey: ["/api/community-chat/search"] },
+            (old) => old ? {
+              ...old,
+              messages: old.messages.map((item) => item.id === data.messageId
+                ? { ...item, content: data.content ?? item.content, editedAt: data.editedAt ?? item.editedAt }
+                : item),
+            } : old,
+          );
+          if (detailMessageRef.current?.id === data.messageId) setDetailMessage(null);
           // In-place patch of the edited message's content/editedAt.
           const cached = queryClient.getQueryData<EnrichedMessage[]>(["/api/community-chat/messages"]);
           if (data.messageId && cached && cached.some((m) => m.id === data.messageId)) {
@@ -1251,6 +1227,9 @@ export default function CommunityChatPage() {
             queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
           }
         }
+        if (data.type === "community_pin_changed") {
+          queryClient.invalidateQueries({ queryKey: COMMUNITY_PIN_QUERY_KEY });
+        }
         if (data.type === "poll_vote" || data.type === "poll_deleted") {
           if (data.pollId) queryClient.invalidateQueries({ queryKey: ["/api/polls", data.pollId] });
           if (data.type === "poll_deleted" && data.parentType === "community") {
@@ -1284,68 +1263,44 @@ export default function CommunityChatPage() {
     };
   }, []);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const el = scrollContainerRef.current;
-    if (el) {
-      if (typeof el.scrollTo === "function") {
-        el.scrollTo({ top: el.scrollHeight, behavior });
-      } else {
-        el.scrollTop = el.scrollHeight;
-      }
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior });
-    }
+  const scrollToBottom = useCallback(() => {
+    jumpToLatest();
+    isNearBottomRef.current = true;
     setShowNewMessagesPill(false);
     setUnreadCount(0);
     setUnreadDividerId(null);
-  }, []);
+  }, [jumpToLatest]);
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
     isNearBottomRef.current = nearBottom;
     if (nearBottom) {
       setShowNewMessagesPill(false);
       setUnreadCount(0);
       setUnreadDividerId(null);
     }
-  }, []);
+  }, [scrollContainerRef]);
 
   // Tracks IDs of the previous message list so newly-arrived messages can be
   // identified for the unread divider (index math breaks under pagination).
   const prevMessageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const count = messages?.length || 0;
-    const prev = prevMessageCountRef.current;
-    prevMessageCountRef.current = count;
     const prevIds = prevMessageIdsRef.current;
     if (messages) prevMessageIdsRef.current = new Set(messages.map((m) => m.id));
     // Key off ID delta, NOT list length: the API list is capped, so at the cap
     // new arrivals keep the length constant while old messages roll off.
     const newArrivals = computeNewArrivals(prevIds, messages);
     if (newArrivals.length > 0) {
-      if (isNearBottomRef.current) scrollToBottom();
-      else {
+      if (!isNearBottomRef.current) {
         setShowNewMessagesPill(true);
         setUnreadCount((c) => c + newArrivals.length);
         setUnreadDividerId((curr) => curr ?? newArrivals[0]);
       }
-    } else if (count > 0 && prev === 0) {
-      // First load: content may still be sizing, so one synchronous scroll lands
-      // short. Re-pin across the next few frames to settle at the true bottom.
-      scrollToBottom("auto");
-      const raf = requestAnimationFrame(() => scrollToBottom("auto"));
-      const t1 = setTimeout(() => scrollToBottom("auto"), 120);
-      const t2 = setTimeout(() => scrollToBottom("auto"), 350);
-      return () => {
-        cancelAnimationFrame(raf);
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
     }
-  }, [messages, scrollToBottom]);
+  }, [messages]);
 
   const sendTypingEvent = useCallback(() => {
     const now = Date.now();
@@ -1363,6 +1318,13 @@ export default function CommunityChatPage() {
     const kbArticle = pendingKbArticleRef.current;
     const reply = replyTargetRef.current;
     if (!content && !file && !kbArticle) return;
+    // Sending is an explicit request to follow this outgoing message, even
+    // after browsing history. The shared scroller also follows image/keyboard
+    // layout changes without pulling a reader away from older messages.
+    isNearBottomRef.current = true;
+    requestFollow();
+    setShowNewMessagesPill(false);
+    setUnreadCount(0);
     hapticLight();
     setMessage("");
     setPendingImage(null);
@@ -1408,16 +1370,10 @@ export default function CommunityChatPage() {
       const el = messageInputRef.current;
       if (el) { el.style.height = "auto"; el.focus(); }
     }, 0);
-  }, [message, scrollToBottom, toast]);
+  }, [message, requestFollow, scrollToBottom, toast]);
 
   const handleProfileClick = useCallback((userId: string) => {
     setProfileUserId(userId);
-  }, []);
-  const handleToggleEmojiPicker = useCallback((id: string) => {
-    setActiveEmojiPicker((curr) => (curr === id ? null : id));
-  }, []);
-  const handleCloseEmojiPicker = useCallback(() => {
-    setActiveEmojiPicker(null);
   }, []);
   const handlePollDeleted = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
@@ -1425,12 +1381,13 @@ export default function CommunityChatPage() {
 
   const handleReaction = useCallback(async (messageId: string, emoji: string) => {
     try {
-      await fetch(`/api/community-chat/messages/${messageId}/reactions`, {
+      const response = await fetch(`/api/community-chat/messages/${messageId}/reactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emoji }),
         credentials: "include",
       });
+      if (!response.ok) throw new Error("Reaction could not be saved");
       queryClient.invalidateQueries({ queryKey: ["/api/community-chat/messages"] });
     } catch {
       toast({ title: "Failed to react", variant: "destructive" });
@@ -1537,7 +1494,7 @@ export default function CommunityChatPage() {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     el.classList.add("chat-jump-highlight");
     setTimeout(() => el.classList.remove("chat-jump-highlight"), 1600);
-  }, [toast]);
+  }, [scrollContainerRef, toast]);
 
   const handleStartEdit = useCallback((id: string) => {
     setEditingMessageId(id);
@@ -1612,12 +1569,6 @@ export default function CommunityChatPage() {
   // Keep the composer pinned above the iOS on-screen keyboard: pad the page by
   // the keyboard height so the content shrinks instead of the page scrolling.
   const keyboardInset = useKeyboardInset();
-  useEffect(() => {
-    if (keyboardInset > 0 && isNearBottomRef.current) {
-      const t = setTimeout(() => scrollToBottom("auto"), 50);
-      return () => clearTimeout(t);
-    }
-  }, [keyboardInset, scrollToBottom]);
 
   const isAdminUser = user?.role === "admin" || user?.role === "master_admin";
   const isBanned = user?.chatBanned === true;
@@ -1651,7 +1602,11 @@ export default function CommunityChatPage() {
 
       <LiveConnectionBanner status={wsStatus} className="mx-2 sm:mx-3 mt-2" />
 
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 min-h-0">
+      <CommunityPinnedBanner onPreview={setDetailMessage} canManage={isAdminUser} />
+      <CommunitySearch onPreview={setDetailMessage} />
+
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 min-h-0">
+        <div ref={contentRef} className="space-y-3">
         {isLoading ? (
           <div className="space-y-6">
             {[1, 2, 3].map((i) => (
@@ -1747,15 +1702,14 @@ export default function CommunityChatPage() {
                   rowExtra={rowExtra}
                   msgDate={msgDate}
                   isAdminUser={isAdminUser}
-                  isActiveEmojiPicker={activeEmojiPicker === msg.id}
+                  isPinned={pinData?.message?.id === msg.id}
                   currentUserId={user?.id || ""}
                   selfUsername={chatUsername}
                   showUnreadDivider={unreadDividerId === msg.id}
                   isEditing={editingMessageId === msg.id}
                   onProfileClick={handleProfileClick}
                   onAdminMenu={setAdminAction}
-                  onToggleEmojiPicker={handleToggleEmojiPicker}
-                  onCloseEmojiPicker={handleCloseEmojiPicker}
+                  onReply={handleReply}
                   onReact={handleReaction}
                   onPollDeleted={handlePollDeleted}
                   onJumpToMessage={handleJumpToMessage}
@@ -1770,13 +1724,14 @@ export default function CommunityChatPage() {
             <div ref={messagesEndRef} />
           </>
         )}
+        </div>
       </div>
 
-      {showNewMessagesPill && (
+      {(showNewMessagesPill || showLatest) && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
           <Button size="sm" variant="secondary" className="rounded-full shadow-lg text-xs gap-1 px-3" onClick={() => scrollToBottom()} data-testid="button-community-new-messages">
             <ChevronDown className="w-3 h-3" />
-            {unreadCount > 0 ? `${unreadCount} new message${unreadCount === 1 ? "" : "s"}` : "New messages"}
+            {unreadCount > 0 ? `${unreadCount} new message${unreadCount === 1 ? "" : "s"}` : "Latest messages"}
           </Button>
         </div>
       )}
@@ -1817,7 +1772,7 @@ export default function CommunityChatPage() {
                 className="h-6 w-6 flex-shrink-0"
                 onClick={() => setReplyTarget(null)}
                 data-testid="button-cancel-reply"
-                title="Cancel reply"
+                aria-label="Cancel reply"
               >
                 <X className="w-3 h-3" />
               </Button>
@@ -1840,7 +1795,7 @@ export default function CommunityChatPage() {
                   pendingImageRef.current = null;
                 }}
                 data-testid="button-remove-pending-image"
-                title="Remove image"
+                aria-label="Remove image"
               >
                 <X className="w-3 h-3" />
               </Button>
@@ -1864,7 +1819,7 @@ export default function CommunityChatPage() {
                   pendingKbArticleRef.current = null;
                 }}
                 data-testid="button-remove-pending-kb-article"
-                title="Remove article link"
+                aria-label="Remove article link"
               >
                 <X className="w-3 h-3" />
               </Button>
@@ -1898,7 +1853,7 @@ export default function CommunityChatPage() {
               onClick={() => applyFormat("**")}
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               data-testid="button-format-bold"
-              title="Bold"
+              aria-label="Bold"
             >
               <Bold className="w-3.5 h-3.5" />
             </button>
@@ -1907,7 +1862,7 @@ export default function CommunityChatPage() {
               onClick={() => applyFormat("*")}
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               data-testid="button-format-italic"
-              title="Italic"
+              aria-label="Italic"
             >
               <Italic className="w-3.5 h-3.5" />
             </button>
@@ -1916,7 +1871,7 @@ export default function CommunityChatPage() {
               onClick={() => applyFormat("~~")}
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               data-testid="button-format-strike"
-              title="Strikethrough"
+              aria-label="Strikethrough"
             >
               <Strikethrough className="w-3.5 h-3.5" />
             </button>
@@ -1925,7 +1880,7 @@ export default function CommunityChatPage() {
               onClick={() => applyFormat("`")}
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               data-testid="button-format-code"
-              title="Code"
+              aria-label="Code"
             >
               <Code className="w-3.5 h-3.5" />
             </button>
@@ -1947,7 +1902,7 @@ export default function CommunityChatPage() {
                   variant="outline"
                   className="flex-shrink-0 h-9 w-9"
                   data-testid="button-composer-attach-menu"
-                  title="Add attachment"
+                  aria-label="Add attachment"
                 >
                   <Plus className="w-4 h-4" />
                 </Button>
@@ -2051,6 +2006,7 @@ export default function CommunityChatPage() {
               className="flex-shrink-0 h-9 w-9"
               onClick={handleSend}
               disabled={!message.trim() && !pendingImage && !pendingKbArticle}
+              aria-label="Send message"
               data-testid="button-send-community-message"
             >
               <Send className="w-4 h-4" />
@@ -2091,6 +2047,7 @@ export default function CommunityChatPage() {
         messageId={historyMessageId}
         onOpenChange={(o) => { if (!o) setHistoryMessageId(null); }}
       />
+      <CommunityMessageDetail message={detailMessage} onClose={() => setDetailMessage(null)} />
     </div>
   );
 }

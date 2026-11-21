@@ -118,6 +118,16 @@ visit" assertion fails. **Fix in the test:** `globalThis.localStorage = window.l
 (and `sessionStorage` likewise) alongside the other global shims. Precedent:
 `test/pwa-install-banner.test.ts`.
 
+## Emoji selectors can silently miss existing elements
+Use ASCII selectors followed by attribute comparisons for emoji-bearing IDs.
+
+**Why:** jsdom returned null for an exact CSS attribute selector containing a
+supplementary Unicode emoji even though the rendered element had that identical
+attribute. This was a selector-engine limitation, not missing reaction UI.
+
+**How to apply:** Query an ASCII role or stable prefix and compare the returned
+elements' attributes directly when testing reaction controls.
+
 ## Page WS handlers patch the SINGLETON queryClient
 Community-chat (and similar) pages import `queryClient` from `@/lib/queryClient`
 inside their WebSocket `onMessage` handlers while the rendered tree reads from

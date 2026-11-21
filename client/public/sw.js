@@ -163,6 +163,7 @@ function isUncacheableApi(url) {
   if (url.pathname.startsWith('/api/auth/')) return true;
   if (url.pathname === '/api/user') return true;
   if (url.pathname === '/api/tickets' || url.pathname.startsWith('/api/tickets/')) return true;
+  if (url.pathname === '/api/community-chat' || url.pathname.startsWith('/api/community-chat/')) return true;
   if (url.pathname === '/api/message-threads' || url.pathname.startsWith('/api/message-threads/')) return true;
   return false;
 }
