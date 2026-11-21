@@ -21,7 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { apiRequest, queryClient, uploadRequest } from "@/lib/queryClient";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Shield, ChevronDown, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, ChevronRight, Check, Bold, Italic, Strikethrough, Code, Plus } from "lucide-react";
+import { Send, Shield, ChevronDown, Trash2, Users, Settings, Bell, BellOff, AtSign, AlertTriangle, Ban, X, Reply, UserSearch, Mail, Calendar, Ticket, Loader2, BarChart3, ImagePlus, BookOpen, Newspaper, ChevronRight, Check, Bold, Italic, Strikethrough, Code, Plus } from "lucide-react";
 import { ChatMessageContent } from "@/components/chat-message-content";
 import { computeNewArrivals } from "@/lib/chat-unread";
 import { useTicketConversationScroll } from "@/hooks/use-ticket-conversation-scroll";
@@ -30,6 +30,7 @@ import { useReconnectingWebSocket } from "@/hooks/use-reconnecting-websocket";
 import { Link } from "wouter";
 import { Poll } from "@/components/poll";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { NewsArticlePickerDialog } from "@/components/news-article-picker-dialog";
 import { PollComposerDialog } from "@/components/poll-composer";
 import { Badge } from "@/components/ui/badge";
 import { format, isToday, isYesterday } from "date-fns";
@@ -39,6 +40,8 @@ import { CommunityPhoto } from "@/components/community/community-photo";
 import { CommunityMessageDetail } from "@/components/community/community-message-detail";
 import { CommunityPinnedBanner, COMMUNITY_PIN_QUERY_KEY } from "@/components/community/community-pinned-banner";
 import { CommunitySearch } from "@/components/community/community-search";
+import { NewsArticleCard } from "@/components/news-article-card";
+import type { NewsArticleRef } from "@shared/news-attachments";
 
 type AdminAction =
   | { type: "menu"; messageId: string; userId: string; username: string }
@@ -50,8 +53,8 @@ type AdminAction =
 type ReactionGroup = { emoji: string; userIds: string[] };
 // Snippet of the message being replied to. `null` = original was deleted
 // (degrade gracefully); absent/undefined = not a reply at all.
-type ReplySnippet = { id: string; chatUsername: string; content: string; hasImage: boolean } | null;
-type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; replyTo?: ReplySnippet; hasEditHistory?: boolean; editCount?: number };
+type ReplySnippet = { id: string; chatUsername: string; content: string; hasImage: boolean; hasNews?: boolean } | null;
+type EnrichedMessage = CommunityMessage & { reactions: ReactionGroup[]; isAdmin?: boolean; avatarUrl?: string | null; kbArticle?: KbArticleRef | null; newsArticleId?: string | null; newsArticle?: NewsArticleRef | null; replyTo?: ReplySnippet; hasEditHistory?: boolean; editCount?: number };
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const EMPTY_SCROLL_MESSAGES: readonly { id: string; senderId: string }[] = [];
@@ -812,7 +815,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                 >
                   <p className={`text-[10px] font-medium truncate ${isMe ? "text-primary-foreground/80" : "text-primary"}`}>{msg.replyTo.chatUsername}</p>
                   <p className={`text-xs truncate ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                    {msg.replyTo.content ? msg.replyTo.content : msg.replyTo.hasImage ? "Photo" : "…"}
+                    {msg.replyTo.content ? msg.replyTo.content : msg.replyTo.hasImage ? "Photo" : msg.replyTo.hasNews ? "News article" : "…"}
                   </p>
                 </button>
               )
@@ -841,7 +844,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                         if (e.key === "Escape") { e.preventDefault(); onCancelEdit(); }
                         if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                           e.preventDefault();
-                          if (!editText.trim() && !msg.imageUrl && !msg.kbArticleSlug) return;
+                          if (!editText.trim() && !msg.imageUrl && !msg.kbArticleSlug && !msg.newsArticleId) return;
                           setSavingEdit(true);
                           const ok = await onSaveEdit(msg.id, editText);
                           setSavingEdit(false);
@@ -869,7 +872,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                         size="icon"
                         variant="ghost"
                         className={`h-6 w-6 ${isMe ? "text-primary-foreground/70 hover:text-primary-foreground" : ""}`}
-                        disabled={savingEdit || (!editText.trim() && !msg.imageUrl && !msg.kbArticleSlug)}
+                        disabled={savingEdit || (!editText.trim() && !msg.imageUrl && !msg.kbArticleSlug && !msg.newsArticleId)}
                         onClick={async () => {
                           setSavingEdit(true);
                           const ok = await onSaveEdit(msg.id, editText);
@@ -913,6 +916,7 @@ const CommunityMessageRow = memo(function CommunityMessageRow(props: CommunityRo
                     </div>
                   </Link>
                 )}
+                {msg.newsArticleId && <NewsArticleCard id={msg.newsArticleId} article={msg.newsArticle} messageId={msg.id} onBubble={isMe} />}
               </>
             )}
             <div className={`flex items-center gap-1.5 mt-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
@@ -957,7 +961,7 @@ export default function CommunityChatPage() {
   // Message whose edit history is open in the admin-only history dialog.
   const [historyMessageId, setHistoryMessageId] = useState<string | null>(null);
   // Reply target: quote chip in the composer + replyToId on send.
-  const [replyTarget, setReplyTarget] = useState<{ id: string; username: string; content: string; hasImage: boolean } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{ id: string; username: string; content: string; hasImage: boolean; hasNews?: boolean } | null>(null);
   const replyTargetRef = useRef<typeof replyTarget>(null);
   replyTargetRef.current = replyTarget;
   // Tracks message IDs present on first load so only newly-arrived messages
@@ -992,6 +996,9 @@ export default function CommunityChatPage() {
   // needing to take pendingKbArticle as a dep.
   const pendingKbArticleRef = useRef<KbArticleRef | null>(null);
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
+  const [pendingNewsArticle, setPendingNewsArticle] = useState<NewsArticleRef | null>(null);
+  const pendingNewsArticleRef = useRef<NewsArticleRef | null>(null);
+  const [newsPickerOpen, setNewsPickerOpen] = useState(false);
   const mentionStartRef = useRef<number | null>(null);
   const isNearBottomRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1316,8 +1323,9 @@ export default function CommunityChatPage() {
     const content = message.trim();
     const file = pendingImageRef.current;
     const kbArticle = pendingKbArticleRef.current;
+    const newsArticle = pendingNewsArticleRef.current;
     const reply = replyTargetRef.current;
-    if (!content && !file && !kbArticle) return;
+    if (!content && !file && !kbArticle && !newsArticle) return;
     // Sending is an explicit request to follow this outgoing message, even
     // after browsing history. The shared scroller also follows image/keyboard
     // layout changes without pulling a reader away from older messages.
@@ -1331,6 +1339,8 @@ export default function CommunityChatPage() {
     pendingImageRef.current = null;
     setPendingKbArticle(null);
     pendingKbArticleRef.current = null;
+    setPendingNewsArticle(null);
+    pendingNewsArticleRef.current = null;
     setReplyTarget(null);
     setMentionQuery(null);
     mentionStartRef.current = null;
@@ -1345,6 +1355,10 @@ export default function CommunityChatPage() {
         setPendingKbArticle(kbArticle);
         pendingKbArticleRef.current = kbArticle;
       }
+      if (newsArticle) {
+        setPendingNewsArticle(newsArticle);
+        pendingNewsArticleRef.current = newsArticle;
+      }
       if (reply) setReplyTarget(reply);
     };
     try {
@@ -1352,6 +1366,7 @@ export default function CommunityChatPage() {
       formData.append("content", content);
       if (file) formData.append("image", file);
       if (kbArticle) formData.append("kbArticleSlug", kbArticle.slug);
+      if (newsArticle) formData.append("newsArticleId", newsArticle.id);
       if (reply) formData.append("replyToId", reply.id);
       const res = await uploadRequest("POST", "/api/community-chat/messages", formData);
       if (!res.ok) {
@@ -1532,6 +1547,7 @@ export default function CommunityChatPage() {
           username: original.chatUsername,
           content: original.content,
           hasImage: !!original.imageUrl,
+          hasNews: !!original.newsArticleId,
         });
       }
     }
@@ -1763,7 +1779,7 @@ export default function CommunityChatPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-[10px] font-medium text-primary truncate">Replying to {replyTarget.username}</p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {replyTarget.content || (replyTarget.hasImage ? "📷 Photo" : "…")}
+                  {replyTarget.content || (replyTarget.hasImage ? "Photo" : replyTarget.hasNews ? "News article" : "…")}
                 </p>
               </div>
               <Button
@@ -1823,6 +1839,13 @@ export default function CommunityChatPage() {
               >
                 <X className="w-3 h-3" />
               </Button>
+            </div>
+          )}
+          {pendingNewsArticle && (
+            <div className="mb-2 inline-flex max-w-full items-center gap-2 rounded-md border bg-muted/40 p-1.5 pr-2" data-testid="container-pending-news-article">
+              <Newspaper className="ml-1 h-4 w-4 flex-shrink-0 text-primary" />
+              <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{pendingNewsArticle.title}</p><p className="text-[10px] text-muted-foreground">News article</p></div>
+              <Button size="icon" variant="ghost" className="h-6 w-6 flex-shrink-0" onClick={() => { setPendingNewsArticle(null); pendingNewsArticleRef.current = null; }} data-testid="button-remove-pending-news-article" aria-label="Remove news article"><X className="h-3 w-3" /></Button>
             </div>
           )}
           <input
@@ -1928,6 +1951,10 @@ export default function CommunityChatPage() {
                       <BookOpen className="w-4 h-4 mr-2" />
                       Link a KB article
                     </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setNewsPickerOpen(true)} data-testid="button-attach-news-article">
+                      <Newspaper className="mr-2 h-4 w-4" />
+                      Share a news article
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() => setPollDialogOpen(true)}
                       data-testid="button-open-poll-composer"
@@ -2005,7 +2032,7 @@ export default function CommunityChatPage() {
               size="icon"
               className="flex-shrink-0 h-9 w-9"
               onClick={handleSend}
-              disabled={!message.trim() && !pendingImage && !pendingKbArticle}
+              disabled={!message.trim() && !pendingImage && !pendingKbArticle && !pendingNewsArticle}
               aria-label="Send message"
               data-testid="button-send-community-message"
             >
@@ -2028,6 +2055,10 @@ export default function CommunityChatPage() {
           setKbPickerOpen(false);
         }}
       />
+      {isAdminUser && <NewsArticlePickerDialog open={newsPickerOpen} onOpenChange={setNewsPickerOpen} onSelect={article => {
+        setPendingNewsArticle(article);
+        pendingNewsArticleRef.current = article;
+      }} />}
       <UsernameSetupDialog open={showUsernameDialog} onComplete={handleUsernameComplete} />
       <UserProfileDialog
         userId={profileUserId}

@@ -379,6 +379,13 @@
       "when": 1795246458785,
       "tag": "0053_breezy_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795273998888,
+      "tag": "0054_futuristic_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import { createCommunityDiscoveryHandlers, literalSearchPattern, type CommunityD
 import type { CommunityMessage } from "../shared/schema";
 
 const message: CommunityMessage = {
+  newsArticleId: null,
   id: "message-one", userId: "customer", chatUsername: "Subscriber", content: "Welcome to our community",
   imageUrl: null, kbArticleSlug: null, pollId: null, replyToId: null,
   createdAt: new Date("2026-01-01"), editedAt: null,

@@ -12,6 +12,8 @@ import { canAccessThread, persistThreadSend, enrichThreadMessages, getThreadReac
 import { privateMessageUpload, privateSendIds } from "./thread-upload";
 import { getTicketReactions, setTicketReaction, markVisibleTicketMessagesRead } from "./ticket-messaging-storage";
 import { resolveKbArticleAttachment, enrichKbArticlesForMessages, type KbArticleEnvelope } from "./community-chat-kb";
+import { resolveNewsAttachment, enrichNewsArticlesForMessages } from "./news-attachments";
+import { newsTranscriptLink } from "./news-transcript";
 import { createCommunityMessageEditHandler, createCommunityMessageHistoryHandler, type CommunityEditDeps } from "./community-chat-edit";
 import { createCommunityDiscoveryHandlers } from "./community-chat-discovery";
 import { searchCommunityMessages, getCommunityPin, setCommunityPin, clearCommunityPin } from "./community-chat-discovery-storage";
@@ -2235,7 +2237,8 @@ export async function registerRoutes(
             const sender = await storage.getUser(id);
             if (sender) senderMap.set(id, sender.fullName);
           }));
-          conversationHtml = allMessages.map(m => {
+          const transcriptMessages = await enrichNewsArticlesForMessages(allMessages, storage);
+          conversationHtml = transcriptMessages.map(m => {
             const name = escapeHtml(senderMap.get(m.senderId) || "Unknown");
             const time = format(new Date(m.createdAt), "MMM d, yyyy 'at' h:mm a");
             const msgText = escapeHtml(m.message || "").replace(/\n/g, "<br/>");
@@ -2243,6 +2246,7 @@ export async function registerRoutes(
 <p style="margin:0;font-size:13px;"><strong>${name}</strong> <span style="color:#6b7280;font-size:12px;">${time}</span></p>
 <p style="margin:4px 0 0 0;font-size:14px;">${msgText}</p>
 ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}" style="color:#3b82f6;font-size:12px;">View Attachment</a></p>` : ""}
+${newsTranscriptLink(m, process.env.APP_URL)}
 </div>`;
           }).join("");
 
@@ -2639,7 +2643,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       kbArticle: m.kbArticleSlug ? kbBySlug.get(m.kbArticleSlug) ?? null : null,
       ...(!m.isInternal ? { reactions: reactions[m.id] ?? [] } : {}),
     }));
-    res.json(enriched);
+    res.json(await enrichNewsArticlesForMessages(enriched, storage));
    } catch (e) {
      if (getErrorCode(e) === "22P02") return res.status(404).json({ message: "Ticket not found" });
      throw e;
@@ -2743,6 +2747,9 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         return res.status(403).json({ message: "Only admins can post internal notes" });
       }
       const isInternal = requestedInternal && canPostInternalNote(user.role);
+      const newsDecision = await resolveNewsAttachment(req.body?.newsArticleId, !isInternal, storage);
+      if (!newsDecision.ok) return res.status(newsDecision.status).json({ message: newsDecision.error });
+      const newsArticleId = newsDecision.newsArticleId;
       // Optional KB article attachment. Anyone in the conversation
       // (customer or admin) can link a published article — KB content is
       // already visible to all signed-in users via /knowledge.
@@ -2786,7 +2793,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const rawMessage = typeof req.body.message === "string" ? req.body.message : "";
       // Message body may be empty when a KB article is the sole payload (parity
       // with how the existing image-only path is handled implicitly elsewhere).
-      if (!rawMessage.trim() && !imageUrl && !kbArticleSlug) {
+      if (!rawMessage.trim() && !imageUrl && !kbArticleSlug && !newsArticleId) {
         return res.status(400).json({ message: "Message is required" });
       }
       const message = await storage.createTicketMessage({
@@ -2796,9 +2803,11 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         imageUrl: imageUrl || null,
         isInternal,
         kbArticleSlug,
+        newsArticleId,
       });
       const messageWithKb = {
         ...message, kbArticle: kbArticleInfo,
+        newsArticle: newsDecision.newsArticle,
         senderName: user.fullName, senderRole: user.role, senderAvatarUrl: user.avatarUrl ?? null,
         ...(!isInternal ? { reactions: [] } : {}),
       };
@@ -3582,12 +3591,15 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const kbArticleSlug = kbDecision.kbArticleSlug;
       const kbArticleInfo = kbDecision.kbArticleInfo;
+      const newsDecision = await resolveNewsAttachment(req.body.newsArticleId, true, storage);
+      if (!newsDecision.ok) return res.status(newsDecision.status).json({ message: newsDecision.error });
+      const newsArticleId = newsDecision.newsArticleId;
 
       if (!customerId || !subject) {
         return res.status(400).json({ message: "customerId and subject are required" });
       }
       // Body may be empty when an image and/or KB article is the sole payload.
-      if (!body && !req.file && !kbArticleSlug) {
+      if (!body && !req.file && !kbArticleSlug && !newsArticleId) {
         return res.status(400).json({ message: "A message, image, or article is required" });
       }
       const customer = await storage.getUser(customerId);
@@ -3597,6 +3609,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const { thread, message: msg, replay } = await persistThreadSend({
         threadId: req.body.clientThreadId || crypto.randomUUID(),
         senderId: req.session.userId!, body, kbArticleSlug,
+        newsArticleId,
         clientMessageId: req.body.clientMessageId || null, file: req.file,
         newThread: { adminId: req.session.userId!, customerId, subject },
       });
@@ -3608,7 +3621,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const sender = await storage.getUser(req.session.userId!);
       broadcastToThreadParticipants({ type: "thread_message", threadId: thread.id }, [thread.adminId, thread.customerId]);
 
-      const previewBody = body || (imageUrl ? msg.attachmentType?.startsWith("video/") ? "Video attachment" : "Attachment" : kbArticleSlug ? "Article" : "");
+      const previewBody = body || (imageUrl ? msg.attachmentType?.startsWith("video/") ? "Video attachment" : "Attachment" : newsArticleId ? "News article" : kbArticleSlug ? "Article" : "");
       const threadWantsPush = customerWantsPush(customer, "thread_message");
       const threadWantsEmail = !!(customer.email && customerWantsEmail(customer, "thread_message") && sender);
       let threadNotifId: string | null = null;
@@ -3752,14 +3765,18 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       }
       const kbArticleSlug = kbDecision.kbArticleSlug;
       const kbArticleInfo = kbDecision.kbArticleInfo;
+      const newsDecision = await resolveNewsAttachment(req.body.newsArticleId, isAdminSending, storage);
+      if (!newsDecision.ok) return res.status(newsDecision.status).json({ message: newsDecision.error });
+      const newsArticleId = newsDecision.newsArticleId;
 
       // Body may be empty when an image and/or KB article is the sole payload.
-      if (!body && !req.file && !kbArticleSlug) {
+      if (!body && !req.file && !kbArticleSlug && !newsArticleId) {
         return res.status(400).json({ message: "A message, image, or article is required" });
       }
 
       const { message: msg, replay } = await persistThreadSend({
         threadId: thread.id, senderId: req.session.userId!, body, kbArticleSlug,
+        newsArticleId,
         clientMessageId: req.body.clientMessageId || null, file: req.file,
       });
       const msgWithKb = { ...(await enrichThreadMessages([msg], req.session.userId!))[0], kbArticle: kbArticleInfo };
@@ -3782,7 +3799,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
 
       const shouldCreateNotif = !isRecipientViewing;
       const recipientUser = await storage.getUser(recipientId);
-      const previewBody = body || (imageUrl ? msg.attachmentType?.startsWith("video/") ? "Video attachment" : "Attachment" : kbArticleSlug ? "Article" : "");
+      const previewBody = body || (imageUrl ? msg.attachmentType?.startsWith("video/") ? "Video attachment" : "Attachment" : newsArticleId ? "News article" : kbArticleSlug ? "Article" : "");
       const replyWantsPush = customerWantsPush(recipientUser, "thread_message");
       const replyWantsEmail = !!(recipientUser?.email && customerWantsEmail(recipientUser, "thread_message") && sender);
       let threadReplyNotifId: string | null = null;
@@ -5876,7 +5893,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         editCount: editCounts.get(m.id) ?? 0,
       }));
       enriched.reverse();
-      res.json(enriched);
+      res.json(await enrichNewsArticlesForMessages(enriched, storage));
     } catch (e) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
@@ -5893,8 +5910,12 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const hasImage = !!req.file;
       const rawKbSlug = typeof req.body?.kbArticleSlug === "string" ? req.body.kbArticleSlug.trim() : "";
       const hasKbArticle = rawKbSlug.length > 0;
+      const isAdminUser = user.role === "admin" || user.role === "master_admin";
+      const newsDecision = await resolveNewsAttachment(req.body?.newsArticleId, isAdminUser, storage);
+      if (!newsDecision.ok) return res.status(newsDecision.status).json({ error: newsDecision.error });
+      const newsArticleId = newsDecision.newsArticleId;
       // Image-only or KB-link-only messages are allowed; require text only when nothing else is attached.
-      if (!hasImage && !hasKbArticle && !rawContent.trim()) {
+      if (!hasImage && !hasKbArticle && !newsArticleId && !rawContent.trim()) {
         return res.status(400).json({ error: "Content is required" });
       }
       if (rawContent.length > 2000) {
@@ -5903,7 +5924,6 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       if (req.file && !req.file.mimetype.startsWith("image/")) {
         return res.status(400).json({ error: "Only image attachments are supported" });
       }
-      const isAdminUser = user.role === "admin" || user.role === "master_admin";
       // KB article links in community chat are admin-only — mirrors the
       // @everyone gating pattern below. Tickets allow customer-attached
       // KB links; that authorisation lives in the ticket POST handler.
@@ -5960,6 +5980,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
         content: trimmedContent,
         imageUrl,
         kbArticleSlug,
+        newsArticleId,
         replyToId,
       });
       const replyTo = replyToOriginal
@@ -5972,7 +5993,7 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
             hasImage: !!replyToOriginal.imageUrl,
           }
         : undefined;
-      const enriched = { ...msg, reactions: [], isAdmin: isAdminUser, kbArticle: kbArticleInfo, replyTo, avatarUrl: user.avatarUrl || null };
+      const enriched = { ...msg, reactions: [], isAdmin: isAdminUser, kbArticle: kbArticleInfo, newsArticle: newsDecision.newsArticle, replyTo, avatarUrl: user.avatarUrl || null };
       broadcast({
         type: "community_message",
         message: enriched,
@@ -7920,7 +7941,8 @@ ${m.imageUrl ? `<p style="margin:4px 0 0 0;"><a href="${escapeHtml(m.imageUrl)}"
       const user = await storage.getUser(id);
       return [id, user?.fullName ?? "Support"] as const;
     }));
-    const transcript = automaticClosureTranscript(ticket, publicMessages, new Map(senders));
+    const transcriptMessages = await enrichNewsArticlesForMessages(publicMessages, storage);
+    const transcript = automaticClosureTranscript(ticket, transcriptMessages, new Map(senders), process.env.APP_URL);
     const htmlFields = new Set(["resolution_summary", "conversation"]);
     if (customer?.email && customerWantsEmail(customer, "ticket_closed")) {
       await createBellNotification(customer.id, { type: "ticket_update", referenceType: "ticket", referenceId: ticket.id }, {

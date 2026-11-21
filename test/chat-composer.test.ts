@@ -126,7 +126,7 @@ interface MountResult {
   cleanup: () => void;
 }
 
-async function mountComposer(opts: { isAdmin?: boolean; downloads?: { id: string; title: string; description: string; downloaderCode: string }[]; downloadsError?: boolean } = {}): Promise<MountResult> {
+async function mountComposer(opts: { isAdmin?: boolean; news?: { id: string; title: string; content: string }[]; downloads?: { id: string; title: string; description: string; downloaderCode: string }[]; downloadsError?: boolean } = {}): Promise<MountResult> {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const handleRef: { current: ChatComposerHandle | null } = { current: null };
@@ -182,6 +182,7 @@ async function mountComposer(opts: { isAdmin?: boolean; downloads?: { id: string
       return opts.downloads ?? [];
     },
   });
+  queryClient.setQueryDefaults(["/api/news"], { queryFn: async () => opts.news ?? [] });
 
   const root = createRoot(container);
   await act(async () => {
@@ -380,6 +381,7 @@ test("ChatComposer fires onRequestSend with the typed payload, then clear() rese
       text: "first message",
       file: null,
       kb: null,
+      news: null,
       internal: false,
     });
 
@@ -520,6 +522,60 @@ async function openAttachMenu(container: HTMLElement): Promise<void> {
 function inBody(id: string): Element | null {
   return window.document.body.querySelector(`[data-testid="${id}"]`);
 }
+
+test("customers can select, remove and send a news-only ticket reply without losing picker focus", async () => {
+  const h = await mountComposer({ news: [{ id: "news-one", title: "Service announcement", content: "<p>Available now</p>" }] });
+  try {
+    await openAttachMenu(h.container);
+    await act(async () => (inBody("button-attach-news") as HTMLElement).click());
+    await flushFrames();
+    assert.ok(inBody("dialog-news-picker"), "news picker opened after closing the menu");
+    assert.equal(document.activeElement, inBody("input-news-picker-search"));
+    assert.ok(inBody("dialog-news-picker")?.textContent?.includes("Available now"));
+    assert.ok(!inBody("dialog-news-picker")?.textContent?.includes("<p>"));
+    await act(async () => (inBody("button-news-pick-news-one") as HTMLElement).click());
+    await flushFrames();
+    assert.ok(findByTestId(h.container, "chip-selected-news"));
+    assert.equal(h.textarea().value, "");
+    const sendButton = findByTestId(h.container, "button-send-message") as HTMLButtonElement;
+    assert.equal(sendButton.disabled, false, "news alone is sufficient");
+    await act(async () => sendButton.click());
+    assert.equal(h.sendCalls[0].news?.id, "news-one");
+    assert.equal(h.sendCalls[0].text, "");
+    await act(async () => (findByTestId(h.container, "button-remove-news") as HTMLElement).click());
+    assert.equal(sendButton.disabled, true, "removing the last attachment blocks an empty send");
+  } finally { h.cleanup(); }
+});
+
+test("linked-news cards distinguish removal from connection failure and can retry", async () => {
+  const { NewsArticleCard } = await import("../client/src/components/news-article-card");
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const root = createRoot(container);
+  const oldFetch = globalThis.fetch;
+  let status = 503;
+  globalThis.fetch = async () => new Response(JSON.stringify({ id: "news-one", title: "Restored article" }), { status });
+  try {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client },
+      React.createElement(NewsArticleCard, { id: "news-one", messageId: "one" }))));
+    await flushFrames();
+    assert.match(container.textContent ?? "", /Couldn’t load this article/);
+    assert.ok(!container.textContent?.includes("removed"));
+    status = 404;
+    await act(async () => (findByTestId(container, "button-news-card-retry-one") as HTMLElement).click());
+    await flushFrames();
+    assert.match(container.textContent ?? "", /News article unavailable/);
+    status = 200;
+    await act(async () => { await client.invalidateQueries({ queryKey: ["/api/news", "news-one"] }); });
+    await flushFrames();
+    assert.match(container.textContent ?? "", /Restored article/);
+    assert.equal(container.querySelector("a")?.getAttribute("href"), "/news/news-one");
+  } finally {
+    await act(async () => root.unmount());
+    client.clear(); container.remove(); globalThis.fetch = oldFetch;
+  }
+});
 
 test("customer '+' menu shows attach-file and KB items but no quick responses", async () => {
   const h = await mountComposer();

@@ -173,6 +173,7 @@ export interface IStorage {
 
   getAllNews(): Promise<NewsStory[]>;
   getNewsStory(id: string): Promise<NewsStory | undefined>;
+  getNewsStoriesByIds(ids: string[]): Promise<NewsStory[]>;
   createNewsStory(story: InsertNewsStory): Promise<NewsStory>;
   getAllPromotions(): Promise<Promotion[]>;
   getPromotion(id: string): Promise<Promotion | undefined>;
@@ -707,6 +708,10 @@ export class DatabaseStorage implements IStorage {
   async getNewsStory(id: string): Promise<NewsStory | undefined> {
     const [story] = await db.select().from(newsStories).where(eq(newsStories.id, id));
     return story;
+  }
+
+  async getNewsStoriesByIds(ids: string[]): Promise<NewsStory[]> {
+    return ids.length ? db.select().from(newsStories).where(inArray(newsStories.id, ids)) : [];
   }
 
   async getAllPromotions(): Promise<Promotion[]> {

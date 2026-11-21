@@ -75,7 +75,7 @@ export function CommunitySearch({ onPreview }: { onPreview: (message: CommunityM
                           <time className="shrink-0 text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</time>
                         </span>
                         <span className="mt-0.5 block truncate text-sm text-muted-foreground">
-                          {item.content || (item.imageUrl ? "Photo" : "Message")}
+                          {item.content || (item.imageUrl ? "Photo" : item.newsArticleId ? "News article" : item.kbArticleSlug ? "Knowledge Base article" : "Message")}
                         </span>
                       </span>
                       <MessageSquare className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />

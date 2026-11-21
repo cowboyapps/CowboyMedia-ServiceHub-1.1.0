@@ -6,9 +6,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Plus, Zap, Download } from "lucide-react";
+import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Newspaper, Plus, Zap, Download } from "lucide-react";
 import { QuickResponsePicker } from "@/components/quick-response-picker";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { NewsArticlePickerDialog } from "@/components/news-article-picker-dialog";
+import type { NewsArticleRef } from "@shared/news-attachments";
 import { DownloadPickerDialog } from "@/components/download-picker-dialog";
 import { appendDownloadLink } from "@/lib/download-links";
 import { apiRequest } from "@/lib/queryClient";
@@ -44,6 +46,7 @@ export type ComposerSendPayload = {
   text: string;
   file: File | null;
   kb: KbArticleRef | null;
+  news: NewsArticleRef | null;
   internal: boolean;
 };
 
@@ -108,7 +111,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
+  const [newsArticle, setNewsArticle] = useState<NewsArticleRef | null>(null);
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
+  const [newsPickerOpen, setNewsPickerOpen] = useState(false);
   const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
   const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
   const [qrPickerOpen, setQrPickerOpen] = useState(false);
@@ -125,13 +130,16 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   // closed (a bare setTimeout races the menu's focus restore).
   const pendingQrOpenRef = useRef(false);
   const pendingDownloadOpenRef = useRef(false);
+  const pendingNewsOpenRef = useRef(false);
 
   // Reset on ticket change
   useEffect(() => {
     setMessage("");
     setImageFile(null);
     setKbArticle(null);
+    setNewsArticle(null);
     setKbPickerOpen(false);
+    setNewsPickerOpen(false);
     setDownloadPickerOpen(false);
     pendingDownloadOpenRef.current = false;
     setQrPickerOpen(false);
@@ -160,6 +168,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
       setMessage("");
       setImageFile(null);
       setKbArticle(null);
+      setNewsArticle(null);
       // The useLayoutEffect on [message] will shrink the textarea back next frame,
       // but also reset focus + height eagerly so the next send feels snappy.
       requestAnimationFrame(() => {
@@ -255,16 +264,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     const msgText = message.trim();
     const imgFile = imageFile;
     const kb = kbArticle;
+    const news = newsArticle;
     const internal = isAdmin && composerMode === "internal";
     if (internal) {
       if (!msgText) return;
-      onRequestSend({ text: msgText, file: null, kb: null, internal: true });
+      onRequestSend({ text: msgText, file: null, kb: null, news: null, internal: true });
       return;
     }
     if (imgFile && imgFile.size > MAX_ATTACHMENT_BYTES) return;
-    if (!msgText && !imgFile && !kb) return;
-    onRequestSend({ text: msgText, file: imgFile, kb, internal: false });
-  }, [message, imageFile, kbArticle, isAdmin, composerMode, onRequestSend]);
+    if (!msgText && !imgFile && !kb && !news) return;
+    onRequestSend({ text: msgText, file: imgFile, kb, news, internal: false });
+  }, [message, imageFile, kbArticle, newsArticle, isAdmin, composerMode, onRequestSend]);
 
   return (
     <div
@@ -437,6 +447,18 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
             </Button>
           </div>
         )}
+        {newsArticle && (
+          <div className="flex items-center gap-2 mb-2 p-2 bg-accent rounded-md" data-testid="chip-selected-news">
+            <Newspaper className="w-4 h-4 flex-shrink-0 text-primary" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate">{newsArticle.title}</p>
+              <p className="text-[10px] text-muted-foreground">News article</p>
+            </div>
+            <Button type="button" size="icon" variant="ghost" aria-label="Remove news article" onClick={() => setNewsArticle(null)} data-testid="button-remove-news">
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+        )}
         {draftUnfilledPlaceholders.length > 0 && (
           <div
             className="flex items-start gap-1.5 mb-2 text-[11px] text-amber-700 dark:text-amber-400"
@@ -486,6 +508,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 align="start"
                 side="top"
                 onCloseAutoFocus={(e) => {
+                  if (pendingNewsOpenRef.current) {
+                    pendingNewsOpenRef.current = false;
+                    e.preventDefault();
+                    setNewsPickerOpen(true);
+                    return;
+                  }
                   if (pendingDownloadOpenRef.current) {
                     pendingDownloadOpenRef.current = false;
                     e.preventDefault();
@@ -518,6 +546,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Link a KB article
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { pendingNewsOpenRef.current = true; }} data-testid="button-attach-news">
+                  <Newspaper className="w-4 h-4 mr-2" />
+                  Share a news article
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => { pendingDownloadOpenRef.current = true; }}
@@ -739,7 +771,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
               !canReply ||
               (isInternal
                 ? !message.trim()
-                : (attachmentOversize || (!message.trim() && !imageFile && !kbArticle)))
+                : (attachmentOversize || (!message.trim() && !imageFile && !kbArticle && !newsArticle)))
             }
             onClick={handleSend}
             data-testid="button-send-message"
@@ -760,6 +792,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         onOpenChange={setKbPickerOpen}
         onSelect={(article) => { setKbArticle(article); setKbPickerOpen(false); }}
       />
+      <NewsArticlePickerDialog open={newsPickerOpen} onOpenChange={setNewsPickerOpen} onSelect={setNewsArticle} />
       <DownloadPickerDialog
         open={downloadPickerOpen}
         onOpenChange={setDownloadPickerOpen}

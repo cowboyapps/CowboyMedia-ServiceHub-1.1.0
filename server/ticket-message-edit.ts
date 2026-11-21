@@ -36,7 +36,7 @@ export function createTicketMessageEditHandler(deps: Deps) {
         return res.status(409).json({ message: "This message has changed. Close and reopen the editor to review the latest version." });
       }
       const text = req.body.message.trim();
-      if (!text && (msg.isInternal || (!msg.imageUrl && !msg.kbArticleSlug))) {
+      if (!text && (msg.isInternal || (!msg.imageUrl && !msg.kbArticleSlug && !msg.newsArticleId))) {
         return res.status(400).json({ message: "Message cannot be empty" });
       }
       if (text === msg.message) return res.json(msg);

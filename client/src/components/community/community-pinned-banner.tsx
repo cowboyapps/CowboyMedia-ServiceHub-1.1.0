@@ -42,7 +42,7 @@ export function CommunityPinnedBanner({ onPreview, canManage = false }: { onPrev
       <Pin className="h-4 w-4 shrink-0 text-primary" />
       <span className="min-w-0 flex-1">
         <span className="block text-[10px] font-semibold uppercase tracking-wide text-primary">Pinned message · {message.chatUsername}</span>
-        <span className="block truncate text-xs text-foreground/80">{message.content || (message.imageUrl ? "Photo" : message.kbArticleSlug ? "Knowledge Base article" : "Message")}</span>
+        <span className="block truncate text-xs text-foreground/80">{message.content || (message.imageUrl ? "Photo" : message.newsArticleId ? "News article" : message.kbArticleSlug ? "Knowledge Base article" : "Message")}</span>
       </span>
       <span className="shrink-0 text-xs font-medium text-primary">View</span>
     </button>

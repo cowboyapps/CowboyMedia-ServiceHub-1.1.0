@@ -23,9 +23,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { QueryErrorState } from "@/components/query-error-state";
 import { serverActionErrorMessage } from "@/lib/server-error";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Paperclip, X, BookOpen, ChevronRight, MessageSquare, Trash2, Users, Inbox, Clock } from "lucide-react";
+import { Mail, Paperclip, X, BookOpen, Newspaper, ChevronRight, MessageSquare, Trash2, Users, Inbox, Clock } from "lucide-react";
 import type { MessageThread, ThreadMessage, PrivateMessage, User } from "@shared/schema";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { NewsArticlePickerDialog } from "@/components/news-article-picker-dialog";
+import type { NewsArticleRef } from "@shared/news-attachments";
 import { ThreadChatView } from "@/components/private-messages/thread-chat-view";
 import { ThreadListSync } from "@/components/private-messages/thread-list-sync";
 
@@ -83,11 +85,13 @@ function NewConversationDialog() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [kbArticle, setKbArticle] = useState<KbArticleRef | null>(null);
+  const [newsArticle, setNewsArticle] = useState<NewsArticleRef | null>(null);
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
+  const [newsPickerOpen, setNewsPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const clientThreadIdRef = useRef(newClientId());
   const clientMessageIdRef = useRef(newClientId());
-  const failedPayloadRef = useRef<{ customerId: string; subject: string; body: string; file: File | null; kbSlug: string | null } | null>(null);
+  const failedPayloadRef = useRef<{ customerId: string; subject: string; body: string; file: File | null; kbSlug: string | null; newsId: string | null } | null>(null);
   const { data: users } = useQuery<User[]>({ queryKey: ["/api/admin/users"], enabled: open });
   const customers = users?.filter(user => user.role === "customer") || [];
   const form = useForm<NewThreadData>({
@@ -105,6 +109,7 @@ function NewConversationDialog() {
       fd.append("clientMessageId", clientMessageIdRef.current);
       if (imageFile) fd.append("image", imageFile);
       if (kbArticle) fd.append("kbArticleSlug", kbArticle.slug);
+      if (newsArticle) fd.append("newsArticleId", newsArticle.id);
       setUploadProgress(0);
       const response = await uploadPrivateMessage("/api/message-threads", fd, setUploadProgress);
       if (!response.ok) throw new Error(await uploadError(response, "Couldn't start the conversation"));
@@ -116,6 +121,7 @@ function NewConversationDialog() {
       form.reset();
       setImageFile(null);
       setKbArticle(null);
+      setNewsArticle(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       clientThreadIdRef.current = newClientId();
       clientMessageIdRef.current = newClientId();
@@ -127,7 +133,7 @@ function NewConversationDialog() {
     onError: (error, data) => {
       failedPayloadRef.current = {
         customerId: data.customerId, subject: data.subject, body: data.body ?? "",
-        file: imageFile, kbSlug: kbArticle?.slug ?? null,
+        file: imageFile, kbSlug: kbArticle?.slug ?? null, newsId: newsArticle?.id ?? null,
       };
       toast({ title: "Error", description: serverActionErrorMessage(error, "Couldn't start the conversation. Please try again."), variant: "destructive" });
     },
@@ -135,7 +141,7 @@ function NewConversationDialog() {
   });
 
   const submit = (data: NewThreadData) => {
-    if (!(data.body ?? "").trim() && !imageFile && !kbArticle) {
+    if (!(data.body ?? "").trim() && !imageFile && !kbArticle && !newsArticle) {
       toast({ title: "Add a message, photo, or article", variant: "destructive" });
       return;
     }
@@ -148,7 +154,7 @@ function NewConversationDialog() {
     if (failed && (
       failed.customerId !== data.customerId || failed.subject !== data.subject ||
       failed.body !== (data.body ?? "") || failed.file !== imageFile ||
-      failed.kbSlug !== (kbArticle?.slug ?? null)
+      failed.kbSlug !== (kbArticle?.slug ?? null) || failed.newsId !== (newsArticle?.id ?? null)
     )) {
       clientThreadIdRef.current = newClientId();
       clientMessageIdRef.current = newClientId();
@@ -164,6 +170,7 @@ function NewConversationDialog() {
       form.reset();
       setImageFile(null);
       setKbArticle(null);
+      setNewsArticle(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       clientThreadIdRef.current = newClientId();
       clientMessageIdRef.current = newClientId();
@@ -198,6 +205,10 @@ function NewConversationDialog() {
               <BookOpen className="h-3.5 w-3.5" /><span className="max-w-[200px] truncate">{kbArticle.title}</span>
               <button type="button" disabled={createMutation.isPending} onClick={() => setKbArticle(null)} data-testid="button-new-thread-remove-kb"><X className="h-3.5 w-3.5" /></button>
             </div>}
+            {newsArticle && <div className="flex w-fit max-w-full items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs" data-testid="chip-new-thread-news">
+              <Newspaper className="h-3.5 w-3.5 shrink-0 text-primary" /><span className="max-w-[200px] truncate">{newsArticle.title}</span>
+              <button type="button" disabled={createMutation.isPending} aria-label="Remove news article" onClick={() => setNewsArticle(null)} data-testid="button-new-thread-remove-news"><X className="h-3.5 w-3.5" /></button>
+            </div>}
             <input ref={fileInputRef} type="file" accept="*/*" className="hidden" disabled={createMutation.isPending} data-testid="input-new-thread-file"
               onChange={event => {
                 const selected = event.target.files?.[0];
@@ -210,6 +221,7 @@ function NewConversationDialog() {
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" disabled={createMutation.isPending} onClick={() => fileInputRef.current?.click()} data-testid="button-new-thread-attach-image"><Paperclip className="mr-1 h-4 w-4" /> Photo</Button>
               <Button type="button" variant="outline" size="sm" disabled={createMutation.isPending} onClick={() => setKbPickerOpen(true)} data-testid="button-new-thread-attach-kb"><BookOpen className="mr-1 h-4 w-4" /> Article</Button>
+              <Button type="button" variant="outline" size="sm" disabled={createMutation.isPending} onClick={() => setNewsPickerOpen(true)} data-testid="button-new-thread-attach-news"><Newspaper className="mr-1 h-4 w-4" /> News</Button>
             </div>
             <p className="text-xs text-muted-foreground">{PRIVATE_UPLOAD_LIMIT_LABEL}</p>
             <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-start-conversation">{createMutation.isPending ? uploadProgress === 100 ? "Saving…" : `Uploading ${uploadProgress ?? 0}%` : "Start Conversation"}</Button>
@@ -217,6 +229,8 @@ function NewConversationDialog() {
         </Form>
         <KbArticlePickerDialog open={kbPickerOpen && !createMutation.isPending} onOpenChange={next => { if (!createMutation.isPending) setKbPickerOpen(next); }}
           onSelect={article => { if (!createMutation.isPending) setKbArticle(article); setKbPickerOpen(false); }} />
+        <NewsArticlePickerDialog open={newsPickerOpen && !createMutation.isPending} onOpenChange={next => { if (!createMutation.isPending) setNewsPickerOpen(next); }}
+          onSelect={article => { if (!createMutation.isPending) setNewsArticle(article); setNewsPickerOpen(false); }} />
       </DialogContent>
     </Dialog>
   );

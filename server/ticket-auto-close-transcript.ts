@@ -1,11 +1,13 @@
 import type { Ticket, TicketMessage } from "@shared/schema";
+import type { NewsArticleRef } from "@shared/news-attachments";
+import { newsTranscriptLink } from "./news-transcript";
 
 const escape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;")
   .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const text = (value: string) => escape(value).replace(/\r?\n/g, "<br>");
 
 /** Only existing public messages are eligible, exactly as with a manual close. */
-export function automaticClosureTranscript(ticket: Ticket, messages: TicketMessage[], names: Map<string, string>) {
+export function automaticClosureTranscript(ticket: Ticket, messages: Array<TicketMessage & { newsArticle?: NewsArticleRef | null }>, names: Map<string, string>, publicBaseUrl = "") {
   return {
     ticket_subject: ticket.subject,
     ticket_description: ticket.description,
@@ -18,7 +20,7 @@ export function automaticClosureTranscript(ticket: Ticket, messages: TicketMessa
       // Keep only app-owned attachment paths; never interpolate arbitrary stored URLs.
       const attachment = message.imageUrl?.startsWith("/uploads/")
         ? `<p><a href="${escape(message.imageUrl)}">View Attachment</a></p>` : "";
-      return `<div><p><strong>${escape(names.get(message.senderId) ?? "Support")}</strong> — ${message.createdAt.toISOString()}</p><p>${body}</p>${attachment}</div>`;
+      return `<div><p><strong>${escape(names.get(message.senderId) ?? "Support")}</strong> — ${message.createdAt.toISOString()}</p><p>${body}</p>${attachment}${newsTranscriptLink(message, publicBaseUrl)}</div>`;
     }).join(""),
   };
 }

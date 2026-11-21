@@ -1,4 +1,5 @@
 import { type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import type { NewsArticleRef } from "@shared/news-attachments";
 
 export interface PersistedFailedMessage {
   id: string;
@@ -12,6 +13,7 @@ export interface PersistedFailedMessage {
   isInternal?: boolean;
   senderAvatarUrl?: string | null;
   kbArticle?: KbArticleRef | null;
+  newsArticle?: NewsArticleRef | null;
   imageFileMeta?: { name: string; type: string } | null;
 }
 
@@ -132,6 +134,7 @@ export interface PersistFailedInput {
   isInternal?: boolean;
   senderAvatarUrl?: string | null;
   kbArticle?: KbArticleRef | null;
+  newsArticle?: NewsArticleRef | null;
   imageFile?: File | null;
 }
 
@@ -149,6 +152,7 @@ export async function persistFailedMessage(input: PersistFailedInput): Promise<v
     isInternal: input.isInternal,
     senderAvatarUrl: input.senderAvatarUrl ?? null,
     kbArticle: input.kbArticle ?? null,
+    newsArticle: input.newsArticle ?? null,
     imageFileMeta: input.imageFile
       ? { name: input.imageFile.name, type: input.imageFile.type }
       : null,

@@ -62,12 +62,14 @@ import { MessageActions, type TicketReaction } from "@/components/ticket/message
 import { EditTicketMessageDialog } from "@/components/ticket/edit-message-dialog";
 import { PendingTicketAttachment } from "@/components/ticket/pending-attachment";
 import { CheckCheck } from "lucide-react";
+import type { NewsArticleRef } from "@shared/news-attachments";
+import { NewsArticleCard } from "@/components/news-article-card";
 
 import { TicketAutoCloseHold } from "@/components/ticket/auto-close-hold";
 
 import { TicketReminderHistory } from "@/components/ticket-reminder-history";
 
-type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null; reactions?: TicketReaction[] };
+type EnrichedTicketMessage = TicketMessage & { senderName?: string; senderRole?: string; senderAvatarUrl?: string | null; kbArticle?: KbArticleRef | null; newsArticleId?: string | null; newsArticle?: NewsArticleRef | null; reactions?: TicketReaction[] };
 
 function KbArticleCard({ article, msgId, onBubble }: { article: KbArticleRef; msgId: string; onBubble?: boolean }) {
   return (
@@ -106,6 +108,8 @@ type OptimisticMessage = {
   isInternal?: boolean;
   senderAvatarUrl?: string | null;
   kbArticle?: KbArticleRef | null;
+  newsArticleId?: string | null;
+  newsArticle?: NewsArticleRef | null;
 };
 
 function PriorityPill({ priority }: { priority: string }) {
@@ -350,6 +354,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                   {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
                     <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} />
                   )}
+                  {(msg.newsArticleId || optimisticData?.newsArticleId) && <NewsArticleCard id={msg.newsArticleId ?? optimisticData?.newsArticleId!} article={msg.newsArticle ?? optimisticData?.newsArticle} messageId={msg.id} />}
                 </>
               )}
             </div>
@@ -472,6 +477,7 @@ const TicketMessageRow = memo(function TicketMessageRow(props: TicketRowProps) {
                 {(msg.kbArticle || (optimisticData as any)?.kbArticle) && (
                   <KbArticleCard article={(msg.kbArticle ?? (optimisticData as any)?.kbArticle)!} msgId={msg.id} onBubble />
                 )}
+                {(msg.newsArticleId || optimisticData?.newsArticleId) && <NewsArticleCard id={msg.newsArticleId ?? optimisticData?.newsArticleId!} article={msg.newsArticle ?? optimisticData?.newsArticle} messageId={msg.id} onBubble />}
               </div>
               <div className={`flex items-center gap-1.5 ${isMe ? "justify-end" : ""}`}>
                 {isSending && (
@@ -788,7 +794,7 @@ export default function TicketDetail() {
     }
   };
 
-  const doSendMessage = useCallback((msgText: string, imgFile: File | null, optimisticId?: string, internal: boolean = false, kb: KbArticleRef | null = null) => {
+  const doSendMessage = useCallback((msgText: string, imgFile: File | null, optimisticId?: string, internal: boolean = false, kb: KbArticleRef | null = null, news: NewsArticleRef | null = null) => {
     const tempId = optimisticId || `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimistic: OptimisticMessage = {
       id: tempId,
@@ -803,6 +809,8 @@ export default function TicketDetail() {
       imageFile: imgFile || undefined,
       isInternal: internal,
       kbArticle: kb,
+      newsArticleId: news?.id ?? null,
+      newsArticle: news,
     };
 
     if (!optimisticId) {
@@ -818,6 +826,7 @@ export default function TicketDetail() {
     if (imgFile) formData.append("image", imgFile);
     if (internal) formData.append("isInternal", "true");
     if (kb) formData.append("kbArticleSlug", kb.slug);
+    if (news) formData.append("newsArticleId", news.id);
 
     uploadRequest("POST", `/api/tickets/${params.id}/messages`, formData)
       .then((res) => {
@@ -859,6 +868,7 @@ export default function TicketDetail() {
           isInternal: optimistic.isInternal,
           senderAvatarUrl: optimistic.senderAvatarUrl,
           kbArticle: optimistic.kbArticle ?? null,
+          newsArticle: optimistic.newsArticle ?? null,
           imageFile: optimistic.imageFile ?? null,
         }).catch(() => {});
       });
@@ -870,6 +880,7 @@ export default function TicketDetail() {
     internal: boolean;
     unfilled: string[];
     kb: KbArticleRef | null;
+    news: NewsArticleRef | null;
   } | null>(null);
 
   const placeholderContext = useMemo(
@@ -882,30 +893,30 @@ export default function TicketDetail() {
   );
 
   const performSend = useCallback(
-    (msgText: string, imgFile: File | null, internal: boolean, kb: KbArticleRef | null = null) => {
+    (msgText: string, imgFile: File | null, internal: boolean, kb: KbArticleRef | null = null, news: NewsArticleRef | null = null) => {
       hapticLight();
       composerRef.current?.clear();
-      doSendMessage(msgText, imgFile, undefined, internal, kb);
+      doSendMessage(msgText, imgFile, undefined, internal, kb, news);
     },
     [doSendMessage],
   );
 
   const handleComposerSend = useCallback((payload: ComposerSendPayload) => {
-    const { text: msgText, file: imgFile, kb, internal } = payload;
+    const { text: msgText, file: imgFile, kb, news, internal } = payload;
     if (internal) {
       if (!msgText) return;
       performSend(msgText, null, true, null);
       return;
     }
-    if (!msgText && !imgFile && !kb) return;
+    if (!msgText && !imgFile && !kb && !news) return;
     if (isAdmin && msgText) {
       const unfilled = findUnfilledPlaceholders(msgText, placeholderContext);
       if (unfilled.length > 0) {
-        setPendingPlaceholderSend({ msgText, imgFile, internal: false, unfilled, kb });
+        setPendingPlaceholderSend({ msgText, imgFile, internal: false, unfilled, kb, news });
         return;
       }
     }
-    performSend(msgText, imgFile, false, kb);
+    performSend(msgText, imgFile, false, kb, news);
   }, [isAdmin, placeholderContext, performSend]);
 
   const handleSendInternalNote = useCallback(() => {
@@ -919,7 +930,7 @@ export default function TicketDetail() {
     const pending = pendingPlaceholderSend;
     if (!pending) return;
     setPendingPlaceholderSend(null);
-    performSend(pending.msgText, pending.imgFile, pending.internal, pending.kb);
+    performSend(pending.msgText, pending.imgFile, pending.internal, pending.kb, pending.news);
   }, [pendingPlaceholderSend, performSend]);
 
   const handleProfileClick = useCallback((id: string) => setProfileUserId(id), []);
@@ -1007,7 +1018,7 @@ export default function TicketDetail() {
   }, [messages, optimisticMessages, flushVisibleReads, viewingMedia, scrollContainerRef]);
 
   const retryMessage = useCallback((msg: OptimisticMessage) => {
-    doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null);
+    doSendMessage(msg.message, msg.imageFile || null, msg.id, !!msg.isInternal, msg.kbArticle ?? null, msg.newsArticle ?? null);
   }, [doSendMessage]);
 
   const dismissFailedMessage = useCallback((msg: OptimisticMessage) => {
@@ -1038,6 +1049,8 @@ export default function TicketDetail() {
             isInternal: a.isInternal,
             senderAvatarUrl: a.senderAvatarUrl,
             kbArticle: a.kbArticle ?? null,
+            newsArticle: a.newsArticle ?? null,
+            newsArticleId: a.newsArticle?.id ?? null,
           }));
         return additions.length === 0 ? prev : [...prev, ...additions];
       });

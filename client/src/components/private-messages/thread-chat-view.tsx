@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { format, isToday, isYesterday } from "date-fns";
-import { ArrowDown, ArrowLeft, BookOpen, Check, CheckCheck, Paperclip, Send, Shield, User as UserIcon, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, BookOpen, Newspaper, Check, CheckCheck, Paperclip, Send, Shield, User as UserIcon, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { uploadPrivateMessage } from "@/lib/private-message-upload";
@@ -22,6 +22,9 @@ import { MessageActions, type TicketReaction } from "@/components/ticket/message
 import { EditTicketMessageDialog } from "@/components/ticket/edit-message-dialog";
 import { AttachmentViewer, TicketAttachment, type TicketMedia } from "@/components/ticket/attachment-viewer";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
+import { NewsArticlePickerDialog } from "@/components/news-article-picker-dialog";
+import { NewsArticleCard } from "@/components/news-article-card";
+import type { NewsArticleRef } from "@shared/news-attachments";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { serverActionErrorMessage } from "@/lib/server-error";
 
@@ -41,6 +44,8 @@ type PrivateThreadMessage = {
   imageUrl?: string | null;
   kbArticleSlug?: string | null;
   kbArticle?: KbArticleRef | null;
+  newsArticleId?: string | null;
+  newsArticle?: NewsArticleRef | null;
 };
 
 type ThreadInfo = {
@@ -102,7 +107,9 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   const [file, setFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [article, setArticle] = useState<KbArticleRef | null>(null);
+  const [newsArticle, setNewsArticle] = useState<NewsArticleRef | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [newsPickerOpen, setNewsPickerOpen] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [editing, setEditing] = useState<PrivateThreadMessage | null>(null);
   const [deleting, setDeleting] = useState<PrivateThreadMessage | null>(null);
@@ -120,7 +127,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
-  const failedPayload = useRef<{ body: string; file: File | null; kbSlug: string | null } | null>(null);
+  const failedPayload = useRef<{ body: string; file: File | null; kbSlug: string | null; newsId: string | null } | null>(null);
   const sendGuard = useRef(false);
   const hasOpenedOnce = useRef(false);
   const key = useMemo(() => ["/api/message-threads", threadId, "messages"], [threadId]);
@@ -259,12 +266,13 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   });
 
   const sendMutation = useMutation({
-    mutationFn: async (payload: { body: string; file: File | null; kbSlug: string | null; clientMessageId: string }) => {
+    mutationFn: async (payload: { body: string; file: File | null; kbSlug: string | null; newsId: string | null; clientMessageId: string }) => {
       const form = new FormData();
       form.append("body", payload.body);
       form.append("clientMessageId", payload.clientMessageId);
       if (payload.file) form.append("image", payload.file);
       if (payload.kbSlug) form.append("kbArticleSlug", payload.kbSlug);
+      if (payload.newsId) form.append("newsArticleId", payload.newsId);
       setUploadProgress(0);
       const response = await uploadPrivateMessage(messageBase, form, setUploadProgress);
       if (!response.ok) throw new Error(await responseError(response, "Couldn't send your message"));
@@ -286,6 +294,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
       setBody("");
       setFile(null);
       setArticle(null);
+      setNewsArticle(null);
       setClientMessageId(uuid());
       if (fileInputRef.current) fileInputRef.current.value = "";
       requestFollow();
@@ -299,7 +308,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
     },
     onError: (error, payload) => {
       sendGuard.current = false;
-      failedPayload.current = { body: payload.body, file: payload.file, kbSlug: payload.kbSlug };
+      failedPayload.current = { body: payload.body, file: payload.file, kbSlug: payload.kbSlug, newsId: payload.newsId };
       toast({ title: "Failed to send message", description: serverActionErrorMessage(error, "Couldn't send your message. Please try again."), variant: "destructive" });
     },
     onSettled: () => setUploadProgress(null),
@@ -308,20 +317,21 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
   const send = useCallback(() => {
     if (sendMutation.isPending || sendGuard.current) return;
     const cleanBody = body.trim();
-    if (!cleanBody && !file && !article) return;
+    if (!cleanBody && !file && !article && !newsArticle) return;
     const rejection = file ? privateUploadError(file) : null;
     if (rejection) {
       toast({ title: "Attachment is too large", description: rejection, variant: "destructive" });
       return;
     }
     const kbSlug = isAdmin ? article?.slug ?? null : null;
+    const newsId = isAdmin ? newsArticle?.id ?? null : null;
     const previousFailure = failedPayload.current;
-    const sameFailedPayload = !!previousFailure && previousFailure.body === cleanBody && previousFailure.file === file && previousFailure.kbSlug === kbSlug;
+    const sameFailedPayload = !!previousFailure && previousFailure.body === cleanBody && previousFailure.file === file && previousFailure.kbSlug === kbSlug && previousFailure.newsId === newsId;
     const id = previousFailure && !sameFailedPayload ? uuid() : clientMessageId;
     if (id !== clientMessageId) setClientMessageId(id);
     sendGuard.current = true;
-    sendMutation.mutate({ body: cleanBody, file, kbSlug, clientMessageId: id });
-  }, [sendMutation, body, file, article, isAdmin, clientMessageId, toast]);
+    sendMutation.mutate({ body: cleanBody, file, kbSlug, newsId, clientMessageId: id });
+  }, [sendMutation, body, file, article, newsArticle, isAdmin, clientMessageId, toast]);
 
   const removeMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -390,6 +400,7 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
               {msg.body && <MessageBody id={msg.id} message={msg.body} />}
               {media && <TicketAttachment media={media} onOpen={setViewingMedia} />}
               {msg.kbArticle && <a href={`/knowledge/${msg.kbArticle.slug}`} className="mt-2 flex items-center gap-2 rounded-lg border border-current/15 bg-background/20 p-2 text-xs underline"><BookOpen className="h-4 w-4 shrink-0" /><span className="truncate">{msg.kbArticle.title}</span></a>}
+              {msg.newsArticleId && <NewsArticleCard id={msg.newsArticleId} article={msg.newsArticle} messageId={msg.id} onBubble />}
             </div>
           </MessageActions>
         </div>
@@ -427,10 +438,10 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
           {uploadProgress === 100 ? "Saving message…" : file && uploadProgress !== null ? `Uploading ${uploadProgress}%` : "Sending message…"}
         </p>}
         {typingUser && <p className="mb-1.5 px-1 text-xs text-muted-foreground">{typingUser} is typing…</p>}
-        {(file || article) && <div className="mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-xs">
-          {file ? <Paperclip className="h-3.5 w-3.5 shrink-0" /> : <BookOpen className="h-3.5 w-3.5 shrink-0" />}
-          <span className="min-w-0 flex-1 truncate">{file?.name || article?.title}</span>
-          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" disabled={sendMutation.isPending} aria-label="Remove attachment" onClick={() => { setFile(null); setArticle(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>{sendMutation.isPending ? null : <X className="h-3.5 w-3.5" />}</Button>
+        {(file || article || newsArticle) && <div className="mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-xs">
+          {file ? <Paperclip className="h-3.5 w-3.5 shrink-0" /> : article ? <BookOpen className="h-3.5 w-3.5 shrink-0" /> : <Newspaper className="h-3.5 w-3.5 shrink-0" />}
+          <span className="min-w-0 flex-1 truncate">{file?.name || article?.title || newsArticle?.title}</span>
+          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" disabled={sendMutation.isPending} aria-label="Remove attachment" onClick={() => { setFile(null); setArticle(null); setNewsArticle(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>{sendMutation.isPending ? null : <X className="h-3.5 w-3.5" />}</Button>
         </div>}
         {file && <p className="mb-1 text-[11px] text-muted-foreground">{PRIVATE_UPLOAD_LIMIT_LABEL}</p>}
         </div>
@@ -438,14 +449,16 @@ export function ThreadChatView({ threadId, onBack }: { threadId: string; onBack:
           <input ref={fileInputRef} type="file" className="hidden" onChange={event => onFile(event.target.files?.[0])} data-testid="input-thread-file" />
           <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="Attach file" title="Attach a file" disabled={sendMutation.isPending} onPointerDown={preserveComposerFocus} onMouseDown={preserveComposerFocus} onClick={() => fileInputRef.current?.click()} data-testid="button-attach-thread-image"><Paperclip className="h-4 w-4" /></Button>
           {isAdmin && <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="Attach knowledge article" title="Link a knowledge base article" disabled={sendMutation.isPending} onPointerDown={preserveComposerFocus} onMouseDown={preserveComposerFocus} onClick={() => setPickerOpen(true)} data-testid="button-attach-thread-kb"><BookOpen className="h-4 w-4" /></Button>}
+          {isAdmin && <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="Share news article" title="Share a news article" disabled={sendMutation.isPending} onPointerDown={preserveComposerFocus} onMouseDown={preserveComposerFocus} onClick={() => setNewsPickerOpen(true)} data-testid="button-attach-thread-news"><Newspaper className="h-4 w-4" /></Button>}
           <Textarea ref={inputRef} value={body} readOnly={sendMutation.isPending} rows={1} placeholder="Type a message…" className="max-h-[120px] min-h-9 flex-1 resize-none py-2 text-sm" data-testid="input-thread-message"
             onChange={event => { setBody(event.target.value); if (event.target.value.trim()) typing(); }}
             onCompositionEnd={() => { if (body.trim()) typing(); }} />
-          <Button type="button" size="icon" className="h-9 w-9 shrink-0" aria-label="Send message" disabled={sendMutation.isPending || (!body.trim() && !file && !article)} onPointerDown={preserveComposerFocus} onMouseDown={preserveComposerFocus} onClick={send} data-testid="button-send-thread-message"><Send className="h-4 w-4" /></Button>
+          <Button type="button" size="icon" className="h-9 w-9 shrink-0" aria-label="Send message" disabled={sendMutation.isPending || (!body.trim() && !file && !article && !newsArticle)} onPointerDown={preserveComposerFocus} onMouseDown={preserveComposerFocus} onClick={send} data-testid="button-send-thread-message"><Send className="h-4 w-4" /></Button>
         </div>
         {isAdmin && <KbArticlePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={selected => { setArticle(selected); setPickerOpen(false); }} />}
+      {isAdmin && <NewsArticlePickerDialog open={newsPickerOpen} onOpenChange={setNewsPickerOpen} onSelect={setNewsArticle} />}
       </footer>
-      {editing && <EditTicketMessageDialog ticketId={threadId} apiBase={messageBase} queryKey={key} privateMessage message={{ id: editing.id, message: editing.body, imageUrl: editing.imageUrl, kbArticleSlug: editing.kbArticleSlug ?? editing.kbArticle?.slug }} onClose={() => setEditing(null)} />}
+      {editing && <EditTicketMessageDialog ticketId={threadId} apiBase={messageBase} queryKey={key} privateMessage message={{ id: editing.id, message: editing.body, imageUrl: editing.imageUrl, kbArticleSlug: editing.kbArticleSlug ?? editing.kbArticle?.slug, newsArticleId: editing.newsArticleId }} onClose={() => setEditing(null)} />}
       <AlertDialog open={!!deleting} onOpenChange={open => { if (!open && !removeMutation.isPending) setDeleting(null); }}>
         <AlertDialogContent data-testid="dialog-delete-private-message">
           <AlertDialogHeader><AlertDialogTitle>Delete for everyone?</AlertDialogTitle><AlertDialogDescription>This message will be removed for everyone in this conversation. This can’t be undone.</AlertDialogDescription></AlertDialogHeader>

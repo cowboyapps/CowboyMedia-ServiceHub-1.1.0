@@ -3,8 +3,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { CommunityPhoto } from "@/components/community/community-photo";
 import type { CommunityMessage } from "@shared/schema";
 import { ChatMessageContent } from "@/components/chat-message-content";
+import { NewsArticleCard } from "@/components/news-article-card";
+import type { NewsArticleRef } from "@shared/news-attachments";
 
-export function CommunityMessageDetail({ message, onClose }: { message: CommunityMessage | null; onClose: () => void }) {
+type CommunityDetailMessage = CommunityMessage & { newsArticleId?: string | null; newsArticle?: NewsArticleRef | null };
+
+export function CommunityMessageDetail({ message, onClose }: { message: CommunityDetailMessage | null; onClose: () => void }) {
   return (
     <Dialog open={!!message} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-h-[88dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-lg" data-testid="dialog-community-message-detail">
@@ -21,11 +25,12 @@ export function CommunityMessageDetail({ message, onClose }: { message: Communit
             </div>
             {message.content && <ChatMessageContent content={message.content} className="whitespace-pre-wrap break-words text-sm leading-relaxed" />}
             {message.imageUrl && <CommunityPhoto src={message.imageUrl} messageId={`detail-${message.id}`} />}
+            {message.newsArticleId && <NewsArticleCard id={message.newsArticleId} article={message.newsArticle} messageId={`detail-${message.id}`} />}
             {message.kbArticleSlug && <a href={`/knowledge/${encodeURIComponent(message.kbArticleSlug)}`}
               target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-primary underline">
               Open shared Knowledge Base article
             </a>}
-            {!message.content && !message.imageUrl && !message.kbArticleSlug && <p className="text-sm text-muted-foreground">This message has no text or photo.</p>}
+            {!message.content && !message.imageUrl && !message.kbArticleSlug && !message.newsArticleId && <p className="text-sm text-muted-foreground">This message has no text or attachment.</p>}
           </article>
         )}
       </DialogContent>

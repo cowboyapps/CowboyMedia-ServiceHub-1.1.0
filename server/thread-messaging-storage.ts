@@ -7,6 +7,8 @@ import { TICKET_REACTION_EMOJIS, type TicketReactionSummary } from "@shared/tick
 import { privateFileBytes, storePrivateFile } from "./thread-file-storage";
 import { retainPrivateUpload } from "./thread-upload";
 import { privateUploadError } from "@shared/private-message-uploads";
+import { enrichNewsArticlesForMessages } from "./news-attachments";
+import { newsStories } from "@shared/schema";
 
 export function canAccessThread(actor: Pick<User, "id" | "role">, thread: MessageThread) {
   return actor.id === thread.adminId || actor.id === thread.customerId || actor.role === "master_admin";
@@ -18,8 +20,11 @@ export function uploadContentType(file: Pick<Express.Multer.File, "mimetype" | "
     ? extensions[path.extname(file.originalname).toLowerCase()] || "application/octet-stream" : file.mimetype;
 }
 
-export async function threadRequestFingerprint(body: string, kbArticleSlug: string | null, file?: Express.Multer.File) {
-  const hash = createHash("sha256").update(JSON.stringify([body, kbArticleSlug, file?.originalname, file ? uploadContentType(file) : null]));
+export async function threadRequestFingerprint(body: string, kbArticleSlug: string | null, file?: Express.Multer.File, newsArticleId?: string | null) {
+  // Preserve pre-upgrade retry fingerprints when no news link is present.
+  const parts = [body, kbArticleSlug, file?.originalname, file ? uploadContentType(file) : null];
+  if (newsArticleId) parts.push(newsArticleId);
+  const hash = createHash("sha256").update(JSON.stringify(parts));
   if (file) for await (const bytes of privateFileBytes(file)) hash.update(bytes);
   return hash.digest("hex");
 }
@@ -32,6 +37,7 @@ export class ThreadWriteError extends Error {
  * Persist the upload in the same transaction so no failed send or retry orphans it. */
 export async function persistThreadSend(input: {
   threadId: string; senderId: string; body: string; kbArticleSlug: string | null;
+  newsArticleId?: string | null;
   clientMessageId: string | null; file?: Express.Multer.File;
   newThread?: { adminId: string; customerId: string; subject: string };
 }) {
@@ -39,7 +45,7 @@ export async function persistThreadSend(input: {
   try {
   const rejection = input.file ? privateUploadError(input.file) : null;
   if (rejection) throw new ThreadWriteError(413, rejection);
-  const fingerprint = await threadRequestFingerprint(input.body, input.kbArticleSlug, input.file);
+  const fingerprint = await threadRequestFingerprint(input.body, input.kbArticleSlug, input.file, input.newsArticleId);
   return await db.transaction(async tx => {
     if (input.newThread) {
       await tx.insert(messageThreads).values({ id: input.threadId, ...input.newThread }).onConflictDoNothing();
@@ -67,6 +73,7 @@ export async function persistThreadSend(input: {
     }
     const [message] = await tx.insert(threadMessages).values({
       threadId: thread.id, senderId: input.senderId, body: input.body, kbArticleSlug: input.kbArticleSlug,
+      newsArticleId: input.newsArticleId ?? null,
       imageUrl, clientMessageId: input.clientMessageId, requestFingerprint: fingerprint,
       attachmentName: input.file?.originalname ?? null,
       attachmentType: input.file ? uploadContentType(input.file) : null,
@@ -97,11 +104,14 @@ export async function enrichThreadMessages(messages: ThreadMessage[], actorId: s
   const uploads = filenames.length ? await db.select({ filename: uploadedFiles.filename, mimetype: uploadedFiles.mimetype })
     .from(uploadedFiles).where(inArray(uploadedFiles.filename, filenames)) : [];
   const types = new Map(uploads.map(file => [file.filename, file.mimetype]));
-  return messages.map(({ requestFingerprint: _fingerprint, ...m }) => {
+  const enriched = messages.map(({ requestFingerprint: _fingerprint, ...m }) => {
     const filename = m.imageUrl?.split("/").pop() || "";
     const contentType = m.attachmentType || types.get(filename) || "application/octet-stream";
     const kind = contentType.startsWith("image/") ? "image" : contentType.startsWith("video/") ? "video" : "file";
     return { ...m, reactions: reactions[m.id] ?? [], attachment: m.imageUrl ? { name: m.attachmentName || filename, kind, contentType } : null };
+  });
+  return enrichNewsArticlesForMessages(enriched, {
+    getNewsStoriesByIds: ids => db.select().from(newsStories).where(inArray(newsStories.id, ids)),
   });
 }
 
@@ -111,7 +121,7 @@ export async function editThreadMessage(threadId: string, messageId: string, act
     if (!current) throw new ThreadWriteError(404, "Message no longer exists");
     if (current.senderId !== actorId) throw new ThreadWriteError(403, "You can only edit your own messages");
     if (current.body !== originalBody) throw new ThreadWriteError(409, "This message changed. Close the editor and reopen it to edit the latest version.");
-    if (!body && !current.imageUrl && !current.kbArticleSlug) throw new ThreadWriteError(400, "A message cannot be empty");
+    if (!body && !current.imageUrl && !current.kbArticleSlug && !current.newsArticleId) throw new ThreadWriteError(400, "A message cannot be empty");
     if (body === current.body) return current;
     const [message] = await tx.update(threadMessages).set({ body, editedAt: new Date() }).where(eq(threadMessages.id, messageId)).returning();
     await tx.insert(adminActivityLogs).values({ actorId, category: "messages", action: "thread_message_edited", targetId: threadId, targetType: "message_thread", summary: "Edited a sent message", details: JSON.stringify({ messageId }) });

@@ -199,6 +199,7 @@ export const ticketMessages = pgTable("ticket_messages", {
   // The server resolves to a {slug,title,categoryName,summary} envelope at
   // read time so renamed/unpublished articles don't break old messages.
   kbArticleSlug: text("kb_article_slug"),
+  newsArticleId: varchar("news_article_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   ticketCreatedIdx: index("ticket_messages_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
@@ -733,6 +734,7 @@ export const threadMessages = pgTable("thread_messages", {
   body: text("body").notNull(),
   imageUrl: text("image_url"),
   kbArticleSlug: text("kb_article_slug"),
+  newsArticleId: varchar("news_article_id"),
   deliveredAt: timestamp("delivered_at"),
   readAt: timestamp("read_at"),
   editedAt: timestamp("edited_at"),
@@ -792,6 +794,7 @@ export const communityMessages = pgTable("community_messages", {
   content: text("content").notNull(),
   imageUrl: text("image_url"),
   kbArticleSlug: text("kb_article_slug"),
+  newsArticleId: varchar("news_article_id"),
   pollId: varchar("poll_id"),
   // Quoted-reply reference: id of the message being replied to. Soft
   // reference (no FK) — the original may be deleted; readers degrade to a

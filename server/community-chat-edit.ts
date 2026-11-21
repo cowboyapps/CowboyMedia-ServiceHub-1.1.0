@@ -16,6 +16,7 @@ export interface EditGuardInput {
   newContent: string;
   hasImage: boolean;
   hasKbArticle: boolean;
+  hasNewsArticle?: boolean;
   now?: Date;
 }
 
@@ -39,7 +40,7 @@ export function checkCommunityMessageEdit(input: EditGuardInput): EditGuardResul
     return { ok: false, status: 403, error: "Messages can only be edited within 15 minutes of posting" };
   }
   // Image-only / KB-only messages may have empty text; otherwise text required.
-  if (!newContent.trim() && !hasImage && !hasKbArticle) {
+  if (!newContent.trim() && !hasImage && !hasKbArticle && !input.hasNewsArticle) {
     return { ok: false, status: 400, error: "Content is required" };
   }
   if (newContent.length > 2000) {
@@ -67,6 +68,7 @@ export interface CommunityEditMessage {
   content: string;
   imageUrl: string | null;
   kbArticleSlug: string | null;
+  newsArticleId?: string | null;
   pollId: string | null;
   createdAt: Date;
   editedAt: Date | null;
@@ -109,6 +111,7 @@ export function createCommunityMessageEditHandler(deps: CommunityEditDeps) {
         newContent: rawContent,
         hasImage: !!existing?.imageUrl,
         hasKbArticle: !!existing?.kbArticleSlug,
+        hasNewsArticle: !!existing?.newsArticleId,
       });
       if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
 

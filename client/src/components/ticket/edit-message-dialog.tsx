@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export function EditTicketMessageDialog({ ticketId, message, onClose, apiBase, queryKey, privateMessage = false }: {
   ticketId: string;
-  message: { id: string; message: string; imageUrl?: string | null; kbArticleSlug?: string | null };
+  message: { id: string; message: string; imageUrl?: string | null; kbArticleSlug?: string | null; newsArticleId?: string | null };
   onClose: () => void;
   /** Optional alternate endpoint for private conversation messages. */
   apiBase?: string;
@@ -36,7 +36,7 @@ export function EditTicketMessageDialog({ ticketId, message, onClose, apiBase, q
     },
   });
   const canSave = text.trim() !== original.current &&
-    (!!text.trim() || !!message.imageUrl || !!message.kbArticleSlug);
+    (!!text.trim() || !!message.imageUrl || !!message.kbArticleSlug || !!message.newsArticleId);
   return (
     <Dialog open onOpenChange={open => { if (!open && !save.isPending) onClose(); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto" data-testid="dialog-edit-ticket-message"
