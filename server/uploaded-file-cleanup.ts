@@ -131,6 +131,7 @@ export const uploadColumnsIntentionallyUnchecked: Record<string, string> = {
   "url_monitors.url": "external endpoint being monitored, never an upload",
   "user_notifications.url": "in-app deep-link route, never an upload",
   "community_messages.content": "plain-text chat message, no embedded editor images",
+  "telegram_service_drafts.source_url": "external Telegram post permalink generated as https://t.me/c/..., never a local upload",
 };
 
 // Builds the actual DB reference check for one declared column.
