@@ -24,6 +24,14 @@ export interface NotificationCategory {
 }
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
+  {
+    key: "telegram_import",
+    label: "Imported Telegram drafts",
+    description: "New Telegram posts ready for service update review",
+    group: "Administration",
+    channels: ["in_app", "push"],
+    roles: ["admin"],
+  },
   // ---- Customer categories ----
   {
     key: "ticket_reply",

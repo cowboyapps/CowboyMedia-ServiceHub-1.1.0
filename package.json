@@ -110,6 +110,7 @@
     "sanitize-html": "^2.17.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "teleproto": "^1.234.0",
     "tw-animate-css": "^1.2.5",
     "vaul": "^1.1.2",
     "web-push": "^3.6.7",

@@ -14,7 +14,7 @@
 // `/api/billing/pay-all-link` and any `.../pay-link` route mint a SINGLE-USE
 // WHMCS auto-login URL in their `{ url }` response body — that URL is a one-time
 // credential and must never be persisted to app/PM2 logs.
-export const SENSITIVE_BODY_PATHS = ["/api/my/services", "/api/billing/pay-all-link"];
+export const SENSITIVE_BODY_PATHS = ["/api/my/services", "/api/billing/pay-all-link", "/api/admin/telegram-import"];
 
 export function isSensitiveBodyPath(path: string): boolean {
   // Seamless pay-link routes carry a one-time SSO login URL in the body. The

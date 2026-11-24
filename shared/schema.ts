@@ -316,6 +316,39 @@ export const serviceUpdates = pgTable("service_updates", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Account credentials are encrypted server-side and never serialized to clients.
+export const telegramImportSettings = pgTable("telegram_import_settings", {
+  id: varchar("id").primaryKey().default("singleton"),
+  encryptedSession: text("encrypted_session"),
+  enabled: boolean("enabled").notNull().default(false),
+  channelId: text("channel_id"),
+  channelTitle: text("channel_title"),
+  lastMessageId: integer("last_message_id").notNull().default(0),
+  lastCheckedAt: timestamp("last_checked_at"),
+  lastImportedAt: timestamp("last_imported_at"),
+  error: text("error"),
+});
+
+export const telegramServiceDrafts = pgTable("telegram_service_drafts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  channelId: text("channel_id").notNull(),
+  channelTitle: text("channel_title").notNull(),
+  sourceUrl: text("source_url"),
+  sourceMessageId: integer("source_message_id").notNull(),
+  sourcePostedAt: timestamp("source_posted_at").notNull(),
+  title: text("title").notNull().default(""),
+  description: text("description").notNull(),
+  serviceId: varchar("service_id").notNull().default(""),
+  matureContent: boolean("mature_content").notNull().default(false),
+  status: text("status").notNull().default("pending"),
+  publishedUpdateId: varchar("published_update_id"),
+  adminNotifiedAt: timestamp("admin_notified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, table => ({
+  sourceMessage: uniqueIndex("telegram_drafts_source_message_idx").on(table.channelId, table.sourceMessageId),
+}));
+
 export const hiddenServiceUpdates = pgTable("hidden_service_updates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),

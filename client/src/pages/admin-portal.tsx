@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { TicketAutoCloseSettingsPanel } from "@/components/ticket-auto-close-settings";
+import { TelegramImportPanel } from "@/components/admin/telegram-import-panel";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -3880,6 +3881,7 @@ function ServiceUpdatesTab({ canManage = true }: { canManage?: boolean }) {
 
   return (
     <div className="space-y-6">
+      <TelegramImportPanel canManage={canManage} />
       <section className="rounded-xl border border-card-border bg-card overflow-hidden">
         <div className="flex justify-between items-center px-5 py-4 border-b border-border flex-wrap gap-4">
           <h2 className="text-sm font-semibold flex items-center gap-3" data-testid="text-admin-service-updates-title">

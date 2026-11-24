@@ -47,6 +47,9 @@ import { ticketInvalidationEvent } from "@shared/ticket-events";
 import { automaticClosureTranscript } from "./ticket-auto-close-transcript";
 import { createDashboardHandler } from "./dashboard";
 import { createTelegramSettingsHandlers } from "./telegram-settings";
+import { TelegramImportStore } from "./telegram-import-store";
+import { TelegramImporter } from "./telegram-import";
+import { registerTelegramImportRoutes } from "./telegram-import-routes";
 import { createDiscordSettingsHandlers } from "./discord-settings";
 import { createWhmcsSettingsHandlers } from "./whmcs-settings";
 import {
@@ -3197,15 +3200,8 @@ ${newsTranscriptLink(m, process.env.APP_URL)}
     }
   });
 
-  app.post("/api/admin/service-updates", requirePermission("service_updates.view", "service_updates.manage"), async (req, res) => {
-    try {
-      const parsed = insertServiceUpdateSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ message: "Title, description, and serviceId are required" });
-      }
-      const { title, serviceId, matureContent } = parsed.data;
-      const description = sanitizeRichTextNoImg(parsed.data.description);
-      const update = await storage.createServiceUpdate({ title, description, serviceId, matureContent: matureContent ?? false });
+  async function announceServiceUpdate(update: Awaited<ReturnType<typeof storage.createServiceUpdate>>, req: Request) {
+      const { title, serviceId, description } = update;
       const service = await storage.getService(serviceId);
       const serviceName = service?.name || "Unknown Service";
       logActivity("service_update", "service_update_created", { actorId: req.session.userId!, targetId: update.id, targetType: "service_update", summary: `Service update created: ${title} (${serviceName})`, details: JSON.stringify({ title, description, service: serviceName }) });
@@ -3251,6 +3247,64 @@ ${newsTranscriptLink(m, process.env.APP_URL)}
       storage.createContentNotificationBulk(inAppIds, "service-updates", title, update.id).catch(() => {});
       fireDiscord(composeDiscordServiceUpdate({ serviceName, title, description, baseUrl: getBaseUrl(req) }), "service_update", service?.discordWebhookUrl);
       fireTelegram(composeServiceUpdate({ serviceName, title, description }), "service_update");
+  }
+
+  const telegramImportStore = new TelegramImportStore();
+  const telegramImporter = new TelegramImporter({
+    store: telegramImportStore,
+    outboundChatId: async () => (await storage.getTelegramSettings())?.chatId ?? null,
+    report: message => logError("telegram", message, { severity: "warn", summary: "Telegram importing needs attention" }),
+    notify: async draft => {
+      const admins = (await storage.getAllUsers()).filter(u => u.role === "admin" || u.role === "master_admin");
+      for (const admin of admins) {
+        const permissions = admin.adminRoleId ? (await storage.getAdminRole(admin.adminRoleId))?.permissions ?? [] : [];
+        // Both permissions are required: the destination page uses the view
+        // permission and approving drafts requires manage.
+        if (admin.role !== "master_admin" && !(permissions.includes("service_updates.view") && permissions.includes("service_updates.manage"))) continue;
+        const payload = {
+          title: "Telegram post imported — review service update",
+          body: `A new post from ${draft.channelTitle} is ready for admin review.`,
+          url: `/admin?tab=service-updates&telegramDraft=${encodeURIComponent(draft.id)}`,
+          tag: `telegram-import-${draft.id}`,
+        };
+        const wantsPush = adminWantsPush(admin, "telegram_import");
+        const wantsBell = customerWantsInApp(admin, "telegram_import");
+        if (!wantsPush && !wantsBell) continue;
+        // Reuse the bell entry across retries after a server interruption.
+        const [existing] = await db.select({ id: userNotifications.id }).from(userNotifications).where(and(
+          eq(userNotifications.userId, admin.id), eq(userNotifications.type, "telegram_import"),
+          eq(userNotifications.referenceId, draft.id),
+        )).limit(1);
+        const id = existing?.id ?? await createBellNotification(admin.id, {
+          type: "telegram_import", referenceType: "telegram_draft", referenceId: draft.id,
+        }, payload);
+        if (!id) throw new Error("Could not save Telegram draft notification.");
+        if (wantsPush) await sendPushToUser(admin.id, payload, { notificationId: id });
+      }
+    },
+  });
+  registerTelegramImportRoutes(app, {
+    store: telegramImportStore, importer: telegramImporter, master: requireMasterAdmin,
+    drafts: requirePermission("service_updates.view", "service_updates.manage"),
+    serviceExists: async id => !!await storage.getService(id),
+    published: announceServiceUpdate,
+    audit: (actorId, action, targetId) => logActivity("service_update", action, {
+      actorId, targetId, targetType: "telegram_draft", summary: action.replace(/_/g, " "),
+    }),
+  });
+  if (process.env.NODE_ENV !== "test") telegramImporter.start();
+  httpServer.on("close", () => { void telegramImporter.stop(); });
+
+  app.post("/api/admin/service-updates", requirePermission("service_updates.view", "service_updates.manage"), async (req, res) => {
+    try {
+      const parsed = insertServiceUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Title, description, and serviceId are required" });
+      }
+      const { title, serviceId, matureContent } = parsed.data;
+      const description = sanitizeRichTextNoImg(parsed.data.description);
+      const update = await storage.createServiceUpdate({ title, description, serviceId, matureContent: matureContent ?? false });
+      await announceServiceUpdate(update, req);
       res.json(update);
     } catch (e) {
       res.status(500).json({ message: getErrorMessage(e) });
