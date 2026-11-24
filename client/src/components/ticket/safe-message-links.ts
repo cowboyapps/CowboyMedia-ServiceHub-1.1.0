@@ -5,7 +5,7 @@ export type MessagePart =
 /** Presentation-only link recognition; the stored message is never rewritten. */
 export function splitMessageLinks(value: string): MessagePart[] {
   const parts: MessagePart[] = [];
-  const expression = /https?:\/\/[^\s<>"']+|(?<![\w/])\/(?:tickets(?:\/[A-Za-z0-9_-]+)?|knowledge(?:\/[A-Za-z0-9_-]+)?|services(?:\/[A-Za-z0-9_-]+)?|alerts(?:\/[A-Za-z0-9_-]+)?|news(?:\/[A-Za-z0-9_-]+)?|messages(?:\/[A-Za-z0-9_-]+)?|settings|billing|my-services|downloads|community|admin)(?:[?#][^\s<>"']*)?/gi;
+  const expression = /https?:\/\/[^\s<>"']+|(?<![\w/])\/(?:tickets(?:\/[A-Za-z0-9_-]+)?|knowledge(?:\/[A-Za-z0-9_-]+)?|service-updates|services(?:\/[A-Za-z0-9_%~-]+)?|alerts(?:\/[A-Za-z0-9_%~-]+)?|news(?:\/[A-Za-z0-9_-]+)?|messages(?:\/[A-Za-z0-9_-]+)?|settings|billing|my-services|downloads|community|admin)(?:[?#][^\s<>"']*)?/gi;
   let cursor = 0;
   for (const match of value.matchAll(expression)) {
     const start = match.index ?? 0;

@@ -6,13 +6,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Newspaper, Plus, Zap, Download } from "lucide-react";
+import { Paperclip, X, Send, Lock, Sparkles, Loader2, AlertTriangle, FileText, Film, BookOpen, Newspaper, Plus, Zap, Download, Bell, Activity } from "lucide-react";
 import { QuickResponsePicker } from "@/components/quick-response-picker";
 import { KbArticlePickerDialog, type KbArticleRef } from "@/components/kb-article-picker-dialog";
 import { NewsArticlePickerDialog } from "@/components/news-article-picker-dialog";
 import type { NewsArticleRef } from "@shared/news-attachments";
 import { DownloadPickerDialog } from "@/components/download-picker-dialog";
 import { appendDownloadLink } from "@/lib/download-links";
+import { ServiceReferencePickerDialog, type ServiceReference } from "@/components/service-reference-picker-dialog";
+import { appendServiceReference } from "@/lib/service-reference-links";
 import { apiRequest } from "@/lib/queryClient";
 import { handleSendButtonOnlyComposerKeyDown } from "@/lib/chat-composer-keyboard";
 import { useToast } from "@/hooks/use-toast";
@@ -115,6 +117,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const [newsPickerOpen, setNewsPickerOpen] = useState(false);
   const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
+  const [serviceReferencePickerOpen, setServiceReferencePickerOpen] = useState(false);
+  const [serviceReferenceKind, setServiceReferenceKind] = useState<ServiceReference["kind"]>("alert");
   const [composerMode, setComposerMode] = useState<"reply" | "internal">("reply");
   const [qrPickerOpen, setQrPickerOpen] = useState(false);
   const [aiSuggestCollapsed, setAiSuggestCollapsed] = useState(false);
@@ -131,6 +135,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const pendingQrOpenRef = useRef(false);
   const pendingDownloadOpenRef = useRef(false);
   const pendingNewsOpenRef = useRef(false);
+  const pendingServiceReferenceOpenRef = useRef(false);
+  const pendingServiceReferenceKindRef = useRef<ServiceReference["kind"]>("alert");
 
   // Reset on ticket change
   useEffect(() => {
@@ -141,7 +147,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     setKbPickerOpen(false);
     setNewsPickerOpen(false);
     setDownloadPickerOpen(false);
+    setServiceReferencePickerOpen(false);
     pendingDownloadOpenRef.current = false;
+    pendingServiceReferenceOpenRef.current = false;
+    pendingServiceReferenceKindRef.current = "alert";
+    setServiceReferenceKind("alert");
     setQrPickerOpen(false);
     setComposerMode("reply");
     setAiSuggestCollapsed(false);
@@ -508,6 +518,13 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 align="start"
                 side="top"
                 onCloseAutoFocus={(e) => {
+                  if (pendingServiceReferenceOpenRef.current) {
+                    pendingServiceReferenceOpenRef.current = false;
+                    e.preventDefault();
+                    setServiceReferenceKind(pendingServiceReferenceKindRef.current);
+                    setServiceReferencePickerOpen(true);
+                    return;
+                  }
                   if (pendingNewsOpenRef.current) {
                     pendingNewsOpenRef.current = false;
                     e.preventDefault();
@@ -558,6 +575,30 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                   <Download className="w-4 h-4 mr-2" />
                   Link a download
                 </DropdownMenuItem>
+                {isAdmin && (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        pendingServiceReferenceKindRef.current = "alert";
+                        pendingServiceReferenceOpenRef.current = true;
+                      }}
+                      data-testid="button-link-service-alert"
+                    >
+                      <Bell className="w-4 h-4 mr-2" />
+                      Link a service alert
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        pendingServiceReferenceKindRef.current = "update";
+                        pendingServiceReferenceOpenRef.current = true;
+                      }}
+                      data-testid="button-link-service-update"
+                    >
+                      <Activity className="w-4 h-4 mr-2" />
+                      Link a service update
+                    </DropdownMenuItem>
+                  </>
+                )}
                 {isAdmin && userId && (
                   <DropdownMenuItem
                     onSelect={() => {
@@ -799,6 +840,18 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         onSelect={(download) => {
           setMessage(draft => appendDownloadLink(draft, download));
           setDownloadPickerOpen(false);
+        }}
+      />
+      <ServiceReferencePickerDialog
+        open={serviceReferencePickerOpen}
+        kind={serviceReferenceKind}
+        onOpenChange={(open) => {
+          setServiceReferencePickerOpen(open);
+        }}
+        onCloseAutoFocus={() => requestAnimationFrame(() => messageInputRef.current?.focus({ preventScroll: true }))}
+        onSelect={(reference) => {
+          setMessage(draft => appendServiceReference(draft, reference));
+          setServiceReferencePickerOpen(false);
         }}
       />
     </div>

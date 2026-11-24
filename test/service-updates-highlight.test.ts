@@ -70,6 +70,7 @@ interface StubResponse {
 }
 type RouteTable = Record<string, StubResponse>;
 let routes: RouteTable = {};
+const requestedUrls: string[] = [];
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -84,6 +85,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 const fetchStub = (async (input: unknown) => {
   const url = String(input);
+  requestedUrls.push(url);
   const path = url.replace(/^https?:\/\/[^/]+/, "").split("?")[0];
   const hit = routes[path];
   if (hit) return jsonResponse(hit.body, hit.status);
@@ -173,8 +175,10 @@ async function mountPage(table: RouteTable, search: string): Promise<MountResult
 }
 
 test("deep link ?highlight applies the pulse classes to the target row", async () => {
+  requestedUrls.length = 0;
   const c = await mountPage(baseRoutes, `?highlight=${UPDATE_ID}`);
   try {
+    assert.ok(requestedUrls.includes(`/api/service-updates?highlight=${UPDATE_ID}`), "asks the server for the specific referenced post, including if dismissed");
     const row = c.container.querySelector(`#service-update-${UPDATE_ID}`)
       ?? c.container.querySelector(`[data-testid="row-service-update-${UPDATE_ID}"]`);
     assert.ok(row, "target row renders");
@@ -187,6 +191,16 @@ test("deep link ?highlight applies the pulse classes to the target row", async (
       holder!.className.includes("animate-pulse") && holder!.className.includes("ring-2"),
       `highlight classes present immediately after load (got: ${holder!.className})`,
     );
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("a removed shared update shows a clear explanation", async () => {
+  const c = await mountPage(baseRoutes, "?highlight=removed");
+  try {
+    assert.ok(c.container.querySelector('[data-testid="text-shared-update-unavailable"]'));
+    assert.ok(c.container.querySelector(`[data-testid="row-service-update-${UPDATE_ID}"]`), "other posts remain accessible");
   } finally {
     c.cleanup();
   }

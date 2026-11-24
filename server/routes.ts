@@ -3191,7 +3191,10 @@ ${newsTranscriptLink(m, process.env.APP_URL)}
       const user = await storage.getUser(req.session.userId!);
       if (user && user.role !== "admin" && user.role !== "master_admin") {
         const hiddenIds = await storage.getHiddenServiceUpdateIds(user.id);
-        const filtered = updates.filter(u => !hiddenIds.includes(u.id));
+        // Dismissing a post removes it from the feed, not from a direct
+        // reference shared by support. Do not reveal any other dismissed posts.
+        const highlight = typeof req.query.highlight === "string" ? req.query.highlight : null;
+        const filtered = updates.filter(u => u.id === highlight || !hiddenIds.includes(u.id));
         return res.json(filtered);
       }
       res.json(updates);

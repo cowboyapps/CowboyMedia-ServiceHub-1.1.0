@@ -191,7 +191,13 @@ export default function ServiceUpdatesPage() {
   }, [markUpdatesRead]);
 
   const { data: updates, isLoading, isError, error, refetch, isFetching } = useQuery<ServiceUpdate[]>({
-    queryKey: ["/api/service-updates"],
+    queryKey: highlightParam ? ["/api/service-updates", { highlight: highlightParam }] : ["/api/service-updates"],
+    queryFn: async ({ signal }) => {
+      const path = highlightParam ? `/api/service-updates?highlight=${encodeURIComponent(highlightParam)}` : "/api/service-updates";
+      const response = await fetch(path, { credentials: "include", signal });
+      if (!response.ok) throw new Error("Service updates could not be loaded");
+      return response.json();
+    },
     enabled: !!user,
   });
 
@@ -423,6 +429,12 @@ export default function ServiceUpdatesPage() {
         <h1 className="text-2xl font-bold" data-testid="text-service-updates-title">Service Updates</h1>
         <p className="text-sm text-muted-foreground mt-1">Latest service updates</p>
       </div>
+
+      {highlightParam && updates && !updates.some(update => update.id === highlightParam) && (
+        <p role="status" className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground" data-testid="text-shared-update-unavailable">
+          This shared service update is no longer available. You can still browse other updates below.
+        </p>
+      )}
 
       {(updates?.length ?? 0) > 0 && (
         <div className="space-y-2" data-testid="filters-service-updates">
