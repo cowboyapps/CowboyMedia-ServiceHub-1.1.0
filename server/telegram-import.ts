@@ -1,7 +1,7 @@
 import { pool } from "./db";
 import { TelegramImportStore } from "./telegram-import-store";
 import { TelegramImportTransport, type ImportChannel } from "./telegram-import-transport";
-import { decryptTelegramSession, encryptTelegramSession, importEncryptionKey, safeTelegramError } from "./telegram-import-security";
+import { decryptTelegramSession, encryptTelegramSession, importEncryptionKey, safeTelegramError, telegramFailureCode } from "./telegram-import-security";
 import type { TelegramImportStatus } from "@shared/telegram-import";
 
 interface ImporterDependencies {
@@ -66,12 +66,16 @@ export class TelegramImporter {
         await this.pending?.client.close().catch(() => {});
         this.pending = null;
         const client = this.makeTransport("");
+        let stage = "connect";
         try {
           await client.connect();
+          stage = "request-code";
           await client.startLogin(value);
         } catch (error) {
           await client.close().catch(() => {});
-          throw new Error(safeTelegramError(error));
+          const reason = safeTelegramError(error);
+          this.deps.report(`Telegram sign-in ${stage} failed [${telegramFailureCode(error)}]. ${reason}`);
+          throw new Error(`${stage === "connect" ? "Could not connect to Telegram." : "Could not request a Telegram sign-in code."} ${reason}`);
         }
         this.pending = { client, owner, expires: Date.now() + 5 * 60000, step: "code", attempts: 0 };
       } else {

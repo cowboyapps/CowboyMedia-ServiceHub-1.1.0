@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { encryptTelegramSession, decryptTelegramSession, importEncryptionKey, telegramBodyHtml, safeTelegramError } from "./telegram-import-security";
+import { encryptTelegramSession, decryptTelegramSession, importEncryptionKey, telegramBodyHtml, safeTelegramError, telegramFailureCode } from "./telegram-import-security";
 import { buildApiLogLine } from "./request-log";
 
 test("Telegram sessions use authenticated encryption with unique nonces", () => {
@@ -18,6 +18,39 @@ test("Telegram sessions use authenticated encryption with unique nonces", () => 
   assert.throws(() => importEncryptionKey("short"));
   assert.equal(importEncryptionKey(key.toString("hex")).length, 32);
   assert.equal(importEncryptionKey(key.toString("base64")).length, 32);
+});
+
+test("sign-in failures identify configuration, account and delivery restrictions without exposing provider payloads", () => {
+  for (const [code, expected] of [
+    ["API_ID_INVALID", /API ID and API hash combination/],
+    ["CONNECTION_API_ID_INVALID", /API ID/],
+    ["API_ID_PUBLISHED_FLOOD", /restricted this API application/],
+    ["PHONE_NUMBER_INVALID", /international number/],
+    ["PHONE_NUMBER_BANNED", /banned this phone number/],
+    ["PHONE_NUMBER_APP_SIGNUP_FORBIDDEN", /official Telegram app/],
+    ["PHONE_NUMBER_UNOCCUPIED", /No Telegram account/],
+    ["PHONE_PASSWORD_FLOOD", /limited password attempts/],
+    ["SMS_CODE_CREATE_FAILED", /could not create a sign-in code/],
+    ["UPDATE_APP_TO_LOGIN", /compatibility update/],
+    ["RECAPTCHA_CHECK_private-provider-payload", /CAPTCHA/],
+    ["FLOOD_WAIT_3600", /rate limit/],
+  ] as const) {
+    const error = { errorMessage: code, message: "private-phone-and-request", request: { apiHash: "synthetic-secret" } };
+    assert.match(safeTelegramError(error), expected);
+    assert.ok(!safeTelegramError(error).includes("private-"));
+    assert.ok(!telegramFailureCode(error).includes("private"));
+  }
+  assert.match(safeTelegramError({ code: "ECONNREFUSED", message: "private-network-detail" }), /connectivity/);
+  assert.match(safeTelegramError(new Error("TIMEOUT")), /timed out/);
+  for (const error of [
+    { errorMessage: "UNKNOWN_private-phone-and-request" },
+    new Error("private-phone-and-request"),
+    { errorMessage: "constructor" },
+    null,
+  ]) {
+    assert.equal(telegramFailureCode(error), "UNKNOWN");
+    assert.ok(!safeTelegramError(error).includes("private-phone"));
+  }
 });
 
 test("Telegram text and hidden links preserve newlines without injecting HTML", () => {

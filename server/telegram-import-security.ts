@@ -44,13 +44,48 @@ export function telegramBodyHtml(text: string, entities: TelegramTextEntity[] = 
   return `<p>${html.replace(/\r\n|\r|\n/g, "<br>")}</p>`;
 }
 
+const TELEGRAM_ERROR_MESSAGES: Record<string, string> = {
+  API_ID_INVALID: "Telegram rejected the API ID and API hash combination. Check that both VPS settings match the same application at my.telegram.org/apps.",
+  CONNECTION_API_ID_INVALID: "Telegram rejected the API ID. Check the API credentials saved on the VPS.",
+  API_ID_PUBLISHED_FLOOD: "Telegram has restricted this API application. Review the application with Telegram before retrying.",
+  PHONE_NUMBER_INVALID: "Telegram did not accept this phone number. Use the dedicated account's full international number, including the country code.",
+  PHONE_NUMBER_BANNED: "Telegram has banned this phone number. Resolve the account restriction with Telegram before connecting it.",
+  PHONE_NUMBER_APP_SIGNUP_FORBIDDEN: "Telegram does not allow this account to be registered through this application. Complete account registration in the official Telegram app first.",
+  PHONE_NUMBER_UNOCCUPIED: "No Telegram account is registered with this number. Sign in to the dedicated account in the official Telegram app first.",
+  FLOOD_WAIT: "Telegram rate limit reached. Wait before trying again.",
+  PHONE_NUMBER_FLOOD: "Telegram has limited sign-in attempts for this number. Wait before requesting another code.",
+  PHONE_PASSWORD_FLOOD: "Telegram has limited password attempts. Wait before trying again.",
+  PHONE_CODE_INVALID: "The Telegram code is invalid or expired. Start sign-in again if needed.",
+  PHONE_CODE_EXPIRED: "The Telegram code is invalid or expired. Start sign-in again if needed.",
+  PASSWORD_HASH_INVALID: "The Telegram two-step verification password is incorrect.",
+  AUTH_RESTART: "Telegram requires a fresh sign-in attempt. Wait a minute, then start sign-in again.",
+  SMS_CODE_CREATE_FAILED: "Telegram could not create a sign-in code. Confirm the account works in the official Telegram app and wait before retrying.",
+  UPDATE_APP_TO_LOGIN: "Telegram requires a newer login client. The ServiceHub Telegram integration needs a compatibility update.",
+  RECAPTCHA_CHECK: "Telegram requires a CAPTCHA for this sign-in request. ServiceHub cannot complete that challenge; no account was connected.",
+  SESSION_EXPIRED: "Telegram sign-in expired or was revoked. Reconnect the dedicated account.",
+  CHANNEL_PRIVATE: "The dedicated account no longer has access to this channel.",
+  NETWORK_FAILURE: "The VPS could not complete its connection to Telegram. Check server connectivity before retrying.",
+  TIMEOUT: "The Telegram request timed out. Wait before retrying; a sign-in code may still have been delivered.",
+};
+
+/** Return only known identifiers, never a provider-supplied payload or message. */
+export function telegramFailureCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "UNKNOWN";
+  const provider = "errorMessage" in error && typeof error.errorMessage === "string" ? error.errorMessage : "";
+  if (Object.prototype.hasOwnProperty.call(TELEGRAM_ERROR_MESSAGES, provider)) return provider;
+  if (/^FLOOD_(?:PREMIUM_)?WAIT_\d+$/.test(provider)) return "FLOOD_WAIT";
+  if (/^RECAPTCHA_CHECK_/.test(provider)) return "RECAPTCHA_CHECK";
+  if (/^(?:AUTH_KEY_(?:INVALID|DUPLICATED|UNREGISTERED)|SESSION_REVOKED|USER_DEACTIVATED(?:_BAN)?)$/.test(provider)) return "SESSION_EXPIRED";
+  if (/^(?:CHAT_ADMIN_REQUIRED|USER_NOT_PARTICIPANT)$/.test(provider)) return "CHANNEL_PRIVATE";
+  const code = "code" in error ? error.code : undefined;
+  if (["ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH", "EAI_AGAIN", "ENOTFOUND"].includes(code as string)) return "NETWORK_FAILURE";
+  const message = "message" in error ? error.message : undefined;
+  if (code === "ETIMEDOUT" || message === "TIMEOUT" || message === "Timeout" || ("name" in error && error.name === "TimeoutError")) return "TIMEOUT";
+  return "UNKNOWN";
+}
+
 // Never expose Telegram's raw error messages, phone numbers, sessions or requests.
 export function safeTelegramError(error: unknown): string {
-  const code = typeof error === "object" && error && "errorMessage" in error ? String(error.errorMessage) : "";
-  if (code.startsWith("FLOOD_WAIT") || code.startsWith("PHONE_NUMBER_FLOOD")) return "Telegram rate limit reached. Wait before trying again.";
-  if (/PHONE_CODE_(INVALID|EXPIRED)/.test(code)) return "The Telegram code is invalid or expired. Start sign-in again if needed.";
-  if (code === "PASSWORD_HASH_INVALID") return "The Telegram two-step verification password is incorrect.";
-  if (/AUTH_KEY|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED/.test(code)) return "Telegram sign-in expired or was revoked. Reconnect the dedicated account.";
-  if (/CHANNEL_PRIVATE|CHAT_ADMIN_REQUIRED|USER_NOT_PARTICIPANT/.test(code)) return "The dedicated account no longer has access to this channel.";
-  return "Telegram connection failed. Check account access and server configuration, then retry.";
+  return TELEGRAM_ERROR_MESSAGES[telegramFailureCode(error)] ??
+    "Telegram connection failed. Check account access and server configuration, then retry.";
 }

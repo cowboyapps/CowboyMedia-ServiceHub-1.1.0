@@ -22,3 +22,14 @@ Teleproto when this integration was researched.
 **How to apply:** Consult current client documentation before extending login
 or MTProto behavior; do not substitute the Bot API, which cannot read a source
 channel where its bot has not been added.
+
+A successful Telegram connection and `help.GetConfig` check does not prove the
+API ID/hash pair is valid for requesting an account login code.
+
+**Why:** During live setup, the VPS connection check succeeded while ServiceHub's
+code-request step still failed; treating connectivity as credential validation
+would lead to the wrong diagnosis.
+
+**How to apply:** Distinguish network connection, code request, and code/password
+verification when troubleshooting. Do not repeatedly request codes to test basic
+connectivity, and never ask for raw provider payloads containing credentials.

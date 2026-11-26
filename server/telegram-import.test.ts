@@ -9,6 +9,36 @@ import { pool } from "./db";
 
 after(async () => { await pool.end(); });
 
+test("failed code requests report a safe failure stage without logging account or API data", async () => {
+  for (const failConnect of [false, true]) {
+    const reports: string[] = [];
+    let closed = false;
+    const failure = failConnect
+      ? { code: "ETIMEDOUT", message: "synthetic-private-server-detail" }
+      : { errorMessage: "API_ID_INVALID", request: { phoneNumber: "synthetic-private-number", apiHash: "synthetic-private-hash" } };
+    const transport = {
+      connect: async () => { if (failConnect) throw failure; },
+      startLogin: async () => { throw failure; },
+      close: async () => { closed = true; },
+    } as unknown as TelegramImportTransport;
+    const store = { settings: async () => ({ encryptedSession: null }) } as unknown as TelegramImportStore;
+    const importer = new TelegramImporter({
+      store, transport: () => transport, outboundChatId: async () => null,
+      notify: async () => {}, report: message => reports.push(message),
+    });
+    importer.configured = () => true;
+    try {
+      await assert.rejects(importer.login("master", "start", "+15555550000"), failConnect ? /Could not connect.*timed out/ : /Could not request.*API ID and API hash combination/);
+      assert.equal(closed, true);
+      assert.equal(reports.length, 1);
+      assert.match(reports[0], failConnect ? /connect failed \[TIMEOUT\]/ : /request-code failed \[API_ID_INVALID\]/);
+      assert.ok(!reports[0].includes("synthetic-private"));
+      assert.ok(!reports[0].includes("+15555550000"));
+      assert.equal((await importer.status("master")).loginStep, "idle");
+    } finally { await importer.stop(); }
+  }
+});
+
 test("importer baselines new sources, resumes from its cursor, blocks loops and keeps sessions out of status", async () => {
   // Only this isolated test subprocess sees this randomly generated test key.
   process.env.TELEGRAM_IMPORT_ENCRYPTION_KEY = randomBytes(32).toString("base64");
