@@ -22,7 +22,10 @@ export class TelegramImportTransport {
     const apiHash = process.env.TELEGRAM_API_HASH;
     if (!Number.isSafeInteger(apiId) || apiId <= 0 || !apiHash) throw new Error("Telegram account API credentials are not configured.");
     this.client = new TelegramClient(new StringSession(session), apiId, apiHash, {
-      connectionRetries: 2, requestRetries: 1, floodSleepThreshold: 0, timeout: 15,
+      // Teleproto counts total attempts, not retries after the first request.
+      // One attempt bypasses its DC-migration policy entirely. Allow bounded
+      // recovery while keeping flood waits disabled so setup fails promptly.
+      connectionRetries: 2, requestRetries: 3, floodSleepThreshold: 0, timeout: 15,
       autoReconnect: true, deviceModel: "ServiceHub dedicated importer",
     });
     this.client.setLogLevel("none" as Parameters<TelegramClient["setLogLevel"]>[0]);

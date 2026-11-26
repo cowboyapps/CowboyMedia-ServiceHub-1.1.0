@@ -66,6 +66,7 @@ const TELEGRAM_ERROR_MESSAGES: Record<string, string> = {
   CHANNEL_PRIVATE: "The dedicated account no longer has access to this channel.",
   NETWORK_FAILURE: "The VPS could not complete its connection to Telegram. Check server connectivity before retrying.",
   TIMEOUT: "The Telegram request timed out. Wait before retrying; a sign-in code may still have been delivered.",
+  DATA_CENTER_MIGRATION: "Telegram requested a different data center, but the redirect could not be completed. Wait before retrying; if it persists, the ServiceHub integration needs attention.",
 };
 
 /** Return only known identifiers, never a provider-supplied payload or message. */
@@ -73,6 +74,9 @@ export function telegramFailureCode(error: unknown): string {
   if (!error || typeof error !== "object") return "UNKNOWN";
   const provider = "errorMessage" in error && typeof error.errorMessage === "string" ? error.errorMessage : "";
   if (Object.prototype.hasOwnProperty.call(TELEGRAM_ERROR_MESSAGES, provider)) return provider;
+  const name = "name" in error ? error.name : undefined;
+  if (/^(?:PHONE|NETWORK|USER)_MIGRATE_\d+$/.test(provider) ||
+      ["PhoneMigrateError", "NetworkMigrateError", "UserMigrateError"].includes(name as string)) return "DATA_CENTER_MIGRATION";
   if (/^FLOOD_(?:PREMIUM_)?WAIT_\d+$/.test(provider)) return "FLOOD_WAIT";
   if (/^RECAPTCHA_CHECK_/.test(provider)) return "RECAPTCHA_CHECK";
   if (/^(?:AUTH_KEY_(?:INVALID|DUPLICATED|UNREGISTERED)|SESSION_REVOKED|USER_DEACTIVATED(?:_BAN)?)$/.test(provider)) return "SESSION_EXPIRED";

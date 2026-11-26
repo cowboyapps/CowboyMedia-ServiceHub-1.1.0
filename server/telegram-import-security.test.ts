@@ -34,6 +34,8 @@ test("sign-in failures identify configuration, account and delivery restrictions
     ["UPDATE_APP_TO_LOGIN", /compatibility update/],
     ["RECAPTCHA_CHECK_private-provider-payload", /CAPTCHA/],
     ["FLOOD_WAIT_3600", /rate limit/],
+    ["PHONE_MIGRATE_2", /different data center/],
+    ["NETWORK_MIGRATE_4", /different data center/],
   ] as const) {
     const error = { errorMessage: code, message: "private-phone-and-request", request: { apiHash: "synthetic-secret" } };
     assert.match(safeTelegramError(error), expected);
@@ -42,6 +44,7 @@ test("sign-in failures identify configuration, account and delivery restrictions
   }
   assert.match(safeTelegramError({ code: "ECONNREFUSED", message: "private-network-detail" }), /connectivity/);
   assert.match(safeTelegramError(new Error("TIMEOUT")), /timed out/);
+  assert.equal(telegramFailureCode({ name: "PhoneMigrateError", message: "private-provider-payload" }), "DATA_CENTER_MIGRATION");
   for (const error of [
     { errorMessage: "UNKNOWN_private-phone-and-request" },
     new Error("private-phone-and-request"),

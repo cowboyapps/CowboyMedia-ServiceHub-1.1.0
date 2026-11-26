@@ -33,3 +33,15 @@ would lead to the wrong diagnosis.
 **How to apply:** Distinguish network connection, code request, and code/password
 verification when troubleshooting. Do not repeatedly request codes to test basic
 connectivity, and never ask for raw provider payloads containing credentials.
+
+Teleproto's request retry budget counts total attempts and also gates normal
+data-center migration recovery; it is not just a network-error retry setting.
+
+**Why:** The installed SDK throws before running its migration policy when no
+attempt remains. A one-attempt configuration blocked real sign-in with
+`PHONE_MIGRATE`, despite successful connectivity. An offline test using the
+actual SDK reproduced the failure.
+
+**How to apply:** Preserve a bounded multi-attempt budget for account operations.
+Keep flood-wait sleeping disabled independently; do not suppress Telegram rate
+limits or repeatedly request login codes to compensate for a migration error.
